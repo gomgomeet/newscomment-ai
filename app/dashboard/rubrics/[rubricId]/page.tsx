@@ -59,9 +59,10 @@ export default async function RubricDetailPage({
             <CardTitle>루브릭 정보</CardTitle>
             <CardDescription>{rubric.description || "설명이 없습니다."}</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-3 text-sm sm:grid-cols-3">
+          <CardContent className="grid gap-3 text-sm sm:grid-cols-4">
             <p><span className="font-medium">기준 수:</span> {(criteria ?? []).length}</p>
             <p><span className="font-medium">총점:</span> {totalScore}</p>
+            <p><span className="font-medium">생성 방식:</span> {rubric.auto_generated ? "자동 생성" : "직접 생성"}</p>
             <p><span className="font-medium">생성일:</span> {new Date(rubric.created_at).toLocaleDateString("ko-KR")}</p>
           </CardContent>
         </Card>

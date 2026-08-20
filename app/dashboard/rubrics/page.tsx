@@ -1,3 +1,4 @@
+import { NewsArticleRubricGenerator } from "@/components/rubrics/news-article-rubric-generator";
 import { RubricForm } from "@/components/rubrics/rubric-form";
 import { RubricList } from "@/components/rubrics/rubric-list";
 import { requireUser } from "@/lib/auth/require-user";
@@ -30,7 +31,10 @@ export default async function RubricsPage({
         </div>
         <RubricList rubrics={rubrics ?? []} />
       </section>
-      <RubricForm message={message} />
+      <aside className="space-y-4">
+        <NewsArticleRubricGenerator message={message} />
+        <RubricForm message={message} />
+      </aside>
     </div>
   );
 }

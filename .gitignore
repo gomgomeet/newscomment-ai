@@ -13,6 +13,13 @@
 # testing
 /coverage
 
+# generated workspace scratch files
+/tmp/
+
+# presentation render/test artifacts
+/output/pptx/**/*.png
+/output/pptx/*.inspect.ndjson
+
 # next.js
 /.next/
 /out/
