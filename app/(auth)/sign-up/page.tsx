@@ -33,6 +33,9 @@ export default async function SignUpPage({
             <Input id="password" name="password" type="password" required minLength={8} autoComplete="new-password" />
           </div>
           {message ? <p className="text-sm text-destructive">{message}</p> : null}
+          <p className="text-xs leading-5 text-muted-foreground">
+            계정을 만들면 입력한 주소로 확인 메일이 갑니다. 메일의 인증 링크를 눌러야 로그인할 수 있습니다.
+          </p>
           <Button type="submit" className="w-full">계정 만들기</Button>
         </form>
         <p className="mt-5 text-center text-sm text-muted-foreground">
