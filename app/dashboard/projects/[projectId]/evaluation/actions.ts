@@ -4,6 +4,13 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth/require-user";
 import type { Json } from "@/lib/db/types";
+import {
+  buildNotionCommentMetadata,
+  collectImportedNotionPageIds,
+  filterNewNotionRows,
+} from "@/lib/notion/dedupe";
+import { NotionImportError, importCommentsFromNotionDatabase } from "@/lib/notion/import-comments";
+import { readNotionSourceDefaults } from "@/lib/notion/project-source";
 import { evaluateCommentWithOpenAI } from "@/lib/openai/evaluate-comment";
 
 const MAX_COMMENT_LENGTH = 5000;
@@ -324,6 +331,114 @@ export async function importCommentsFromSource(formData: FormData) {
 
   revalidatePath(`/dashboard/projects/${projectId}`);
   redirect(`/dashboard/projects/${projectId}`);
+}
+
+export async function importCommentsFromNotion(formData: FormData) {
+  const projectId = readText(formData, "project_id");
+
+  if (!projectId) {
+    redirect("/dashboard/projects?message=프로젝트를 찾을 수 없습니다.");
+  }
+
+  const { supabase, project } = await requireOwnedProject(projectId);
+  const saved = readNotionSourceDefaults(project.notion_source);
+
+  const databaseInput = readText(formData, "notion_database") || saved.database_url;
+  const contentProperty = readText(formData, "content_property") || saved.content_property;
+  const studentProperty = readText(formData, "student_property");
+  const topicProperty = readText(formData, "topic_property");
+
+  if (!databaseInput) {
+    redirect(`/dashboard/projects/${projectId}?message=Notion 데이터베이스 URL을 입력해 주세요.`);
+  }
+
+  if (!contentProperty) {
+    redirect(`/dashboard/projects/${projectId}?message=댓글 내용이 들어 있는 Notion 속성 이름을 입력해 주세요.`);
+  }
+
+  let result;
+  try {
+    result = await importCommentsFromNotionDatabase({
+      databaseInput,
+      contentProperty,
+      studentProperty,
+      topicProperty,
+      maxRows: MAX_IMPORTED_COMMENTS,
+      maxContentLength: MAX_COMMENT_LENGTH,
+    });
+  } catch (error) {
+    const detail =
+      error instanceof NotionImportError && error.availableProperties.length > 0
+        ? ` 사용 가능한 속성: ${error.availableProperties.join(", ")}`
+        : "";
+    const message =
+      error instanceof NotionImportError
+        ? `${error.message}${detail}`
+        : "Notion 댓글 가져오기에 실패했습니다.";
+
+    redirect(`/dashboard/projects/${projectId}?message=${encodeURIComponent(message)}`);
+  }
+
+  const { data: existingComments, error: existingError } = await supabase
+    .from("comments")
+    .select("metadata")
+    .eq("project_id", projectId);
+
+  if (existingError) {
+    redirect(`/dashboard/projects/${projectId}?message=${encodeURIComponent(existingError.message)}`);
+  }
+
+  const importedPageIds = collectImportedNotionPageIds(existingComments ?? []);
+  const newRows = filterNewNotionRows(result.rows, importedPageIds);
+
+  await supabase
+    .from("projects")
+    .update({
+      notion_source: {
+        database_url: databaseInput,
+        database_id: result.databaseId,
+        content_property: contentProperty,
+        student_property: studentProperty,
+        topic_property: topicProperty,
+      },
+    })
+    .eq("id", projectId);
+
+  if (newRows.length === 0) {
+    const skipped = result.rows.length;
+    const notice =
+      skipped > 0
+        ? `이미 가져온 Notion 댓글 ${skipped}개를 건너뛰었습니다. 새로 추가된 댓글이 없습니다.`
+        : "Notion 데이터베이스에서 가져올 댓글을 찾지 못했습니다. 속성 이름을 확인해 주세요.";
+
+    revalidatePath(`/dashboard/projects/${projectId}`);
+    redirect(`/dashboard/projects/${projectId}?notice=${encodeURIComponent(notice)}`);
+  }
+
+  const { error: insertError } = await supabase.from("comments").insert(
+    newRows.map((row) => ({
+      project_id: projectId,
+      student_name: row.student_name,
+      content: row.content,
+      metadata: buildNotionCommentMetadata(row, result.databaseId),
+    })),
+  );
+
+  if (insertError) {
+    redirect(`/dashboard/projects/${projectId}?message=${encodeURIComponent(insertError.message)}`);
+  }
+
+  const skipped = result.rows.length - newRows.length;
+  const parts = [`Notion에서 댓글 ${newRows.length}개를 가져왔습니다.`];
+  if (skipped > 0) {
+    parts.push(`중복 ${skipped}개는 건너뛰었습니다.`);
+  }
+  if (result.truncated) {
+    parts.push(`한 번에 최대 ${MAX_IMPORTED_COMMENTS}개까지 가져옵니다.`);
+  }
+
+  revalidatePath(`/dashboard/projects/${projectId}`);
+  redirect(`/dashboard/projects/${projectId}?notice=${encodeURIComponent(parts.join(" "))}`);
 }
 
 export async function updateComment(formData: FormData) {

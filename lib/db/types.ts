@@ -36,6 +36,7 @@ export type Database = {
           title: string;
           description: string | null;
           source_url: string | null;
+          notion_source: Json;
           status: "draft" | "active" | "archived";
           created_at: string;
           updated_at: string;
@@ -47,6 +48,7 @@ export type Database = {
           title: string;
           description?: string | null;
           source_url?: string | null;
+          notion_source?: Json;
           status?: "draft" | "active" | "archived";
           created_at?: string;
           updated_at?: string;
@@ -56,6 +58,7 @@ export type Database = {
           title?: string;
           description?: string | null;
           source_url?: string | null;
+          notion_source?: Json;
           status?: "draft" | "active" | "archived";
           updated_at?: string;
         };

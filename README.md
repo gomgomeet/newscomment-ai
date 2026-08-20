@@ -22,6 +22,7 @@ NewsComment AI is a teacher-facing web app for managing news comment evaluation 
 - Manual comment entry
 - Bulk pasted comment import
 - Comment import from public TXT, CSV, TSV, and JSON URLs
+- Comment import from a Notion database with per-project property mapping and duplicate skipping
 - Manual rubric-based evaluation storage
 - Optional AI draft evaluation flow
 - Compare page for saved evaluations
@@ -40,6 +41,7 @@ The recommended sharing model is an open template:
 Useful docs:
 
 - [Teacher setup guide](docs/TEACHER_SETUP.md)
+- [Notion import guide](docs/NOTION_IMPORT_GUIDE.md)
 - [Open template guide](docs/OPEN_TEMPLATE_GUIDE.md)
 - [Privacy and security checklist](docs/PRIVACY_AND_SECURITY_CHECKLIST.md)
 - [Deployment checklist](docs/DEPLOYMENT_CHECKLIST.md)
@@ -53,16 +55,24 @@ NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-supabase-publishable-key
 OPENAI_API_KEY=your-openai-api-key
 OPENAI_EVALUATION_MODEL=gpt-5.6
+NOTION_API_KEY=your-notion-internal-integration-token
+NOTION_API_VERSION=2022-06-28
 ```
 
 `OPENAI_API_KEY` is only required for the `AI 초안 생성` button. Manual evaluation works without it.
 
+`NOTION_API_KEY` is only required for the Notion import card. See the
+[Notion import guide](docs/NOTION_IMPORT_GUIDE.md) for creating the integration and sharing the database
+with it. `NOTION_API_VERSION` is optional and defaults to `2022-06-28`.
+
 ## Supabase Setup
 
-Apply the initial schema in:
+Apply the migrations in order:
 
 ```text
 supabase/migrations/001_initial_schema.sql
+supabase/migrations/002_project_notion_source.sql
+supabase/migrations/003_generated_rubric_metadata.sql
 ```
 
 The migration creates:
@@ -76,6 +86,9 @@ The migration creates:
 - `evaluation_scores`
 
 It also enables RLS and ownership policies so each teacher can only access their own projects, rubrics, comments, and evaluations.
+
+Migration `002` adds `projects.notion_source`, which stores the Notion database and property mapping used by the Notion import.
+Migration `003` adds generated-rubric metadata so automatically created news article rubrics can be identified and traced to selected curriculum standards.
 
 ## Local Development
 
@@ -111,7 +124,9 @@ All three commands pass in the current workspace.
 
 - Live Supabase testing requires real Supabase credentials and applied migrations.
 - Live AI testing requires `OPENAI_API_KEY`.
+- Live Notion import testing requires `NOTION_API_KEY` and a database shared with the integration.
 - A public release still needs a license decision.
 - Delete flows are not implemented yet.
 - Existing evaluation scores are not automatically normalized if a criterion max score is lowered.
 - AI scoring needs calibration against real classroom examples.
+- Notion import is one-way; later edits in Notion do not update comments already imported.

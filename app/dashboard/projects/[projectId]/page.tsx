@@ -2,22 +2,24 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BulkCommentForm } from "@/components/comments/bulk-comment-form";
 import { CommentForm } from "@/components/comments/comment-form";
+import { NotionCommentImportForm } from "@/components/comments/notion-comment-import-form";
 import { SourceCommentImportForm } from "@/components/comments/source-comment-import-form";
 import { CommentEvaluationList } from "@/components/evaluations/comment-evaluation-list";
 import { ProjectEditForm } from "@/components/projects/project-edit-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/lib/auth/require-user";
+import { readNotionSourceDefaults } from "@/lib/notion/project-source";
 
 export default async function ProjectDetailPage({
   params,
   searchParams,
 }: {
   params: Promise<{ projectId: string }>;
-  searchParams: Promise<{ message?: string }>;
+  searchParams: Promise<{ message?: string; notice?: string }>;
 }) {
   const { projectId } = await params;
-  const { message } = await searchParams;
+  const { message, notice } = await searchParams;
   const { supabase, user } = await requireUser();
   const { data: project, error } = await supabase
     .from("projects")
@@ -108,6 +110,11 @@ export default async function ProjectDetailPage({
             <CardContent className="p-4 text-sm text-destructive">{message}</CardContent>
           </Card>
         ) : null}
+        {notice ? (
+          <Card>
+            <CardContent className="p-4 text-sm text-muted-foreground">{notice}</CardContent>
+          </Card>
+        ) : null}
         <Card>
           <CardHeader>
             <CardTitle>프로젝트 정보</CardTitle>
@@ -142,6 +149,11 @@ export default async function ProjectDetailPage({
       </section>
       <aside className="space-y-4">
         <ProjectEditForm project={project} rubrics={rubrics ?? []} />
+        <NotionCommentImportForm
+          projectId={project.id}
+          defaults={readNotionSourceDefaults(project.notion_source)}
+          configured={Boolean(process.env.NOTION_API_KEY)}
+        />
         <SourceCommentImportForm projectId={project.id} sourceUrl={project.source_url} />
         <CommentForm projectId={project.id} />
         <BulkCommentForm projectId={project.id} />

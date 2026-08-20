@@ -7,6 +7,7 @@ const setupItems = [
   "Redirect URLs are configured for local and production domains.",
   "RLS is enabled on all app tables.",
   "A second test account cannot see the first account's data.",
+  "Migration 002 has been applied if you use the Notion import.",
 ];
 
 const privacyItems = [
@@ -20,6 +21,7 @@ const privacyItems = [
 
 export default function SettingsPage() {
   const hasOpenAiKey = Boolean(process.env.OPENAI_API_KEY);
+  const hasNotionKey = Boolean(process.env.NOTION_API_KEY);
 
   return (
     <div className="space-y-6">
@@ -39,6 +41,8 @@ export default function SettingsPage() {
             <p><span className="font-medium">Supabase URL:</span> configured through public env</p>
             <p><span className="font-medium">OpenAI key:</span> {hasOpenAiKey ? "configured" : "not configured"}</p>
             <p><span className="font-medium">AI model:</span> {process.env.OPENAI_EVALUATION_MODEL || "gpt-5.6"}</p>
+            <p><span className="font-medium">Notion key:</span> {hasNotionKey ? "configured" : "not configured"}</p>
+            <p><span className="font-medium">Notion API version:</span> {process.env.NOTION_API_VERSION || "2022-06-28"}</p>
           </CardContent>
         </Card>
         <Card>
