@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "NewsComment AI",
-  description: "AI-assisted news comment evaluation for teachers",
+  description: "Notion-connected classroom comment evaluation and analysis for teachers",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
