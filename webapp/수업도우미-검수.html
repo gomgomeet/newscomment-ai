@@ -55,6 +55,17 @@ td input[type=text]{width:100%;padding:5px;border:1px solid var(--line);border-r
 #warnBox{background:var(--warnbg);border:1px solid var(--warn);border-radius:8px;padding:10px 14px;margin:10px 0;font-size:13px;display:none}
 .toolbar{display:flex;gap:8px;margin:12px 0;align-items:center;flex-wrap:wrap}
 .hide{display:none}
+.modes{display:flex;gap:10px;margin:10px 0}
+.mode{flex:1;border:2px solid var(--line);border-radius:9px;padding:12px 14px;cursor:pointer;background:#fff;font-size:13px;line-height:1.5}
+.mode.on{border-color:var(--p);background:var(--tint)}
+.mode b{color:var(--pd)}
+.mode .rec{background:var(--gold);border-radius:8px;padding:1px 8px;font-size:11px;margin-left:6px}
+.roster{background:#f1f4f5;border-radius:8px;padding:10px 14px;margin-top:8px}
+.roster input[type=text]{padding:6px;border:1px solid var(--line);border-radius:6px;width:340px;font-family:inherit}
+details.rub{border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin:10px 0;background:#fff}
+details.rub summary{cursor:pointer;color:var(--pd);font-weight:bold}
+details.rub table{margin-top:8px}
+details.rub td,details.rub th{font-size:12px;position:static}
 footer{text-align:center;color:var(--muted);font-size:12px;padding:20px}
 </style>
 </head>
@@ -80,8 +91,21 @@ footer{text-align:center;color:var(--muted);font-size:12px;padding:20px}
 
 <div class="card hide" id="secMap">
   <h2>② 열 매핑 확인</h2>
-  <p class="hint">자동으로 찾은 열입니다. 다르면 바꿔 주세요. AI 점수 열이 없으면 <b>수기 채점 모드</b>로 열립니다 — 교사 점수만 입력하면 됩니다.</p>
+  <p class="hint">먼저 <b>편한 방식</b>을 골라 주세요. 파일을 보고 알맞은 쪽을 추천해 드립니다.</p>
+  <div class="modes">
+    <label class="mode" id="modeA"><input type="radio" name="mode" value="a" style="margin-right:4px"><b>(a) 노션 연동</b><span class="rec hide" id="recA">추천</span><br>
+      노션 「평가 결과 관리」 내보내기 CSV를 불러와 <b>AI 점수·피드백을 검수</b>하고, 결과 파일을 노션에 다시 반영합니다.</label>
+    <label class="mode" id="modeB"><input type="radio" name="mode" value="b" style="margin-right:4px"><b>(b) 연동 없이 바로 평가</b><span class="rec hide" id="recB">추천</span><br>
+      학번과 글만 있으면 됩니다. 화면의 <b>루브릭 기준을 보며 교사가 직접 채점</b>해 바로 결과표·분석표를 받습니다.</label>
+  </div>
+  <p class="hint">자동으로 찾은 열입니다. 다르면 바꿔 주세요. (b)를 고르면 AI 점수 열은 사용하지 않습니다.</p>
   <div class="maps" id="maps"></div>
+  <div class="roster">
+    <b style="color:var(--pd)">학생 명단 (선택)</b> <span class="hint">— 입력하면 미제출 학생을 찾아 분석표 맨 위에 정리합니다.</span><br>
+    <input type="text" id="rosterIn" placeholder="예: S001-S030  또는  S001, S002, S003 …  (범위·쉼표·줄바꿈 모두 인식)" style="margin-top:6px">
+    <button class="sec" id="btnRoster" style="margin-left:6px">명단 적용</button>
+    <span class="hint" id="rosterInfo"></span>
+  </div>
   <div class="toolbar">
     <label class="hint">점수 척도:
       <select id="scale"><option value="4">1~4점 (총 12점 · 스킬 기본)</option><option value="5">0~5점 (총 15점 · 패키지)</option></select>
@@ -92,6 +116,16 @@ footer{text-align:center;color:var(--muted);font-size:12px;padding:20px}
 
 <div class="card hide" id="secReview">
   <h2>③ 검수 <span class="hint">— 점수를 고치면 조정 이유를 적어 주세요. 검수 완료에 체크된 행만 확정으로 내보내집니다.</span></h2>
+  <details class="rub" id="rubricPanel">
+    <summary>📏 채점 기준(기본 루브릭 · 3영역×4수준, 총 12점) — (b) 모드에서는 이 기준을 보며 채점하세요</summary>
+    <table>
+      <tr><th>평가 영역</th><th>4점 매우 잘함</th><th>3점 잘함</th><th>2점 노력 필요</th><th>1점 더 연습 필요</th></tr>
+      <tr><td><b>① 기사 내용 이해</b></td><td>핵심 내용과 중요한 정보를 정확하게 이해하고 글에서 구체적으로 활용</td><td>핵심 내용을 대체로 정확하게 이해하고 활용</td><td>일부만 이해, 핵심 내용·정보 활용 부족</td><td>잘못 이해했거나 기사 관련 내용이 거의 없음</td></tr>
+      <tr><td><b>② 기사와 생각 연결</b></td><td>기사와 자신의 생각·경험·지식을 구체적으로 비교하고 관계를 분명히 설명</td><td>기사와 자신의 생각을 자연스럽게 연결</td><td>생각은 있으나 기사와의 연결·비교가 약함</td><td>생각과 기사 내용의 관계가 거의 없음</td></tr>
+      <tr><td><b>③ 생각 표현</b></td><td>의견이 분명하고 구체적 이유·근거로 논리적·설득력 있게 표현</td><td>의견과 이유를 비교적 분명하게 표현</td><td>의견은 있으나 이유·근거가 부족</td><td>의견이 불분명하거나 이유·근거가 거의 없음</td></tr>
+    </table>
+    <p class="hint" style="margin-top:6px">핵심 원칙: 찬성/반대 '입장'이 아니라 기사와 '의미 있게 연결했는가'를 평가합니다. 근거가 없으면 낮은 점수(관대한 채점 금지). 다른 루브릭을 쓰는 수업이라면 이 표는 참고용입니다.</p>
+  </details>
   <div id="summary"></div>
   <div id="warnBox"></div>
   <div class="toolbar">
@@ -128,7 +162,9 @@ let raw = {headers: [], rows: []};   // 파싱된 CSV
 let map = {};                        // 필드 → 열 인덱스
 let recs = [];                       // 검수 레코드
 let scaleMax = 4;                    // 4(1~4) 또는 5(0~5)
-let manualMode = false;              // AI 점수 열 없음 → 수기 채점
+let manualMode = false;              // AI 점수 없이 채점
+let mode = "a";                      // a=노션 연동, b=연동 없이 바로 평가
+let roster = [];                     // 학생 명단 (선택)
 const AREAS = [["u","이해"],["c","연결"],["e","표현"]];
 const LS = "sudoumi_review_v1";
 
@@ -195,11 +231,12 @@ function renderMaps(){
 // ---------- 레코드 구성 ----------
 function toInt(v){ const n=parseInt(String(v).trim()); return isNaN(n)?null:n; }
 function buildRecs(){
-  manualMode = map.au<0 && map.ac<0 && map.ae<0;
+  manualMode = mode==="b" || (map.au<0 && map.ac<0 && map.ae<0);
   recs = raw.rows.map((r,i)=>{
     const g=k=> map[k]>=0 ? (r[map[k]]||"").trim() : "";
+    const useAI = !(mode==="b");
     const rec={ i, id:g("id"), article:g("article"), text:g("text"),
-      ai:{u:toInt(g("au")),c:toInt(g("ac")),e:toInt(g("ae"))},
+      ai: useAI ? {u:toInt(g("au")),c:toInt(g("ac")),e:toInt(g("ae"))} : {u:null,c:null,e:null},
       t:{u:null,c:null,e:null}, fb:g("fb"), fwd:g("fwd"), reason:"", done:false };
     for(const [k] of AREAS) rec.t[k]=rec.ai[k]; // 기본값 = AI 점수
     return rec;
@@ -280,8 +317,10 @@ function renderSummary(){
   const dist={"매우 잘함":0,"잘함":0,"보통":0,"노력요함":0};
   recs.forEach(r=>{ const [lv]=level(total(r)); if(dist[lv]!=null) dist[lv]++; });
   const mx=Math.max(1,...Object.values(dist));
+  const miss=missingStudents();
   document.getElementById("summary").innerHTML=
-    `<div class="stat"><b>${n}</b><span>제출 인원</span></div>
+    `<div class="stat"><b>${n}</b><span>제출 인원${roster.length?` / 명단 ${roster.length}`:""}</span></div>
+     ${miss!==null?`<div class="stat" style="background:${miss.length?"var(--warnbg)":"var(--okbg)"}"><b>${miss.length}</b><span>미제출${miss.length?` — ${miss.slice(0,8).join(", ")}${miss.length>8?" 외":""}`:""}</span></div>`:""}
      <div class="stat"><b>${done} / ${n}</b><span>검수 완료</span></div>
      <div class="stat"><b>${avg("u")} · ${avg("c")} · ${avg("e")}</b><span>평균 (이해·연결·표현)</span></div>
      <div class="stat"><span>성취수준 분포</span><div class="dist">${
@@ -320,8 +359,14 @@ function exportAnalysis(){
   const areas=[["이해",avg("u")],["연결",avg("c")],["표현",avg("e")]].filter(a=>a[1]!=="");
   const weakest=areas.length?areas.reduce((a,b)=>parseFloat(a[1])<=parseFloat(b[1])?a:b)[0]:"-";
   const low=recs.filter(r=>{const[lv]=level(total(r));return lv==="보통"||lv==="노력요함";}).map(r=>r.id);
+  const miss=missingStudents();
   const L=[];
   L.push("구분,내용");
+  if(miss!==null){
+    L.push(`학급 명단 인원,${roster.length}`);
+    L.push(`미제출 인원,${miss.length}`);
+    L.push(csvCell("미제출 학생")+","+csvCell(miss.join(" ")||"없음"));
+  }
   L.push(`제출 인원,${n}`); L.push(`검수 완료,${done}`); L.push(`점수 조정 건수,${adj}`);
   L.push(`영역 평균(이해/연결/표현),${avg("u")} / ${avg("c")} / ${avg("e")}`);
   Object.entries(dist).forEach(([k,v])=>L.push(`성취수준 ${k},${v}명`));
@@ -336,7 +381,7 @@ function copyForwards(){
 }
 
 // ---------- 저장/복원 ----------
-function save(){ try{ localStorage.setItem(LS, JSON.stringify({raw,map,recs,scaleMax,manualMode})); }catch(e){} }
+function save(){ try{ localStorage.setItem(LS, JSON.stringify({raw,map,recs,scaleMax,manualMode,mode,roster})); }catch(e){} }
 function restore(){ try{ const d=JSON.parse(localStorage.getItem(LS)); if(d&&d.recs&&d.recs.length){ return d; } }catch(e){} return null; }
 
 // ---------- 흐름 ----------
@@ -345,14 +390,42 @@ function loaded(text){
   const p=parseCSV(text);
   if(!p||!p.rows.length){ alert("표를 읽지 못했습니다. CSV 형식을 확인해 주세요."); return; }
   raw=p; autoMap(); renderMaps();
+  // 모드 추천: AI 점수 열이 있으면 (a), 없으면 (b)
+  const hasAI = map.au>=0 || map.ac>=0 || map.ae>=0;
+  setMode(hasAI ? "a" : "b");
+  document.getElementById("recA").classList.toggle("hide", !hasAI);
+  document.getElementById("recB").classList.toggle("hide", hasAI);
   show("secMap"); mark(2);
+}
+function setMode(m){
+  mode=m;
+  document.querySelector(`input[name=mode][value=${m}]`).checked=true;
+  document.getElementById("modeA").classList.toggle("on", m==="a");
+  document.getElementById("modeB").classList.toggle("on", m==="b");
+}
+function parseRoster(text){
+  text=(text||"").trim(); if(!text) return [];
+  const range=text.match(/^([A-Za-z]*)(\d+)\s*[-~]\s*([A-Za-z]*)(\d+)$/);
+  if(range){
+    const pre=range[1], a=parseInt(range[2]), b=parseInt(range[4]), w=range[2].length, out=[];
+    for(let n=Math.min(a,b);n<=Math.max(a,b);n++) out.push(pre+String(n).padStart(w,"0"));
+    return out;
+  }
+  return text.split(/[\s,;]+/).filter(Boolean);
+}
+function missingStudents(){
+  if(!roster.length) return null;
+  const submitted=new Set(recs.map(r=>String(r.id).trim()));
+  return roster.filter(id=>!submitted.has(String(id).trim()));
 }
 function startReview(){
   if(map.id<0||map.text<0){ alert("학번과 글 열은 반드시 지정해야 합니다."); return; }
   scaleMax=parseInt(document.getElementById("scale").value);
   buildRecs();
   if(!recs.length){ alert("읽을 수 있는 행이 없습니다."); return; }
-  show("secReview"); show("secExport"); mark(3); renderTable(); save();
+  show("secReview"); show("secExport"); mark(3);
+  document.getElementById("rubricPanel").open = (mode==="b");
+  renderTable(); save();
 }
 function show(id){ document.getElementById(id).classList.remove("hide"); }
 function mark(n){ for(let i=1;i<=4;i++) document.getElementById("st"+i).classList.toggle("on", i<=n); }
@@ -365,6 +438,12 @@ drop.ondragleave=()=>drop.classList.remove("over");
 drop.ondrop=e=>{e.preventDefault();drop.classList.remove("over"); if(e.dataTransfer.files[0]) decodeFile(e.dataTransfer.files[0], loaded);};
 fileIn.onchange=()=>{ if(fileIn.files[0]) decodeFile(fileIn.files[0], loaded); };
 document.getElementById("btnPaste").onclick=()=>{ const t=document.getElementById("paste").value.trim(); if(t) loaded(t); };
+document.querySelectorAll("input[name=mode]").forEach(r=>r.onchange=()=>setMode(r.value));
+document.getElementById("btnRoster").onclick=()=>{
+  roster=parseRoster(document.getElementById("rosterIn").value);
+  document.getElementById("rosterInfo").textContent = roster.length? ` ✓ ${roster.length}명 등록 (${roster[0]} ~ ${roster[roster.length-1]})` : " 명단이 비어 있습니다";
+  if(recs.length){ renderSummary(); save(); }
+};
 document.getElementById("btnGo").onclick=startReview;
 document.getElementById("btnFlagOnly").onclick=()=>{flagOnly=true;renderTable();};
 document.getElementById("btnAll").onclick=()=>{flagOnly=false;renderTable();};
@@ -373,18 +452,21 @@ document.getElementById("btnCsv").onclick=exportCsv;
 document.getElementById("btnAnalysis").onclick=exportAnalysis;
 document.getElementById("btnFwd").onclick=copyForwards;
 document.getElementById("btnJson").onclick=()=>{
-  const blob=new Blob([JSON.stringify({raw,map,recs,scaleMax,manualMode})],{type:"application/json"});
+  const blob=new Blob([JSON.stringify({raw,map,recs,scaleMax,manualMode,mode,roster})],{type:"application/json"});
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="검수진행상태.json"; a.click();
 };
 document.getElementById("jsonIn").onchange=e=>{
   const f=e.target.files[0]; if(!f) return;
   const fr=new FileReader(); fr.onload=()=>{ try{
-    const d=JSON.parse(fr.result); raw=d.raw; map=d.map; recs=d.recs; scaleMax=d.scaleMax; manualMode=d.manualMode;
-    show("secMap"); renderMaps(); show("secReview"); show("secExport"); mark(3); renderTable(); save();
+    const d=JSON.parse(fr.result); raw=d.raw; map=d.map; recs=d.recs; scaleMax=d.scaleMax; manualMode=d.manualMode; mode=d.mode||"a"; roster=d.roster||[];
+    show("secMap"); renderMaps(); setMode(mode); show("secReview"); show("secExport"); mark(3); renderTable(); save();
   }catch(err){ alert("파일을 읽지 못했습니다."); } }; fr.readAsText(f);
 };
 document.getElementById("btnReset").onclick=()=>{ if(confirm("모든 검수 내용을 지우고 처음부터 시작할까요?")){ localStorage.removeItem(LS); location.reload(); } };
 document.getElementById("btnSample").onclick=()=>{
+  document.getElementById("rosterIn").value="S001-S008";
+  roster=parseRoster("S001-S008");
+  document.getElementById("rosterInfo").textContent=" ✓ 8명 등록 (S001 ~ S008)";
   loaded(`학번을 작성해 봅니다. ,기사 제목을 찾아 봅니다.,댓글,AI 이해,AI 연결,AI 표현,피드백,평가 포워드
 S001,학교 앞 어린이 교통사고,"기사에서 사고가 늘었다고 했다. 나도 등굣길에 위험했던 적이 있어서 신호등이 더 필요하다고 생각한다.",4,3,3,기사 내용을 잘 활용했어요. 까닭을 한 가지 더 보태 보세요.,반대 의견도 생각해 보면 어떨까요?
 S002,학교 앞 어린이 교통사고,좋은 기사인 것 같다.,1,1,1,기사에서 알게 된 내용을 한 문장 넣어 보세요.,기사 속 숫자를 하나 찾아 써 볼까요?
@@ -395,8 +477,8 @@ S006,일회용 플라스틱 사용,"기사를 읽고 우리 반 분리수거가 
 };
 // 이어서 하기
 (function(){ const d=restore(); if(d){ const b=document.getElementById("btnResume"); b.classList.remove("hide");
-  b.onclick=()=>{ raw=d.raw; map=d.map; recs=d.recs; scaleMax=d.scaleMax; manualMode=d.manualMode;
-    show("secMap"); renderMaps(); show("secReview"); show("secExport"); mark(3); renderTable(); }; } })();
+  b.onclick=()=>{ raw=d.raw; map=d.map; recs=d.recs; scaleMax=d.scaleMax; manualMode=d.manualMode; mode=d.mode||"a"; roster=d.roster||[];
+    show("secMap"); renderMaps(); setMode(mode); show("secReview"); show("secExport"); mark(3); renderTable(); }; } })();
 </script>
 </body>
 </html>
