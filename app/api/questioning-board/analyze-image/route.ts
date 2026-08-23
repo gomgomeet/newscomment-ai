@@ -8,6 +8,8 @@ type AnalyzeImageRequest = {
   targetGrade?: unknown;
   subjectUnit?: unknown;
   teacherNotes?: unknown;
+  apiKey?: unknown;
+  model?: unknown;
 };
 
 export async function POST(request: Request) {
@@ -29,12 +31,14 @@ export async function POST(request: Request) {
       targetGrade: typeof body.targetGrade === "string" ? body.targetGrade : "",
       subjectUnit: typeof body.subjectUnit === "string" ? body.subjectUnit : "",
       teacherNotes: typeof body.teacherNotes === "string" ? body.teacherNotes : "",
+      apiKey: typeof body.apiKey === "string" ? body.apiKey : undefined,
+      model: typeof body.model === "string" ? body.model : undefined,
     });
 
     return Response.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "이미지 분석에 실패했습니다.";
-    const status = message.includes("OPENAI_API_KEY") ? 503 : 500;
+    const status = message.includes("API 키") || message.includes("OPENAI_API_KEY") ? 503 : 500;
     return Response.json({ error: message }, { status });
   }
 }

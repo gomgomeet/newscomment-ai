@@ -1,5 +1,9 @@
 import { answerQuestionWithOpenAI } from "@/lib/openai/questioning-board";
-import type { MaterialAnalysis, RubricCriterion } from "@/lib/questioning-board";
+import {
+  normalizeQuestioningChatbotBehavior,
+  type MaterialAnalysis,
+  type RubricCriterion,
+} from "@/lib/questioning-board";
 
 type ChatRequest = {
   standard?: unknown;
@@ -7,7 +11,11 @@ type ChatRequest = {
   subjectUnit?: unknown;
   material?: unknown;
   rubric?: unknown;
+  behavior?: unknown;
   question?: unknown;
+  conversation?: unknown;
+  apiKey?: unknown;
+  model?: unknown;
 };
 
 function isMaterialAnalysis(value: unknown): value is MaterialAnalysis {
@@ -33,6 +41,21 @@ function isRubric(value: unknown): value is RubricCriterion[] {
   });
 }
 
+function normalizeConversation(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+    .map((item) => ({
+      role: item.role === "assistant" ? ("assistant" as const) : ("student" as const),
+      content: typeof item.content === "string" ? item.content.trim().slice(0, 1200) : "",
+    }))
+    .filter((item) => item.content)
+    .slice(-8);
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as ChatRequest;
@@ -56,13 +79,17 @@ export async function POST(request: Request) {
       subjectUnit: typeof body.subjectUnit === "string" ? body.subjectUnit : "",
       material: body.material,
       rubric: body.rubric,
+      behavior: normalizeQuestioningChatbotBehavior(body.behavior),
       question,
+      conversation: normalizeConversation(body.conversation),
+      apiKey: typeof body.apiKey === "string" ? body.apiKey : undefined,
+      model: typeof body.model === "string" ? body.model : undefined,
     });
 
     return Response.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "챗봇 응답 생성에 실패했습니다.";
-    const status = message.includes("OPENAI_API_KEY") ? 503 : 500;
+    const status = message.includes("API 키") || message.includes("OPENAI_API_KEY") ? 503 : 500;
     return Response.json({ error: message }, { status });
   }
 }
