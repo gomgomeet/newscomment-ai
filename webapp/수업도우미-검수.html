@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>수업도우미 · CSV 검수</title>
+<style>
+:root{--p:#028090;--pd:#065a6e;--tint:#e3f4f2;--ink:#26343b;--muted:#5e7078;--warn:#f96167;--warnbg:#fde7e8;--gold:#f9c846;--goldbg:#fff6de;--ok:#2c8a5b;--okbg:#e6f3ec;--line:#dde5e7;--bg:#f6f8f9}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif;background:var(--bg);color:var(--ink);font-size:14px;min-width:1100px}
+header{background:var(--pd);color:#fff;padding:14px 28px;display:flex;align-items:center;gap:14px}
+header h1{font-size:18px}
+header .sub{color:#9bd8d3;font-size:12.5px}
+.steps{display:flex;gap:8px;margin-left:auto}
+.step{padding:5px 12px;border-radius:14px;background:#0e7487;color:#cfe9e6;font-size:12.5px}
+.step.on{background:#fff;color:var(--pd);font-weight:bold}
+main{max-width:1500px;margin:0 auto;padding:20px 28px 60px}
+.card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin-bottom:16px}
+.card h2{font-size:16px;color:var(--pd);margin-bottom:10px}
+.hint{color:var(--muted);font-size:12.5px;line-height:1.5}
+button{font-family:inherit;font-size:13.5px;border:none;border-radius:7px;padding:8px 14px;cursor:pointer;background:var(--p);color:#fff}
+button.sec{background:#fff;color:var(--pd);border:1px solid var(--p)}
+button.ghost{background:#eef2f3;color:var(--ink)}
+button:disabled{opacity:.4;cursor:not-allowed}
+#drop{border:2px dashed var(--p);border-radius:10px;padding:26px;text-align:center;background:var(--tint);cursor:pointer;transition:.15s}
+#drop.over{background:#cdeae6}
+textarea#paste{width:100%;height:90px;border:1px solid var(--line);border-radius:7px;padding:8px;font-size:12.5px;margin-top:10px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.maps{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:8px}
+.maps label{font-size:12.5px;color:var(--muted);display:block;margin-bottom:3px}
+.maps select{width:100%;padding:6px;border:1px solid var(--line);border-radius:6px;font-family:inherit}
+.req::after{content:" *";color:var(--warn)}
+#summary{display:flex;gap:14px;flex-wrap:wrap}
+.stat{background:var(--tint);border-radius:8px;padding:10px 16px;min-width:110px}
+.stat b{display:block;font-size:20px;color:var(--pd)}
+.stat span{font-size:12px;color:var(--muted)}
+.dist{display:flex;gap:4px;align-items:flex-end;height:46px;margin-top:4px}
+.dist div{width:34px;background:var(--p);border-radius:3px 3px 0 0;position:relative}
+.dist div i{position:absolute;top:-16px;left:0;right:0;text-align:center;font-size:10.5px;font-style:normal;color:var(--muted)}
+.dist div u{position:absolute;bottom:-16px;left:0;right:0;text-align:center;font-size:10px;text-decoration:none;color:var(--muted)}
+table{width:100%;border-collapse:collapse;background:#fff}
+th{background:var(--tint);color:var(--pd);font-size:12.5px;padding:7px 6px;border:1px solid var(--line);position:sticky;top:0}
+td{border:1px solid var(--line);padding:6px;vertical-align:top;font-size:13px}
+tr.flag td{background:var(--goldbg)}
+tr.done td{background:var(--okbg)}
+td .txt{max-height:64px;overflow:hidden;cursor:pointer;white-space:pre-wrap;line-height:1.45}
+td .txt.open{max-height:none}
+.ai{display:inline-block;background:#eef2f3;border-radius:5px;padding:1px 7px;margin:1px;font-size:12.5px;color:var(--muted)}
+input.sc{width:44px;padding:4px;text-align:center;border:1px solid var(--line);border-radius:5px;font-family:inherit}
+input.sc.adj{border-color:var(--warn);background:var(--warnbg)}
+td textarea{width:100%;min-height:48px;border:1px solid var(--line);border-radius:5px;padding:5px;font-size:12.5px;font-family:inherit}
+td input[type=text]{width:100%;padding:5px;border:1px solid var(--line);border-radius:5px;font-family:inherit;font-size:12.5px}
+.lv{font-weight:bold}
+.lv.l4{color:var(--ok)}.lv.l3{color:var(--p)}.lv.l2{color:#d99a06}.lv.l1{color:var(--warn)}
+.badge{background:var(--gold);border-radius:9px;padding:1px 8px;font-size:11.5px}
+#warnBox{background:var(--warnbg);border:1px solid var(--warn);border-radius:8px;padding:10px 14px;margin:10px 0;font-size:13px;display:none}
+.toolbar{display:flex;gap:8px;margin:12px 0;align-items:center;flex-wrap:wrap}
+.hide{display:none}
+footer{text-align:center;color:var(--muted);font-size:12px;padding:20px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🧑‍🏫 수업도우미 · CSV 검수</h1>
+  <span class="sub">노션에서 바로 받지 못할 때 — CSV로 평가 결과를 받아 검수하고 내보냅니다 (AI는 초안, 최종 판단은 교사)</span>
+  <div class="steps"><span class="step on" id="st1">① 파일</span><span class="step" id="st2">② 열 매핑</span><span class="step" id="st3">③ 검수</span><span class="step" id="st4">④ 내보내기</span></div>
+</header>
+<main>
+
+<div class="card" id="secLoad">
+  <h2>① 평가 결과 CSV 올리기</h2>
+  <p class="hint">노션 「평가 결과 관리」 DB의 CSV 내보내기 파일, 구글폼 응답 시트 CSV, 또는 표를 복사해 붙여넣어도 됩니다. UTF-8·EUC-KR(엑셀 저장 CSV) 모두 지원합니다.</p>
+  <div id="drop" style="margin-top:10px">📄 여기로 CSV 파일을 끌어다 놓거나 클릭해서 선택하세요<input type="file" id="file" accept=".csv,.txt" style="display:none"></div>
+  <textarea id="paste" placeholder="또는 시트/표 내용을 복사해 여기에 붙여넣기 (탭·쉼표 구분 모두 인식)"></textarea>
+  <div class="toolbar">
+    <button id="btnPaste" class="sec">붙여넣은 내용 불러오기</button>
+    <button id="btnSample" class="ghost">샘플 데이터로 체험</button>
+    <button id="btnResume" class="ghost hide">이전 검수 이어서 하기</button>
+  </div>
+</div>
+
+<div class="card hide" id="secMap">
+  <h2>② 열 매핑 확인</h2>
+  <p class="hint">자동으로 찾은 열입니다. 다르면 바꿔 주세요. AI 점수 열이 없으면 <b>수기 채점 모드</b>로 열립니다 — 교사 점수만 입력하면 됩니다.</p>
+  <div class="maps" id="maps"></div>
+  <div class="toolbar">
+    <label class="hint">점수 척도:
+      <select id="scale"><option value="4">1~4점 (총 12점 · 스킬 기본)</option><option value="5">0~5점 (총 15점 · 패키지)</option></select>
+    </label>
+    <button id="btnGo">이 매핑으로 검수 시작 →</button>
+  </div>
+</div>
+
+<div class="card hide" id="secReview">
+  <h2>③ 검수 <span class="hint">— 점수를 고치면 조정 이유를 적어 주세요. 검수 완료에 체크된 행만 확정으로 내보내집니다.</span></h2>
+  <div id="summary"></div>
+  <div id="warnBox"></div>
+  <div class="toolbar">
+    <button class="ghost" id="btnFlagOnly">⚠ 우선 검토만 보기</button>
+    <button class="ghost" id="btnAll">전체 보기</button>
+    <button class="ghost" id="btnAllDone">남은 행 모두 검수 완료로</button>
+    <span class="hint">글을 클릭하면 전체가 펼쳐집니다 · 입력 내용은 이 브라우저에 자동 저장됩니다</span>
+  </div>
+  <div style="max-height:640px;overflow:auto;border:1px solid var(--line);border-radius:8px">
+  <table id="tbl"></table>
+  </div>
+</div>
+
+<div class="card hide" id="secExport">
+  <h2>④ 내보내기</h2>
+  <div class="toolbar">
+    <button id="btnCsv">📥 검수 결과 CSV (엑셀·구글시트용)</button>
+    <button id="btnAnalysis" class="sec">📊 학급 분석표 CSV</button>
+    <button id="btnFwd" class="sec">🧭 평가 포워드 모음 (복사)</button>
+    <button id="btnJson" class="ghost">진행 상태 파일 저장(.json)</button>
+    <label class="ghost" style="padding:8px 14px;border-radius:7px;background:#eef2f3;cursor:pointer">진행 상태 불러오기<input type="file" id="jsonIn" accept=".json" style="display:none"></label>
+    <button id="btnReset" class="ghost" style="color:var(--warn)">전체 초기화</button>
+  </div>
+  <p class="hint">검수 결과 CSV에는 원본 정보 + 교사 점수·최종 총점·성취수준·피드백·평가 포워드·조정 이유·검수 상태가 담깁니다. 노션에 반영하려면 이 파일을 가져오기 하거나, 값을 복사해 넣으면 됩니다.</p>
+</div>
+
+</main>
+<footer>과정 중심 평가를 위한 수업도우미 · CSV 검수 모듈 v0.1 — 학생 개인정보는 이 PC를 떠나지 않습니다.</footer>
+
+<script>
+"use strict";
+// ---------- 상태 ----------
+let raw = {headers: [], rows: []};   // 파싱된 CSV
+let map = {};                        // 필드 → 열 인덱스
+let recs = [];                       // 검수 레코드
+let scaleMax = 4;                    // 4(1~4) 또는 5(0~5)
+let manualMode = false;              // AI 점수 열 없음 → 수기 채점
+const AREAS = [["u","이해"],["c","연결"],["e","표현"]];
+const LS = "sudoumi_review_v1";
+
+// ---------- CSV 파서 (따옴표·개행 처리) ----------
+function parseCSV(text){
+  const d = text.includes("\t") && !text.split("\n")[0].includes(",") ? "\t" : ",";
+  const rows=[]; let row=[], cell="", q=false;
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(q){ if(ch==='"'){ if(text[i+1]==='"'){cell+='"';i++;} else q=false; } else cell+=ch; }
+    else if(ch==='"') q=true;
+    else if(ch===d){ row.push(cell); cell=""; }
+    else if(ch==="\n"||ch==="\r"){ if(ch==="\r"&&text[i+1]==="\n") i++; row.push(cell); cell="";
+      if(row.some(c=>c.trim()!=="")) rows.push(row); row=[]; }
+    else cell+=ch;
+  }
+  if(cell!==""||row.length){ row.push(cell); if(row.some(c=>c.trim()!=="")) rows.push(row); }
+  if(!rows.length) return null;
+  return {headers: rows[0].map(h=>h.trim()), rows: rows.slice(1)};
+}
+function decodeFile(file, cb){
+  const fr=new FileReader();
+  fr.onload=()=>{ const buf=fr.result;
+    let txt=new TextDecoder("utf-8",{fatal:false}).decode(buf);
+    if((txt.match(/�/g)||[]).length>2){ try{ txt=new TextDecoder("euc-kr").decode(buf);}catch(e){} }
+    cb(txt.replace(/^﻿/,"")); };
+  fr.readAsArrayBuffer(file);
+}
+
+// ---------- 열 자동 매핑 ----------
+const FIELDS=[
+  ["id","학번(ID)",true, ["학번","학생 id","학생id","학생 번호","학생번호","번호","이름을 찾아","student"]],
+  ["text","글(댓글·의견)",true, ["댓글","의견","나의 의견","글","응답","내용","comment"]],
+  ["article","기사",false, ["기사","읽은 기사","제목을 찾아"]],
+  ["au","AI 이해",false, ["ai 이해","ai이해"]],
+  ["ac","AI 연결",false, ["ai 연결","ai연결"]],
+  ["ae","AI 표현",false, ["ai 표현","ai표현"]],
+  ["fb","피드백",false, ["피드백","feedback"]],
+  ["fwd","평가 포워드",false, ["평가 포워드","포워드","다음"]],
+];
+function autoMap(){
+  map={};
+  const hs=raw.headers.map(h=>h.toLowerCase());
+  for(const [key,,,cands] of FIELDS){
+    let idx=-1;
+    for(const c of cands){ idx=hs.findIndex(h=>h.includes(c.toLowerCase())); if(idx>=0) break; }
+    map[key]=idx;
+  }
+  // 교사 열 오인 방지: '교사'가 들어간 열은 AI 매핑에서 제외
+  for(const k of ["au","ac","ae"]) if(map[k]>=0 && hs[map[k]].includes("교사")) map[k]=-1;
+}
+function renderMaps(){
+  const box=document.getElementById("maps"); box.innerHTML="";
+  for(const [key,label,req] of FIELDS){
+    const div=document.createElement("div");
+    const opts=['<option value="-1">— 없음 —</option>']
+      .concat(raw.headers.map((h,i)=>`<option value="${i}" ${map[key]===i?"selected":""}>${esc(h)}</option>`)).join("");
+    div.innerHTML=`<label class="${req?"req":""}">${label}</label><select data-k="${key}">${opts}</select>`;
+    box.appendChild(div);
+  }
+  box.querySelectorAll("select").forEach(s=>s.onchange=()=>{ map[s.dataset.k]=parseInt(s.value); });
+}
+
+// ---------- 레코드 구성 ----------
+function toInt(v){ const n=parseInt(String(v).trim()); return isNaN(n)?null:n; }
+function buildRecs(){
+  manualMode = map.au<0 && map.ac<0 && map.ae<0;
+  recs = raw.rows.map((r,i)=>{
+    const g=k=> map[k]>=0 ? (r[map[k]]||"").trim() : "";
+    const rec={ i, id:g("id"), article:g("article"), text:g("text"),
+      ai:{u:toInt(g("au")),c:toInt(g("ac")),e:toInt(g("ae"))},
+      t:{u:null,c:null,e:null}, fb:g("fb"), fwd:g("fwd"), reason:"", done:false };
+    for(const [k] of AREAS) rec.t[k]=rec.ai[k]; // 기본값 = AI 점수
+    return rec;
+  }).filter(r=>r.id||r.text);
+  // 척도 자동 감지
+  const maxSeen=Math.max(0,...recs.flatMap(r=>[r.ai.u,r.ai.c,r.ai.e].filter(v=>v!=null)));
+  if(maxSeen>4){ scaleMax=5; document.getElementById("scale").value="5"; }
+}
+function total(r){ let s=0,n=0; for(const [k] of AREAS){ if(r.t[k]!=null){s+=r.t[k];n++;} } return n?s:null; }
+function level(tot){
+  if(tot==null) return ["-",""];
+  if(scaleMax===4){ if(tot>=10)return["매우 잘함","l4"]; if(tot>=7)return["잘함","l3"]; if(tot>=4)return["보통","l2"]; return["노력요함","l1"]; }
+  else { if(tot>=13)return["매우 잘함","l4"]; if(tot>=9)return["잘함","l3"]; if(tot>=5)return["보통","l2"]; return["노력요함","l1"]; }
+}
+function isFlag(r){
+  const v=[r.ai.u,r.ai.c,r.ai.e].filter(x=>x!=null);
+  const gap=v.length>1 && (Math.max(...v)-Math.min(...v))>=2;
+  return gap || (r.text||"").length<15;
+}
+function isAdjusted(r){ return AREAS.some(([k])=>r.ai[k]!=null && r.t[k]!==r.ai[k]); }
+
+// ---------- 검수 테이블 ----------
+let flagOnly=false;
+function renderTable(){
+  const tb=document.getElementById("tbl");
+  const scHint = scaleMax===4?"1~4":"0~5";
+  let html=`<tr><th>학번</th><th>기사</th><th style="min-width:260px">글</th>
+    <th>AI 점수<br>(이해·연결·표현)</th><th>교사 점수 (${scHint})</th><th>총점</th><th>성취수준</th>
+    <th style="min-width:220px">피드백</th><th style="min-width:150px">평가 포워드</th>
+    <th style="min-width:140px">조정 이유</th><th>검수</th></tr>`;
+  recs.forEach(r=>{
+    if(flagOnly && !isFlag(r)) return;
+    const tot=total(r), [lv,cls]=level(tot);
+    const aiTxt = manualMode? '<span class="ai">수기 채점</span>' :
+      AREAS.map(([k,n])=>`<span class="ai">${n} ${r.ai[k]??"-"}</span>`).join("");
+    html+=`<tr data-i="${r.i}" class="${r.done?"done":""} ${isFlag(r)?"flag":""}">
+      <td><b>${esc(r.id)}</b>${isFlag(r)?' <span class="badge">⚠</span>':""}</td>
+      <td>${esc(r.article)}</td>
+      <td><div class="txt" onclick="this.classList.toggle('open')">${esc(r.text)}</div></td>
+      <td>${aiTxt}</td>
+      <td>${AREAS.map(([k,n])=>`<input class="sc ${r.ai[k]!=null&&r.t[k]!==r.ai[k]?"adj":""}" data-k="${k}" type="number" min="${scaleMax===4?1:0}" max="${scaleMax}" value="${r.t[k]??""}" title="${n}">`).join("")}</td>
+      <td style="text-align:center;font-weight:bold">${tot??"-"}</td>
+      <td class="lv ${cls}">${lv}</td>
+      <td><textarea data-f="fb">${esc(r.fb)}</textarea></td>
+      <td><textarea data-f="fwd" style="min-height:40px">${esc(r.fwd)}</textarea></td>
+      <td><input type="text" data-f="reason" value="${esc(r.reason)}" placeholder="점수 조정 시 필수"></td>
+      <td style="text-align:center"><input type="checkbox" data-f="done" ${r.done?"checked":""}></td>
+    </tr>`;
+  });
+  tb.innerHTML=html;
+  tb.querySelectorAll("tr[data-i]").forEach(tr=>{
+    const r=recs.find(x=>x.i==tr.dataset.i);
+    tr.querySelectorAll("input.sc").forEach(inp=>inp.onchange=()=>{
+      let v=toInt(inp.value);
+      if(v!=null){ v=Math.max(scaleMax===4?1:0, Math.min(scaleMax, v)); inp.value=v; }
+      r.t[inp.dataset.k]=v; refreshRow(tr,r); save();
+    });
+    tr.querySelectorAll("[data-f]").forEach(el=>el.onchange=()=>{
+      if(el.dataset.f==="done") r.done=el.checked; else r[el.dataset.f]=el.value;
+      refreshRow(tr,r); save();
+    });
+  });
+  renderSummary();
+}
+function refreshRow(tr,r){
+  const tot=total(r), [lv,cls]=level(tot);
+  tr.children[5].textContent=tot??"-";
+  tr.children[6].textContent=lv; tr.children[6].className="lv "+cls;
+  tr.className=(r.done?"done ":"")+(isFlag(r)?"flag":"");
+  tr.querySelectorAll("input.sc").forEach(inp=>{
+    inp.classList.toggle("adj", r.ai[inp.dataset.k]!=null && r.t[inp.dataset.k]!==r.ai[inp.dataset.k]);
+  });
+  renderSummary();
+}
+function renderSummary(){
+  const n=recs.length, done=recs.filter(r=>r.done).length;
+  const avg=k=>{ const v=recs.map(r=>r.t[k]).filter(x=>x!=null); return v.length?(v.reduce((a,b)=>a+b,0)/v.length).toFixed(1):"-"; };
+  const dist={"매우 잘함":0,"잘함":0,"보통":0,"노력요함":0};
+  recs.forEach(r=>{ const [lv]=level(total(r)); if(dist[lv]!=null) dist[lv]++; });
+  const mx=Math.max(1,...Object.values(dist));
+  document.getElementById("summary").innerHTML=
+    `<div class="stat"><b>${n}</b><span>제출 인원</span></div>
+     <div class="stat"><b>${done} / ${n}</b><span>검수 완료</span></div>
+     <div class="stat"><b>${avg("u")} · ${avg("c")} · ${avg("e")}</b><span>평균 (이해·연결·표현)</span></div>
+     <div class="stat"><span>성취수준 분포</span><div class="dist">${
+       Object.entries(dist).map(([k,v])=>`<div style="height:${8+38*v/mx}px"><i>${v}</i><u>${k.slice(0,2)}</u></div>`).join("")
+     }</div></div>`;
+  // 경고: 조정했는데 이유 없음
+  const missing=recs.filter(r=>isAdjusted(r)&&!r.reason.trim());
+  const wb=document.getElementById("warnBox");
+  if(missing.length){ wb.style.display="block";
+    wb.innerHTML=`⚠️ 점수를 조정했지만 <b>조정 이유가 비어 있는 행 ${missing.length}건</b>: `+missing.map(r=>esc(r.id)).join(", ");
+  } else wb.style.display="none";
+}
+
+// ---------- 내보내기 ----------
+function csvCell(v){ v=String(v??""); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }
+function download(name, text){
+  const blob=new Blob(["﻿"+text],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name; a.click();
+}
+function exportCsv(){
+  const head=["학번","기사","글","AI 이해","AI 연결","AI 표현","AI 총점","교사 이해","교사 연결","교사 표현","최종 총점","성취수준","피드백","평가 포워드","조정 이유","검수 상태"];
+  const lines=[head.join(",")];
+  recs.forEach(r=>{
+    const aiTot=[r.ai.u,r.ai.c,r.ai.e].every(v=>v!=null)?r.ai.u+r.ai.c+r.ai.e:"";
+    lines.push([r.id,r.article,r.text,r.ai.u??"",r.ai.c??"",r.ai.e??"",aiTot,
+      r.t.u??"",r.t.c??"",r.t.e??"",total(r)??"",level(total(r))[0],r.fb,r.fwd,r.reason,
+      r.done?"검수 완료":"대기"].map(csvCell).join(","));
+  });
+  download("검수결과.csv", lines.join("\n"));
+}
+function exportAnalysis(){
+  const n=recs.length, done=recs.filter(r=>r.done).length, adj=recs.filter(isAdjusted).length;
+  const avg=k=>{ const v=recs.map(r=>r.t[k]).filter(x=>x!=null); return v.length?(v.reduce((a,b)=>a+b,0)/v.length).toFixed(2):""; };
+  const dist={"매우 잘함":0,"잘함":0,"보통":0,"노력요함":0};
+  recs.forEach(r=>{ const [lv]=level(total(r)); if(dist[lv]!=null) dist[lv]++; });
+  const areas=[["이해",avg("u")],["연결",avg("c")],["표현",avg("e")]].filter(a=>a[1]!=="");
+  const weakest=areas.length?areas.reduce((a,b)=>parseFloat(a[1])<=parseFloat(b[1])?a:b)[0]:"-";
+  const low=recs.filter(r=>{const[lv]=level(total(r));return lv==="보통"||lv==="노력요함";}).map(r=>r.id);
+  const L=[];
+  L.push("구분,내용");
+  L.push(`제출 인원,${n}`); L.push(`검수 완료,${done}`); L.push(`점수 조정 건수,${adj}`);
+  L.push(`영역 평균(이해/연결/표현),${avg("u")} / ${avg("c")} / ${avg("e")}`);
+  Object.entries(dist).forEach(([k,v])=>L.push(`성취수준 ${k},${v}명`));
+  L.push(csvCell("가장 부족한 영역")+","+csvCell(weakest+" — 다음 수업에서 이 영역을 여는 활동(문장 틀·기사 인용 연습 등)을 우선 배치"));
+  L.push(csvCell("보통 이하 학생")+","+csvCell(low.join(" ")||"없음"));
+  L.push(csvCell("다음 수업 제안")+","+csvCell("평가 포워드 모음을 함께 읽고, 부족 영역 문장 한 가지를 전체 목표로 제시"));
+  download("학급분석표.csv", L.join("\n"));
+}
+function copyForwards(){
+  const t=recs.filter(r=>r.fwd).map(r=>`${r.id}: ${r.fwd}`).join("\n");
+  navigator.clipboard.writeText(t).then(()=>alert("평가 포워드 "+recs.filter(r=>r.fwd).length+"건을 복사했습니다."));
+}
+
+// ---------- 저장/복원 ----------
+function save(){ try{ localStorage.setItem(LS, JSON.stringify({raw,map,recs,scaleMax,manualMode})); }catch(e){} }
+function restore(){ try{ const d=JSON.parse(localStorage.getItem(LS)); if(d&&d.recs&&d.recs.length){ return d; } }catch(e){} return null; }
+
+// ---------- 흐름 ----------
+function esc(s){ return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function loaded(text){
+  const p=parseCSV(text);
+  if(!p||!p.rows.length){ alert("표를 읽지 못했습니다. CSV 형식을 확인해 주세요."); return; }
+  raw=p; autoMap(); renderMaps();
+  show("secMap"); mark(2);
+}
+function startReview(){
+  if(map.id<0||map.text<0){ alert("학번과 글 열은 반드시 지정해야 합니다."); return; }
+  scaleMax=parseInt(document.getElementById("scale").value);
+  buildRecs();
+  if(!recs.length){ alert("읽을 수 있는 행이 없습니다."); return; }
+  show("secReview"); show("secExport"); mark(3); renderTable(); save();
+}
+function show(id){ document.getElementById(id).classList.remove("hide"); }
+function mark(n){ for(let i=1;i<=4;i++) document.getElementById("st"+i).classList.toggle("on", i<=n); }
+
+// ---------- 이벤트 ----------
+const drop=document.getElementById("drop"), fileIn=document.getElementById("file");
+drop.onclick=()=>fileIn.click();
+drop.ondragover=e=>{e.preventDefault();drop.classList.add("over");};
+drop.ondragleave=()=>drop.classList.remove("over");
+drop.ondrop=e=>{e.preventDefault();drop.classList.remove("over"); if(e.dataTransfer.files[0]) decodeFile(e.dataTransfer.files[0], loaded);};
+fileIn.onchange=()=>{ if(fileIn.files[0]) decodeFile(fileIn.files[0], loaded); };
+document.getElementById("btnPaste").onclick=()=>{ const t=document.getElementById("paste").value.trim(); if(t) loaded(t); };
+document.getElementById("btnGo").onclick=startReview;
+document.getElementById("btnFlagOnly").onclick=()=>{flagOnly=true;renderTable();};
+document.getElementById("btnAll").onclick=()=>{flagOnly=false;renderTable();};
+document.getElementById("btnAllDone").onclick=()=>{ recs.forEach(r=>r.done=true); renderTable(); save(); };
+document.getElementById("btnCsv").onclick=exportCsv;
+document.getElementById("btnAnalysis").onclick=exportAnalysis;
+document.getElementById("btnFwd").onclick=copyForwards;
+document.getElementById("btnJson").onclick=()=>{
+  const blob=new Blob([JSON.stringify({raw,map,recs,scaleMax,manualMode})],{type:"application/json"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="검수진행상태.json"; a.click();
+};
+document.getElementById("jsonIn").onchange=e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const fr=new FileReader(); fr.onload=()=>{ try{
+    const d=JSON.parse(fr.result); raw=d.raw; map=d.map; recs=d.recs; scaleMax=d.scaleMax; manualMode=d.manualMode;
+    show("secMap"); renderMaps(); show("secReview"); show("secExport"); mark(3); renderTable(); save();
+  }catch(err){ alert("파일을 읽지 못했습니다."); } }; fr.readAsText(f);
+};
+document.getElementById("btnReset").onclick=()=>{ if(confirm("모든 검수 내용을 지우고 처음부터 시작할까요?")){ localStorage.removeItem(LS); location.reload(); } };
+document.getElementById("btnSample").onclick=()=>{
+  loaded(`학번을 작성해 봅니다. ,기사 제목을 찾아 봅니다.,댓글,AI 이해,AI 연결,AI 표현,피드백,평가 포워드
+S001,학교 앞 어린이 교통사고,"기사에서 사고가 늘었다고 했다. 나도 등굣길에 위험했던 적이 있어서 신호등이 더 필요하다고 생각한다.",4,3,3,기사 내용을 잘 활용했어요. 까닭을 한 가지 더 보태 보세요.,반대 의견도 생각해 보면 어떨까요?
+S002,학교 앞 어린이 교통사고,좋은 기사인 것 같다.,1,1,1,기사에서 알게 된 내용을 한 문장 넣어 보세요.,기사 속 숫자를 하나 찾아 써 볼까요?
+S003,일회용 플라스틱 사용,"나는 매점에서 개인 컵을 쓰면 좋겠다. 왜냐하면 우리가 매일 쓰는 컵부터 줄일 수 있기 때문이다.",3,4,4,주장과 까닭이 분명해요.,학교에 제안하는 글로 발전시켜 볼까요?
+S004,일회용 플라스틱 사용,"플라스틱은 나쁘다. 쓰지 말자. 쓰지 말자.",2,1,4,생각은 분명해요. 기사 내용과 연결해 보세요.,기사에서 근거 한 가지를 찾아볼까요?
+S005,학교 앞 어린이 교통사고,,,,,글이 비어 있어요. 다시 써 봅시다.,
+S006,일회용 플라스틱 사용,"기사를 읽고 우리 반 분리수거가 떠올랐다. 분리수거만 잘해도 쓰레기가 줄어든다고 했으니 우리 반 규칙을 만들자고 제안하고 싶다.",4,4,3,경험과 기사를 잘 연결했어요.,규칙 초안을 직접 써 보면 어떨까요?`);
+};
+// 이어서 하기
+(function(){ const d=restore(); if(d){ const b=document.getElementById("btnResume"); b.classList.remove("hide");
+  b.onclick=()=>{ raw=d.raw; map=d.map; recs=d.recs; scaleMax=d.scaleMax; manualMode=d.manualMode;
+    show("secMap"); renderMaps(); show("secReview"); show("secExport"); mark(3); renderTable(); }; } })();
+</script>
+</body>
+</html>
