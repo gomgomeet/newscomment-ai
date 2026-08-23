@@ -78,19 +78,20 @@ footer{text-align:center;color:var(--muted);font-size:12px;padding:20px}
 <main>
 
 <div class="card" id="secApi">
-  <h2>🔑 Claude AI 연결 <span class="hint">— 선택. 키를 넣으면 루브릭 생성·채점·세특 초안을 AI가 자동으로 해 줍니다. 키가 없어도 프롬프트 복사 방식으로 모두 사용할 수 있습니다.</span></h2>
+  <h2>🔑 AI 연결 (Claude · Gemini) <span class="hint">— 선택. 키를 넣으면 루브릭 생성·채점·세특 초안을 AI가 자동으로 해 줍니다. 키가 없어도 프롬프트 복사 방식으로 모두 사용할 수 있습니다.</span></h2>
   <div class="toolbar">
-    <input type="password" id="apiKey" placeholder="sk-ant-api03-..." autocomplete="off" style="flex:1;min-width:220px;padding:8px;border:1px solid var(--line);border-radius:7px;font-family:inherit">
-    <select id="apiModel" style="padding:8px;border:1px solid var(--line);border-radius:7px;font-family:inherit">
-      <option value="claude-opus-5">Claude Opus 5 (기본 · 정확)</option>
-      <option value="claude-sonnet-5">Claude Sonnet 5 (균형)</option>
-      <option value="claude-haiku-4-5">Claude Haiku 4.5 (빠름 · 저렴)</option>
+    <select id="apiProv" style="padding:8px;border:1px solid var(--line);border-radius:7px;font-family:inherit">
+      <option value="gemini">Gemini (무료 키 가능)</option>
+      <option value="anthropic">Claude (유료 · 채점 품질 우선)</option>
     </select>
+    <input type="password" id="apiKey" placeholder="AIza..." autocomplete="off" style="flex:1;min-width:220px;padding:8px;border:1px solid var(--line);border-radius:7px;font-family:inherit">
+    <select id="apiModel" style="padding:8px;border:1px solid var(--line);border-radius:7px;font-family:inherit"></select>
     <button id="keySave" class="sec">키 저장</button>
     <button id="keyClear" class="ghost">키 지우기</button>
     <span id="keyState" class="hint"></span>
   </div>
-  <p class="hint">🔒 키는 <b>이 브라우저(localStorage)에만</b> 저장됩니다 — 이 파일이나 깃허브·노션 어디에도 올라가지 않습니다. 키를 코드나 문서에 직접 붙여넣지 말고, 공용 PC에서는 사용 후 [키 지우기]를 눌러 주세요. AI 채점 시 학생 글(학번 제외)이 Claude API로 전송되므로 학교·교육청 지침을 확인하세요.</p>
+  <p class="hint" id="provHint"></p>
+  <p class="hint">🔒 키는 <b>이 브라우저(localStorage)에만</b> 저장됩니다 — 이 파일이나 깃허브·노션 어디에도 올라가지 않습니다. 키를 코드나 문서에 직접 붙여넣지 말고, 공용 PC에서는 사용 후 [키 지우기]를 눌러 주세요. AI 채점 시 학생 글(학번 제외)이 선택한 AI 서비스로 전송되므로 학교·교육청 지침을 확인하세요.</p>
 </div>
 
 <div class="card" id="secDesign">
@@ -207,7 +208,7 @@ footer{text-align:center;color:var(--muted);font-size:12px;padding:20px}
 </div>
 
 </main>
-<footer>과정 중심 평가를 위한 수업도우미 v0.4 — API 키와 학생 정보는 이 PC에만 저장됩니다. AI 채점을 켠 경우에만 학생 글(학번 제외)이 Claude API로 전송됩니다.</footer>
+<footer>과정 중심 평가를 위한 수업도우미 v0.5 — API 키와 학생 정보는 이 PC에만 저장됩니다. AI 채점을 켠 경우에만 학생 글(학번 제외)이 선택한 AI(Claude/Gemini)로 전송됩니다.</footer>
 
 <script>
 "use strict";
@@ -678,26 +679,68 @@ el("dApprove").onclick=()=>{ if(!design) return;
   renderApprovedPanel(); save2(); };
 renderStds(); restore2(); el("st0").classList.add("on");
 
-// ---------- Claude API 연결 (키는 이 브라우저에만 저장) ----------
+// ---------- AI 연결: Claude / Gemini (키는 이 브라우저에만 저장) ----------
 const LSK="sudoumi_api_v1";
-let apiKey="", apiModel="claude-opus-5";
+const PROVIDERS={
+ gemini:{ name:"Gemini", ph:"AIza...",
+  models:[["gemini-2.5-flash","Gemini 2.5 Flash (기본 · 무료 티어 가능)"],["gemini-2.5-flash-lite","Gemini 2.5 Flash-Lite (가장 빠름·저렴)"],["gemini-2.5-pro","Gemini 2.5 Pro (정확)"]],
+  hint:"무료 키: aistudio.google.com → [Get API key] — 카드 등록 없이 발급됩니다. ⚠ 무료 티어는 입력 내용이 구글 모델 개선에 활용될 수 있으니 실습·샘플 데이터용으로 쓰고, 실제 학생 글 채점은 유료 티어나 Claude를 권장합니다." },
+ anthropic:{ name:"Claude", ph:"sk-ant-api03-...",
+  models:[["claude-opus-5","Claude Opus 5 (기본 · 정확)"],["claude-sonnet-5","Claude Sonnet 5 (균형)"],["claude-haiku-4-5","Claude Haiku 4.5 (빠름·저렴)"]],
+  hint:"키 발급: console.anthropic.com → API Keys. Claude.ai 구독과 별개로 크레딧 충전(최소 $5)이 필요합니다. 입력 데이터는 기본적으로 모델 학습에 사용되지 않습니다." }
+};
+let apiProv="gemini", apiKey="", apiModel="gemini-2.5-flash";
+function renderProv(){
+  const p=PROVIDERS[apiProv];
+  el("apiModel").innerHTML=p.models.map(([v,l])=>`<option value="${v}">${l}</option>`).join("");
+  if(p.models.some(([v])=>v===apiModel)) el("apiModel").value=apiModel; else apiModel=p.models[0][0];
+  el("apiKey").placeholder=p.ph;
+  el("provHint").textContent=p.hint;
+}
 function updateKeyUI(){
   const on=!!apiKey;
-  el("keyState").textContent = on ? "✔ 연결됨 ("+apiModel+")" : "키 없음 — 프롬프트 복사 방식 사용 가능";
+  el("keyState").textContent = on ? "✔ 연결됨 ("+PROVIDERS[apiProv].name+" · "+apiModel+")" : "키 없음 — 프롬프트 복사 방식 사용 가능";
   el("keyState").style.color = on ? "var(--ok)" : "";
   el("dGenAI").classList.toggle("hide", !on);
   el("btnAiScore").classList.toggle("hide", !on || !recs.length);
 }
-function loadKey(){ try{ const d=JSON.parse(localStorage.getItem(LSK)); if(d){ apiKey=d.key||""; apiModel=d.model||"claude-opus-5";
-  el("apiKey").value=apiKey; el("apiModel").value=apiModel; } }catch(e){} updateKeyUI(); }
-el("keySave").onclick=()=>{ apiKey=el("apiKey").value.trim(); apiModel=el("apiModel").value;
-  if(!apiKey){ alert("API 키를 입력해 주세요. (console.anthropic.com에서 발급)"); return; }
-  try{ localStorage.setItem(LSK, JSON.stringify({key:apiKey,model:apiModel})); }catch(e){}
-  updateKeyUI(); alert("키를 이 브라우저에 저장했습니다. 파일이나 깃허브에는 저장되지 않습니다."); };
+function persistKey(){ try{ localStorage.setItem(LSK, JSON.stringify({prov:apiProv,key:apiKey,model:apiModel})); }catch(e){} }
+function loadKey(){ try{ const d=JSON.parse(localStorage.getItem(LSK)); if(d){
+  apiKey=d.key||"";
+  apiProv=d.prov||(apiKey&&apiKey.indexOf("sk-ant")===0?"anthropic":"gemini");
+  apiModel=d.model||PROVIDERS[apiProv].models[0][0];
+  el("apiKey").value=apiKey; el("apiProv").value=apiProv; } }catch(e){} renderProv(); updateKeyUI(); }
+el("apiProv").onchange=()=>{ apiProv=el("apiProv").value; apiModel=""; renderProv(); apiModel=el("apiModel").value;
+  if(apiKey) persistKey(); updateKeyUI(); };
+el("keySave").onclick=()=>{ apiKey=el("apiKey").value.trim(); apiProv=el("apiProv").value; apiModel=el("apiModel").value;
+  if(!apiKey){ alert("API 키를 입력해 주세요. Gemini는 aistudio.google.com, Claude는 console.anthropic.com에서 발급합니다."); return; }
+  persistKey(); updateKeyUI(); alert("키를 이 브라우저에 저장했습니다. 파일이나 깃허브에는 저장되지 않습니다."); };
 el("keyClear").onclick=()=>{ apiKey=""; el("apiKey").value=""; try{ localStorage.removeItem(LSK); }catch(e){} updateKeyUI(); };
-el("apiModel").onchange=()=>{ apiModel=el("apiModel").value;
-  if(apiKey){ try{ localStorage.setItem(LSK, JSON.stringify({key:apiKey,model:apiModel})); }catch(e){} updateKeyUI(); } };
+el("apiModel").onchange=()=>{ apiModel=el("apiModel").value; if(apiKey){ persistKey(); updateKeyUI(); } };
 
+async function callAI(system, user, maxTokens){
+  return apiProv==="gemini" ? callGemini(system,user,maxTokens) : callClaude(system,user,maxTokens);
+}
+async function callGemini(system, user, maxTokens){
+  const body={ contents:[{role:"user",parts:[{text:user}]}],
+    generationConfig:{maxOutputTokens:(maxTokens||2000)+1024} };
+  if(system) body.system_instruction={parts:[{text:system}]};
+  if(/flash/.test(apiModel)) body.generationConfig.thinkingConfig={thinkingBudget:0};
+  const res=await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+apiModel+":generateContent?key="+encodeURIComponent(apiKey),
+    {method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+  if(!res.ok){
+    let msg="HTTP "+res.status;
+    try{ const e=await res.json(); msg=(e.error&&e.error.message)||msg; }catch(_){}
+    if(res.status===400&&/API key/i.test(msg)) msg="Gemini API 키가 올바르지 않습니다. 키를 다시 확인해 주세요.";
+    if(res.status===403) msg="이 키로는 접근할 수 없습니다. AI Studio에서 키 상태를 확인해 주세요.";
+    if(res.status===429) msg="사용량 한도에 도달했습니다(무료 티어는 분·일 단위 제한). 잠시 후 다시 시도해 주세요.";
+    throw new Error(msg);
+  }
+  const data=await res.json();
+  const cand=data.candidates&&data.candidates[0];
+  if(!cand||!cand.content||!cand.content.parts) throw new Error("Gemini가 응답을 생성하지 않았습니다"+(cand&&cand.finishReason?" ("+cand.finishReason+")":"."));
+  return cand.content.parts.map(p=>p.text||"").join("");
+}
 async function callClaude(system, user, maxTokens){
   const headers={ "content-type":"application/json", "x-api-key":apiKey,
     "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" };
@@ -728,7 +771,7 @@ el("dGenAI").onclick=async()=>{
   const p=buildPrompt(); if(!p) return;
   const btn=el("dGenAI"); btn.disabled=true; btn.textContent="✨ 생성 중…";
   try{
-    const out=await callClaude(null, p, 4000);
+    const out=await callAI(null, p, 4000);
     const body=parseTableText(out);
     if(!body) throw new Error("AI 응답에서 루브릭 표를 읽지 못했습니다. [AI 프롬프트 복사] 방식으로 시도해 보세요.");
     applyRubricAreas(body);
@@ -772,7 +815,7 @@ el("btnAiScore").onclick=async()=>{
     el("aiProg").textContent=`채점 중 ${i+1}/${targets.length} (${r.id||"?"})…`;
     try{
       const user=(r.article?`[기사 제목] ${r.article}\n`:"")+`[학생 글]\n${r.text}`;
-      const j=extractJSON(await callClaude(sys, user, 1500));
+      const j=extractJSON(await callAI(sys, user, 1500));
       const s=(j.scores||[]).map(v=>Math.max(lo,Math.min(scaleMax,parseInt(v))));
       if(s.length<3||s.some(isNaN)) throw new Error("점수 형식 오류");
       r.ai={u:s[0],c:s[1],e:s[2]};

@@ -548,3 +548,28 @@ Playwright(API 모킹) 검증: 키 저장/표시, AI 루브릭 생성→승인, 
 행만 채점, (b) 전체 채점+기본 루브릭 confirm, 교사 점수 자동 제안, 확신도
 낮음 플래그, 학번 미전송, CSV 세특 열 — 전부 통과. 실 API 호출은 사용자
 키로 확인 필요.
+
+## 2026-08-23 수업도우미 v0.5 — Gemini 무료 키 지원 (제공자 선택)
+
+사용자 질문("제미나이 키는 무료 아니야?")에 따라 AI 연결을 제공자 선택형으로
+확장. Claude를 교체하지 않고 **Gemini · Claude 둘 다 지원**.
+
+- 제공자 선택: Gemini(기본, 무료 티어 가능 — 실습생 배포용) / Claude(유료,
+  채점 품질·데이터 비학습 — 실제 평가용). 선택에 따라 모델 목록·키 발급
+  안내·placeholder가 바뀜.
+- Gemini 모델: gemini-2.5-flash(기본)/flash-lite/pro. REST
+  generativelanguage.googleapis.com v1beta generateContent, flash 계열은
+  thinkingConfig.thinkingBudget=0으로 비용·지연 절약. 400/403/429 안내 처리.
+- 앱 내 고지: 무료 티어는 입력이 구글 모델 개선에 활용될 수 있음 →
+  실습·샘플용, 실제 학생 글은 유료 티어/Claude 권장.
+- 기존 sk-ant 저장분은 자동으로 Claude 제공자로 인식(마이그레이션).
+- 호출부는 callAI()로 통합(루브릭 생성·자동 채점 공용). 학번 미전송 동일.
+
+Playwright(모킹) 검증: 기본 Gemini·모델 목록·힌트, 키 저장 상태, Gemini
+루브릭 생성→승인→b모드 6/6 채점, 요청 URL·thinkingBudget·학번 미전송,
+Claude 전환 시 모델 목록 교체, 구버전 저장 마이그레이션 — 전부 통과.
+실키 확인은 미실시(사용자 키 필요).
+
+배포 안내 방침(사용자와 논의): 실습생에게는 파일(QR)+상시 링크로 배포,
+Gemini 무료 키 발급(aistudio.google.com)을 사전 과제로, 키 없는 참가자는
+프롬프트 복사 방식이 플랜 B.
