@@ -816,9 +816,9 @@ export function QuestioningChatbotBoard() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen overflow-x-auto bg-background text-foreground [word-break:keep-all]">
       <header className="border-b border-border bg-card">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8">
+        <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8 xl:min-w-[1680px]">
           <div className="rounded-md border border-border bg-background p-4">
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <KeyRound className="size-4 text-primary" aria-hidden="true" />
@@ -892,7 +892,7 @@ export function QuestioningChatbotBoard() {
         </div>
       </header>
 
-      <main className="mx-auto grid w-full max-w-7xl items-start gap-4 px-4 py-5 sm:grid-cols-2 sm:px-6 lg:px-8 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,0.85fr)_minmax(0,1.2fr)_minmax(0,1fr)]">
+      <main className="mx-auto grid w-full max-w-[1800px] items-start gap-4 px-4 py-5 sm:grid-cols-2 sm:px-6 lg:px-8 xl:min-w-[1680px] xl:grid-cols-[300px_340px_560px_420px] 2xl:grid-cols-[320px_380px_minmax(0,1fr)_460px]">
         <>
           <div className="rounded-md border border-border bg-card">
             <div className="border-b border-border p-4">
@@ -1034,6 +1034,7 @@ export function QuestioningChatbotBoard() {
                     type="button"
                     size="sm"
                     variant="outline"
+                    className="shrink-0 whitespace-nowrap"
                     onClick={() => setIsRubricOpen((current) => !current)}
                   >
                     {isRubricOpen ? "접기" : "전체 보기"}
@@ -1167,13 +1168,13 @@ export function QuestioningChatbotBoard() {
               <Button
                 type="button"
                 variant="outline"
-                className="w-full justify-between"
+                className="w-full justify-between text-left"
                 aria-expanded={isBehaviorSettingsOpen}
                 onClick={() => setIsBehaviorSettingsOpen((current) => !current)}
               >
-                <span className="flex items-center gap-2">
-                  <SlidersHorizontal className="size-4" aria-hidden="true" />
-                  챗봇 동작 설정 {isBehaviorSettingsOpen ? "접기" : "펼쳐보기"}
+                <span className="flex min-w-0 items-center gap-2">
+                  <SlidersHorizontal className="size-4 shrink-0" aria-hidden="true" />
+                  <span className="truncate">챗봇 동작 설정 {isBehaviorSettingsOpen ? "접기" : "펼쳐보기"}</span>
                 </span>
                 {isBehaviorSettingsOpen ? (
                   <ChevronUp className="size-4" aria-hidden="true" />
