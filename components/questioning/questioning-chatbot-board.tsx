@@ -28,7 +28,6 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   QUESTIONING_AI_SETTINGS_KEY,
   QUESTIONING_CHATBOT_CONFIG_KEY,
-  A4_PAGE_QUESTION_MATERIAL_CHAR_THRESHOLD,
   REFERENCE_ONLY_QUESTION_MATERIAL_TEXT,
   buildRubric,
   buildStandardAssessmentAnalysis,
@@ -170,12 +169,12 @@ function createManualMaterial({
     return {
       materialTitle,
       summary:
-        "A4 1장 이상 지문 또는 교과서 자료입니다. 학생은 원문을 직접 살펴보며 질문하고, 챗봇은 교사가 정한 수업 범위 안에서만 대화를 돕습니다.",
+        "긴 지문 또는 교과서 자료입니다. 학생은 원문을 직접 살펴보며 질문하고, 챗봇은 교사가 정한 수업 범위 안에서만 대화를 돕습니다.",
       visibleText: REFERENCE_ONLY_QUESTION_MATERIAL_TEXT,
       keyConcepts: titleConcepts.slice(0, 5),
       possibleMisconceptions: ["원문을 확인하지 않고 챗봇 답만으로 근거를 판단할 수 있음"],
       questionSeeds: quickQuestions,
-      sourceLimit: "A4 1장 이상 지문 또는 교과서 원문은 학생이 직접 확인하도록 안내하고, 교사가 지정한 수업 범위 안에서만 답합니다.",
+      sourceLimit: "긴 지문 또는 교과서 원문은 학생이 직접 확인하도록 안내하고, 교사가 지정한 수업 범위 안에서만 답합니다.",
       safetyNotice: "학생 개인정보와 사진 속 식별 정보는 입력하지 않습니다.",
     };
   }
@@ -692,14 +691,14 @@ export function QuestioningChatbotBoard() {
         materialTitle: nextMaterialTitle,
         summary: shouldReferenceOnly
           ? payload.summary ||
-            "A4 1장 이상 지문 또는 교과서 자료입니다. 학생은 원문을 직접 살펴보며 질문하고 근거를 확인합니다."
+            "긴 지문 또는 교과서 자료입니다. 학생은 원문을 직접 살펴보며 질문하고 근거를 확인합니다."
           : payload.summary || teacherNotes,
         visibleText: shouldReferenceOnly ? REFERENCE_ONLY_QUESTION_MATERIAL_TEXT : extractedVisibleText,
         keyConcepts: payload.keyConcepts || [],
         possibleMisconceptions: payload.possibleMisconceptions || [],
         questionSeeds: payload.questionSeeds || quickQuestions,
         sourceLimit: shouldReferenceOnly
-          ? "A4 1장 이상 지문 또는 교과서 원문은 학생이 직접 확인하도록 안내하고, 교사가 지정한 수업 범위 안에서만 답합니다."
+          ? "긴 지문 또는 교과서 원문은 학생이 직접 확인하도록 안내하고, 교사가 지정한 수업 범위 안에서만 답합니다."
           : payload.sourceLimit || "분석된 수업 자료 범위 안에서만 답합니다.",
         safetyNotice: payload.safetyNotice || "학생 개인정보는 입력하지 않습니다.",
       };
@@ -709,7 +708,7 @@ export function QuestioningChatbotBoard() {
       setTeacherNotes(analyzedMaterial.visibleText);
       setNotice(
         shouldReferenceOnly
-          ? "A4 1장 이상 지문 또는 교과서 자료로 판단해 학생 화면에는 교과서 확인 안내만 반영했습니다."
+          ? "긴 지문 또는 교과서 자료로 판단해 학생 화면에는 교과서 확인 안내만 반영했습니다."
           : "이미지에서 추출한 질문 자료 전체 내용을 학생용 챗봇에 반영할 준비를 마쳤습니다.",
       );
     } catch (error) {
@@ -731,7 +730,7 @@ export function QuestioningChatbotBoard() {
     setTeacherNotes(nextMaterial.visibleText);
     setNotice(
       nextMaterial.visibleText === REFERENCE_ONLY_QUESTION_MATERIAL_TEXT
-        ? "A4 1장 이상 지문 또는 교과서 자료는 학생 화면에 교과서 확인 안내만 반영했습니다."
+        ? "긴 지문 또는 교과서 자료는 학생 화면에 교과서 확인 안내만 반영했습니다."
         : "교사가 입력한 질문 자료 전체 내용을 학생용 챗봇에 반영했습니다.",
     );
   }
@@ -1086,7 +1085,7 @@ export function QuestioningChatbotBoard() {
                 <h2 className="text-base font-semibold">3. 질문 자료 입력</h2>
               </div>
             </div>
-            <div className="grid gap-4 p-4 2xl:grid-cols-[240px_minmax(0,1fr)]">
+            <div className="grid gap-4 p-4 2xl:grid-cols-[minmax(360px,0.95fr)_minmax(0,1fr)]">
               <div className="space-y-3">
                 <Label htmlFor="material-title">자료 이름</Label>
                 <Input
@@ -1095,6 +1094,19 @@ export function QuestioningChatbotBoard() {
                   onChange={(event) => setMaterialTitle(event.target.value)}
                   placeholder="예: 신문기사 사진, 교과서 지문"
                 />
+                <div className="space-y-2">
+                  <Label htmlFor="teacher-notes">질문 자료 전체 내용</Label>
+                  <Textarea
+                    id="teacher-notes"
+                    value={teacherNotes}
+                    onChange={(event) => setTeacherNotes(event.target.value)}
+                    className="min-h-44"
+                    placeholder="짧은 기사나 교사 제작 자료는 원문 전체를 입력하세요."
+                  />
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    짧은 자료는 원문 전체, 긴 지문이나 교과서는 확인 안내만 학생 화면에 보여 줍니다.
+                  </p>
+                </div>
                 <label className="flex min-h-48 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-border bg-background p-4 text-center text-sm text-muted-foreground hover:bg-muted">
                   <Upload className="mb-3 size-6 text-primary" aria-hidden="true" />
                   <span className="font-medium text-foreground">이미지 업로드</span>
@@ -1116,25 +1128,6 @@ export function QuestioningChatbotBoard() {
                 ) : null}
               </div>
               <div className="space-y-3">
-                <div className="space-y-2">
-                  <Label htmlFor="teacher-notes">질문 자료 전체 내용</Label>
-                  <Textarea
-                    id="teacher-notes"
-                    value={teacherNotes}
-                    onChange={(event) => setTeacherNotes(event.target.value)}
-                    className="min-h-40"
-                    placeholder="짧은 기사나 교사 제작 자료는 원문 전체를 문단과 줄바꿈을 유지해 입력하세요."
-                  />
-                  <div className="space-y-1 text-sm leading-6 text-muted-foreground">
-                    <p className="font-semibold text-foreground">질문 자료 입력 기준</p>
-                    <p>짧은 기사나 교사가 직접 만든 자료는 원문 전체를 넣습니다.</p>
-                    <p>
-                      A4 1장 이상 지문이나 교과서는 원문을 붙여 넣지 않고 아래 옵션을 켜서 학생 화면에{" "}
-                      <b className="text-foreground">교과서를 살펴보세요.</b>로 표시합니다.
-                    </p>
-                    <p>요약은 챗봇 내부 판단용으로만 사용하고, 학생 화면에는 원문 또는 확인 안내만 보입니다.</p>
-                  </div>
-                </div>
                 <label className="flex items-start gap-3 rounded-md border border-border bg-background px-3 py-2 text-sm leading-6 text-muted-foreground">
                   <input
                     type="checkbox"
@@ -1143,11 +1136,8 @@ export function QuestioningChatbotBoard() {
                     className="mt-1 size-4 accent-primary"
                   />
                   <span>
-                    A4 1장 이상 지문·교과서는 원문 대신{" "}
+                    긴 지문·교과서 자료는 원문 대신{" "}
                     <b className="text-foreground">교과서를 살펴보세요.</b>로 학생 화면에 표시
-                    <span className="block text-xs">
-                      자동 판정 기준: 공백 포함 약 {A4_PAGE_QUESTION_MATERIAL_CHAR_THRESHOLD.toLocaleString("ko-KR")}자 이상
-                    </span>
                   </span>
                 </label>
                 <div className="flex flex-wrap gap-2">
