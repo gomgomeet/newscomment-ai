@@ -10,6 +10,8 @@
 - 학생 식별은 실명이나 모둠 선택이 아니라 학교, 반, 번호를 입력받고, 교사용 기록에서는 `학교_반_번호` 한 열로 합쳐 관리한다.
 - 학생 답변은 질문 유형 분석보다 학생 발화에 먼저 반응하도록 조정했고, 직접적인 후속 질문 대신 짧은 격려 문장만 보여 준다.
 - 제목을 보고 내용을 예측하는 질문은 제목을 그대로 반복하지 않고, 예측 가능성과 자료 확인을 나누어 답하도록 보강했다.
+- 교육적 대화 원리부터 현재 PR의 데이터 흐름까지 연결한 LLM 설계 리서치 문서를 추가했다.
+- 가상 기사 6개와 성취기준 8개를 사용한 10회기 합성 학습자 다중 턴 형성평가를 추가해, 다음 대화 품질 수정의 기준선을 마련했다.
 
 ## 주요 변경
 
@@ -22,6 +24,15 @@
 - 학생 화면에서는 질문 유형과 루브릭 분석을 보여 주지 않고, 학생의 질문과 생각에 먼저 응답하도록 조정했다.
 - 교사용 보드의 `챗봇 질문 성격 메모`를 PRD와 Gemini 응답 규칙에 반영해, 교사가 의도한 질문 방향을 학생 응답 톤에 적용한다.
 - `docs/QUESTIONING_CHATBOT_PRD.md`, `docs/QUESTIONING_CHATBOT_HANDOFF.md`, `docs/QUESTIONING_CHATBOT_NOTION_DB_TEMPLATE.md`, `docs/DEPLOYMENT_CHECKLIST.md`를 현재 운영 모델에 맞게 정리했다.
+- `docs/QUESTIONING_CHATBOT_LLM_RESEARCH.md`에 성취기준 나침반, 관심·질문 중심 대화 상태, 프롬프트·스키마·평가 설계를 정리했다.
+- `docs/QUESTIONING_CHATBOT_10_SESSION_SYNTHETIC_DIALOGUE_EVALUATION.md`에 10회기 40교환의 대화, 어색한 부분, 코드 반영 우선순위를 기록했다.
+
+## 대화 품질 평가에서 확인한 후속 수정
+
+- 직접 후속 질문 전면 금지는 학생 질문 대필을 막는 범위를 넘어 자연스러운 교사 발문까지 차단하므로 조건부 질문 정책으로 좁혀야 한다.
+- 학생 화면이 모델의 `followUpQuestion`을 사용하지 않고 모든 응답 아래에 같은 격려 문장을 붙여, 좋은 모델 응답도 기계적으로 보일 수 있다.
+- 다음 구현에서는 `studentReply`, `expectsStudentReply`, `isClosing`, `primaryMove`, `engagementState`, `curriculumRelation`을 도입하는 것이 우선이다.
+- 합성 학생 평가는 프리파일럿 형성평가이며 실제 학생 사용성 검사나 학습 효과 검증을 대신하지 않는다.
 
 ## 운영 모델 정리
 
@@ -35,6 +46,8 @@
 - `npm run typecheck`
 - `npm run lint`
 - `npm run build`
+- 연구 문서의 마크다운 코드 블록 짝과 내부 링크 확인
+- 10개 회기, 학생 발화 40개, 챗봇 응답 40개 구성 확인
 
 ## 배포 메모
 
@@ -52,6 +65,8 @@ vercel deploy --prebuilt --prod
 
 ## 남은 확인
 
+- 연구에서 도출한 P0 스키마·UI 수정과 40교환 회귀 평가를 먼저 수행한다.
+- 수정 전후 응답을 교사 블라인드 비교로 검토한다.
 - 학교 현장 PC에서 교사 개인 Gemini API 키를 연결한 뒤 학생 질문 응답을 실제 수업 자료로 테스트한다.
 - 교사 개인 Notion 템플릿을 복제하고 준비 DB/결과 DB 저장 흐름을 확인한다.
 - 다른 컴퓨터에서는 `codex/questioning-chatbot-closeout` 브랜치를 체크아웃하고 `.env.example`을 `.env.local`로 복사한 뒤 개인 키를 다시 입력한다.
