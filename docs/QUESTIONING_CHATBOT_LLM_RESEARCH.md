@@ -9,6 +9,8 @@
 
 연결 평가 보고서: [10회기 합성 학습자 다중 턴 형성평가](./QUESTIONING_CHATBOT_10_SESSION_SYNTHETIC_DIALOGUE_EVALUATION.md)
 
+프로젝트 적용 계획: [리서치 결과 코드 적용·마이그레이션·검증 계획](./QUESTIONING_CHATBOT_RESEARCH_APPLICATION_PLAN.md)
+
 ## 1. 이번 점검의 핵심 결론
 
 현재 챗봇이 어색하고 기계적으로 느껴지는 이유는 단순히 LLM 모델이 약해서가 아니다. 지금 구조는 다음 네 가지가 동시에 교사형 대화를 막고 있다.

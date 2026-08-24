@@ -26,6 +26,7 @@
 - `docs/QUESTIONING_CHATBOT_LLM_RESEARCH.md`에 교육적 대화 원리, LLM 구조, 현재 PR 진단, 아동 안전, 평가 방법을 통합했다.
 - 성취기준을 매 턴 달성할 목표가 아니라 학생의 관심과 질문이 교육적으로 의미 있는 방향을 잃지 않게 하는 보이지 않는 나침반으로 재정의했다.
 - `docs/QUESTIONING_CHATBOT_10_SESSION_SYNTHETIC_DIALOGUE_EVALUATION.md`에 가상 기사 6개, 성취기준 8개, 합성 학생 페르소나 10개를 조합한 다중 턴 형성평가를 기록했다.
+- `docs/QUESTIONING_CHATBOT_RESEARCH_APPLICATION_PLAN.md`에 타입, API, UI, fallback, Notion, 평가, 미성년자 제공자 차단을 포함한 단계별 적용 계획을 정리했다.
 - 10회기에서 학생 발화 40개와 챗봇 응답 40개를 검토했다.
 - 자료 근거와 불확실성 구분은 비교적 안정적이었지만, 자연스러운 리듬, 설명량 조절, 생산적 곁가지, 종료 처리는 개선이 필요했다.
 - 현재의 직접 후속 질문 전면 금지와 학생 화면의 고정 격려 문장은 완료된 최종 설계가 아니라 다음 구현에서 바꿔야 할 대상으로 확인됐다.
@@ -56,16 +57,16 @@
 
 ## 다음 작업 순서
 
-1. 학생 화면의 고정 격려 상자를 제거하고 모델이 만든 완성된 한 말풍선을 `studentReply`로 표시한다.
-2. 응답 스키마에 `expectsStudentReply`, `isClosing`, `primaryMove`, `engagementState`, `curriculumRelation`, `supportLevel`을 반영한다.
-3. 직접 후속 질문 전면 금지를 조건부 질문 정책으로 바꾸고, 질문 대필·정답 유도·자동 확인 질문만 금지한다.
-4. 학생이 실제로 본 전체 응답과 상태를 다음 대화 이력에 포함하고, 로컬 fallback에도 같은 상태·반복·종료 정책을 적용한다.
+1. 학생용 Gemini 호출을 기본 차단하고 학생 컴포넌트의 교사 API 키 읽기·전송을 제거한다.
+2. 응답 스키마에 `studentReply`, `expectsStudentReply`, `isClosing`을 호환 필드로 먼저 추가한다.
+3. 학생 화면의 고정 격려 상자를 제거하고 모델이 만든 완성된 `studentReply` 한 말풍선만 표시한다.
+4. 학생이 실제로 본 전체 응답을 다음 대화 이력에 포함한다.
 5. 10회기 40교환을 회귀 평가 세트로 고정해 변경 전후 응답을 비교한다.
-6. 교사 두 명 이상의 블라인드 비교로 자연스러움, 질문 소유권, 적응적 발판, 자료 근거, 종료를 검토한다.
-7. 자료 밖 질문, 개인정보, 정답 대필 요청이 안전하게 전환되는지 다시 확인한다.
-8. 품질 수정 뒤 학교에서 Gemini API 키와 실제 수업 자료를 연결해 성인 역할 시험을 진행한다.
-9. Notion DB 연동을 사용할 경우 `docs/QUESTIONING_CHATBOT_NOTION_DB_TEMPLATE.md`에 맞춰 준비 DB와 결과 DB를 만든다.
-10. 운영형으로 확장할 때 Supabase에 `003_questioning_lesson_connections.sql`을 적용하고 수업 연결 저장을 테스트한다.
+6. `curriculumCompass`, `primaryMove`, `engagementState`, `curriculumRelation`, `supportLevel`, `repair`를 적용한다.
+7. 직접 후속 질문 전면 금지를 조건부 질문 정책으로 바꾸고 로컬 fallback에도 같은 상태·반복·종료 정책을 적용한다.
+8. 교사 두 명 이상의 블라인드 비교로 자연스러움, 질문 소유권, 적응적 발판, 자료 근거, 종료를 검토한다.
+9. 학생용 제공자 약관, 개인정보, 학교 승인이 완료되기 전에는 교사용 미리보기와 학생용 로컬 모드만 사용한다.
+10. Notion·Supabase 운영 연결은 품질·안전 변경 뒤 다시 통합 시험한다.
 
 ## 배포형 구현 제안
 

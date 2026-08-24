@@ -26,6 +26,7 @@
 - `docs/QUESTIONING_CHATBOT_PRD.md`, `docs/QUESTIONING_CHATBOT_HANDOFF.md`, `docs/QUESTIONING_CHATBOT_NOTION_DB_TEMPLATE.md`, `docs/DEPLOYMENT_CHECKLIST.md`를 현재 운영 모델에 맞게 정리했다.
 - `docs/QUESTIONING_CHATBOT_LLM_RESEARCH.md`에 성취기준 나침반, 관심·질문 중심 대화 상태, 프롬프트·스키마·평가 설계를 정리했다.
 - `docs/QUESTIONING_CHATBOT_10_SESSION_SYNTHETIC_DIALOGUE_EVALUATION.md`에 10회기 40교환의 대화, 어색한 부분, 코드 반영 우선순위를 기록했다.
+- `docs/QUESTIONING_CHATBOT_RESEARCH_APPLICATION_PLAN.md`에 제공자 차단선, V2 계약, 파일별 변경, 호환성 마이그레이션, 회귀평가와 출시 기준을 정리했다.
 
 ## 대화 품질 평가에서 확인한 후속 수정
 
@@ -33,6 +34,7 @@
 - 학생 화면이 모델의 `followUpQuestion`을 사용하지 않고 모든 응답 아래에 같은 격려 문장을 붙여, 좋은 모델 응답도 기계적으로 보일 수 있다.
 - 다음 구현에서는 `studentReply`, `expectsStudentReply`, `isClosing`, `primaryMove`, `engagementState`, `curriculumRelation`을 도입하는 것이 우선이다.
 - 합성 학생 평가는 프리파일럿 형성평가이며 실제 학생 사용성 검사나 학습 효과 검증을 대신하지 않는다.
+- 현재 Gemini 약관에서는 18세 미만이 접근할 가능성이 있는 API Client 사용이 금지되므로, 학생용 Gemini 경로는 출시 차단 대상으로 두고 교사용 미리보기와 학생용 로컬 경로를 분리해야 한다.
 
 ## 운영 모델 정리
 
