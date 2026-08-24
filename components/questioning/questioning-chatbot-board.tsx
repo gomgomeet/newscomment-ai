@@ -28,6 +28,8 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   QUESTIONING_AI_SETTINGS_KEY,
   QUESTIONING_CHATBOT_CONFIG_KEY,
+  A4_PAGE_QUESTION_MATERIAL_CHAR_THRESHOLD,
+  REFERENCE_ONLY_QUESTION_MATERIAL_TEXT,
   buildRubric,
   buildStandardAssessmentAnalysis,
   createDefaultQuestioningChatbotBehavior,
@@ -35,6 +37,7 @@ import {
   isQuestioningAiSettings,
   normalizeQuestioningChatbotBehavior,
   questioningAiModelOptions,
+  shouldUseReferenceOnlyQuestionMaterial,
   standardOptions,
   standardSource,
   type QuestioningAiSettings,
@@ -73,7 +76,7 @@ const classifierKeywordFields: {
 ];
 
 const evaluationRecordColumns = [
-  { label: "학생이름", placeholder: "학생명" },
+  { label: "학교_반_번호", placeholder: "예: 푸른초등학교_4-2_15" },
   { label: "성취기준·자료 연결", placeholder: "0~5" },
   { label: "자료 근거 확인", placeholder: "0~5" },
   { label: "질문 유형 확장", placeholder: "0~5" },
@@ -87,9 +90,9 @@ const evaluationRecordColumns = [
 
 const evaluationRecordGuideRows = [
   {
-    label: "학생이름",
-    guide: "학생 이름 또는 수업용 식별명을 입력합니다.",
-    use: "학생별 평가 기록을 구분합니다.",
+    label: "학교_반_번호",
+    guide: "학생이 입력한 학교, 반, 번호를 밑줄로 합쳐 기록합니다. 예: 푸른초등학교_4-2_15",
+    use: "실명 없이 학생별 평가 기록을 구분합니다.",
   },
   {
     label: "성취기준·자료 연결",
@@ -148,13 +151,37 @@ function splitLines(value: string) {
 function createManualMaterial({
   title,
   notes,
+  referenceOnly = false,
 }: {
   title: string;
   notes: string;
+  referenceOnly?: boolean;
 }): MaterialAnalysis {
   const lines = splitLines(notes);
+  const materialTitle = title.trim() || "교사 입력 수업 자료";
+  const titleConcepts = splitLines(materialTitle);
+  const useReferenceOnly = shouldUseReferenceOnlyQuestionMaterial({
+    title: materialTitle,
+    text: notes,
+    forceReferenceOnly: referenceOnly,
+  });
+
+  if (useReferenceOnly) {
+    return {
+      materialTitle,
+      summary:
+        "A4 1장 이상 지문 또는 교과서 자료입니다. 학생은 원문을 직접 살펴보며 질문하고, 챗봇은 교사가 정한 수업 범위 안에서만 대화를 돕습니다.",
+      visibleText: REFERENCE_ONLY_QUESTION_MATERIAL_TEXT,
+      keyConcepts: titleConcepts.slice(0, 5),
+      possibleMisconceptions: ["원문을 확인하지 않고 챗봇 답만으로 근거를 판단할 수 있음"],
+      questionSeeds: quickQuestions,
+      sourceLimit: "A4 1장 이상 지문 또는 교과서 원문은 학생이 직접 확인하도록 안내하고, 교사가 지정한 수업 범위 안에서만 답합니다.",
+      safetyNotice: "학생 개인정보와 사진 속 식별 정보는 입력하지 않습니다.",
+    };
+  }
+
   return {
-    materialTitle: title.trim() || "교사 입력 수업 자료",
+    materialTitle,
     summary: notes.trim() || "교사가 수업 중 제시한 자료를 바탕으로 질문을 만들고 근거를 확인합니다.",
     visibleText: notes.trim(),
     keyConcepts: lines.slice(0, 5),
@@ -243,7 +270,7 @@ ${assessmentAnalysis.questionTypeLinks
   .join("\n")}
 
 ## 6. 학생에게 보여 줄 질문 자료 전체 내용
-${material.visibleText || material.summary || "질문 자료 전체 내용을 입력해야 합니다."}
+${material.visibleText || (material.summary ? REFERENCE_ONLY_QUESTION_MATERIAL_TEXT : "질문 자료 전체 내용을 입력해야 합니다.")}
 
 ## 7. 핵심 개념
 ${material.keyConcepts.map((concept) => `- ${concept}`).join("\n") || "- 미정"}
@@ -252,7 +279,7 @@ ${material.keyConcepts.map((concept) => `- ${concept}`).join("\n") || "- 미정"
 ${rubricSummary}
 
 ## 9. 학생 기록 필드
-- 학생이름
+- 학교_반_번호
 - 성취기준·자료 연결
 - 자료 근거 확인
 - 질문 유형 확장
@@ -334,7 +361,7 @@ function buildEvaluationWorkbookXml({
   const mergedHeaderColumns = recordHeaders.length - 1;
   const blankRows = Array.from({ length: 30 }, (_, index) => {
     const cells = [
-      textCell(index === 0 ? "예: 김OO" : ""),
+      textCell(index === 0 ? "예: 푸른초등학교_4-2_15" : ""),
       ...Array.from({ length: scoreColumnCount }, () => numberCell(0)),
       formulaCell(`=SUM(RC[-${scoreColumnCount}]:RC[-1])`, "Score"),
       ...Array.from({ length: 4 }, () => textCell("")),
@@ -392,7 +419,7 @@ function buildEvaluationWorkbookXml({
   </Styles>
   <Worksheet ss:Name="평가 기록">
     <Table>
-      <Column ss:Width="110"/>
+      <Column ss:Width="170"/>
       <Column ss:Width="105"/>
       <Column ss:Width="105"/>
       <Column ss:Width="105"/>
@@ -473,6 +500,7 @@ export function QuestioningChatbotBoard() {
   const [imageDataUrl, setImageDataUrl] = useState("");
   const [imageName, setImageName] = useState("");
   const [material, setMaterial] = useState<MaterialAnalysis>(defaultLessonMaterial);
+  const [isReferenceOnlyMaterial, setIsReferenceOnlyMaterial] = useState(false);
   const [behavior, setBehavior] = useState<QuestioningChatbotBehavior>(defaultChatbotBehavior);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isRubricOpen, setIsRubricOpen] = useState(false);
@@ -491,6 +519,15 @@ export function QuestioningChatbotBoard() {
   const configuredMaterial = useMemo(() => {
     const fullText = teacherNotes.trim();
     const nextTitle = materialTitle.trim() || material.materialTitle || "교사 입력 질문 자료";
+    const useReferenceOnly = shouldUseReferenceOnlyQuestionMaterial({
+      title: nextTitle,
+      text: fullText,
+      forceReferenceOnly: isReferenceOnlyMaterial,
+    });
+
+    if (useReferenceOnly) {
+      return createManualMaterial({ title: nextTitle, notes: fullText, referenceOnly: true });
+    }
 
     if (!fullText || fullText === material.visibleText.trim()) {
       return {
@@ -500,7 +537,7 @@ export function QuestioningChatbotBoard() {
     }
 
     return createManualMaterial({ title: nextTitle, notes: fullText });
-  }, [material, materialTitle, teacherNotes]);
+  }, [isReferenceOnlyMaterial, material, materialTitle, teacherNotes]);
   const prdText = useMemo(
     () =>
       buildPrdText({
@@ -644,20 +681,37 @@ export function QuestioningChatbotBoard() {
         throw new Error(payload.error || "이미지 분석에 실패했습니다.");
       }
 
+      const nextMaterialTitle = payload.materialTitle || materialTitle;
+      const extractedVisibleText = payload.visibleText || teacherNotes;
+      const shouldReferenceOnly = shouldUseReferenceOnlyQuestionMaterial({
+        title: nextMaterialTitle,
+        text: extractedVisibleText,
+        forceReferenceOnly: isReferenceOnlyMaterial,
+      });
       const analyzedMaterial: MaterialAnalysis = {
-        materialTitle: payload.materialTitle || materialTitle,
-        summary: payload.summary || teacherNotes,
-        visibleText: payload.visibleText || teacherNotes,
+        materialTitle: nextMaterialTitle,
+        summary: shouldReferenceOnly
+          ? payload.summary ||
+            "A4 1장 이상 지문 또는 교과서 자료입니다. 학생은 원문을 직접 살펴보며 질문하고 근거를 확인합니다."
+          : payload.summary || teacherNotes,
+        visibleText: shouldReferenceOnly ? REFERENCE_ONLY_QUESTION_MATERIAL_TEXT : extractedVisibleText,
         keyConcepts: payload.keyConcepts || [],
         possibleMisconceptions: payload.possibleMisconceptions || [],
         questionSeeds: payload.questionSeeds || quickQuestions,
-        sourceLimit: payload.sourceLimit || "분석된 수업 자료 범위 안에서만 답합니다.",
+        sourceLimit: shouldReferenceOnly
+          ? "A4 1장 이상 지문 또는 교과서 원문은 학생이 직접 확인하도록 안내하고, 교사가 지정한 수업 범위 안에서만 답합니다."
+          : payload.sourceLimit || "분석된 수업 자료 범위 안에서만 답합니다.",
         safetyNotice: payload.safetyNotice || "학생 개인정보는 입력하지 않습니다.",
       };
       setMaterial(analyzedMaterial);
       setMaterialTitle(analyzedMaterial.materialTitle);
+      setIsReferenceOnlyMaterial(shouldReferenceOnly);
       setTeacherNotes(analyzedMaterial.visibleText);
-      setNotice("이미지에서 추출한 질문 자료 전체 내용을 학생용 챗봇에 반영할 준비를 마쳤습니다.");
+      setNotice(
+        shouldReferenceOnly
+          ? "A4 1장 이상 지문 또는 교과서 자료로 판단해 학생 화면에는 교과서 확인 안내만 반영했습니다."
+          : "이미지에서 추출한 질문 자료 전체 내용을 학생용 챗봇에 반영할 준비를 마쳤습니다.",
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "이미지 분석에 실패했습니다.";
       setNotice(`${message} 질문 자료 전체 내용을 직접 입력해도 보드를 사용할 수 있습니다.`);
@@ -667,8 +721,19 @@ export function QuestioningChatbotBoard() {
   }
 
   function handleUseManualMaterial() {
-    setMaterial(createManualMaterial({ title: materialTitle, notes: teacherNotes }));
-    setNotice("교사가 입력한 질문 자료 전체 내용을 학생용 챗봇에 반영했습니다.");
+    const nextMaterial = createManualMaterial({
+      title: materialTitle,
+      notes: teacherNotes,
+      referenceOnly: isReferenceOnlyMaterial,
+    });
+    setMaterial(nextMaterial);
+    setIsReferenceOnlyMaterial(nextMaterial.visibleText === REFERENCE_ONLY_QUESTION_MATERIAL_TEXT);
+    setTeacherNotes(nextMaterial.visibleText);
+    setNotice(
+      nextMaterial.visibleText === REFERENCE_ONLY_QUESTION_MATERIAL_TEXT
+        ? "A4 1장 이상 지문 또는 교과서 자료는 학생 화면에 교과서 확인 안내만 반영했습니다."
+        : "교사가 입력한 질문 자료 전체 내용을 학생용 챗봇에 반영했습니다.",
+    );
   }
 
   function handleClassifierKeywordsChange(key: keyof QuestionClassifierKeywords, value: string) {
@@ -1058,9 +1123,33 @@ export function QuestioningChatbotBoard() {
                     value={teacherNotes}
                     onChange={(event) => setTeacherNotes(event.target.value)}
                     className="min-h-40"
-                    placeholder="학생에게 보여 줄 질문 자료 전체 내용을 문단과 줄바꿈을 유지해 입력하세요."
+                    placeholder="짧은 기사나 교사 제작 자료는 원문 전체를 문단과 줄바꿈을 유지해 입력하세요."
                   />
+                  <div className="space-y-1 text-sm leading-6 text-muted-foreground">
+                    <p className="font-semibold text-foreground">질문 자료 입력 기준</p>
+                    <p>짧은 기사나 교사가 직접 만든 자료는 원문 전체를 넣습니다.</p>
+                    <p>
+                      A4 1장 이상 지문이나 교과서는 원문을 붙여 넣지 않고 아래 옵션을 켜서 학생 화면에{" "}
+                      <b className="text-foreground">교과서를 살펴보세요.</b>로 표시합니다.
+                    </p>
+                    <p>요약은 챗봇 내부 판단용으로만 사용하고, 학생 화면에는 원문 또는 확인 안내만 보입니다.</p>
+                  </div>
                 </div>
+                <label className="flex items-start gap-3 rounded-md border border-border bg-background px-3 py-2 text-sm leading-6 text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={isReferenceOnlyMaterial}
+                    onChange={(event) => setIsReferenceOnlyMaterial(event.target.checked)}
+                    className="mt-1 size-4 accent-primary"
+                  />
+                  <span>
+                    A4 1장 이상 지문·교과서는 원문 대신{" "}
+                    <b className="text-foreground">교과서를 살펴보세요.</b>로 학생 화면에 표시
+                    <span className="block text-xs">
+                      자동 판정 기준: 공백 포함 약 {A4_PAGE_QUESTION_MATERIAL_CHAR_THRESHOLD.toLocaleString("ko-KR")}자 이상
+                    </span>
+                  </span>
+                </label>
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" onClick={handleAnalyzeImage} disabled={isAnalyzing || !imageDataUrl}>
                     {isAnalyzing ? <RefreshCw className="size-4 animate-spin" aria-hidden="true" /> : <Wand2 className="size-4" aria-hidden="true" />}
@@ -1191,7 +1280,7 @@ export function QuestioningChatbotBoard() {
               </div>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1320px] text-left text-sm">
+              <table className="w-full min-w-[1360px] text-left text-sm">
                 <thead className="border-b border-border bg-muted text-xs text-muted-foreground">
                   <tr>
                     {evaluationRecordColumns.map((column) => (
@@ -1204,9 +1293,9 @@ export function QuestioningChatbotBoard() {
                 <tbody>
                   {Array.from({ length: 4 }, (_, rowIndex) => (
                     <tr key={rowIndex} className="border-b border-border align-top">
-                      {evaluationRecordColumns.map((column, columnIndex) => (
+                      {evaluationRecordColumns.map((column) => (
                         <td key={column.label} className="px-4 py-3 text-muted-foreground">
-                          {rowIndex === 0 && columnIndex === 0 ? "예: 김OO" : column.placeholder}
+                          {rowIndex === 0 ? column.placeholder : ""}
                         </td>
                       ))}
                     </tr>

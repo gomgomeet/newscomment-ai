@@ -122,12 +122,34 @@ export type QuestioningChatbotConfig = {
 
 export const QUESTIONING_CHATBOT_CONFIG_KEY = "questioning-chatbot-config";
 export const QUESTIONING_AI_SETTINGS_KEY = "questioning-ai-settings";
+export const REFERENCE_ONLY_QUESTION_MATERIAL_TEXT = "교과서를 살펴보세요.";
+export const A4_PAGE_QUESTION_MATERIAL_CHAR_THRESHOLD = 1800;
+
+const referenceOnlySourcePattern = /교과서|A4\s*1\s*장|A4용지\s*1\s*장|저작권|본문\s*전체/;
 
 export type QuestioningAiSettings = {
   provider: "gemini";
   apiKey: string;
   model: string;
 };
+
+export function shouldUseReferenceOnlyQuestionMaterial({
+  title,
+  text,
+  forceReferenceOnly = false,
+}: {
+  title: string;
+  text: string;
+  forceReferenceOnly?: boolean;
+}) {
+  const trimmedText = text.trim();
+  const sourceSignal = `${title}\n${trimmedText.slice(0, 180)}`;
+  return (
+    forceReferenceOnly ||
+    referenceOnlySourcePattern.test(sourceSignal) ||
+    trimmedText.length >= A4_PAGE_QUESTION_MATERIAL_CHAR_THRESHOLD
+  );
+}
 
 export const questioningAiModelOptions = [
   { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash (기본 · 균형)" },
@@ -271,7 +293,15 @@ export const defaultQuestioningLessonMaterial: MaterialAnalysis = {
   summary:
     "푸른초등학교는 급식 잔반을 줄이기 위해 학생들이 반찬 양을 스스로 고르는 선택제와 잔반 게시판을 운영했다. 예전에는 하루에 큰 통 세 통이 넘는 잔반이 나왔고, 처리 비용도 적지 않았다. 학교는 반찬을 받을 때 '조금, 보통, 많이' 가운데 먹을 양을 고르게 하고, 학급별 잔반 무게를 게시판에 붙였다. 그 결과 하루 세 통이 넘던 잔반이 한 통 반으로 줄었고, 학생들은 먹을 만큼만 받으면 다 먹기 쉽다는 점을 알게 되었다. 학교는 음식 낭비가 줄어든 만큼 아낀 돈으로 과일 후식을 늘릴 계획이며, 전문가는 잔반 줄이기가 학교와 지구를 함께 지키는 실천이라고 설명했다.",
   visibleText:
-    "제목: 급식실 남은 음식, 석 달 만에 절반으로\n핵심 사실: 푸른초등학교는 학생들이 먹을 반찬 양을 직접 고르는 선택제를 운영했다.\n핵심 사실: 학생들은 '조금, 보통, 많이' 중 먹을 양을 고르고 학급별 잔반 무게를 게시판에서 확인했다.\n수치 변화: 예전에는 하루에 큰 통 세 통이 넘는 잔반이 나왔지만, 변화 후 한 통 반으로 줄었다.\n학생 반응: 4학년 학생은 먹을 만큼만 받으니 다 먹게 되고, 다 먹으면 기분도 좋다고 말했다.\n학교 계획: 영양교사는 버리는 음식이 줄어든 만큼 아낀 돈으로 과일 후식을 늘릴 계획이라고 했다.\n전문가 관점: 잔반 줄이기는 학교만의 일이 아니라 음식, 노동, 자원, 지구 환경을 지키는 실천과 연결된다.",
+    "급식실 남은 음식, 석 달 만에 '절반'으로\n" +
+    '푸른초 "먹을 만큼만 골라 담아요"... 양 선택제·잔반 게시판 효과\n' +
+    "김하람 기자\n\n" +
+    "학교 급식실에서 버려지는 음식이 크게 줄어든 학교가 있다. 푸른초등학교는 학생들이 반찬의 양을 스스로 고르게 한 뒤 석 달 만에 잔반을 절반으로 줄였다고 23일 밝혔다.\n\n" +
+    "'잔반'은 학생들이 먹지 않고 남긴 음식을 말한다. 이 학교에서는 그동안 하루에 큰 통으로 세 통이 넘는 잔반이 나왔다. 버려진 음식을 처리하는 데에도 적지 않은 돈이 들었다.\n\n" +
+    '잔반이 많이 나는 까닭은 학생들의 급식 습관에 있었다. 싫어하는 반찬을 받자마자 버리거나, 먹을 수 있는 양보다 많이 받는 학생이 많았던 것이다. "일단 다 받고, 못 먹으면 남기면 되지."라고 생각하는 학생이 적지 않았다.\n\n' +
+    "이에 푸른초는 지난 5월부터 새로운 방법을 시작했다. 반찬을 받을 때 '조금·보통·많이' 가운데 자기가 먹을 양을 직접 고르게 했다. 또 한 달에 한 번 '잔반 없는 날'을 정하고, 학급마다 남긴 음식의 무게를 게시판에 붙여 두었다. 학생들은 우리 반의 잔반이 얼마나 나오는지 눈으로 확인할 수 있게 되었다.\n\n" +
+    '변화는 숫자로 나타났다. 하루 세 통이 넘던 잔반이 한 통 반으로 줄어든 것이다. 4학년 김하늘 학생은 "내가 고른 만큼만 받으니까 다 먹게 되고, 다 먹으면 기분도 좋다"라고 말했다. 이 학교 영양교사는 "버리는 음식이 줄어든 만큼, 아낀 돈으로 과일 후식을 늘릴 계획"이라고 밝혔다.\n\n' +
+    "전문가들은 잔반 줄이기가 한 학교만의 일이 아니라고 말한다. 음식이 버려지면 음식을 만든 사람들의 노력과 지구의 자원도 함께 버려지기 때문이다. 내가 먹을 만큼만 받는 작은 습관이 학교와 지구를 지키는 첫걸음이 되고 있다.",
   keyConcepts: [
     "급식 잔반",
     "반찬 양 선택제",
@@ -305,6 +335,27 @@ export function createDefaultQuestioningLessonMaterial(): MaterialAnalysis {
     possibleMisconceptions: [...defaultQuestioningLessonMaterial.possibleMisconceptions],
     questionSeeds: [...defaultQuestioningLessonMaterial.questionSeeds],
   };
+}
+
+export function normalizeQuestionMaterialForStudentDisplay(material: MaterialAnalysis): MaterialAnalysis {
+  const visibleText = material.visibleText.trim();
+  const isLegacyDefaultMaterial =
+    material.materialTitle.includes("급식실 남은 음식") &&
+    visibleText.startsWith("제목: 급식실 남은 음식") &&
+    visibleText.includes("핵심 사실:");
+
+  if (isLegacyDefaultMaterial) {
+    return createDefaultQuestioningLessonMaterial();
+  }
+
+  if (!visibleText && material.summary.trim()) {
+    return {
+      ...material,
+      visibleText: REFERENCE_ONLY_QUESTION_MATERIAL_TEXT,
+    };
+  }
+
+  return material;
 }
 
 export const standardOptions: StandardOption[] = [
@@ -991,6 +1042,10 @@ function findRelevantSourceExcerpt(question: string, material: MaterialAnalysis,
     return "교사가 입력한 질문 자료에서 관련 내용을 확인해 보세요.";
   }
 
+  if (material.visibleText.trim() === REFERENCE_ONLY_QUESTION_MATERIAL_TEXT) {
+    return "이 자료는 A4 1장 이상 지문 또는 교과서 자료라 원문을 화면에 옮기지 않았어요. 교과서나 원본 자료의 해당 부분을 직접 살펴보며 근거를 확인해 보세요.";
+  }
+
   const terms = Array.from(
     new Set(
       (question.match(/[가-힣A-Za-z0-9]+/g) || [])
@@ -1101,7 +1156,7 @@ export function createLocalQuestionResult({
       followUpQuestion: "질문 자료에서 가장 궁금한 장면이나 내용을 하나 골라 질문해 볼까요?",
       questionType,
       typeLabel,
-      typeReason: "수업 자료 요약과 직접 연결되지 않는 질문으로 보입니다.",
+      typeReason: "질문 자료와 직접 연결되지 않는 질문으로 보입니다.",
       evidencePrompt: "자료의 어떤 부분과 연결해 질문할 수 있을지 먼저 찾아보세요.",
       revisionSuggestion: "이 자료에서 내가 궁금한 점은 무엇이고, 어느 부분에서 확인할 수 있나요?",
       evaluationSignals: ["자료 범위 밖 질문", "수업 목표 재연결 필요"],

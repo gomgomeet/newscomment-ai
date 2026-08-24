@@ -66,7 +66,7 @@ export async function POST(request: Request) {
     }
 
     if (!isMaterialAnalysis(body.material)) {
-      return Response.json({ error: "수업 자료 요약을 먼저 준비해 주세요." }, { status: 400 });
+      return Response.json({ error: "질문 자료를 먼저 준비해 주세요." }, { status: 400 });
     }
 
     if (!isRubric(body.rubric)) {

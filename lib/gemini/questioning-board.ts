@@ -260,14 +260,14 @@ export async function analyzeMaterialImageWithGemini({
     model,
     maxOutputTokens: 6000,
     systemInstruction:
-      "You help Korean teachers turn classroom source-material images into safe source-bounded knowledge for a questioning chatbot. The visibleText field must preserve every readable source-text passage in original order without summarizing or paraphrasing. Return Korean JSON only.",
+      'You help Korean teachers turn classroom source-material images into safe source-bounded knowledge for a questioning chatbot. For short teacher-made materials or short articles, visibleText must preserve every readable source-text passage in original order without summarizing or paraphrasing. For passages that are at least one A4 page long or textbook excerpts, set visibleText exactly to "교과서를 살펴보세요." and do not transcribe the full passage. Return Korean JSON only.',
     parts: [
       {
         text: JSON.stringify({
           task:
-            "이미지 속 질문 자료를 분석해 질문하기 수업용 챗봇에 연결하세요. visibleText에는 읽을 수 있는 전체 텍스트를 원래 순서와 문단 구조대로 빠짐없이 옮기고 요약하거나 재서술하지 마세요. summary는 챗봇 내부 판단용으로만 짧게 작성하세요. 사진 속 학생 개인정보나 식별 정보는 visibleText에서도 제외하거나 가리세요.",
+            "이미지 속 질문 자료를 분석해 질문하기 수업용 챗봇에 연결하세요. 짧은 기사나 교사 제작 자료라면 visibleText에는 읽을 수 있는 전체 텍스트를 원래 순서와 문단 구조대로 빠짐없이 옮기고 요약하거나 재서술하지 마세요. A4용지 1장 이상 분량의 지문이나 교과서 자료라면 visibleText를 정확히 '교과서를 살펴보세요.'로 쓰고 원문 전문을 옮기지 마세요. summary는 챗봇 내부 판단용으로만 짧게 작성하세요. 사진 속 학생 개인정보나 식별 정보는 visibleText에서도 제외하거나 가리세요.",
           displayPolicy:
-            "학생 화면에는 visibleText 전체를 생략 없이 표시하며 summary는 학생 화면에 대신 표시하지 않습니다.",
+            "학생 화면에는 visibleText만 표시합니다. summary는 학생 화면에 대신 표시하지 않습니다. A4 1장 이상 지문이나 교과서는 학생이 직접 원본을 보도록 안내합니다.",
           targetGrade,
           subjectUnit,
           standard,
@@ -365,6 +365,7 @@ export async function answerQuestionWithGemini({
             "답변은 2-4문장으로 짧게 하기",
             "자료 속 근거 확인은 evidencePrompt에서 안내하되 직접 답변을 대신하지 않기",
             "개인정보, 정답 대필, 원문 전체 복사 요청은 거절하기",
+            "visibleText가 '교과서를 살펴보세요.'인 경우 원문을 직접 본 것처럼 인용하지 말고 교과서 해당 부분에서 근거를 확인하도록 안내하기",
             "성찰 질문은 자기 질문과 이해 과정을 돌아보게 하기",
             `교사가 지정한 범위 밖 질문 응답 문구 사용하기: ${behavior.offTopicResponse}`,
             `질문이 지나치게 짧거나 모호하면 다음 격려와 힌트를 사용하기: ${behavior.insufficientQuestionResponse}`,
