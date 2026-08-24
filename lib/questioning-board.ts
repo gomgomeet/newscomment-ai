@@ -58,6 +58,7 @@ export type MaterialAnalysis = {
   materialTitle: string;
   summary: string;
   visibleText: string;
+  questionFocusMemo?: string;
   keyConcepts: string[];
   possibleMisconceptions: string[];
   questionSeeds: string[];
@@ -124,8 +125,11 @@ export const QUESTIONING_CHATBOT_CONFIG_KEY = "questioning-chatbot-config";
 export const QUESTIONING_AI_SETTINGS_KEY = "questioning-ai-settings";
 export const REFERENCE_ONLY_QUESTION_MATERIAL_TEXT = "교과서를 살펴보세요.";
 export const A4_PAGE_QUESTION_MATERIAL_CHAR_THRESHOLD = 1800;
+export const DEFAULT_QUESTION_FOCUS_MEMO = "제목을 보고 내용에 대해서 예측할 수 있도록 안내합니다.";
 
 const referenceOnlySourcePattern = /교과서|A4\s*1\s*장|A4용지\s*1\s*장|저작권|본문\s*전체/;
+const legacyDefaultQuestionFocusMemo =
+  "학생이 자료 속 사실을 먼저 확인하고, 잔반이 줄어든 까닭과 우리 학교에서 실천할 수 있는 방법으로 자연스럽게 질문을 넓히도록 돕습니다.";
 
 export type QuestioningAiSettings = {
   provider: "gemini";
@@ -181,8 +185,12 @@ export const defaultQuestioningChatbotBehavior: QuestioningChatbotBehavior = {
       "상담",
       "비밀번호",
       "답 다 써",
+      "답을 다",
+      "답안",
       "대필",
       "그대로 써",
+      "그대로 만들어",
+      "수행평가 답",
       "전체 정답",
       "숙제 해",
     ],
@@ -193,11 +201,11 @@ export const defaultQuestioningChatbotBehavior: QuestioningChatbotBehavior = {
     inference: ["왜", "어떻게", "까닭", "원인", "의미", "결과"],
   },
   offTopicResponse:
-    "수업 내용과 관련된 질문에 대해서만 응답할 수 있어요. 자료 속 장면·문장·표현과 연결해 다시 질문해 보세요.",
+    "수업 내용과 관련된 질문에 대해서만 응답할 수 있어요. 자료 속 장면·문장·표현을 다시 살펴봐요.",
   insufficientQuestionResponse:
-    "말해 준 내용을 잘 들었어요. 자료에서 연결되는 대상이나 장면을 하나 골라 조금 더 자세히 이야기해 볼까요?",
+    "말해 준 내용을 잘 들었어요. 자료에서 연결되는 대상이나 장면을 천천히 다시 살펴봐도 좋아요.",
   additionalInstructions:
-    "학생의 질문이나 응답을 먼저 구체적으로 받아 주고 자료와 연결해 대화한다. 질문 종류를 설명하지 말고, 자연스러운 후속 질문 하나로 학생이 스스로 더 분명하고 깊은 질문을 만들도록 돕는다.",
+    "학생의 질문이나 응답을 먼저 구체적으로 받아 주고 자료와 연결해 대화한다. 질문 종류를 설명하지 말고, 완성된 다음 질문이나 직접적인 후속 질문을 대신 써 주지 않으며 학생의 질문 시도를 짧게 격려한다.",
 };
 
 export function createDefaultQuestioningChatbotBehavior(): QuestioningChatbotBehavior {
@@ -256,6 +264,7 @@ export function normalizeQuestioningChatbotBehavior(value: unknown): Questioning
     fallback.insufficientQuestionResponse,
     500,
   );
+  const offTopicResponse = normalizeBehaviorText(behavior.offTopicResponse, fallback.offTopicResponse, 500);
 
   return {
     classifierKeywords: {
@@ -266,17 +275,25 @@ export function normalizeQuestioningChatbotBehavior(value: unknown): Questioning
       application: normalizeKeywordList(keywords.application, fallback.classifierKeywords.application),
       inference: normalizeKeywordList(keywords.inference, fallback.classifierKeywords.inference),
     },
-    offTopicResponse: normalizeBehaviorText(behavior.offTopicResponse, fallback.offTopicResponse, 500),
+    offTopicResponse:
+      offTopicResponse ===
+      "수업 내용과 관련된 질문에 대해서만 응답할 수 있어요. 자료 속 장면·문장·표현과 연결해 다시 질문해 보세요."
+        ? fallback.offTopicResponse
+        : offTopicResponse,
     insufficientQuestionResponse:
       insufficientQuestionResponse ===
-      "좋은 출발이에요. 자료의 어느 부분과 연결되는지 한 단어만 더 넣어 질문을 구체적으로 바꾸어 보세요."
+        "좋은 출발이에요. 자료의 어느 부분과 연결되는지 한 단어만 더 넣어 질문을 구체적으로 바꾸어 보세요." ||
+      insufficientQuestionResponse ===
+        "말해 준 내용을 잘 들었어요. 자료에서 연결되는 대상이나 장면을 하나 골라 조금 더 자세히 이야기해 볼까요?"
         ? fallback.insufficientQuestionResponse
         : insufficientQuestionResponse,
     additionalInstructions:
       additionalInstructions ===
         "학생 질문을 비판하지 말고 응원과 힌트를 제공하며, 답을 자료에서 다시 확인하도록 안내한다." ||
       additionalInstructions ===
-        "학생 질문에 먼저 자료를 근거로 직접 답하고, 자연스러운 후속 질문 하나로 대화를 이어 간다. 질문 유형과 개선 제안은 답변 뒤에 보조 정보로 제공한다."
+        "학생 질문에 먼저 자료를 근거로 직접 답하고, 자연스러운 후속 질문 하나로 대화를 이어 간다. 질문 유형과 개선 제안은 답변 뒤에 보조 정보로 제공한다." ||
+      additionalInstructions ===
+        "학생의 질문이나 응답을 먼저 구체적으로 받아 주고 자료와 연결해 대화한다. 질문 종류를 설명하지 말고, 자연스러운 후속 질문 하나로 학생이 스스로 더 분명하고 깊은 질문을 만들도록 돕는다."
         ? fallback.additionalInstructions
         : additionalInstructions,
   };
@@ -323,6 +340,8 @@ export const defaultQuestioningLessonMaterial: MaterialAnalysis = {
     "우리 반이나 학교에서 이 방법을 적용한다면 무엇을 바꾸어야 할까요?",
     "이 자료를 읽고 내 식습관이나 학교생활을 돌아볼 수 있는 질문은 무엇인가요?",
   ],
+  questionFocusMemo:
+    DEFAULT_QUESTION_FOCUS_MEMO,
   sourceLimit:
     "수업자가 제공한 기사 이미지에서 확인할 수 있는 급식 잔반, 반찬 양 선택제, 잔반 게시판, 식습관 변화, 음식물 쓰레기와 환경 보호에 연결된 질문에만 답합니다.",
   safetyNotice: "학생 이름, 학급별 실제 잔반 순위, 개인 식사량 등 개인정보나 민감한 비교 정보는 입력하지 않습니다.",
@@ -338,11 +357,43 @@ export function createDefaultQuestioningLessonMaterial(): MaterialAnalysis {
 }
 
 export function normalizeQuestionMaterialForStudentDisplay(material: MaterialAnalysis): MaterialAnalysis {
+  const normalizedMaterial = {
+    ...material,
+    questionFocusMemo:
+      typeof material.questionFocusMemo === "string" && material.questionFocusMemo.trim() !== legacyDefaultQuestionFocusMemo
+        ? material.questionFocusMemo
+        : DEFAULT_QUESTION_FOCUS_MEMO,
+  };
   const visibleText = material.visibleText.trim();
+  const isReferenceOnlyDefaultMaterial =
+    material.materialTitle.includes("급식실 남은 음식") &&
+    visibleText === REFERENCE_ONLY_QUESTION_MATERIAL_TEXT &&
+    /긴 지문 또는 교과서 자료/.test(material.summary);
   const isLegacyDefaultMaterial =
     material.materialTitle.includes("급식실 남은 음식") &&
     visibleText.startsWith("제목: 급식실 남은 음식") &&
     visibleText.includes("핵심 사실:");
+
+  if (isReferenceOnlyDefaultMaterial) {
+    const defaultMaterial = createDefaultQuestioningLessonMaterial();
+    return {
+      ...normalizedMaterial,
+      summary: defaultMaterial.summary,
+      visibleText: defaultMaterial.visibleText,
+      keyConcepts:
+        material.keyConcepts.length > 2
+          ? material.keyConcepts
+          : [...defaultMaterial.keyConcepts],
+      possibleMisconceptions: material.possibleMisconceptions.length
+        ? material.possibleMisconceptions
+        : [...defaultMaterial.possibleMisconceptions],
+      questionSeeds: material.questionSeeds.length
+        ? material.questionSeeds
+        : [...defaultMaterial.questionSeeds],
+      sourceLimit: defaultMaterial.sourceLimit,
+      safetyNotice: material.safetyNotice || defaultMaterial.safetyNotice,
+    };
+  }
 
   if (isLegacyDefaultMaterial) {
     return createDefaultQuestioningLessonMaterial();
@@ -350,12 +401,12 @@ export function normalizeQuestionMaterialForStudentDisplay(material: MaterialAna
 
   if (!visibleText && material.summary.trim()) {
     return {
-      ...material,
+      ...normalizedMaterial,
       visibleText: REFERENCE_ONLY_QUESTION_MATERIAL_TEXT,
     };
   }
 
-  return material;
+  return normalizedMaterial;
 }
 
 export const standardOptions: StandardOption[] = [
@@ -900,6 +951,7 @@ export function emptyMaterialAnalysis(): MaterialAnalysis {
     materialTitle: "",
     summary: "",
     visibleText: "",
+    questionFocusMemo: "",
     keyConcepts: [],
     possibleMisconceptions: [],
     questionSeeds: [],
@@ -913,10 +965,15 @@ export function classifyQuestionLocally(
   behaviorValue?: QuestioningChatbotBehavior,
 ): QuestionType {
   const normalized = question.toLowerCase();
+  const compact = normalized.replace(/\s+/g, "");
   const behavior = normalizeQuestioningChatbotBehavior(behaviorValue);
   const keywords = behavior.classifierKeywords;
 
-  if (keywords.safety.some((signal) => normalized.includes(signal.toLowerCase()))) {
+  const unsafeAnswerRequest =
+    /(답안|수행평가|숙제|정답|답을다|전체답|그대로).*(써|작성|만들|대신|해줘)/.test(compact) ||
+    /(써줘|작성해줘|만들어줘|대신해줘)/.test(compact) && /(답|문장|수행평가|숙제)/.test(compact);
+
+  if (unsafeAnswerRequest || keywords.safety.some((signal) => normalized.includes(signal.toLowerCase()))) {
     return "safety";
   }
 
@@ -966,6 +1023,7 @@ const questionSearchStopwords = new Set([
 ]);
 
 const questionIntentTerms = new Set([
+  "어떻게",
   "방법",
   "이유",
   "까닭",
@@ -1037,13 +1095,18 @@ function normalizeSearchToken(token: string) {
 }
 
 function findRelevantSourceExcerpt(question: string, material: MaterialAnalysis, prioritizeQuestionIntent: boolean) {
-  const source = material.visibleText.trim() || material.summary.trim();
+  const visibleText = material.visibleText.trim();
+  const summary = material.summary.trim();
+  const isReferenceOnly = visibleText === REFERENCE_ONLY_QUESTION_MATERIAL_TEXT;
+  const source = isReferenceOnly ? summary : visibleText || summary;
+  const compactQuestion = question.replace(/\s+/g, "");
+
   if (!source) {
     return "교사가 입력한 질문 자료에서 관련 내용을 확인해 보세요.";
   }
 
-  if (material.visibleText.trim() === REFERENCE_ONLY_QUESTION_MATERIAL_TEXT) {
-    return "이 자료는 A4 1장 이상 지문 또는 교과서 자료라 원문을 화면에 옮기지 않았어요. 교과서나 원본 자료의 해당 부분을 직접 살펴보며 근거를 확인해 보세요.";
+  if (isReferenceOnly && !summary) {
+    return "원본 자료의 해당 부분을 직접 살펴보며 근거를 확인해 보세요.";
   }
 
   const terms = Array.from(
@@ -1066,6 +1129,30 @@ function findRelevantSourceExcerpt(question: string, material: MaterialAnalysis,
 
   if (!segments.length) {
     return source.slice(0, 280);
+  }
+
+  const environmentalQuestion = /(환경|지구|자원|음식물쓰레기|쓰레기|영향|낭비)/.test(compactQuestion);
+  if (environmentalQuestion) {
+    const environmentalSegmentIndex = segments.findIndex((segment) =>
+      /(전문가|지구|자원|음식이 버려지면|음식물 쓰레기|환경)/.test(segment.text),
+    );
+    const environmentalSegment =
+      environmentalSegmentIndex >= 0 ? segments[environmentalSegmentIndex] : undefined;
+    if (environmentalSegment) {
+      const relatedSegments = [environmentalSegment];
+      for (let index = environmentalSegmentIndex + 1; index < segments.length; index += 1) {
+        const nextSegment = segments[index];
+        const combinedLength = relatedSegments.map((segment) => segment.text).join(" ").length + nextSegment.text.length;
+        if (nextSegment.paragraphIndex !== environmentalSegment.paragraphIndex || combinedLength > 340) {
+          break;
+        }
+        relatedSegments.push(nextSegment);
+      }
+      const combinedEnvironmentalText = relatedSegments.map((segment) => segment.text).join(" ");
+      return combinedEnvironmentalText.length > 340
+        ? `${combinedEnvironmentalText.slice(0, 337)}...`
+        : combinedEnvironmentalText;
+    }
   }
 
   const scored = segments.map((segment, index) => {
@@ -1108,6 +1195,37 @@ function findRelevantSourceExcerpt(question: string, material: MaterialAnalysis,
   return combined.length > 260 ? `${combined.slice(0, 257)}...` : combined;
 }
 
+function isTitlePredictionQuestion(question: string) {
+  const compactQuestion = question.replace(/\s+/g, "");
+  return (
+    (/(제목|표제|헤드라인)/.test(compactQuestion) &&
+      /(예측|예상|내용|이야기|무슨|어떤|무엇)/.test(compactQuestion)) ||
+    /(이야기일까|내용일까|말일까|뜻일까)/.test(compactQuestion)
+  );
+}
+
+function createTitlePredictionAnswer(question: string, material: MaterialAnalysis) {
+  const compactQuestion = question.replace(/\s+/g, "");
+  const sourceText = `${material.materialTitle}\n${material.visibleText}\n${material.summary}`;
+  const isFoodWasteMaterial = /(남은 음식|잔반|급식)/.test(sourceText);
+  const asksIfStudentsAteMore = /(많이먹|더먹|급식을많이|밥을많이)/.test(compactQuestion);
+
+  if (isFoodWasteMaterial && asksIfStudentsAteMore) {
+    return "그렇게 예상해 볼 수는 있어요. 다만 학생들이 급식을 많이 먹어서 줄었다고 바로 단정하기보다는, 먹을 만큼만 받게 된 방법 때문에 남기는 음식이 줄었는지 자료에서 확인해 보면 좋아요.";
+  }
+
+  if (isFoodWasteMaterial) {
+    return "제목만 보면 남은 음식이 크게 줄어든 변화가 중심일 것 같아요. 왜 그런 변화가 생겼는지는 제목만으로 단정하지 말고, 자료 속 방법과 결과를 함께 보며 확인해 보면 좋아요.";
+  }
+
+  const title = material.materialTitle.trim();
+  if (title) {
+    return `제목만 보면 '${title}'에서 어떤 변화나 핵심 내용이 나올지 먼저 예상해 볼 수 있어요. 그 예상이 맞는지는 자료 속 표현과 근거를 보며 차분히 확인해 보면 좋아요.`;
+  }
+
+  return "제목이나 첫 부분을 보면 자료가 무엇을 다룰지 먼저 예상해 볼 수 있어요. 그 예상이 맞는지는 자료 속 표현과 근거를 보며 차분히 확인해 보면 좋아요.";
+}
+
 export function createLocalQuestionResult({
   question,
   material,
@@ -1132,8 +1250,8 @@ export function createLocalQuestionResult({
   if (questionType === "safety") {
     return {
       answer:
-        "이 질문에는 개인정보나 정답 대필 요청이 섞여 있을 수 있어요. 이름, 연락처, 사진 속 개인 정보는 빼고, 자료에서 확인할 수 있는 내용이나 내 질문을 고치는 방향으로 다시 물어보세요.",
-      followUpQuestion: "개인정보를 뺀 뒤, 질문 자료에서 정말 궁금한 내용을 다시 물어볼까요?",
+        "이 질문에는 개인정보나 정답 대필 요청이 섞여 있을 수 있어요. 이름, 연락처, 사진 속 개인 정보는 빼고, 자료에서 확인할 수 있는 내용으로 천천히 다시 살펴봐요.",
+      followUpQuestion: "괜찮아요. 개인정보를 뺀 뒤 자료와 연결되는 궁금함을 천천히 다시 정리해 봐요.",
       questionType,
       typeLabel,
       typeReason: "개인정보 또는 대필 요청 가능성이 있어 안전 확인으로 분류했습니다.",
@@ -1153,7 +1271,7 @@ export function createLocalQuestionResult({
   if (questionType === "off_topic") {
     return {
       answer: behavior.offTopicResponse,
-      followUpQuestion: "질문 자료에서 가장 궁금한 장면이나 내용을 하나 골라 질문해 볼까요?",
+      followUpQuestion: "괜찮아요. 다시 질문 자료로 돌아와 눈에 띄는 부분부터 천천히 살펴봐요.",
       questionType,
       typeLabel,
       typeReason: "질문 자료와 직접 연결되지 않는 질문으로 보입니다.",
@@ -1174,7 +1292,7 @@ export function createLocalQuestionResult({
     return {
       answer:
         "질문 자료에는 직접 나오지 않지만 수업 내용과 이어지는 궁금증이에요. 현재 로컬 모드에서는 실시간 리서치 출처를 확인할 수 없으니, 자료와 연결되는 부분을 짚고 신뢰할 수 있는 추가 자료로 함께 확인해 보세요.",
-      followUpQuestion: "질문 자료의 어느 내용에서 이 궁금증이 생겼나요?",
+      followUpQuestion: "좋은 확장이에요. 먼저 자료와 연결되는 부분을 차분히 다시 확인해 봐요.",
       questionType,
       typeLabel,
       typeReason: "자료 밖 내용이지만 수업 주제와 이어지는 추가 탐구 표현이 포함되어 있습니다.",
@@ -1201,22 +1319,81 @@ export function createLocalQuestionResult({
     safety: "개인정보와 대필 요청을 빼고 다시 질문해 보세요.",
   };
 
+  const compactQuestionForApplication = question.replace(/\s+/g, "");
+  const asksBoardCaution =
+    questionType === "application" &&
+    /잔반게시판/.test(compactQuestionForApplication) &&
+    /(조심|주의|문제|부담|비교|순위|창피)/.test(compactQuestionForApplication);
+  if (asksBoardCaution) {
+    return {
+      answer:
+        "우리 반에서 잔반 게시판을 만든다면 개인 이름이나 특정 학생의 식사량을 드러내지 않는 것이 중요해요. 자료처럼 학급 전체의 변화나 실천 목표를 보여 주는 방식으로 만들면, 서로 비교하기보다 함께 줄여 가는 활동으로 사용할 수 있어요.",
+      followUpQuestion: "좋아요. 우리 반 상황에 맞게 모두가 부담 없이 참여할 방법을 천천히 생각해 봐요.",
+      questionType,
+      typeLabel,
+      typeReason: "자료 속 잔반 게시판을 우리 반 상황에 적용하면서 주의점을 묻는 적용 질문입니다.",
+      evidencePrompt: "자료에서 잔반 게시판이 어떤 정보를 보여 주었는지 확인하고, 개인정보나 비교 부담이 생기지 않게 바꿀 부분을 찾아보세요.",
+      revisionSuggestion: "우리 반에서 잔반 게시판을 만들 때 학생들이 부담 없이 참여하려면 어떤 정보를 보여 주어야 할까요?",
+      evaluationSignals: ["자료 적용", "개인정보와 비교 부담 고려", "실천 방법 구체화"],
+      teacherFeedback:
+        "자료 속 실천을 그대로 옮기기보다 개인정보와 비교 부담까지 고려해 학교 상황에 맞게 적용하려는 질문입니다.",
+      rubricScores: rubric.map((criterion) => ({
+        criterionKey: criterion.key,
+        score:
+          criterion.key === "question_depth" || criterion.key === "standard_material_alignment"
+            ? 4
+            : 3,
+        rationale: "자료의 실천 방법을 우리 반 상황으로 옮기며 주의점까지 고려했습니다.",
+      })),
+      safetyFlag: false,
+    };
+  }
+
+  if (isTitlePredictionQuestion(question)) {
+    const titlePredictionQuestionType: QuestionType = "inference";
+    return {
+      answer: createTitlePredictionAnswer(question, material),
+      followUpQuestion: "좋아요. 제목에서 떠올린 예상을 자료와 천천히 비교해 봐요.",
+      questionType: titlePredictionQuestionType,
+      typeLabel: questionTypeLabels[titlePredictionQuestionType],
+      typeReason: "제목이나 표현을 바탕으로 내용을 예상하는 질문으로 보입니다.",
+      evidencePrompt: "제목에서 떠올린 예상과 실제 자료에서 확인한 내용을 나누어 표시해 보세요.",
+      revisionSuggestion: "제목을 보고 예상한 내용과 자료에서 확인한 근거를 함께 넣어 다시 써 보세요.",
+      evaluationSignals: ["제목 근거 예측", "자료 근거 확인 필요", "단정과 확인 구분"],
+      teacherFeedback:
+        "제목을 바탕으로 내용을 예상하는 질문입니다. 단정하지 않고 자료 속 근거와 비교하도록 안내하면 좋겠습니다.",
+      rubricScores: rubric.map((criterion) => ({
+        criterionKey: criterion.key,
+        score:
+          criterion.key === "standard_material_alignment" || criterion.key === "question_depth"
+            ? 4
+            : 3,
+        rationale: "제목을 단서로 내용을 예측하고 자료 확인으로 이어지는 질문입니다.",
+      })),
+      safetyFlag: false,
+    };
+  }
+
   const answerByType: Record<Extract<QuestionType, "fact" | "inference" | "application" | "reflection">, string> = {
-    fact: `질문 자료에서 바로 확인되는 내용은 다음과 같아요. ${sourceExcerpt}`,
-    inference: `질문 자료의 단서를 연결해 보면 이렇게 답할 수 있어요. ${sourceExcerpt} 이 내용은 질문에서 묻는 이유나 결과를 판단하는 핵심 단서예요.`,
-    application: `질문 자료에서 적용 방법을 생각할 때 참고할 내용은 다음과 같아요. ${sourceExcerpt} 이 방법을 우리 상황에 맞게 바꾸어 볼 수 있어요.`,
-    reflection: `내 질문과 이해를 돌아볼 때 먼저 확인할 내용은 다음과 같아요. ${sourceExcerpt}`,
+    fact: `이 부분은 자료에서 확인할 수 있어요. ${sourceExcerpt}`,
+    inference: `그렇게 생각해 볼 수 있어요. 자료 속 단서는 이 부분과 연결됩니다. ${sourceExcerpt}`,
+    application: `우리 상황에 연결해 보려면 이 부분을 먼저 보면 좋아요. ${sourceExcerpt}`,
+    reflection: `좋은 점검이에요. 내 생각과 자료가 어떻게 이어지는지 이 부분을 보며 확인해 봐요. ${sourceExcerpt}`,
   };
   const followUpByType: Record<Extract<QuestionType, "fact" | "inference" | "application" | "reflection">, string> = {
-    fact: "이 사실을 알고 나니 한 단계 더 궁금해진 점은 무엇인가요?",
-    inference: "그렇게 생각한 까닭을 자료의 한 장면과 연결해 말해 볼까요?",
-    application: "이 방법을 우리 반이나 학교에 적용한다면 가장 먼저 무엇을 해 볼 수 있을까요?",
-    reflection: "이제 새롭게 궁금해진 점을 한 문장으로 말해 볼까요?",
+    fact: "좋아요. 확인한 사실을 붙잡고 자료를 한 번 더 살펴봐요.",
+    inference: "좋은 생각이에요. 근거가 되는 단서를 자료에서 한 번 더 찾아봐요.",
+    application: "좋아요. 우리 반이나 학교 상황과 천천히 연결해 봐요.",
+    reflection: "좋은 출발이에요. 지금 떠오른 생각을 자료와 연결해 다시 정리해 봐요.",
   };
+  const questionFocusMemo = material.questionFocusMemo?.trim();
+  const focusFollowUp = questionFocusMemo
+    ? "좋아요. 교사가 안내한 방향을 떠올리며 자료를 한 번 더 살펴봐요."
+    : "";
   const answer = answerByType[questionType];
   const followUpQuestion = needsMoreDetail
-    ? "좋은 시작이에요. 질문 자료에서 궁금한 대상이나 장면을 하나 골라 조금 더 자세히 물어볼까요?"
-    : followUpByType[questionType];
+    ? "좋은 시작이에요. 자료에서 눈에 띄는 대상이나 장면을 천천히 다시 살펴봐요."
+    : focusFollowUp || followUpByType[questionType];
 
   return {
     answer: `${looksLikeQuestion ? "" : "말해 준 생각을 잘 들었어요. "}${answer}${
@@ -1229,7 +1406,9 @@ export function createLocalQuestionResult({
     evidencePrompt: "자료의 어느 부분에서 이 답을 확인할 수 있나요? 근거가 되는 문장이나 장면을 표시해 보세요.",
     revisionSuggestion: revisionByType[questionType],
     evaluationSignals: ["질문 유형 확인", "자료 근거 확인 필요", "질문 다시 쓰기 가능"],
-    teacherFeedback: "질문 유형을 확인한 뒤 자료 근거를 표시하고, 더 구체적인 질문으로 다시 쓰고 바꾸게 하세요.",
+    teacherFeedback: questionFocusMemo
+      ? "교사가 정한 질문 성격 메모를 참고해 자료 근거와 질문 확장을 함께 보세요."
+      : "질문 유형을 확인한 뒤 자료 근거를 표시하고, 더 구체적인 질문으로 다시 쓰고 바꾸게 하세요.",
     rubricScores: rubric.map((criterion) => ({
       criterionKey: criterion.key,
       score:

@@ -21,7 +21,7 @@
 - Supabase 프로젝트
 - 선택: AI 평가 초안용 OpenAI API 키
 - 선택: 질문 챗봇용 Gemini API 키
-- 선택: Notion 댓글 가져오기용 Notion 내부 연동 토큰
+- 선택: Notion 댓글 가져오기 또는 질문 챗봇 결과 저장용 Notion 내부 연동 토큰
 
 OpenAI 키가 없어도 수동 채점은 가능하다. Notion 토큰이 없어도 댓글을 직접 입력할 수 있다. Gemini 키가 없어도 질문 챗봇은 로컬 예비 응답 모드로 일부 사용할 수 있다.
 
@@ -40,6 +40,9 @@ npm install
 ```text
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-supabase-publishable-key
+SUPABASE_SECRET_KEY=your-supabase-secret-key
+QUESTIONING_SECRET_ENCRYPTION_KEY=your-long-random-secret
+QUESTIONING_CONNECTION_SETUP_TOKEN=optional-save-password
 OPENAI_API_KEY=your-openai-api-key
 OPENAI_EVALUATION_MODEL=gpt-5.6
 GEMINI_API_KEY=your-gemini-api-key
@@ -52,6 +55,8 @@ NOTION_API_VERSION=2022-06-28
 
 질문 챗봇만 교사별 API 키 입력 방식으로 운영한다면 `GEMINI_API_KEY`를 서버에 넣지 않고, 교사용 제작보드에서 각 교사가 직접 입력해도 된다.
 
+질문 챗봇 운영형에서는 교사별 Gemini 키와 Notion 토큰을 서버 환경변수에 고정하지 않는다. 교사용 보드에서 교사가 직접 입력하고, 웹앱 서버는 `SUPABASE_SECRET_KEY`와 `QUESTIONING_SECRET_ENCRYPTION_KEY`로 연결정보를 암호화해 저장한다. Notion 템플릿에 Integration이 연결되어 있으면 준비 DB와 결과 DB는 자동으로 탐색된다.
+
 ## 4. Supabase 스키마 적용
 
 Supabase SQL Editor에서 아래 마이그레이션을 순서대로 실행한다.
@@ -59,11 +64,14 @@ Supabase SQL Editor에서 아래 마이그레이션을 순서대로 실행한다
 ```text
 supabase/migrations/001_initial_schema.sql
 supabase/migrations/002_project_notion_source.sql
+supabase/migrations/003_questioning_lesson_connections.sql
 ```
 
 첫 번째 마이그레이션은 테이블, 소유권 정책, RLS 규칙, 프로필 생성 트리거를 만든다.
 
 두 번째 마이그레이션은 프로젝트별 Notion 가져오기 설정을 기억하는 열을 추가한다.
+
+세 번째 마이그레이션은 질문 챗봇 수업 코드와 교사별 Gemini/Notion 연결정보를 암호화해 저장할 테이블을 만든다. 학생 대화 본문은 이 테이블에 저장하지 않는다.
 
 ## 5. Supabase Auth 설정 확인
 

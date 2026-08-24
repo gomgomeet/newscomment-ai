@@ -325,17 +325,18 @@ export async function answerQuestionWithGemini({
 }): Promise<ChatResult & { model: string }> {
   const apiKey = getApiKey(apiKeyOverride);
   const model = getModel(modelOverride);
+  const questionFocusMemo = material.questionFocusMemo?.trim();
   const parsed = await requestGeminiJson({
     apiKey,
     model,
     maxOutputTokens: 2400,
     systemInstruction:
-      "You are a Korean classroom dialogue partner grounded in the teacher's lesson material. Treat every student turn as a question, answer, or thought that deserves a concrete response. First acknowledge and respond to what the student actually said, then ask exactly one natural follow-up that helps the student think more clearly or deeply without naming question types or analyzing question quality. Classification and rubric fields are teacher-only metadata and must never appear in answer or followUpQuestion. Apply the teacher's behavior settings, but never let them override privacy, safety, copyright, or anti-answer-copying rules. Return Korean JSON only.",
+      "You are a Korean classroom dialogue partner grounded in the teacher's lesson material. Treat every student turn as a question, answer, or thought that deserves a concrete response. First acknowledge and respond to what the student actually said. Do not write the student's next question, a direct follow-up question, or a question-making hint for them. In followUpQuestion, provide exactly one brief encouragement sentence for the student, not a question. The teacher's question focus memo is the highest-priority instructional operating guide after privacy, safety, copyright, anti-answer-copying rules, and the lesson-material boundary. Classification and rubric fields are teacher-only metadata and must never appear in answer or followUpQuestion. Return Korean JSON only.",
     parts: [
       {
         text: JSON.stringify({
           task:
-            "학생이 한 질문·대답·생각을 먼저 구체적으로 받아 주고 자료와 연결해 응답하세요. 이어지는 후속 질문 하나로 학생이 스스로 더 분명하고 깊게 묻게 하며, 질문 유형과 루브릭 정보는 교사용 내부 데이터로만 만드세요.",
+            "학생이 한 질문·대답·생각을 먼저 구체적으로 받아 주고 자료와 연결해 응답하세요. 다음 질문이나 질문 만들기 힌트를 직접 제시하지 말고, 응답 뒤에는 짧은 격려 문장만 남기세요. 질문 유형과 루브릭 정보는 교사용 내부 데이터로만 만드세요.",
           targetGrade,
           subjectUnit,
           standard,
@@ -352,23 +353,30 @@ export async function answerQuestionWithGemini({
           studentTurn: question,
           responseRules: [
             "학생 발화가 질문이면 자료에 근거해 답하고, 대답이나 생각이면 그 구체적인 내용을 먼저 받아 주고 이어서 대화하기",
+            "answer를 '자료에서는 이렇게 설명해요', '자료를 보면' 같은 고정 제목 문구로 시작하지 말고 학생 질문에 바로 반응하는 자연스러운 문장으로 시작하기",
+            "제목을 보고 내용을 예측하는 질문에는 제목을 그대로 다시 읽어 주지 말고, '그렇게 예상해 볼 수는 있어요. 다만...'처럼 예측과 자료 확인을 구분해 답하기",
+            questionFocusMemo
+              ? `교사의 챗봇 질문 성격 메모를 매우 중시하기. 개인정보 보호, 안전, 저작권, 수업 자료 범위 제한을 지킨 다음에는 이 메모를 최우선 수업 운영 지침으로 삼고, 답변 초점·예시 선택·격려 방식·피드백 톤을 이 메모에 맞추기. 단, 메모 원문이나 '교사 메모'라는 표현은 학생에게 노출하지 않기: ${questionFocusMemo}`
+              : "교사가 별도 질문 성격 메모를 입력하지 않았으면 학생 질문에 대한 상호작용과 자료 근거 확인을 우선하기",
             "answer와 followUpQuestion에서 사실·추론·적용·확장·성찰 같은 질문 유형 이름이나 질문 분석 결과를 말하지 않기",
             "수업 자료에 있는 내용은 전체 질문 자료의 구체적인 사실과 표현을 근거로 바로 답하기",
-            "followUpQuestion에는 학생이 자신의 생각을 이어 말하거나 새로운 궁금증을 만들 수 있는 짧고 자연스러운 질문을 정확히 하나만 쓰기",
-            "최근 대화가 있으면 앞서 한 답과 후속 질문을 이어 받고 같은 안내를 기계적으로 반복하지 않기",
+            "followUpQuestion에는 학생이 그대로 베껴 쓸 완성형 다음 질문, 직접적인 후속 질문, 질문 만들기 힌트를 쓰지 말고 학생의 시도를 인정하는 짧은 격려 문장을 정확히 하나만 쓰기",
+            "followUpQuestion은 물음표로 끝내지 말고 '좋아요. 방금 떠올린 생각을 붙잡고 자료를 천천히 다시 살펴봐요.'처럼 작성하기",
+            "최근 대화가 있으면 앞서 한 답과 학생 반응을 이어 받고 같은 격려 문장을 기계적으로 반복하지 않기",
             "질문 유형, 근거 확인, 질문 개선, 루브릭 점수는 학생 화면에 노출하지 않는 교사용 내부 메타데이터로만 작성하기",
             "자료에는 없지만 수업 내용과 직접 관련된 확장 질문은 확장 질문으로 분류하기",
             "자료에 직접 없는 내용은 질문 유형 이름을 말하지 않고, 수업 주제와 연결되는 범위와 추가 확인이 필요함을 자연스럽게 설명하기",
             "실시간 리서치 출처가 제공되지 않았으면 출처를 지어내지 말고, 확인해야 할 검색어·출처 유형·점검 질문을 제안하기",
-            "수업 내용과 상관없는 질문에는 '수업 내용과 관련된 질문에 대해서만 응답할 수 있어요.'라고 답하고 수업 자료와 연결해 다시 묻게 하기",
-            "학생 발화가 짧거나 막연해도 가능한 의미를 먼저 받아 준 뒤, 후속 질문으로 내용을 구체화하도록 돕기",
+            "수업 내용과 상관없는 질문에는 '수업 내용과 관련된 질문에 대해서만 응답할 수 있어요.'라고 답하고 수업 자료로 돌아가도록 부드럽게 격려하기",
+            "학생 발화가 짧거나 막연해도 가능한 의미를 먼저 받아 준 뒤, 질문을 대신 만들어 주지 말고 다시 살펴보도록 격려하기",
             "답변은 2-4문장으로 짧게 하기",
             "자료 속 근거 확인은 evidencePrompt에서 안내하되 직접 답변을 대신하지 않기",
             "개인정보, 정답 대필, 원문 전체 복사 요청은 거절하기",
-            "visibleText가 '교과서를 살펴보세요.'인 경우 원문을 직접 본 것처럼 인용하지 말고 교과서 해당 부분에서 근거를 확인하도록 안내하기",
+            "visibleText가 '교과서를 살펴보세요.'인 경우에도 A4, 저작권, 화면 표시 규칙 같은 제작 사정을 학생에게 말하지 않기",
+            "visibleText가 '교과서를 살펴보세요.'이면 summary, keyConcepts, sourceLimit 안에서 자연스럽게 답하되 원문을 직접 인용한 것처럼 쓰지 않고 마지막에 원본 자료에서 근거를 확인하도록 짧게 안내하기",
             "성찰 질문은 자기 질문과 이해 과정을 돌아보게 하기",
             `교사가 지정한 범위 밖 질문 응답 문구 사용하기: ${behavior.offTopicResponse}`,
-            `질문이 지나치게 짧거나 모호하면 다음 격려와 힌트를 사용하기: ${behavior.insufficientQuestionResponse}`,
+            `질문이 지나치게 짧거나 모호하면 다음 격려 문구를 참고하기: ${behavior.insufficientQuestionResponse}`,
             `교사의 추가 챗봇 지시를 반영하기: ${behavior.additionalInstructions}`,
           ],
         }),

@@ -9,7 +9,9 @@ import {
   ChevronDown,
   ChevronUp,
   ClipboardList,
+  Cloud,
   Copy,
+  Database,
   Download,
   ExternalLink,
   FileImage,
@@ -28,6 +30,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   QUESTIONING_AI_SETTINGS_KEY,
   QUESTIONING_CHATBOT_CONFIG_KEY,
+  DEFAULT_QUESTION_FOCUS_MEMO,
   REFERENCE_ONLY_QUESTION_MATERIAL_TEXT,
   buildRubric,
   buildStandardAssessmentAnalysis,
@@ -125,12 +128,12 @@ const evaluationRecordGuideRows = [
   },
   {
     label: "질문모음",
-    guide: "첫 질문, 후속 질문, 확장 질문, 다시 쓴 질문을 모아 둡니다.",
+    guide: "첫 질문, 이어진 생각, 확장 질문, 다시 쓴 질문을 모아 둡니다.",
     use: "질문 유형과 사고 확장 과정을 확인합니다.",
   },
   {
     label: "챗봇 답변모음",
-    guide: "챗봇의 핵심 답변, 힌트, 다시 질문하도록 돕는 피드백을 모아 둡니다.",
+    guide: "챗봇의 핵심 답변, 격려, 자료 확인 피드백을 모아 둡니다.",
     use: "학생이 받은 지원과 근거 확인 과정을 추적합니다.",
   },
   {
@@ -147,13 +150,37 @@ function splitLines(value: string) {
     .filter(Boolean);
 }
 
+function createReferenceOnlySummary(title: string, notes: string) {
+  const trimmedNotes = notes.trim();
+  if (title.includes("급식실 남은 음식") && trimmedNotes.includes("푸른초")) {
+    return createDefaultQuestioningLessonMaterial().summary;
+  }
+
+  if (!trimmedNotes) {
+    return "긴 지문 또는 교과서 자료입니다. 학생은 원문을 직접 살펴보며 질문하고, 챗봇은 교사가 정한 수업 범위 안에서만 대화를 돕습니다.";
+  }
+
+  const summaryLines = trimmedNotes
+    .replace(/\r/g, "\n")
+    .split(/\n+|(?<=[.!?。？！])\s+/)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 10 && !/기자$/.test(line))
+    .slice(0, 5)
+    .join(" ");
+
+  const summary = summaryLines || trimmedNotes;
+  return summary.length > 700 ? `${summary.slice(0, 697)}...` : summary;
+}
+
 function createManualMaterial({
   title,
   notes,
+  questionFocusMemo = "",
   referenceOnly = false,
 }: {
   title: string;
   notes: string;
+  questionFocusMemo?: string;
   referenceOnly?: boolean;
 }): MaterialAnalysis {
   const lines = splitLines(notes);
@@ -166,12 +193,17 @@ function createManualMaterial({
   });
 
   if (useReferenceOnly) {
+    const referenceSummary = createReferenceOnlySummary(materialTitle, notes);
+    const referenceConcepts = Array.from(
+      new Set([...titleConcepts, ...lines.filter((line) => line.length <= 30)]),
+    ).slice(0, 5);
+
     return {
       materialTitle,
-      summary:
-        "긴 지문 또는 교과서 자료입니다. 학생은 원문을 직접 살펴보며 질문하고, 챗봇은 교사가 정한 수업 범위 안에서만 대화를 돕습니다.",
+      summary: referenceSummary,
       visibleText: REFERENCE_ONLY_QUESTION_MATERIAL_TEXT,
-      keyConcepts: titleConcepts.slice(0, 5),
+      questionFocusMemo: questionFocusMemo.trim(),
+      keyConcepts: referenceConcepts.length ? referenceConcepts : titleConcepts.slice(0, 5),
       possibleMisconceptions: ["원문을 확인하지 않고 챗봇 답만으로 근거를 판단할 수 있음"],
       questionSeeds: quickQuestions,
       sourceLimit: "긴 지문 또는 교과서 원문은 학생이 직접 확인하도록 안내하고, 교사가 지정한 수업 범위 안에서만 답합니다.",
@@ -183,6 +215,7 @@ function createManualMaterial({
     materialTitle,
     summary: notes.trim() || "교사가 수업 중 제시한 자료를 바탕으로 질문을 만들고 근거를 확인합니다.",
     visibleText: notes.trim(),
+    questionFocusMemo: questionFocusMemo.trim(),
     keyConcepts: lines.slice(0, 5),
     possibleMisconceptions: ["챗봇 답을 그대로 믿고 자료 근거를 확인하지 않을 수 있음"],
     questionSeeds: quickQuestions,
@@ -219,6 +252,9 @@ function buildPrdText({
     .slice(0, 4)
     .map((seed) => `- ${seed}`)
     .join("\n");
+  const questionFocusMemo =
+    material.questionFocusMemo?.trim() ||
+    DEFAULT_QUESTION_FOCUS_MEMO;
 
   const classifierSummary = classifierKeywordFields
     .map((field) => `- ${field.label}: ${behavior.classifierKeywords[field.key].join(", ") || "사용 안 함"}`)
@@ -236,26 +272,51 @@ function buildPrdText({
 ## 2. 이 HTML의 구조
 - 교사용 보드: 성취기준, 루브릭, 수업 자료, 평가 산출물 구조를 준비한다.
 - 학생용 질문 도우미 챗봇: 교사용 보드에서 저장한 자료 범위를 받아 학생의 질문·대답·생각과 대화한다.
-- 질문 자료 표시 원칙: 교사용 보드에 반영한 전체 텍스트를 요약하거나 생략하지 않고 문단과 줄바꿈을 유지해 학생에게 보여 준다.
+- 질문 자료 표시 원칙: 학생 화면에는 제목, 먼저 볼 내용 2~3개, 빠른 탐색 포인트를 먼저 보여 주고, 전체 원문은 '질문 자료 전체 보기'로 접어 둔다. 단, 교사용 보드에 반영한 전체 텍스트는 요약하거나 생략하지 않고 문단과 줄바꿈을 유지해 펼침 영역에 제공한다.
+
+## 2-1. Gemini와 Notion DB 역할 분리
+- Gemini API는 교사 개인 키를 사용하며, 학생 질문에 대한 응답, 질문 유형 내부 분석, 평가 루브릭 판단 근거, 세특용 피드백 초안 생성만 담당한다.
+- Notion API도 교사 개인 Integration과 교사 개인 Notion 템플릿 DB를 사용한다.
+- Gemini API가 Notion에 직접 접근하거나 기록하지 않는다.
+- Notion API 접근과 기록은 웹앱 서버 API가 담당한다.
+- 운영형에서는 교사별 Gemini 키, Notion 토큰, 자동 탐색된 준비 DB/결과 DB 연결값, 현재 챗봇 설정을 Supabase 연결정보 테이블에 암호화해 저장하고 수업 코드로 불러온다.
+- 교사는 Notion API 토큰만 입력하고, 웹앱 서버는 Integration이 연결된 Notion 템플릿에서 챗봇 수업 준비 DB와 챗봇 수업 결과 DB를 자동으로 찾는다.
+- Supabase는 학생 활동 기록 저장소가 아니라 교사별 수업 연결정보를 찾는 작은 금고 역할만 한다.
+- Gemini 키, Notion 토큰, 자동 탐색된 DB 연결값의 실제 값은 학생 브라우저, Gemini 프롬프트, PRD 본문, 공개 저장소에 포함하지 않는다.
+- 교사용 보드 상단에서 ‘Supabase에 저장하고 수업 코드 만들기’를 누르면 웹앱 서버가 연결정보를 Supabase에 저장하고, 성취기준, 질문 자료, 루브릭, PRD를 교사 개인 챗봇 수업 준비 DB에 기록한다.
+- 학생이 챗봇에 질문하면 웹앱 서버가 수업 코드로 교사별 연결정보를 찾고, 교사 개인 Gemini 응답을 받은 뒤 질문, 답변, 내부 평가 분석을 교사 개인 챗봇 수업 결과 DB의 학교_반_번호 페이지에 누적 저장한다.
 
 ## 3. 학생 챗봇 역할
-학생이 한 질문·대답·생각을 먼저 구체적으로 받아 주고 질문 자료와 연결해 대화한다. 질문 종류나 분석 결과를 학생에게 설명하지 않고, 자연스러운 후속 질문 하나로 학생이 스스로 더 분명하고 깊은 질문을 만들도록 돕는다. 활동지 정답 전체 작성이나 수행평가 대필은 하지 않는다.
+학생이 한 질문·대답·생각을 먼저 구체적으로 받아 주고 질문 자료와 연결해 대화한다. 질문 종류나 분석 결과를 학생에게 설명하지 않고, 완성된 다음 질문이나 직접적인 후속 질문을 대신 써 주지 않는다. 응답 뒤에는 학생의 질문 시도를 인정하는 짧은 격려만 더해, 학생이 스스로 다음 궁금증을 이어 가게 한다. 활동지 정답 전체 작성이나 수행평가 대필은 하지 않는다.
 
-### 3-1. 질문 응답 역할 상세
+### 3-0. 교사 메모 우선 운영 원칙
+- 챗봇은 개인정보 보호, 안전, 저작권, 수업 자료 범위 제한을 지킨 다음에는 교사의 질문 성격 메모를 가장 중요한 수업 운영 지침으로 삼는다.
+- 학생 질문에 답할 때 먼저 학생 발화를 받아 주되, 답변의 초점·예시 선택·격려 방식은 아래 교사 메모와 맞아야 한다.
+- 교사 메모가 특정 질문 방향, 사고 방식, 활동 흐름, 피드백 톤을 제시하면 일반적인 질문 도우미 규칙보다 그 메모를 우선한다.
+- 단, 교사 메모 원문을 학생에게 그대로 읽어 주거나 “교사 메모에 따르면”처럼 노출하지 않는다.
+
+### 3-1. 챗봇 질문 성격 메모
+- 교사 입력 메모 원문: ${questionFocusMemo}
+- 챗봇 반영 방식: 위 메모를 학생에게 그대로 설명하지 않고, 모든 답변의 방향·격려 방식·피드백 톤에 지속적으로 반영한다.
+
+### 3-2. 질문 응답 역할 상세
 1. 학생이 ‘채팅 시작’을 누르면 챗봇이 먼저 인사하고 질문 자료에서 눈에 들어온 내용이나 궁금한 점을 묻는다.
 2. 학생 발화가 질문이면 질문 자료의 구체적인 사실과 표현을 근거로 답한다.
-3. 학생 발화가 챗봇의 후속 질문에 대한 대답이나 생각이면 그 내용을 먼저 구체적으로 받아 주고 앞선 대화와 연결한다.
-4. 응답 뒤에는 학생이 자신의 생각을 더 말하거나 새로운 궁금증을 만들 수 있는 짧고 자연스러운 후속 질문을 하나만 묻는다.
-5. 사실·추론·적용·확장·성찰 등의 질문 분류와 루브릭 분석은 교사용 내부 평가 정보로만 저장하고 학생 화면에는 표시하지 않는다.
-6. 자료에 직접 없는 내용은 질문 종류를 말하지 않고 수업 주제와 연결되는 범위와 추가 확인이 필요함을 자연스럽게 설명한다.
-7. 실시간 검색이나 교사가 제공한 추가 자료가 없으면 출처를 지어내지 않고, 확인할 검색어·출처 유형·점검 질문을 제안한다.
-8. 수업 내용과 상관없는 질문에는 “수업 내용과 관련된 질문에 대해서만 응답할 수 있어요.”라고 답하고, 자료와 연결된 후속 질문으로 대화를 다시 잇는다.
-9. 학생 발화가 짧거나 막연해도 틀렸다고 말하지 않고 가능한 의미를 먼저 받아 준 뒤, 후속 질문으로 생각을 구체화하도록 돕는다.
+3. 제목을 보고 내용을 예측하는 질문에는 제목을 그대로 다시 읽어 주지 않고, 학생의 예측을 받아 준 뒤 자료에서 확인할 점을 자연스럽게 안내한다.
+4. 학생 발화가 이전 대화에 이어지는 대답이나 생각이면 그 내용을 먼저 구체적으로 받아 주고 앞선 대화와 연결한다.
+5. 응답 뒤에는 교사 메모가 의도한 질문 방향에 맞춰 학생의 시도를 인정하는 짧은 격려 문장만 제시한다.
+6. 사실·추론·적용·확장·성찰 등의 질문 분류와 루브릭 분석은 교사용 내부 평가 정보로만 저장하고 학생 화면에는 표시하지 않는다.
+7. 자료에 직접 없는 내용은 질문 종류를 말하지 않고 수업 주제와 연결되는 범위와 추가 확인이 필요함을 자연스럽게 설명한다.
+8. 실시간 검색이나 교사가 제공한 추가 자료가 없으면 출처를 지어내지 않고, 확인할 검색어·출처 유형·점검 질문을 제안한다.
+9. 수업 내용과 상관없는 질문에는 “수업 내용과 관련된 질문에 대해서만 응답할 수 있어요.”라고 답하고, 학생이 다시 수업 자료로 돌아오도록 부드럽게 격려한다.
+10. 학생 발화가 짧거나 막연해도 틀렸다고 말하지 않고 가능한 의미를 먼저 받아 준 뒤, 스스로 다시 살펴볼 수 있도록 격려한다.
+11. 학생 화면에는 직접적인 다음 질문, 질문 만들기 힌트, 질문 분석 제목을 노출하지 않는다.
+12. 격려 문장은 학생이 그대로 따라 쓸 질문문이 아니라, 시도와 탐구 태도를 인정하는 자연스러운 문장으로 작성한다.
 
-### 3-2. 자연스러운 후속 질문 예시
-- 그렇게 생각했군요. 자료의 어떤 장면이 그 생각과 가장 잘 연결되나요?
-- 이 내용을 알고 나니 다음으로 무엇이 궁금해졌나요?
-- 우리 생활에 옮겨 본다면 가장 먼저 무엇을 해 볼 수 있을까요?
+### 3-3. 학생 화면 격려 문구 예시
+- 좋아요. 방금 떠올린 생각을 붙잡고 자료를 천천히 다시 살펴봐요.
+- 좋은 출발이에요. 자료를 보며 내 생각을 조금씩 이어 가면 됩니다.
+- 괜찮아요. 지금 떠오른 궁금함을 바탕으로 천천히 다시 생각해 봐요.
 
 ## 4. 성취기준 분석
 - 핵심 성취: ${assessmentAnalysis.coreAchievement}
@@ -288,21 +349,28 @@ ${rubricSummary}
 - 질문모음
 - 챗봇 답변모음
 - 세특용 피드백
+- 저장 위치: 챗봇 수업 결과 DB의 학생별 학교_반_번호 페이지
 
-## 10. 질문 씨앗
+## 10. Notion 저장 방식
+- 교사용 운영형에서는 교사 개인 Notion API 토큰으로 Integration이 연결된 Notion 템플릿을 검색한다.
+- DB 이름이 유지되어 있으면 챗봇 수업 준비 DB와 챗봇 수업 결과 DB를 자동으로 찾아 연결한다.
+- 자동 탐색된 DB 연결값은 학생 화면이나 PRD 본문에 노출하지 않고 Supabase 연결정보에만 저장한다.
+- 로컬 실습형에서는 Notion 연결 없이 브라우저 localStorage 기반으로 학생용 챗봇을 열 수 있다.
+
+## 11. 질문 씨앗
 ${questionSeeds}
 
-## 11. 교사 편집 챗봇 동작 설정
+## 12. 교사 편집 챗봇 동작 설정
 ${classifierSummary}
 - 사실 질문: 다른 유형의 판별 표현이 없을 때 기본 분류
 - 범위 밖 질문 응답: ${behavior.offTopicResponse}
 - 짧거나 막연한 발화 이어가기: ${behavior.insufficientQuestionResponse}
 - 추가 지시: ${behavior.additionalInstructions}
 
-## 12. 응답 제한
+## 13. 응답 제한
 ${material.sourceLimit || "교사가 제공한 수업 자료 범위 안에서만 답한다."}
 
-## 13. 안전 규칙
+## 14. 안전 규칙
 ${material.safetyNotice || "개인정보, 정답 대필, 원문 전체 복사 요청을 제한한다."}
 `;
 }
@@ -496,18 +564,28 @@ export function QuestioningChatbotBoard() {
   const [subjectUnit, setSubjectUnit] = useState(`${standardOptions[0].subject} / 질문하기 수업`);
   const [materialTitle, setMaterialTitle] = useState(defaultLessonMaterial.materialTitle);
   const [teacherNotes, setTeacherNotes] = useState(defaultLessonMaterial.visibleText);
+  const [questionFocusMemo, setQuestionFocusMemo] = useState(defaultLessonMaterial.questionFocusMemo || "");
   const [imageDataUrl, setImageDataUrl] = useState("");
   const [imageName, setImageName] = useState("");
   const [material, setMaterial] = useState<MaterialAnalysis>(defaultLessonMaterial);
   const [isReferenceOnlyMaterial, setIsReferenceOnlyMaterial] = useState(false);
   const [behavior, setBehavior] = useState<QuestioningChatbotBehavior>(defaultChatbotBehavior);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isSavingPreparationToNotion, setIsSavingPreparationToNotion] = useState(false);
   const [isRubricOpen, setIsRubricOpen] = useState(false);
   const [isStandardDetailsOpen, setIsStandardDetailsOpen] = useState(false);
   const [isBehaviorSettingsOpen, setIsBehaviorSettingsOpen] = useState(false);
   const [aiApiKey, setAiApiKey] = useState("");
   const [aiModel, setAiModel] = useState(defaultAiModel);
   const [isAiKeySaved, setIsAiKeySaved] = useState(false);
+  const [connectionTeacherLabel, setConnectionTeacherLabel] = useState("");
+  const [connectionLessonCode, setConnectionLessonCode] = useState("");
+  const [connectionSetupToken, setConnectionSetupToken] = useState("");
+  const [notionApiKey, setNotionApiKey] = useState("");
+  const [notionPrepDatabaseId, setNotionPrepDatabaseId] = useState("");
+  const [notionResultDatabaseId, setNotionResultDatabaseId] = useState("");
+  const [savedStudentChatbotUrl, setSavedStudentChatbotUrl] = useState("");
+  const [isSavingLessonConnection, setIsSavingLessonConnection] = useState(false);
   const [notice, setNotice] = useState("");
 
   const selectedStandard = standardOptions.find((option) => option.id === selectedStandardId) || standardOptions[0];
@@ -525,18 +603,24 @@ export function QuestioningChatbotBoard() {
     });
 
     if (useReferenceOnly) {
-      return createManualMaterial({ title: nextTitle, notes: fullText, referenceOnly: true });
+      return createManualMaterial({
+        title: nextTitle,
+        notes: fullText,
+        questionFocusMemo,
+        referenceOnly: true,
+      });
     }
 
     if (!fullText || fullText === material.visibleText.trim()) {
       return {
         ...material,
         materialTitle: nextTitle,
+        questionFocusMemo: questionFocusMemo.trim(),
       };
     }
 
-    return createManualMaterial({ title: nextTitle, notes: fullText });
-  }, [isReferenceOnlyMaterial, material, materialTitle, teacherNotes]);
+    return createManualMaterial({ title: nextTitle, notes: fullText, questionFocusMemo });
+  }, [isReferenceOnlyMaterial, material, materialTitle, questionFocusMemo, teacherNotes]);
   const prdText = useMemo(
     () =>
       buildPrdText({
@@ -570,8 +654,11 @@ export function QuestioningChatbotBoard() {
       const storedConfig = window.localStorage.getItem(QUESTIONING_CHATBOT_CONFIG_KEY);
       if (storedConfig) {
         try {
-          const parsedConfig = JSON.parse(storedConfig) as { behavior?: unknown };
+          const parsedConfig = JSON.parse(storedConfig) as { behavior?: unknown; material?: Partial<MaterialAnalysis> };
           setBehavior(normalizeQuestioningChatbotBehavior(parsedConfig.behavior));
+          if (typeof parsedConfig.material?.questionFocusMemo === "string") {
+            setQuestionFocusMemo(parsedConfig.material.questionFocusMemo);
+          }
         } catch {
           setBehavior(createDefaultQuestioningChatbotBehavior());
         }
@@ -646,7 +733,8 @@ export function QuestioningChatbotBoard() {
       setImageName(file.name);
       setNotice("");
       if (!materialTitle || materialTitle === "수업 자료") {
-        setMaterialTitle(file.name.replace(/\.[^.]+$/, ""));
+        const nextMaterialTitle = file.name.replace(/\.[^.]+$/, "");
+        setMaterialTitle(nextMaterialTitle);
       }
     };
     reader.readAsDataURL(file);
@@ -694,6 +782,7 @@ export function QuestioningChatbotBoard() {
             "긴 지문 또는 교과서 자료입니다. 학생은 원문을 직접 살펴보며 질문하고 근거를 확인합니다."
           : payload.summary || teacherNotes,
         visibleText: shouldReferenceOnly ? REFERENCE_ONLY_QUESTION_MATERIAL_TEXT : extractedVisibleText,
+        questionFocusMemo: questionFocusMemo.trim(),
         keyConcepts: payload.keyConcepts || [],
         possibleMisconceptions: payload.possibleMisconceptions || [],
         questionSeeds: payload.questionSeeds || quickQuestions,
@@ -705,7 +794,7 @@ export function QuestioningChatbotBoard() {
       setMaterial(analyzedMaterial);
       setMaterialTitle(analyzedMaterial.materialTitle);
       setIsReferenceOnlyMaterial(shouldReferenceOnly);
-      setTeacherNotes(analyzedMaterial.visibleText);
+      setTeacherNotes(extractedVisibleText);
       setNotice(
         shouldReferenceOnly
           ? "긴 지문 또는 교과서 자료로 판단해 학생 화면에는 교과서 확인 안내만 반영했습니다."
@@ -720,18 +809,20 @@ export function QuestioningChatbotBoard() {
   }
 
   function handleUseManualMaterial() {
+    const appliedQuestionFocusMemo = questionFocusMemo.trim();
     const nextMaterial = createManualMaterial({
       title: materialTitle,
       notes: teacherNotes,
+      questionFocusMemo: appliedQuestionFocusMemo,
       referenceOnly: isReferenceOnlyMaterial,
     });
     setMaterial(nextMaterial);
+    setQuestionFocusMemo(appliedQuestionFocusMemo);
     setIsReferenceOnlyMaterial(nextMaterial.visibleText === REFERENCE_ONLY_QUESTION_MATERIAL_TEXT);
-    setTeacherNotes(nextMaterial.visibleText);
     setNotice(
       nextMaterial.visibleText === REFERENCE_ONLY_QUESTION_MATERIAL_TEXT
-        ? "긴 지문 또는 교과서 자료는 학생 화면에 교과서 확인 안내만 반영했습니다."
-        : "교사가 입력한 질문 자료 전체 내용을 학생용 챗봇에 반영했습니다.",
+        ? "긴 지문 또는 교과서 자료는 학생 화면에 교과서 확인 안내만 반영했고, 질문 성격 메모도 PRD에 함께 반영했습니다."
+        : "교사가 입력한 질문 자료 전체 내용과 질문 성격 메모를 학생용 챗봇 PRD에 함께 반영했습니다.",
     );
   }
 
@@ -752,10 +843,10 @@ export function QuestioningChatbotBoard() {
     setBehavior((current) => ({ ...current, [key]: value }));
   }
 
-  function saveStudentChatbotConfig(successNotice = "현재 설정을 학생용 질문 도우미 챗봇에 연결했습니다.") {
+  function buildCurrentChatbotConfig() {
     if (!configuredMaterial.visibleText.trim() && !configuredMaterial.summary.trim()) {
       setNotice("학생용 챗봇을 열기 전에 질문 자료 전체 내용을 입력해 주세요.");
-      return false;
+      return null;
     }
 
     const normalizedBehavior = normalizeQuestioningChatbotBehavior(behavior);
@@ -779,26 +870,177 @@ export function QuestioningChatbotBoard() {
       prdText: normalizedPrdText,
       updatedAt: new Date().toISOString(),
     };
+
+    return config;
+  }
+
+  function saveStudentChatbotConfig(successNotice = "현재 설정을 학생용 질문 도우미 챗봇에 연결했습니다.") {
+    const config = buildCurrentChatbotConfig();
+    if (!config) {
+      return false;
+    }
+
     window.localStorage.setItem(QUESTIONING_CHATBOT_CONFIG_KEY, JSON.stringify(config));
     setMaterial(configuredMaterial);
-    setBehavior(normalizedBehavior);
+    setBehavior(config.behavior);
     setNotice(successNotice);
     return true;
   }
 
-  function handleApplyChatbotSettings() {
-    saveStudentChatbotConfig("질문 자료 전체 내용과 챗봇 동작 설정을 학생용 챗봇에 적용했습니다.");
-  }
-
   function handleOpenStudentChatbot() {
-    if (saveStudentChatbotConfig()) {
+    if (savedStudentChatbotUrl) {
+      window.open(savedStudentChatbotUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    if (saveStudentChatbotConfig("현재 설정을 학생용 챗봇에 적용하고 열었습니다.")) {
       window.open(studentChatbotPath, "_blank", "noopener,noreferrer");
     }
   }
 
-  async function handleCopyPrd() {
-    await navigator.clipboard.writeText(prdText);
-    setNotice("현재 보드 설정을 챗봇 제작 PRD로 복사했습니다.");
+  async function handleSavePreparationToNotion() {
+    const config = buildCurrentChatbotConfig();
+    if (!config) {
+      return;
+    }
+
+    if (!notionApiKey.trim()) {
+      setNotice("Notion API 토큰을 입력하고, Notion 템플릿 페이지에 Integration을 연결해 주세요.");
+      return;
+    }
+
+    setIsSavingPreparationToNotion(true);
+    setNotice("");
+
+    try {
+      const response = await fetch("/api/questioning-board/notion/preparation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config,
+          studentChatbotUrl: studentChatbotPath,
+          notionApiKey,
+          notionPrepDatabaseId,
+          notionResultDatabaseId,
+        }),
+      });
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        skipped?: boolean;
+        pageUrl?: string;
+        warning?: string;
+        error?: string;
+        notionPrepDatabaseId?: string;
+        notionResultDatabaseId?: string;
+      };
+
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || payload.warning || "Notion 준비 DB 저장에 실패했습니다.");
+      }
+
+      setMaterial(config.material);
+      setBehavior(config.behavior);
+      setNotionPrepDatabaseId(payload.notionPrepDatabaseId || notionPrepDatabaseId);
+      setNotionResultDatabaseId(payload.notionResultDatabaseId || notionResultDatabaseId);
+      setNotice(
+        payload.pageUrl
+          ? `챗봇 수업 준비 DB에 저장했습니다. ${payload.pageUrl}`
+          : "챗봇 수업 준비 DB에 저장했습니다.",
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Notion 준비 DB 저장에 실패했습니다.";
+      setNotice(message);
+    } finally {
+      setIsSavingPreparationToNotion(false);
+    }
+  }
+
+  async function handleSaveLessonConnection() {
+    const config = buildCurrentChatbotConfig();
+    if (!config) {
+      return;
+    }
+
+    if (!aiApiKey.trim()) {
+      setNotice("교사 개인 Gemini API 키를 먼저 입력해 주세요.");
+      return;
+    }
+
+    if (!notionApiKey.trim()) {
+      setNotice("Notion API 토큰을 입력하고, Notion 템플릿 페이지에 Integration을 연결해 주세요.");
+      return;
+    }
+
+    setIsSavingLessonConnection(true);
+    setNotice("");
+
+    try {
+      const response = await fetch("/api/questioning-board/connections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config,
+          lessonCode: connectionLessonCode,
+          teacherLabel: connectionTeacherLabel,
+          setupToken: connectionSetupToken,
+          geminiApiKey: aiApiKey,
+          geminiModel: aiModel,
+          notionApiKey,
+          notionPrepDatabaseId,
+          notionResultDatabaseId,
+          studentChatbotPath,
+        }),
+      });
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        lessonCode?: string;
+        studentChatbotUrl?: string;
+        notionPreparationPageUrl?: string;
+        notionPreparationWarning?: string;
+        notionPrepDatabaseId?: string;
+        notionResultDatabaseId?: string;
+      };
+
+      if (!response.ok || !payload.ok || !payload.lessonCode || !payload.studentChatbotUrl) {
+        throw new Error(payload.error || "수업 연결 저장에 실패했습니다.");
+      }
+
+      const absoluteStudentUrl = `${window.location.origin}${payload.studentChatbotUrl}`;
+      setConnectionLessonCode(payload.lessonCode);
+      setSavedStudentChatbotUrl(absoluteStudentUrl);
+      setNotionPrepDatabaseId(payload.notionPrepDatabaseId || notionPrepDatabaseId);
+      setNotionResultDatabaseId(payload.notionResultDatabaseId || notionResultDatabaseId);
+      setMaterial(config.material);
+      setBehavior(config.behavior);
+      setNotice(
+        payload.notionPreparationWarning
+          ? `수업 코드 ${payload.lessonCode}를 저장했습니다. 다만 Notion 준비 DB 기록은 확인이 필요합니다: ${payload.notionPreparationWarning}`
+          : payload.notionPreparationPageUrl
+            ? `수업 코드 ${payload.lessonCode}를 저장했고 Notion 준비 DB에도 기록했습니다.`
+            : `수업 코드 ${payload.lessonCode}를 저장했습니다.`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "수업 연결 저장에 실패했습니다.";
+      setNotice(message);
+    } finally {
+      setIsSavingLessonConnection(false);
+    }
+  }
+
+
+  async function handleCopyStudentUrl() {
+    if (!savedStudentChatbotUrl) {
+      setNotice("먼저 수업 연결을 저장해 학생용 링크를 만들어 주세요.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(savedStudentChatbotUrl);
+      setNotice("학생용 챗봇 링크를 복사했습니다.");
+    } catch {
+      setNotice(savedStudentChatbotUrl);
+    }
   }
 
   function handleDownloadEvaluationWorkbook() {
@@ -822,49 +1064,127 @@ export function QuestioningChatbotBoard() {
           <div className="rounded-md border border-border bg-background p-4">
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <KeyRound className="size-4 text-primary" aria-hidden="true" />
-              <p className="font-semibold">Gemini API 연결</p>
-              <p className="text-muted-foreground">
-                Google AI Studio에서 발급한 키를 넣으면 이미지 분석과 학생 챗봇 응답을 Gemini가 처리합니다.
-              </p>
+              <p className="font-semibold">API·Notion 연결</p>
+              <p className="text-muted-foreground">Gemini 키와 Notion 토큰만 입력합니다.</p>
             </div>
-            <div className="mt-3 grid gap-2 lg:grid-cols-[minmax(0,1fr)_220px_auto_auto]">
-              <Label htmlFor="ai-api-key" className="sr-only">
-                Gemini API 키
-              </Label>
-              <Input
-                id="ai-api-key"
-                type="password"
-                value={aiApiKey}
-                onChange={(event) => {
-                  setAiApiKey(event.target.value);
-                  setIsAiKeySaved(false);
-                }}
-                placeholder="Gemini API 키 입력"
-                autoComplete="off"
-              />
-              <Label htmlFor="ai-model" className="sr-only">
-                Gemini 모델
-              </Label>
-              <Select id="ai-model" value={aiModel} onChange={(event) => setAiModel(event.target.value)}>
-                {questioningAiModelOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </Select>
-              <Button type="button" variant="outline" onClick={handleSaveAiSettings}>
-                키 저장
-              </Button>
-              <Button type="button" variant="outline" onClick={handleClearAiSettings}>
-                키 지우기
-              </Button>
+            <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(240px,1fr)_220px_160px_minmax(280px,1.2fr)]">
+              <div className="space-y-2">
+                <Label htmlFor="ai-api-key">Gemini API 키</Label>
+                <Input
+                  id="ai-api-key"
+                  type="password"
+                  value={aiApiKey}
+                  onChange={(event) => {
+                    setAiApiKey(event.target.value);
+                    setIsAiKeySaved(false);
+                  }}
+                  placeholder="Gemini API 키 입력"
+                  autoComplete="off"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="ai-model">Gemini 모델</Label>
+                <Select id="ai-model" value={aiModel} onChange={(event) => setAiModel(event.target.value)}>
+                  {questioningAiModelOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-2 lg:col-span-1 lg:self-end xl:col-span-1">
+                <Button type="button" variant="outline" className="whitespace-nowrap" onClick={handleSaveAiSettings}>
+                  저장
+                </Button>
+                <Button type="button" variant="outline" className="whitespace-nowrap" onClick={handleClearAiSettings}>
+                  지우기
+                </Button>
+              </div>
+              <div className="space-y-2 lg:col-span-2 xl:col-span-1">
+                <Label htmlFor="notion-api-key">Notion API 토큰</Label>
+                <Input
+                  id="notion-api-key"
+                  type="password"
+                  value={notionApiKey}
+                  onChange={(event) => setNotionApiKey(event.target.value)}
+                  placeholder="ntn_... 또는 secret_..."
+                  autoComplete="off"
+                />
+              </div>
             </div>
             <p className="mt-3 text-xs leading-5 text-muted-foreground">
-              키는 이 브라우저(localStorage)에만 저장됩니다. 코드나 문서에는 포함되지 않으며, 학교 공용 PC에서는 사용 후 키를 지워 주세요.{" "}
+              Notion 템플릿 페이지에 Integration을 연결하면 준비 DB와 결과 DB는 자동으로 찾습니다. 키와 토큰은 코드나 문서에 포함하지 않습니다.{" "}
               <span className="font-medium text-foreground">
-                {isAiKeySaved ? "키 저장됨" : "키 없음 — 서버 기본 설정 또는 로컬 예비 모드 사용 가능"}
+                {isAiKeySaved ? "Gemini 키 브라우저 저장됨" : "Gemini 키는 저장 전입니다."}
               </span>
             </p>
+
+            <div className="mt-4 border-t border-border pt-4">
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <Cloud className="size-4 text-primary" aria-hidden="true" />
+                <p className="font-semibold">수업 연결 저장</p>
+                <p className="text-muted-foreground">
+                  Supabase에 수업 코드를 만들고, 가능하면 Notion 준비 DB에도 기록합니다.
+                </p>
+              </div>
+              <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_220px_minmax(240px,auto)]">
+                <div className="space-y-2">
+                  <Label htmlFor="connection-teacher-label">교사/수업 표시명</Label>
+                  <Input
+                    id="connection-teacher-label"
+                    value={connectionTeacherLabel}
+                    onChange={(event) => setConnectionTeacherLabel(event.target.value)}
+                    placeholder="예: 4학년 질문 수업"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="connection-lesson-code">수업 코드</Label>
+                  <Input
+                    id="connection-lesson-code"
+                    value={connectionLessonCode}
+                    onChange={(event) => setConnectionLessonCode(event.target.value)}
+                    placeholder="비워 두면 자동 생성"
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="connection-setup-token">연결 저장 암호</Label>
+                  <Input
+                    id="connection-setup-token"
+                    type="password"
+                    value={connectionSetupToken}
+                    onChange={(event) => setConnectionSetupToken(event.target.value)}
+                    placeholder="설정한 경우만"
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="flex items-end gap-2">
+                  <Button
+                    type="button"
+                    className="flex-1"
+                    onClick={handleSaveLessonConnection}
+                    disabled={isSavingLessonConnection}
+                  >
+                    {isSavingLessonConnection ? (
+                      <RefreshCw className="size-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Database className="size-4" aria-hidden="true" />
+                    )}
+                    수업 연결 저장
+                  </Button>
+                  <Button type="button" variant="outline" onClick={handleCopyStudentUrl}>
+                    <Copy className="size-4" aria-hidden="true" />
+                    링크 복사
+                  </Button>
+                </div>
+              </div>
+              <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                학생용 링크:{" "}
+                <span className="font-medium text-foreground">
+                  {savedStudentChatbotUrl || "수업 연결 저장 후 생성됩니다."}
+                </span>
+              </p>
+            </div>
           </div>
           <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
             <div>
@@ -872,16 +1192,10 @@ export function QuestioningChatbotBoard() {
                 질문 챗봇 제작보드(교사용)
               </h1>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" onClick={handleCopyPrd}>
-                <Copy className="size-4" aria-hidden="true" />
-                PRD 복사
-              </Button>
-              <Button type="button" onClick={handleOpenStudentChatbot}>
-                <ExternalLink className="size-4" aria-hidden="true" />
-                학생용 챗봇 열기
-              </Button>
-            </div>
+            <Button type="button" className="w-full sm:w-auto" onClick={handleOpenStudentChatbot}>
+              <ExternalLink className="size-4" aria-hidden="true" />
+              학생용 챗봇 열기
+            </Button>
           </div>
           {notice ? (
             <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -1086,7 +1400,7 @@ export function QuestioningChatbotBoard() {
                 <h2 className="text-base font-semibold">3. 질문 자료 입력</h2>
               </div>
             </div>
-            <div className="grid gap-4 p-4 2xl:grid-cols-[minmax(360px,0.95fr)_minmax(0,1fr)]">
+            <div className="grid gap-3 p-4">
               <div className="space-y-3">
                 <Label htmlFor="material-title">자료 이름</Label>
                 <Input
@@ -1095,23 +1409,50 @@ export function QuestioningChatbotBoard() {
                   onChange={(event) => setMaterialTitle(event.target.value)}
                   placeholder="예: 신문기사 사진, 교과서 지문"
                 />
+                <label className="flex items-start gap-3 rounded-md border border-border bg-background px-3 py-2 text-sm leading-6 text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={isReferenceOnlyMaterial}
+                    onChange={(event) => setIsReferenceOnlyMaterial(event.target.checked)}
+                    className="mt-1 size-4 accent-primary"
+                  />
+                  <span>
+                    <b className="font-medium text-foreground">긴 지문·교과서는 종이 자료로 보기</b>
+                    <span className="ml-2 text-xs">체크하면 학생 화면에는 원문 대신 확인 안내만 표시</span>
+                  </span>
+                </label>
                 <div className="space-y-2">
                   <Label htmlFor="teacher-notes">질문 자료 전체 내용</Label>
                   <Textarea
                     id="teacher-notes"
                     value={teacherNotes}
                     onChange={(event) => setTeacherNotes(event.target.value)}
-                    className="min-h-44"
+                    className="min-h-72"
                     placeholder="짧은 기사나 교사 제작 자료는 원문 전체를 입력하세요."
                   />
                   <p className="text-xs leading-5 text-muted-foreground">
-                    짧은 자료는 원문 전체, 긴 지문이나 교과서는 확인 안내만 학생 화면에 보여 줍니다.
+                    원문은 교사용 보드에 남기고, 체크하면 학생 화면에는 종이 자료 확인 안내만 보여 줍니다.
                   </p>
                 </div>
-                <label className="flex min-h-48 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-border bg-background p-4 text-center text-sm text-muted-foreground hover:bg-muted">
-                  <Upload className="mb-3 size-6 text-primary" aria-hidden="true" />
-                  <span className="font-medium text-foreground">이미지 업로드</span>
-                  <span className="mt-1 text-xs">JPG, PNG 등 수업 자료 이미지</span>
+                <div className="space-y-2">
+                  <Label htmlFor="question-focus-memo">챗봇 질문 성격 메모</Label>
+                  <Textarea
+                    id="question-focus-memo"
+                    value={questionFocusMemo}
+                    onChange={(event) => setQuestionFocusMemo(event.target.value)}
+                    className="min-h-24"
+                    placeholder="예: 학생 질문에 먼저 답하고, 자료 속 원인-결과와 우리 학교에서 실천할 방법으로 질문을 넓히게 돕습니다."
+                  />
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    챗봇이 학생 질문에 응답할 때 우선 살릴 관점, 질문 방향, 피드백 톤을 적어 둡니다.
+                  </p>
+                </div>
+                <label className="flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background px-3 py-2 text-xs text-muted-foreground hover:bg-muted">
+                  <Upload className="size-4 shrink-0 text-primary" aria-hidden="true" />
+                  <span className="flex flex-col leading-5">
+                    <span className="font-medium text-foreground">이미지 업로드</span>
+                    <span>JPG, PNG</span>
+                  </span>
                   <input type="file" accept="image/*" className="sr-only" onChange={handleImageChange} />
                 </label>
                 {imageDataUrl ? (
@@ -1128,28 +1469,14 @@ export function QuestioningChatbotBoard() {
                   </div>
                 ) : null}
               </div>
-              <div className="space-y-3">
-                <label className="flex items-start gap-3 rounded-md border border-border bg-background px-3 py-2 text-sm leading-6 text-muted-foreground">
-                  <input
-                    type="checkbox"
-                    checked={isReferenceOnlyMaterial}
-                    onChange={(event) => setIsReferenceOnlyMaterial(event.target.checked)}
-                    className="mt-1 size-4 accent-primary"
-                  />
-                  <span>
-                    긴 지문·교과서 자료는 원문 대신{" "}
-                    <b className="text-foreground">교과서를 살펴보세요.</b>로 학생 화면에 표시
-                  </span>
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" onClick={handleAnalyzeImage} disabled={isAnalyzing || !imageDataUrl}>
-                    {isAnalyzing ? <RefreshCw className="size-4 animate-spin" aria-hidden="true" /> : <Wand2 className="size-4" aria-hidden="true" />}
-                    AI 전체 텍스트 추출
-                  </Button>
-                  <Button type="button" variant="outline" onClick={handleUseManualMaterial}>
-                    전체 내용 반영
-                  </Button>
-                </div>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" onClick={handleAnalyzeImage} disabled={isAnalyzing || !imageDataUrl}>
+                  {isAnalyzing ? <RefreshCw className="size-4 animate-spin" aria-hidden="true" /> : <Wand2 className="size-4" aria-hidden="true" />}
+                  AI 전체 텍스트 추출
+                </Button>
+                <Button type="button" variant="outline" onClick={handleUseManualMaterial}>
+                  전체 내용·메모 반영
+                </Button>
               </div>
             </div>
           </div>
@@ -1237,24 +1564,21 @@ export function QuestioningChatbotBoard() {
                   </div>
                 </div>
               ) : null}
-              <Button type="button" className="w-full" onClick={handleApplyChatbotSettings}>
-                <CheckCircle2 className="size-4" aria-hidden="true" />
-                현재 설정을 챗봇에 적용
-              </Button>
               <Textarea value={prdText} readOnly className="min-h-[520px] font-mono text-xs leading-5" />
-              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
-                <Button type="button" variant="outline" onClick={handleCopyPrd}>
-                  <Copy className="size-4" aria-hidden="true" />
-                  PRD 복사
-                </Button>
-                <Button type="button" onClick={handleOpenStudentChatbot}>
-                  <ExternalLink className="size-4" aria-hidden="true" />
-                  학생용 챗봇 열기
-                </Button>
-              </div>
-              <div className="rounded-md border border-border bg-background p-3 text-xs leading-5 text-muted-foreground">
-                학생용 챗봇 경로: <span className="font-medium text-foreground">{studentChatbotPath}</span>
-              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={handleSavePreparationToNotion}
+                disabled={isSavingPreparationToNotion}
+              >
+                {isSavingPreparationToNotion ? (
+                  <RefreshCw className="size-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Database className="size-4" aria-hidden="true" />
+                )}
+                노션에 적용하기
+              </Button>
             </div>
           </div>
           <div className="rounded-md border border-border bg-card sm:col-span-2 xl:col-span-4">
