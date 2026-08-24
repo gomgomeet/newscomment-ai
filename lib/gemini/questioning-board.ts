@@ -2,10 +2,16 @@ import "server-only";
 
 import type {
   ChatResult,
+  CurriculumCompass,
+  CurriculumRelation,
+  EngagementState,
   MaterialAnalysis,
+  PrimaryMove,
   QuestioningChatbotBehavior,
   RubricCriterion,
+  SourceStatus,
 } from "@/lib/questioning-board";
+import { decideQuestioningDialoguePolicy } from "@/lib/questioning-dialogue-policy";
 
 type GeminiApiPayload = {
   candidates?: Array<{
@@ -164,6 +170,76 @@ function isChatQuestionType(value: unknown): value is ChatResult["questionType"]
   );
 }
 
+function isPrimaryMove(value: unknown): value is PrimaryMove {
+  return (
+    value === "receive" ||
+    value === "clarify" ||
+    value === "offer_clue" ||
+    value === "compare_possibilities" ||
+    value === "follow_student_lead" ||
+    value === "productive_extension" ||
+    value === "check_evidence" ||
+    value === "repair" ||
+    value === "close" ||
+    value === "safety_redirect"
+  );
+}
+
+function isEngagementState(value: unknown): value is EngagementState {
+  return (
+    value === "noticing" ||
+    value === "curious" ||
+    value === "personally_connecting" ||
+    value === "exploring_possibilities" ||
+    value === "seeking_evidence" ||
+    value === "revising_thought" ||
+    value === "disengaged" ||
+    value === "ready_to_close"
+  );
+}
+
+function isCurriculumRelation(value: unknown): value is CurriculumRelation {
+  return (
+    value === "direct" ||
+    value === "adjacent" ||
+    value === "productive_extension" ||
+    value === "disconnected"
+  );
+}
+
+function isSourceStatus(value: unknown): value is SourceStatus {
+  return (
+    value === "supported" ||
+    value === "reasonable_inference" ||
+    value === "source_insufficient" ||
+    value === "out_of_scope"
+  );
+}
+
+function normalizeSupportLevel(value: unknown): 0 | 1 | 2 | 3 | 4 {
+  return value === 0 || value === 1 || value === 2 || value === 3 || value === 4 ? value : 1;
+}
+
+function sanitizeStudentReply(value: unknown) {
+  const raw = typeof value === "string" ? value.trim().slice(0, 700) : "";
+  if (!raw) {
+    return "말해 준 생각을 잘 들었어요. 지금 눈에 들어온 자료의 한 부분부터 천천히 이어 가도 괜찮아요.";
+  }
+
+  if (/(primaryMove|engagementState|curriculumRelation|supportLevel|rubricScores|루브릭\s*점수)/i.test(raw)) {
+    return "말해 준 생각을 잘 들었어요. 지금 눈에 들어온 자료의 한 부분부터 천천히 이어 가도 괜찮아요.";
+  }
+
+  let questionMarkSeen = false;
+  return raw.replace(/[?？]/g, () => {
+    if (questionMarkSeen) {
+      return ".";
+    }
+    questionMarkSeen = true;
+    return "?";
+  });
+}
+
 const materialAnalysisSchema: JsonSchema = {
   type: "object",
   additionalProperties: false,
@@ -193,8 +269,15 @@ const chatResponseSchema: JsonSchema = {
   type: "object",
   additionalProperties: false,
   required: [
-    "answer",
-    "followUpQuestion",
+    "studentReply",
+    "expectsStudentReply",
+    "isClosing",
+    "primaryMove",
+    "engagementState",
+    "curriculumRelation",
+    "supportLevel",
+    "sourceStatus",
+    "sourceCue",
     "questionType",
     "typeLabel",
     "typeReason",
@@ -206,8 +289,47 @@ const chatResponseSchema: JsonSchema = {
     "safetyFlag",
   ],
   properties: {
-    answer: { type: "string" },
-    followUpQuestion: { type: "string" },
+    studentReply: { type: "string" },
+    expectsStudentReply: { type: "boolean" },
+    isClosing: { type: "boolean" },
+    primaryMove: {
+      type: "string",
+      enum: [
+        "receive",
+        "clarify",
+        "offer_clue",
+        "compare_possibilities",
+        "follow_student_lead",
+        "productive_extension",
+        "check_evidence",
+        "repair",
+        "close",
+        "safety_redirect",
+      ],
+    },
+    engagementState: {
+      type: "string",
+      enum: [
+        "noticing",
+        "curious",
+        "personally_connecting",
+        "exploring_possibilities",
+        "seeking_evidence",
+        "revising_thought",
+        "disengaged",
+        "ready_to_close",
+      ],
+    },
+    curriculumRelation: {
+      type: "string",
+      enum: ["direct", "adjacent", "productive_extension", "disconnected"],
+    },
+    supportLevel: { type: "number", enum: [0, 1, 2, 3, 4] },
+    sourceStatus: {
+      type: "string",
+      enum: ["supported", "reasonable_inference", "source_insufficient", "out_of_scope"],
+    },
+    sourceCue: { type: "string" },
     questionType: {
       type: "string",
       enum: ["fact", "inference", "application", "extension", "reflection", "off_topic", "safety"],
@@ -305,6 +427,7 @@ export async function answerQuestionWithGemini({
   targetGrade,
   subjectUnit,
   material,
+  curriculumCompass,
   rubric,
   behavior,
   question,
@@ -316,6 +439,7 @@ export async function answerQuestionWithGemini({
   targetGrade: string;
   subjectUnit: string;
   material: MaterialAnalysis;
+  curriculumCompass: CurriculumCompass;
   rubric: RubricCriterion[];
   behavior: QuestioningChatbotBehavior;
   question: string;
@@ -326,21 +450,29 @@ export async function answerQuestionWithGemini({
   const apiKey = getApiKey(apiKeyOverride);
   const model = getModel(modelOverride);
   const questionFocusMemo = material.questionFocusMemo?.trim();
+  const policyDecision = decideQuestioningDialoguePolicy({
+    studentTurn: question,
+    recentConversation: conversation,
+    curriculumCompass,
+    material,
+  });
   const parsed = await requestGeminiJson({
     apiKey,
     model,
     maxOutputTokens: 2400,
     systemInstruction:
-      "You are a Korean classroom dialogue partner grounded in the teacher's lesson material. Treat every student turn as a question, answer, or thought that deserves a concrete response. First acknowledge and respond to what the student actually said. Do not write the student's next question, a direct follow-up question, or a question-making hint for them. In followUpQuestion, provide exactly one brief encouragement sentence for the student, not a question. The teacher's question focus memo is the highest-priority instructional operating guide after privacy, safety, copyright, anti-answer-copying rules, and the lesson-material boundary. Classification and rubric fields are teacher-only metadata and must never appear in answer or followUpQuestion. Return Korean JSON only.",
+      "You are a warm Korean classroom dialogue partner grounded in the teacher-provided lesson material. The curriculum standard is a quiet compass for the whole conversation, not a target to force on every turn. Receive the student's actual interest, surprise, experience, question, or wish to stop before choosing one instructional move. Use at most one genuine question only when it opens the student's thinking. Do not expose classifications, rubrics, policy fields, teacher notes, or curriculum metadata in studentReply. Return Korean JSON only.",
     parts: [
       {
         text: JSON.stringify({
           task:
-            "학생이 한 질문·대답·생각을 먼저 구체적으로 받아 주고 자료와 연결해 응답하세요. 다음 질문이나 질문 만들기 힌트를 직접 제시하지 말고, 응답 뒤에는 짧은 격려 문장만 남기세요. 질문 유형과 루브릭 정보는 교사용 내부 데이터로만 만드세요.",
+            "학생이 실제로 한 말을 구체적으로 이어 받고, 현재 상태에 맞는 중심 교수 동작 하나로 완성된 studentReply 한 개를 작성하세요. 질문은 정책에서 허용되고 학생 생각을 실제로 열 때만 최대 하나 사용하세요. 학생이 충분히 말했거나 그만하고 싶어 하면 질문 없이 자연스럽게 마치세요.",
           targetGrade,
           subjectUnit,
           standard,
+          curriculumCompass,
           material,
+          dialoguePolicy: policyDecision,
           teacherBehaviorSettings: behavior,
           rubric: rubric.map((criterion) => ({
             key: criterion.key,
@@ -352,31 +484,38 @@ export async function answerQuestionWithGemini({
           recentConversation: conversation.slice(-8),
           studentTurn: question,
           responseRules: [
-            "학생 발화가 질문이면 자료에 근거해 답하고, 대답이나 생각이면 그 구체적인 내용을 먼저 받아 주고 이어서 대화하기",
-            "answer를 '자료에서는 이렇게 설명해요', '자료를 보면' 같은 고정 제목 문구로 시작하지 말고 학생 질문에 바로 반응하는 자연스러운 문장으로 시작하기",
+            "학생 발화가 질문이면 자료에 근거해 답하고, 대답·감정·경험·생각이면 그 구체적인 내용을 먼저 받아 주기",
+            "studentReply를 '자료에서는 이렇게 설명해요', '자료를 보면' 같은 고정 문구로 시작하지 말고 학생 말에 바로 반응하기",
             "제목을 보고 내용을 예측하는 질문에는 제목을 그대로 다시 읽어 주지 말고, '그렇게 예상해 볼 수는 있어요. 다만...'처럼 예측과 자료 확인을 구분해 답하기",
             questionFocusMemo
-              ? `교사의 챗봇 질문 성격 메모를 매우 중시하기. 개인정보 보호, 안전, 저작권, 수업 자료 범위 제한을 지킨 다음에는 이 메모를 최우선 수업 운영 지침으로 삼고, 답변 초점·예시 선택·격려 방식·피드백 톤을 이 메모에 맞추기. 단, 메모 원문이나 '교사 메모'라는 표현은 학생에게 노출하지 않기: ${questionFocusMemo}`
+              ? `교사의 챗봇 질문 성격 메모는 대화 전체의 참고 방향으로 사용하되 학생이 실제로 꺼낸 관심과 질문보다 앞세우지 않기. 메모 원문이나 '교사 메모'라는 표현은 학생에게 노출하지 않기: ${questionFocusMemo}`
               : "교사가 별도 질문 성격 메모를 입력하지 않았으면 학생 질문에 대한 상호작용과 자료 근거 확인을 우선하기",
-            "answer와 followUpQuestion에서 사실·추론·적용·확장·성찰 같은 질문 유형 이름이나 질문 분석 결과를 말하지 않기",
+            "studentReply에서 사실·추론·적용·확장·성찰 같은 질문 유형 이름이나 내부 분석 결과를 말하지 않기",
             "수업 자료에 있는 내용은 전체 질문 자료의 구체적인 사실과 표현을 근거로 바로 답하기",
-            "followUpQuestion에는 학생이 그대로 베껴 쓸 완성형 다음 질문, 직접적인 후속 질문, 질문 만들기 힌트를 쓰지 말고 학생의 시도를 인정하는 짧은 격려 문장을 정확히 하나만 쓰기",
-            "followUpQuestion은 물음표로 끝내지 말고 '좋아요. 방금 떠올린 생각을 붙잡고 자료를 천천히 다시 살펴봐요.'처럼 작성하기",
-            "최근 대화가 있으면 앞서 한 답과 학생 반응을 이어 받고 같은 격려 문장을 기계적으로 반복하지 않기",
+            `허용된 중심 동작 중 정확히 하나만 선택하기: ${policyDecision.allowedMoves.join(", ")}`,
+            policyDecision.allowQuestion
+              ? "학생 생각을 실제로 열 필요가 있을 때만 물음표 하나 이하의 짧은 질문을 사용할 수 있음"
+              : "이번 턴에는 질문하지 말고 학생 말을 받아 주거나 단서·정리·종료만 제공하기",
+            policyDecision.shouldClose
+              ? "학생의 종료 의사를 존중해 isClosing을 true로 하고 새 과제·재읽기·후속 질문을 제시하지 않기"
+              : "학생이 종료 의사를 보이지 않았다면 대화를 억지로 마무리하지 않기",
+            "최근 대화가 있으면 앞서 한 답과 학생 반응을 이어 받고 같은 격려·재읽기 문장을 반복하지 않기",
+            "짧은 칭찬 문장과 후속 질문을 별도 블록처럼 붙이지 말고 하나의 자연스러운 말차례로 쓰기",
             "질문 유형, 근거 확인, 질문 개선, 루브릭 점수는 학생 화면에 노출하지 않는 교사용 내부 메타데이터로만 작성하기",
             "자료에는 없지만 수업 내용과 직접 관련된 확장 질문은 확장 질문으로 분류하기",
-            "자료에 직접 없는 내용은 질문 유형 이름을 말하지 않고, 수업 주제와 연결되는 범위와 추가 확인이 필요함을 자연스럽게 설명하기",
+            "자료에 직접 없는 감정·윤리·생활 적용 관심은 가능한 경우 productive_extension으로 받아 주고, 사실은 자료만으로 단정하지 않기",
             "실시간 리서치 출처가 제공되지 않았으면 출처를 지어내지 말고, 확인해야 할 검색어·출처 유형·점검 질문을 제안하기",
             "수업 내용과 상관없는 질문에는 '수업 내용과 관련된 질문에 대해서만 응답할 수 있어요.'라고 답하고 수업 자료로 돌아가도록 부드럽게 격려하기",
-            "학생 발화가 짧거나 막연해도 가능한 의미를 먼저 받아 준 뒤, 질문을 대신 만들어 주지 말고 다시 살펴보도록 격려하기",
-            "답변은 2-4문장으로 짧게 하기",
+            "학생 발화가 짧거나 막연하면 가능한 의미를 먼저 받아 주고, 첫 막힘에는 구체적인 자료 단서 하나와 최대 두 선택지만 제공하기",
+            "학생이 대화 방식에 부담을 표현하면 변명하지 말고 사과한 뒤 질문 없이 방식을 고치기",
+            "studentReply는 보통 2-4문장으로 짧게 쓰기",
             "자료 속 근거 확인은 evidencePrompt에서 안내하되 직접 답변을 대신하지 않기",
             "개인정보, 정답 대필, 원문 전체 복사 요청은 거절하기",
             "visibleText가 '교과서를 살펴보세요.'인 경우에도 A4, 저작권, 화면 표시 규칙 같은 제작 사정을 학생에게 말하지 않기",
             "visibleText가 '교과서를 살펴보세요.'이면 summary, keyConcepts, sourceLimit 안에서 자연스럽게 답하되 원문을 직접 인용한 것처럼 쓰지 않고 마지막에 원본 자료에서 근거를 확인하도록 짧게 안내하기",
             "성찰 질문은 자기 질문과 이해 과정을 돌아보게 하기",
             `교사가 지정한 범위 밖 질문 응답 문구 사용하기: ${behavior.offTopicResponse}`,
-            `질문이 지나치게 짧거나 모호하면 다음 격려 문구를 참고하기: ${behavior.insufficientQuestionResponse}`,
+            `질문이 지나치게 짧거나 모호하면 다음 문구의 부담 없는 태도만 참고하고 그대로 반복하지 않기: ${behavior.insufficientQuestionResponse}`,
             `교사의 추가 챗봇 지시를 반영하기: ${behavior.additionalInstructions}`,
           ],
         }),
@@ -397,13 +536,43 @@ export async function answerQuestionWithGemini({
     : [];
 
   const questionType = isChatQuestionType(parsed.questionType) ? parsed.questionType : "fact";
+  const parsedMove = isPrimaryMove(parsed.primaryMove) ? parsed.primaryMove : policyDecision.allowedMoves[0];
+  const primaryMove = policyDecision.allowedMoves.includes(parsedMove)
+    ? parsedMove
+    : policyDecision.allowedMoves[0];
+  const parsedSupportLevel = normalizeSupportLevel(parsed.supportLevel);
+  const supportLevel = Math.min(parsedSupportLevel, policyDecision.maxSupportLevel) as 0 | 1 | 2 | 3 | 4;
+  const studentReply = sanitizeStudentReply(parsed.studentReply);
+  const isClosing =
+    policyDecision.shouldClose ||
+    primaryMove === "close" ||
+    (typeof parsed.isClosing === "boolean" && parsed.isClosing);
+  const expectsStudentReply =
+    !isClosing &&
+    policyDecision.allowQuestion &&
+    typeof parsed.expectsStudentReply === "boolean" &&
+    parsed.expectsStudentReply &&
+    /[?？]/.test(studentReply);
 
   return {
-    answer: typeof parsed.answer === "string" ? parsed.answer : "",
-    followUpQuestion:
-      typeof parsed.followUpQuestion === "string"
-        ? parsed.followUpQuestion
-        : "이 답과 연결해 더 궁금한 점은 무엇인가요?",
+    schemaVersion: 2,
+    studentReply,
+    expectsStudentReply,
+    isClosing,
+    primaryMove,
+    engagementState: isEngagementState(parsed.engagementState)
+      ? parsed.engagementState
+      : policyDecision.likelyEngagementState,
+    curriculumRelation: isCurriculumRelation(parsed.curriculumRelation)
+      ? parsed.curriculumRelation
+      : policyDecision.curriculumRelation,
+    supportLevel,
+    sourceStatus: isSourceStatus(parsed.sourceStatus) ? parsed.sourceStatus : "source_insufficient",
+    sourceCue: typeof parsed.sourceCue === "string" ? parsed.sourceCue.trim().slice(0, 500) : "",
+    promptVersion: "questioning-dialogue-v2",
+    provider: "approved_external",
+    answer: studentReply,
+    followUpQuestion: "",
     questionType,
     typeLabel: typeof parsed.typeLabel === "string" ? parsed.typeLabel : "",
     typeReason: typeof parsed.typeReason === "string" ? parsed.typeReason : "",

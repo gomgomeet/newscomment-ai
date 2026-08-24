@@ -1,77 +1,76 @@
-# 질문 챗봇 제작보드 및 학생용 챗봇 PR 요약
+# 질문 챗봇 리서치 적용 PR 요약
 
-## 요약
+## 목적
 
-- 교사용 질문 챗봇 제작보드와 학생용 질문 챗봇 화면을 추가하고, 두 화면이 같은 설정을 공유하도록 구성했다.
-- 생성형 AI 연결은 Gemini 기준으로 정리했고, 교사 개인 Gemini API 키를 사용하는 운영 모델을 PRD에 반영했다.
-- Notion 준비 DB와 결과 DB 연동 구조를 추가해 성취기준, 질문 자료, 루브릭, 학생 질문·답변 기록을 교사 개인 Notion DB에 저장할 수 있게 했다.
-- 공통 Vercel 웹앱 1개를 유지하고, Supabase는 교사별 수업 연결정보를 암호화해 저장하는 소량 금고로만 사용하는 방향을 정리했다.
-- 학생용 화면은 질문 자료와 대화에 집중하도록 정리하고, 교사용 연결 상태나 AI 설정 정보는 노출하지 않는다.
-- 학생 식별은 실명이나 모둠 선택이 아니라 학교, 반, 번호를 입력받고, 교사용 기록에서는 `학교_반_번호` 한 열로 합쳐 관리한다.
-- 학생 답변은 질문 유형 분석보다 학생 발화에 먼저 반응하도록 조정했고, 직접적인 후속 질문 대신 짧은 격려 문장만 보여 준다.
-- 제목을 보고 내용을 예측하는 질문은 제목을 그대로 반복하지 않고, 예측 가능성과 자료 확인을 나누어 답하도록 보강했다.
-- 교육적 대화 원리부터 현재 PR의 데이터 흐름까지 연결한 LLM 설계 리서치 문서를 추가했다.
-- 가상 기사 6개와 성취기준 8개를 사용한 10회기 합성 학습자 다중 턴 형성평가를 추가해, 다음 대화 품질 수정의 기준선을 마련했다.
-- GPT-5.3-Codex-Spark를 학생용 대화 모델과 구분해 개발 반복 도구로 사용하는 범위, 요청 템플릿, 검증 규칙을 정리했다.
+학생 응답이 고정 격려와 기계적인 문장으로 반복되는 문제를 리서치 결과에 따라 실제 프로젝트 구조에 반영했다. 성취기준은 매 턴의 정답 목표가 아니라 대화 전체의 보이지 않는 나침반으로 사용하고, 챗봇은 학생의 관심·질문·종료 의사를 따라 한 번에 한 가지 도움만 제공한다.
 
 ## 주요 변경
 
-- `/questioning-board`: 성취기준 선택, 질문 자료 입력, 루브릭 확인, 학생용 챗봇 설정 저장, 평가 기록 엑셀 다운로드를 제공한다.
-- `/questioning-chatbot`: 학생 정보 입력, 질문 자료 열고 닫기, 곰곰이 프로필이 포함된 질문 대화 화면을 제공한다.
-- `/api/questioning-board/connections`: 교사별 Gemini 키, Notion 토큰, 자동 탐색된 준비 DB/결과 DB 연결값, 챗봇 설정을 Supabase에 암호화 저장하고 수업 코드로 조회한다.
-- `/api/questioning-board/notion/preparation`: 교사용 보드의 수업 준비값을 Notion 준비 DB에 저장한다.
-- `/api/questioning-board/chat`: Gemini 응답 실패 시 로컬 예비 응답으로 전환하고, Notion 결과 DB 환경변수가 있으면 학생별 `학교_반_번호` 페이지에 대화 결과를 누적한다.
-- 질문 자료는 짧은 자료는 원문 전체를 보여 주고, 긴 지문 또는 교과서 지문은 `교과서를 살펴보세요.` 안내로 대체한다.
-- 학생 화면에서는 질문 유형과 루브릭 분석을 보여 주지 않고, 학생의 질문과 생각에 먼저 응답하도록 조정했다.
-- 교사용 보드의 `챗봇 질문 성격 메모`를 PRD와 Gemini 응답 규칙에 반영해, 교사가 의도한 질문 방향을 학생 응답 톤에 적용한다.
-- `docs/QUESTIONING_CHATBOT_PRD.md`, `docs/QUESTIONING_CHATBOT_HANDOFF.md`, `docs/QUESTIONING_CHATBOT_NOTION_DB_TEMPLATE.md`, `docs/DEPLOYMENT_CHECKLIST.md`를 현재 운영 모델에 맞게 정리했다.
-- `docs/QUESTIONING_CHATBOT_LLM_RESEARCH.md`에 성취기준 나침반, 관심·질문 중심 대화 상태, 프롬프트·스키마·평가 설계를 정리했다.
-- `docs/QUESTIONING_CHATBOT_10_SESSION_SYNTHETIC_DIALOGUE_EVALUATION.md`에 10회기 40교환의 대화, 어색한 부분, 코드 반영 우선순위를 기록했다.
-- `docs/QUESTIONING_CHATBOT_RESEARCH_APPLICATION_PLAN.md`에 제공자 차단선, V2 계약, 파일별 변경, 호환성 마이그레이션, 회귀평가와 출시 기준을 정리했다.
-- `docs/GPT_5_3_CODEX_SPARK_USAGE_GUIDE.md`에 작은 수정 단위, 프로젝트용 요청 예시, 검증 절차, 모델 전환 조건을 정리했다.
+### 대화 품질
 
-## 대화 품질 평가에서 확인한 후속 수정
+- `studentReply` 중심 V2 응답 계약을 추가하고 학생 화면에는 완성된 한 말풍선만 표시한다.
+- 모든 응답 아래 붙던 고정 격려 상자를 제거했다.
+- 직접 후속 질문 전면 금지를 조건부 최대 한 질문 정책으로 바꿨다.
+- 설명, 반영, 근거 연결, 관점 확장, 낮은 부담의 단서, 불확실성 표시, 관계 회복, 안전 전환, 종료 중 한 가지 동작을 우선한다.
+- 최근 질문 반복, 학생의 짜증·거부, 불확실성, 종료 신호를 서버 정책에서 판단한다.
+- `curriculumCompass`를 추가해 성취기준이 학생에게 노출되거나 대화를 억지로 수렴시키지 않게 했다.
+- 제목 예측, 숫자 인과, 공감·권리, 해결 방안, 도덕화 위험을 포함한 로컬 응답을 다중 턴 맥락에 맞게 보완했다.
 
-- 직접 후속 질문 전면 금지는 학생 질문 대필을 막는 범위를 넘어 자연스러운 교사 발문까지 차단하므로 조건부 질문 정책으로 좁혀야 한다.
-- 학생 화면이 모델의 `followUpQuestion`을 사용하지 않고 모든 응답 아래에 같은 격려 문장을 붙여, 좋은 모델 응답도 기계적으로 보일 수 있다.
-- 다음 구현에서는 `studentReply`, `expectsStudentReply`, `isClosing`, `primaryMove`, `engagementState`, `curriculumRelation`을 도입하는 것이 우선이다.
-- 합성 학생 평가는 프리파일럿 형성평가이며 실제 학생 사용성 검사나 학습 효과 검증을 대신하지 않는다.
-- 현재 Gemini 약관에서는 18세 미만이 접근할 가능성이 있는 API Client 사용이 금지되므로, 학생용 Gemini 경로는 출시 차단 대상으로 두고 교사용 미리보기와 학생용 로컬 경로를 분리해야 한다.
+### 학생 데이터 경계
 
-## 운영 모델 정리
+- 학생 컴포넌트에서 교사 Gemini API 키 읽기와 요청 전송을 제거했다.
+- 학생용 대화는 로컬 자료 기반 응답이 기본이다.
+- 외부 제공자는 `QUESTIONING_STUDENT_LLM_ENABLED=true`와 `QUESTIONING_STUDENT_PROVIDER=approved_gemini`가 모두 설정된 서버 경로에서만 후보가 된다.
+- 수업 설정 조회에서 성취기준 원문, 루브릭, 교사 메모, PRD, API 키를 제거했다.
+- 학생 채팅 API는 `studentReply`, 종료 여부, 응답 기대 여부만 포함한 최소 DTO를 반환한다.
+- 입력 길이, 역할, 대화 수, 수업 코드, 제어 문자를 검증하고 수업·세션별 분당 20회 요청 제한을 추가했다.
 
-- 1차 구현형: 같은 브라우저의 `localStorage`로 교사용 보드와 학생용 챗봇을 연결하고, 서버 환경변수로 Notion DB를 연결한다.
-- 운영형: 교사별 Gemini API 키, Notion API 토큰, 자동 탐색된 준비 DB/결과 DB 연결값, 챗봇 설정을 Supabase `questioning_lesson_connections` 테이블에 암호화 저장하고 수업 코드로 불러온다.
-- Supabase에는 학생 질문·답변 본문을 저장하지 않는다. 학생 활동 결과는 교사 개인 Notion 결과 DB에 저장한다.
-- 권장 운영 기준은 연수 1회차 30-40명, 1차 목표는 월 누적 교사 400명 내외다.
+### 기록과 호환성
 
-## 검증
+- 기존 `answer`, `followUpQuestion`은 구데이터 호환용 별칭으로 유지한다.
+- Notion에는 학생이 실제로 본 `studentReply`를 누적하고, 교사용 정책 상태와 자료 근거 상태는 내부 기록으로 분리한다.
+- 기존 챗봇 설정은 정규화 단계에서 `curriculumCompass`와 새 기본 동작을 자동 보완한다.
+- Gemini 키가 없어도 수업 연결을 저장하고 학생용 로컬 모드를 사용할 수 있다.
 
-- `npm run typecheck`
-- `npm run lint`
-- `npm run build`
-- 연구 문서의 마크다운 코드 블록 짝과 내부 링크 확인
-- 10개 회기, 학생 발화 40개, 챗봇 응답 40개 구성 확인
+## 평가 하네스
 
-## 배포 메모
+- `evals/questioning-chatbot/fixtures/articles.json`: 가상 기사 6개
+- `evals/questioning-chatbot/fixtures/sessions.json`: 합성 학습자 10회기, 40턴
+- `scripts/run-questioning-dialogue-eval.mjs`: 실제 로컬 API 재생과 구조 검사
+- `npm run eval:questioning`: 대화 회귀평가 명령
 
-- 권장 배포는 GitHub 브랜치/PR 푸시 후 Vercel 원격 빌드 방식이다.
-- Codex 일반 샌드박스에서 `npm run build`가 `spawn EPERM`으로 실패할 수 있으나, 단순 Node 하위 프로세스 실행도 막히는 환경 권한 문제로 확인했다.
-- 같은 코드에서 권한 상승 실행의 `npm run build`는 통과했다.
-- 로컬 `vercel build --prod`는 Windows 심볼릭 링크 권한 문제로 실패할 수 있다.
-- 불가피하게 로컬 prebuilt 배포를 사용할 경우 관리자 권한 PowerShell 또는 Windows 개발자 모드에서 아래 순서로 진행한다.
+최종 자동 평가 결과는 **10회기, 40턴, 실패 0건**이다. 한 응답 최대 한 질문, 내부 정보 비노출, 종료 일관성, 관계 회복 턴의 무질문, 반복 응답 방지를 검사했다.
 
-```powershell
-Remove-Item -Recurse -Force .vercel\output
-vercel build --prod
-vercel deploy --prebuilt --prod
-```
+## 브라우저 검증
 
-## 남은 확인
+- 학교·반·번호 입력부터 채팅 시작, 학생 발화, 챗봇 응답까지 실제 Chrome 흐름을 확인했다.
+- 학생 발화와 `studentReply`가 각각 한 말풍선으로 표시됐다.
+- 고정 격려 배너와 오류 오버레이가 없음을 확인했다.
+- 390px 모바일 환경에서 가로 오버플로가 없음을 확인했다.
 
-- 연구에서 도출한 P0 스키마·UI 수정과 40교환 회귀 평가를 먼저 수행한다.
-- 수정 전후 응답을 교사 블라인드 비교로 검토한다.
-- 학교 현장 PC에서 교사 개인 Gemini API 키를 연결한 뒤 학생 질문 응답을 실제 수업 자료로 테스트한다.
-- 교사 개인 Notion 템플릿을 복제하고 준비 DB/결과 DB 저장 흐름을 확인한다.
-- 다른 컴퓨터에서는 `codex/questioning-chatbot-closeout` 브랜치를 체크아웃하고 `.env.example`을 `.env.local`로 복사한 뒤 개인 키를 다시 입력한다.
-- 운영형 후속 작업에서는 Supabase 마이그레이션을 실제 프로젝트에 적용하고, 교사별 로그인·권한 분리·수업 코드 만료 관리를 보강한다.
+## 명령 검증
+
+- `npm run eval:questioning`: 통과, 10회기 40턴 0 failures
+- `npm run lint`: 통과
+- `npm run typecheck`: 통과
+- `npm run build`: 통과
+- `git diff --check`: 통과
+
+일반 샌드박스 빌드는 Windows 하위 프로세스 권한으로 `spawn EPERM`이 발생했으나, 권한 허용 환경에서 같은 코드의 프로덕션 빌드는 정상 완료됐다.
+
+## 문서
+
+- `docs/QUESTIONING_CHATBOT_LLM_RESEARCH.md`: 교육 대화, LLM 구조, 안전, 프롬프트 리서치
+- `docs/QUESTIONING_CHATBOT_10_SESSION_SYNTHETIC_DIALOGUE_EVALUATION.md`: 초기 10회기 형성평가와 발견점
+- `docs/QUESTIONING_CHATBOT_RESEARCH_APPLICATION_PLAN.md`: 파일별 적용 설계와 출시 기준
+- `docs/QUESTIONING_CHATBOT_RESEARCH_APPLICATION_RESULT.md`: 실제 구현, 40턴 결과, 브라우저 검증, 한계
+- `docs/GPT_5_3_CODEX_SPARK_USAGE_GUIDE.md`: Codex Spark를 개발 반복 도구로 사용하는 방법
+- `docs/QUESTIONING_CHATBOT_PRD.md`: 현재 V2 대화정책과 학생용 제공자 경계
+
+## 남은 위험과 후속 작업
+
+- 합성 학습자 평가는 실제 학생 사용성이나 학습 효과 검증을 대신하지 않는다.
+- 새 기사와 새 교과를 사용하는 홀드아웃 평가가 필요하다.
+- 교사 2명 이상의 블라인드 비교로 자연스러움, 질문 소유권, 적응적 발판, 자료 근거, 종료를 채점해야 한다.
+- 학생용 외부 LLM은 제공자 약관, 개인정보, 학교·기관 승인을 완료하기 전까지 기본 차단 상태를 유지한다.
+- 현재 요청 제한은 단일 인스턴스 메모리 기반이므로 실제 다중 인스턴스 운영 전 공유 저장소 기반으로 교체한다.

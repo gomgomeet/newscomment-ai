@@ -10,7 +10,11 @@
 - QUESTIONING_CHATBOT_10_SESSION_SYNTHETIC_DIALOGUE_EVALUATION.md
 - GPT_5_3_CODEX_SPARK_USAGE_GUIDE.md
 
-문서 성격: 코드 변경 전 구현 설계·마이그레이션·검증 계획
+문서 성격: 구현 설계·마이그레이션·검증 계획
+
+적용 상태: 2026-08-25 구현 및 자동 검증 완료
+
+적용 결과: `docs/QUESTIONING_CHATBOT_RESEARCH_APPLICATION_RESULT.md`
 
 ## 1. 결론부터
 

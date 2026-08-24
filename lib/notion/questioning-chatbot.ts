@@ -748,14 +748,22 @@ function buildResultBlocks({
     headingBlock(3, "이번 질문"),
     ...paragraphBlocks(question),
     headingBlock(3, "챗봇 답변"),
-    ...paragraphBlocks(result.answer),
-    ...(result.followUpQuestion ? [bulletBlock(`격려 문장: ${result.followUpQuestion}`)] : []),
+    ...paragraphBlocks(result.studentReply),
+    headingBlock(3, "대화 정책 기록"),
+    bulletBlock(`스키마·프롬프트: v${result.schemaVersion} / ${result.promptVersion}`),
+    bulletBlock(`제공자: ${result.provider}`),
+    bulletBlock(`중심 동작: ${result.primaryMove}`),
+    bulletBlock(`참여 상태: ${result.engagementState}`),
+    bulletBlock(`교육과정 관계: ${result.curriculumRelation}`),
+    bulletBlock(`지원 수준: ${result.supportLevel}`),
+    bulletBlock(`자료 상태: ${result.sourceStatus}`),
+    ...(result.sourceCue ? [bulletBlock(`자료 단서: ${result.sourceCue}`)] : []),
     headingBlock(3, "평가 분석"),
     ...paragraphBlocks([result.typeReason, result.evidencePrompt, result.revisionSuggestion, scoreSummary(result, config.rubric)].filter(Boolean).join("\n\n")),
     headingBlock(3, "누적 질문모음"),
     ...paragraphBlocks(questionLog || question),
     headingBlock(3, "누적 챗봇 답변모음"),
-    ...paragraphBlocks(answerLog || result.answer),
+    ...paragraphBlocks(answerLog || result.studentReply),
     headingBlock(3, "세특용 피드백"),
     ...paragraphBlocks(result.teacherFeedback || "피드백 없음"),
   ];
@@ -800,7 +808,7 @@ export async function saveQuestioningResultToNotion({
   const studentQuestions = conversation.filter((item) => item.role === "student").map((item) => item.content);
   const assistantAnswers = conversation.filter((item) => item.role === "assistant").map((item) => item.content);
   const questionLog = [...studentQuestions, question].filter(Boolean).join("\n\n");
-  const answerLog = [...assistantAnswers, result.answer].filter(Boolean).join("\n\n");
+  const answerLog = [...assistantAnswers, result.studentReply].filter(Boolean).join("\n\n");
   const properties = buildResultProperties({
     schema,
     studentId,

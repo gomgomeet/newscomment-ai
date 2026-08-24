@@ -16,8 +16,9 @@ import type {
   RubricCriterion,
 } from "@/lib/questioning-board";
 import {
+  createDefaultQuestioningChatbotBehavior,
   normalizeQuestionMaterialForStudentDisplay,
-  normalizeQuestioningChatbotBehavior,
+  normalizeQuestioningChatbotConfig,
 } from "@/lib/questioning-board";
 
 type ConnectionRequest = {
@@ -94,10 +95,30 @@ function assertSetupAllowed(setupToken: unknown) {
 }
 
 function normalizeQuestioningConnectionConfig(config: QuestioningChatbotConfig): QuestioningChatbotConfig {
+  return normalizeQuestioningChatbotConfig(config);
+}
+
+function toStudentLessonConfig(config: QuestioningChatbotConfig): QuestioningChatbotConfig {
+  const material = normalizeQuestionMaterialForStudentDisplay(config.material);
+
   return {
-    ...config,
-    material: normalizeQuestionMaterialForStudentDisplay(config.material),
-    behavior: normalizeQuestioningChatbotBehavior(config.behavior),
+    targetGrade: config.targetGrade,
+    subjectUnit: config.subjectUnit,
+    standard: "",
+    material: {
+      materialTitle: material.materialTitle,
+      summary: material.summary,
+      visibleText: material.visibleText,
+      keyConcepts: material.keyConcepts,
+      possibleMisconceptions: [],
+      questionSeeds: [],
+      sourceLimit: "",
+      safetyNotice: "개인정보는 입력하지 않습니다.",
+    },
+    rubric: [],
+    behavior: createDefaultQuestioningChatbotBehavior(),
+    prdText: "",
+    updatedAt: config.updatedAt,
   };
 }
 
@@ -111,13 +132,14 @@ export async function GET(request: Request) {
     }
 
     const connection = await loadQuestioningLessonConnection(lessonCode);
-    const config = normalizeQuestioningConnectionConfig(connection.chatbotConfig);
+    const config = toStudentLessonConfig(
+      normalizeQuestioningConnectionConfig(connection.chatbotConfig),
+    );
 
     return Response.json({
       ok: true,
       lessonCode: connection.lessonCode,
       lessonTitle: connection.lessonTitle,
-      teacherLabel: connection.teacherLabel,
       config,
       studentChatbotPath: connection.studentChatbotPath,
     });

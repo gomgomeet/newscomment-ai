@@ -16,22 +16,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  QUESTIONING_AI_SETTINGS_KEY,
   QUESTIONING_CHATBOT_CONFIG_KEY,
   REFERENCE_ONLY_QUESTION_MATERIAL_TEXT,
   buildRubric,
   buildStandardAssessmentAnalysis,
   createDefaultQuestioningChatbotBehavior,
   createDefaultQuestioningLessonMaterial,
-  createLocalQuestionResult,
-  isQuestioningAiSettings,
-  normalizeQuestionMaterialForStudentDisplay,
-  normalizeQuestioningChatbotBehavior,
+  normalizeQuestioningChatbotConfig,
   standardOptions,
   type ChatMessage,
-  type ChatResult,
-  type QuestioningAiSettings,
   type QuestioningChatbotConfig,
+  type StudentChatResponse,
 } from "@/lib/questioning-board";
 import { cn } from "@/lib/utils";
 
@@ -53,15 +48,8 @@ type StudentProfile = {
   number: string;
 };
 
-type ChatApiResponse = ChatResult & {
+type ChatApiResponse = StudentChatResponse & {
   error?: string;
-  localFallback?: boolean;
-  aiWarning?: string;
-  lessonCode?: string;
-  notionSave?: {
-    ok?: boolean;
-    warning?: string;
-  };
 };
 
 type LessonConnectionResponse = {
@@ -225,21 +213,13 @@ function GomgomiAvatar({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
   );
 }
 
-function normalizeQuestioningConfig(config: QuestioningChatbotConfig): QuestioningChatbotConfig {
-  return {
-    ...config,
-    material: normalizeQuestionMaterialForStudentDisplay(config.material),
-    behavior: normalizeQuestioningChatbotBehavior(config.behavior),
-  };
-}
-
 export function StudentQuestionHelperChatbot() {
   const usesRemoteLessonRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const chatSessionIdRef = useRef(makeId());
   const [config, setConfig] = useState<QuestioningChatbotConfig>(() => createFallbackConfig());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [question, setQuestion] = useState("");
-  const [aiSettings, setAiSettings] = useState<QuestioningAiSettings | null>(null);
   const [lessonCode, setLessonCode] = useState("");
   const [isQuestionMaterialOpen, setIsQuestionMaterialOpen] = useState(false);
   const [isChatStarted, setIsChatStarted] = useState(false);
@@ -269,6 +249,11 @@ export function StudentQuestionHelperChatbot() {
     return Array.from(new Set([...explorationPoints, ...quickQuestions])).slice(0, 4);
   }, [explorationPoints]);
   const isTypingAssistantResponse = Boolean(activeTypingMessageId);
+  const hasStudentTurn = messages.some((message) => message.role === "student");
+  const latestAssistantResult = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant" && message.result)?.result;
+  const conversationIsClosing = Boolean(latestAssistantResult?.isClosing);
 
   useEffect(() => {
     if (!activeTypingMessageId) {
@@ -340,8 +325,7 @@ export function StudentQuestionHelperChatbot() {
       const nextLessonCode = payload.lessonCode || trimmedCode.toUpperCase();
       usesRemoteLessonRef.current = true;
       setLessonCode(nextLessonCode);
-      setConfig(normalizeQuestioningConfig(payload.config));
-      setAiSettings(null);
+      setConfig(normalizeQuestioningChatbotConfig(payload.config));
       window.localStorage.setItem(LESSON_CODE_KEY, nextLessonCode);
       setNotice(successMessage);
     } catch (error) {
@@ -352,24 +336,6 @@ export function StudentQuestionHelperChatbot() {
   }
 
   useEffect(() => {
-    function applyAiSettings(storedValue: string | null) {
-      if (!storedValue) {
-        setAiSettings(null);
-        return;
-      }
-
-      try {
-        const parsedAiSettings = JSON.parse(storedValue) as unknown;
-        if (isQuestioningAiSettings(parsedAiSettings) && parsedAiSettings.apiKey.trim()) {
-          setAiSettings(parsedAiSettings);
-          return;
-        }
-        setAiSettings(null);
-      } catch {
-        setAiSettings(null);
-      }
-    }
-
     function applyChatbotConfig(storedValue: string | null, successMessage: string) {
       if (!storedValue) {
         setConfig(createFallbackConfig());
@@ -382,7 +348,7 @@ export function StudentQuestionHelperChatbot() {
         if (!isQuestioningConfig(parsed)) {
           throw new Error("저장된 챗봇 설정 형식이 올바르지 않습니다.");
         }
-        setConfig(normalizeQuestioningConfig(parsed));
+        setConfig(normalizeQuestioningChatbotConfig(parsed));
         setNotice(successMessage);
       } catch (error) {
         const message = error instanceof Error ? error.message : "챗봇 설정을 읽을 수 없습니다.";
@@ -423,7 +389,6 @@ export function StudentQuestionHelperChatbot() {
     const timer = window.setTimeout(() => {
       const urlLessonCode = new URLSearchParams(window.location.search).get("lesson") || "";
 
-      applyAiSettings(window.localStorage.getItem(QUESTIONING_AI_SETTINGS_KEY));
       if (urlLessonCode) {
         void loadLessonConnection(urlLessonCode, "공유된 수업 링크의 질문 자료가 연결되었습니다.");
       } else {
@@ -436,9 +401,6 @@ export function StudentQuestionHelperChatbot() {
     }, 0);
 
     function handleStorage(event: StorageEvent) {
-      if (event.key === QUESTIONING_AI_SETTINGS_KEY) {
-        applyAiSettings(event.newValue);
-      }
       if (event.key === QUESTIONING_CHATBOT_CONFIG_KEY) {
         if (!usesRemoteLessonRef.current) {
           applyChatbotConfig(event.newValue, "교사용 보드에서 수정한 챗봇 설정을 바로 적용했습니다.");
@@ -538,25 +500,34 @@ export function StudentQuestionHelperChatbot() {
     setNotice("");
 
     try {
+      const recentConversation = messages.slice(-8).map((message) => ({
+        role: message.role,
+        content: message.content,
+      }));
+      const requestBody = lessonCode
+        ? {
+            lessonCode,
+            sessionId: chatSessionIdRef.current,
+            question: trimmedQuestion,
+            studentProfile,
+            conversation: recentConversation,
+          }
+        : {
+            standard: config.standard,
+            targetGrade: config.targetGrade,
+            subjectUnit: config.subjectUnit,
+            material: config.material,
+            rubric,
+            behavior: config.behavior,
+            sessionId: chatSessionIdRef.current,
+            question: trimmedQuestion,
+            studentProfile,
+            conversation: recentConversation,
+          };
       const response = await fetch("/api/questioning-board/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          standard: config.standard,
-          targetGrade: config.targetGrade,
-          subjectUnit: config.subjectUnit,
-          material: config.material,
-          rubric,
-          behavior: config.behavior,
-          question: trimmedQuestion,
-          studentProfile,
-          conversation: messages.slice(-8).map((message) => ({
-            role: message.role,
-            content: message.content,
-          })),
-          ...(lessonCode ? { lessonCode } : {}),
-          ...(!lessonCode && aiSettings?.apiKey ? { apiKey: aiSettings.apiKey, model: aiSettings.model } : {}),
-        }),
+        body: JSON.stringify(requestBody),
       });
       const payload = (await response.json()) as ChatApiResponse;
 
@@ -567,30 +538,35 @@ export function StudentQuestionHelperChatbot() {
       const assistantMessage: ChatMessage = {
         id: makeId(),
         role: "assistant",
-        content: payload.answer,
+        content: payload.studentReply,
         result: payload,
       };
       appendAssistantMessage(assistantMessage);
-      if (payload.localFallback) {
-        setNotice("생성형 AI 응답을 사용할 수 없어 현재 질문 자료를 바탕으로 로컬 응답을 제공했습니다.");
-      } else if (payload.notionSave?.warning) {
-        setNotice(`질문 기록을 Notion 결과 DB에 저장하지 못했습니다. ${payload.notionSave.warning}`);
+      if (payload.noticeCode === "provider_unavailable") {
+        setNotice("지금은 준비된 질문 자료 안에서 안전하게 대화를 이어 가고 있어요.");
+      } else if (payload.noticeCode === "source_limited") {
+        setNotice("질문 자료만으로 알기 어려운 내용은 단정하지 않고 함께 확인할 부분으로 남겨 두었어요.");
+      } else if (payload.noticeCode === "record_unavailable") {
+        setNotice("대화는 계속할 수 있지만 이번 활동 기록은 저장되지 않았어요.");
       }
     } catch {
-      const fallback = createLocalQuestionResult({
-        question: trimmedQuestion,
-        material: config.material,
-        rubric,
-        behavior: config.behavior,
-      });
+      const fallback: StudentChatResponse = {
+        schemaVersion: 2,
+        studentReply:
+          "지금은 질문 자료와 연결이 잠시 끊겼어요. 방금 떠올린 생각을 그대로 두었다가 잠시 뒤 다시 이야기해 주세요.",
+        expectsStudentReply: false,
+        isClosing: false,
+        localFallback: true,
+        noticeCode: "provider_unavailable",
+      };
       const assistantMessage: ChatMessage = {
         id: makeId(),
         role: "assistant",
-        content: fallback.answer,
+        content: fallback.studentReply,
         result: fallback,
       };
       appendAssistantMessage(assistantMessage);
-      setNotice("생성형 AI 응답을 사용할 수 없어 현재 질문 자료를 바탕으로 로컬 응답을 제공했습니다.");
+      setNotice("연결이 원활하지 않아요. 잠시 뒤 다시 이야기해 주세요.");
     } finally {
       setIsSending(false);
     }
@@ -622,9 +598,9 @@ export function StudentQuestionHelperChatbot() {
             </div>
           </div>
           {notice ? (
-            <div className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-900 shadow-sm">
+            <div className="flex min-w-0 items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-900 shadow-sm">
               <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-              <p>{notice}</p>
+              <p className="min-w-0 break-words">{notice}</p>
             </div>
           ) : null}
         </div>
@@ -715,7 +691,7 @@ export function StudentQuestionHelperChatbot() {
           </div>
 
           <div className="rounded-3xl border border-sky-100 bg-white/95 shadow-sm backdrop-blur">
-            <div className="flex items-center justify-between gap-3 border-b border-sky-100 p-4">
+            <div className="flex flex-col items-stretch gap-3 border-b border-sky-100 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="size-5 shrink-0 text-sky-500" aria-hidden="true" />
@@ -732,7 +708,7 @@ export function StudentQuestionHelperChatbot() {
                 aria-expanded={isQuestionMaterialOpen}
                 aria-controls="student-question-material"
                 onClick={() => setIsQuestionMaterialOpen((current) => !current)}
-                className="rounded-full border-sky-100 bg-sky-50 text-sky-700 hover:bg-sky-100"
+                className="self-end rounded-full border-sky-100 bg-sky-50 text-sky-700 hover:bg-sky-100 sm:self-auto"
               >
                 {isQuestionMaterialOpen ? "전체 닫기" : "전체 보기"}
                 {isQuestionMaterialOpen ? (
@@ -810,14 +786,15 @@ export function StudentQuestionHelperChatbot() {
               </Button>
             </div>
             <div className="space-y-4 p-4">
-              <div className="space-y-2">
+              {!hasStudentTurn && !conversationIsClosing ? (
+                <div className="space-y-2">
                 <p className="text-xs font-bold text-violet-700">빠른 생각 출발점</p>
                 <div className="flex flex-wrap gap-2">
                   {seedQuestions.slice(0, 4).map((seed) => (
                     <button
                       key={seed}
                       type="button"
-                      onClick={() => setQuestion(`${seed} 부분이 궁금해요.`)}
+                      onClick={() => setQuestion(seed)}
                       disabled={!isChatStarted}
                       className="rounded-full border border-amber-100 bg-amber-100/90 px-3 py-1.5 text-left text-xs font-semibold text-amber-900 shadow-sm hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
                     >
@@ -825,7 +802,8 @@ export function StudentQuestionHelperChatbot() {
                     </button>
                   ))}
                 </div>
-              </div>
+                </div>
+              ) : null}
               <div
                 className="h-[460px] space-y-3 overflow-y-auto rounded-3xl border border-violet-100 bg-violet-100/70 p-3"
                 aria-live="polite"
@@ -862,13 +840,6 @@ export function StudentQuestionHelperChatbot() {
                             <span className="ml-1 inline-block h-4 w-1 animate-pulse rounded-full bg-violet-400 align-[-2px]" />
                           ) : null}
                         </p>
-                        {!isAssistantTyping && message.result ? (
-                          <div className="mt-3 rounded-2xl border-l-4 border-violet-300 bg-violet-50 px-3 py-2">
-                            <p className="text-sm font-semibold text-violet-700">
-                              좋아요. 방금 떠올린 생각을 붙잡고 자료를 천천히 다시 살펴봐요.
-                            </p>
-                          </div>
-                        ) : null}
                       </div>
                       {message.role === "student" ? (
                         <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-teal-100 bg-teal-100 text-xs font-bold text-teal-800 shadow-sm">
@@ -914,6 +885,8 @@ export function StudentQuestionHelperChatbot() {
                   placeholder={
                     isTypingAssistantResponse
                       ? "곰곰이가 답변을 마치는 중이에요."
+                      : conversationIsClosing
+                        ? "더 이야기하고 싶은 생각이 생기면 이어서 적어도 괜찮아요."
                       : isChatStarted
                       ? "질문 도우미에게 궁금한 점이나 내 생각을 적어 보세요."
                       : "먼저 채팅 시작을 눌러 주세요."

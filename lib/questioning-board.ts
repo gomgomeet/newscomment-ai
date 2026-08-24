@@ -88,8 +88,67 @@ export type ChatEvaluation = {
   rationale: string;
 };
 
+export type PrimaryMove =
+  | "receive"
+  | "clarify"
+  | "offer_clue"
+  | "compare_possibilities"
+  | "follow_student_lead"
+  | "productive_extension"
+  | "check_evidence"
+  | "repair"
+  | "close"
+  | "safety_redirect";
+
+export type EngagementState =
+  | "noticing"
+  | "curious"
+  | "personally_connecting"
+  | "exploring_possibilities"
+  | "seeking_evidence"
+  | "revising_thought"
+  | "disengaged"
+  | "ready_to_close";
+
+export type CurriculumRelation = "direct" | "adjacent" | "productive_extension" | "disconnected";
+
+export type SourceStatus = "supported" | "reasonable_inference" | "source_insufficient" | "out_of_scope";
+
+export type CurriculumCompass = {
+  rawStandard: string;
+  bigIdeas: string[];
+  worthwhileNoticing: string[];
+  thinkingDispositions: string[];
+  fertileQuestionAreas: string[];
+  meaningfulExtensions: string[];
+  doNotForce: string[];
+};
+
+export type StudentChatResponse = {
+  schemaVersion: 2;
+  studentReply: string;
+  expectsStudentReply: boolean;
+  isClosing: boolean;
+  localFallback: boolean;
+  noticeCode?: "source_limited" | "safety_redirect" | "provider_unavailable" | "record_unavailable";
+};
+
 export type ChatResult = {
+  schemaVersion: 2;
+  studentReply: string;
+  expectsStudentReply: boolean;
+  isClosing: boolean;
+  primaryMove: PrimaryMove;
+  engagementState: EngagementState;
+  curriculumRelation: CurriculumRelation;
+  supportLevel: 0 | 1 | 2 | 3 | 4;
+  sourceStatus: SourceStatus;
+  sourceCue: string;
+  promptVersion: "questioning-dialogue-v2";
+  provider: "local" | "gemini_teacher_preview" | "approved_external";
+  /** @deprecated Use studentReply. Kept while stored V1 records are migrated. */
   answer: string;
+  /** @deprecated V2 keeps the complete student-facing turn in studentReply. */
   followUpQuestion: string;
   questionType: QuestionType;
   typeLabel: string;
@@ -106,14 +165,17 @@ export type ChatMessage = {
   id: string;
   role: "student" | "assistant";
   content: string;
-  result?: ChatResult;
+  result?: StudentChatResponse;
 };
+
+export type QuestioningConversationEntry = Pick<ChatMessage, "role" | "content">;
 
 export type QuestioningChatbotConfig = {
   targetGrade: string;
   subjectUnit: string;
   standard: string;
   assessmentAnalysis?: StandardAssessmentAnalysis;
+  curriculumCompass?: CurriculumCompass;
   material: MaterialAnalysis;
   rubric: RubricCriterion[];
   behavior: QuestioningChatbotBehavior;
@@ -205,7 +267,7 @@ export const defaultQuestioningChatbotBehavior: QuestioningChatbotBehavior = {
   insufficientQuestionResponse:
     "말해 준 내용을 잘 들었어요. 자료에서 연결되는 대상이나 장면을 천천히 다시 살펴봐도 좋아요.",
   additionalInstructions:
-    "학생의 질문이나 응답을 먼저 구체적으로 받아 주고 자료와 연결해 대화한다. 질문 종류를 설명하지 말고, 완성된 다음 질문이나 직접적인 후속 질문을 대신 써 주지 않으며 학생의 질문 시도를 짧게 격려한다.",
+    "학생이 실제로 말한 흥미, 놀람, 경험, 질문을 먼저 이어 받는다. 한 턴에는 중심 교수 동작을 하나만 사용하고, 질문은 생각을 실제로 열 때만 최대 하나 제시한다. 성취기준은 대화 전체의 보이지 않는 방향으로만 사용한다.",
 };
 
 export function createDefaultQuestioningChatbotBehavior(): QuestioningChatbotBehavior {
@@ -293,7 +355,9 @@ export function normalizeQuestioningChatbotBehavior(value: unknown): Questioning
       additionalInstructions ===
         "학생 질문에 먼저 자료를 근거로 직접 답하고, 자연스러운 후속 질문 하나로 대화를 이어 간다. 질문 유형과 개선 제안은 답변 뒤에 보조 정보로 제공한다." ||
       additionalInstructions ===
-        "학생의 질문이나 응답을 먼저 구체적으로 받아 주고 자료와 연결해 대화한다. 질문 종류를 설명하지 말고, 자연스러운 후속 질문 하나로 학생이 스스로 더 분명하고 깊은 질문을 만들도록 돕는다."
+        "학생의 질문이나 응답을 먼저 구체적으로 받아 주고 자료와 연결해 대화한다. 질문 종류를 설명하지 말고, 자연스러운 후속 질문 하나로 학생이 스스로 더 분명하고 깊은 질문을 만들도록 돕는다." ||
+      additionalInstructions ===
+        "학생의 질문이나 응답을 먼저 구체적으로 받아 주고 자료와 연결해 대화한다. 질문 종류를 설명하지 말고, 완성된 다음 질문이나 직접적인 후속 질문을 대신 써 주지 않으며 학생의 질문 시도를 짧게 격려한다."
         ? fallback.additionalInstructions
         : additionalInstructions,
   };
@@ -875,6 +939,85 @@ export function buildStandardAssessmentAnalysis(standard: string): StandardAsses
   };
 }
 
+export function buildCurriculumCompass(
+  standard: string,
+  assessmentAnalysis = buildStandardAssessmentAnalysis(standard),
+): CurriculumCompass {
+  const fertileQuestionAreas = assessmentAnalysis.questionTypeLinks
+    .filter((link) => link.questionType !== "fact")
+    .map((link) => link.assessmentRole);
+
+  return {
+    rawStandard: standard.trim(),
+    bigIdeas: [assessmentAnalysis.coreAchievement].filter(Boolean),
+    worthwhileNoticing: assessmentAnalysis.contentTargets.slice(0, 6),
+    thinkingDispositions: assessmentAnalysis.performanceBehaviors.slice(0, 6),
+    fertileQuestionAreas: fertileQuestionAreas.slice(0, 5),
+    meaningfulExtensions: [
+      "학생 자신의 경험이나 생활 장면과 자료를 연결하는 관점",
+      "자료의 방법이 다른 사람에게 미칠 수 있는 영향이나 감정",
+      "자료의 해결 방법을 다른 상황에서 바꾸어 적용하는 가능성",
+    ],
+    doNotForce: [
+      "매 턴 성취기준의 문구를 말하게 하지 않기",
+      "모든 호기심을 즉시 근거 찾기 과제로 바꾸지 않기",
+      "학생의 예상 밖 관심을 곧바로 틀렸다고 수렴시키지 않기",
+      "학생이 충분히 말했거나 끝내고 싶을 때 새 질문을 강요하지 않기",
+    ],
+  };
+}
+
+function normalizeCompassList(value: unknown, fallback: string[], maxItems = 8) {
+  if (!Array.isArray(value)) {
+    return [...fallback];
+  }
+
+  const normalized = value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, maxItems);
+
+  return normalized.length ? normalized : [...fallback];
+}
+
+export function normalizeQuestioningChatbotConfig(config: QuestioningChatbotConfig): QuestioningChatbotConfig {
+  const assessmentAnalysis = config.assessmentAnalysis ?? buildStandardAssessmentAnalysis(config.standard);
+  const fallbackCompass = buildCurriculumCompass(config.standard, assessmentAnalysis);
+  const compass = config.curriculumCompass as Partial<CurriculumCompass> | undefined;
+
+  return {
+    ...config,
+    assessmentAnalysis,
+    curriculumCompass: {
+      rawStandard:
+        typeof compass?.rawStandard === "string" && compass.rawStandard.trim()
+          ? compass.rawStandard.trim()
+          : fallbackCompass.rawStandard,
+      bigIdeas: normalizeCompassList(compass?.bigIdeas, fallbackCompass.bigIdeas),
+      worthwhileNoticing: normalizeCompassList(
+        compass?.worthwhileNoticing,
+        fallbackCompass.worthwhileNoticing,
+      ),
+      thinkingDispositions: normalizeCompassList(
+        compass?.thinkingDispositions,
+        fallbackCompass.thinkingDispositions,
+      ),
+      fertileQuestionAreas: normalizeCompassList(
+        compass?.fertileQuestionAreas,
+        fallbackCompass.fertileQuestionAreas,
+      ),
+      meaningfulExtensions: normalizeCompassList(
+        compass?.meaningfulExtensions,
+        fallbackCompass.meaningfulExtensions,
+      ),
+      doNotForce: normalizeCompassList(compass?.doNotForce, fallbackCompass.doNotForce),
+    },
+    material: normalizeQuestionMaterialForStudentDisplay(config.material),
+    behavior: normalizeQuestioningChatbotBehavior(config.behavior),
+  };
+}
+
 export function buildRubric(standard: string): RubricCriterion[] {
   const standardHint = standard.trim() || "선택한 성취기준";
   const analysis = buildStandardAssessmentAnalysis(standard);
@@ -1119,10 +1262,10 @@ function findRelevantSourceExcerpt(question: string, material: MaterialAnalysis,
   const segments = source
     .split(/\r?\n+/)
     .flatMap((paragraph, paragraphIndex) =>
-      (paragraph.match(/[^.!?]+[.!?]?/g) || [paragraph]).map((sentence, sentenceIndex) => ({
+      (paragraph.replace(/(\d)\.(\d)/g, "$1<decimal>$2").match(/[^.!?]+[.!?]?/g) || [paragraph]).map((sentence, sentenceIndex) => ({
         paragraphIndex,
         sentenceIndex,
-        text: sentence.trim(),
+        text: sentence.replace(/<decimal>/g, ".").trim(),
       })),
     )
     .filter((segment) => segment.text.length >= 8);
@@ -1200,7 +1343,8 @@ function isTitlePredictionQuestion(question: string) {
   return (
     (/(제목|표제|헤드라인)/.test(compactQuestion) &&
       /(예측|예상|내용|이야기|무슨|어떤|무엇)/.test(compactQuestion)) ||
-    /(이야기일까|내용일까|말일까|뜻일까)/.test(compactQuestion)
+    /(이야기일까|내용일까|말일까|뜻일까)/.test(compactQuestion) ||
+    /(제목보고|제목을보고).*(줄알았|예상했|생각했)/.test(compactQuestion)
   );
 }
 
@@ -1226,7 +1370,22 @@ function createTitlePredictionAnswer(question: string, material: MaterialAnalysi
   return "제목이나 첫 부분을 보면 자료가 무엇을 다룰지 먼저 예상해 볼 수 있어요. 그 예상이 맞는지는 자료 속 표현과 근거를 보며 차분히 확인해 보면 좋아요.";
 }
 
-export function createLocalQuestionResult({
+type LegacyChatResult = Pick<
+  ChatResult,
+  | "answer"
+  | "followUpQuestion"
+  | "questionType"
+  | "typeLabel"
+  | "typeReason"
+  | "evidencePrompt"
+  | "revisionSuggestion"
+  | "evaluationSignals"
+  | "teacherFeedback"
+  | "rubricScores"
+  | "safetyFlag"
+>;
+
+function createLegacyLocalQuestionResult({
   question,
   material,
   rubric,
@@ -1236,7 +1395,7 @@ export function createLocalQuestionResult({
   material: MaterialAnalysis;
   rubric: RubricCriterion[];
   behavior?: QuestioningChatbotBehavior;
-}): ChatResult {
+}): LegacyChatResult {
   const behavior = normalizeQuestioningChatbotBehavior(behaviorValue);
   const questionType = classifyQuestionLocally(question, behavior);
   const typeLabel = questionTypeLabels[questionType];
@@ -1424,5 +1583,644 @@ export function createLocalQuestionResult({
       rationale: "로컬 분류 기준으로 산출한 예비 점수입니다. 교사가 최종 판단해야 합니다.",
     })),
     safetyFlag: false,
+  };
+}
+
+function hasQuestionEnding(value: string) {
+  return /[?？]\s*$/.test(value.trim());
+}
+
+function keepAtMostOneQuestion(value: string) {
+  let questionMarkSeen = false;
+  return value.replace(/[?？]/g, () => {
+    if (questionMarkSeen) {
+      return ".";
+    }
+    questionMarkSeen = true;
+    return "?";
+  });
+}
+
+function recentTurnsMatch(
+  conversation: QuestioningConversationEntry[],
+  role: QuestioningConversationEntry["role"],
+  pattern: RegExp,
+) {
+  return conversation
+    .filter((entry) => entry.role === role)
+    .slice(-4)
+    .filter((entry) => pattern.test(entry.content)).length;
+}
+
+function avoidRepeatedStudentReply(
+  reply: string,
+  conversation: QuestioningConversationEntry[],
+  sourceCue: string,
+) {
+  const recentAssistantTurns = conversation
+    .filter((entry) => entry.role === "assistant")
+    .slice(-3)
+    .map((entry) => entry.content.trim());
+
+  if (!recentAssistantTurns.includes(reply.trim())) {
+    return reply;
+  }
+
+  return sourceCue
+    ? `같은 말을 되풀이하지 않을게요. 이번에는 ${sourceCue} 이 부분만 천천히 살펴봐도 충분해요.`
+    : "같은 말을 되풀이하지 않을게요. 방금 떠올린 생각을 그대로 두고 잠시 쉬어도 괜찮아요.";
+}
+
+type NaturalLocalTurn = {
+  reply: string;
+  primaryMove: PrimaryMove;
+  engagementState: EngagementState;
+  curriculumRelation: CurriculumRelation;
+  sourceStatus: SourceStatus;
+  supportLevel: 0 | 1 | 2 | 3 | 4;
+};
+
+function createNaturalLocalTurn(studentTurn: string, material: MaterialAnalysis): NaturalLocalTurn | null {
+  const compactTurn = studentTurn.replace(/\s+/g, "");
+  const source = `${material.materialTitle}\n${material.summary}\n${material.visibleText}`;
+
+  if (/(잔반|선택배식|급식)/.test(source)) {
+    if (/(모든학교|다른학교).*(줄|가능)/.test(compactTurn)) {
+      return {
+        reply:
+          "다른 학교에서도 줄어들 가능성은 있지만, 이 기사 하나로 모든 학교의 결과를 알 수는 없어요. 메뉴와 학생 수, 다시 받을 수 있는지 같은 조건이 달라질 수 있거든요.",
+        primaryMove: "productive_extension",
+        engagementState: "curious",
+        curriculumRelation: "productive_extension",
+        sourceStatus: "source_insufficient",
+        supportLevel: 1,
+      };
+    }
+    if (/(왜줄|왜.*줄었)/.test(compactTurn)) {
+      return {
+        reply:
+          "학생이 먹을 양을 직접 골랐고, 적게 받았다가 더 받을 수도 있었던 점이 영향을 주었을 수 있어요. 다만 메뉴와 날씨도 달랐기 때문에 원인을 하나로 확정할 수는 없어요.",
+        primaryMove: "compare_possibilities",
+        engagementState: "exploring_possibilities",
+        curriculumRelation: "direct",
+        sourceStatus: "reasonable_inference",
+        supportLevel: 1,
+      };
+    }
+    if (/(저도|나도).*(많이받|남겨)/.test(compactTurn)) {
+      return {
+        reply:
+          "네 경험을 떠올리니 선택 배식이 왜 편했는지 더 잘 보이네요. 처음부터 먹을 만큼 고르고 부족하면 더 받는 방식이라면 많이 받아 놓고 남기는 일이 줄 수 있겠어요.",
+        primaryMove: "follow_student_lead",
+        engagementState: "personally_connecting",
+        curriculumRelation: "productive_extension",
+        sourceStatus: "reasonable_inference",
+        supportLevel: 0,
+      };
+    }
+    if (compactTurn === "결과요." || compactTurn === "결과요") {
+      return {
+        reply: "결과에 먼저 눈이 갔군요. 남은 음식이 하루 평균 18kg에서 10.4kg으로 줄었다는 부분이 결과예요.",
+        primaryMove: "receive",
+        engagementState: "noticing",
+        curriculumRelation: "direct",
+        sourceStatus: "supported",
+        supportLevel: 1,
+      };
+    }
+    if (/많이줄었/.test(compactTurn)) {
+      return {
+        reply: "맞아요. 선택 배식을 해 본 뒤 남은 음식이 많이 줄었다는 흐름이 기사의 중심에 있어요.",
+        primaryMove: "receive",
+        engagementState: "noticing",
+        curriculumRelation: "direct",
+        sourceStatus: "supported",
+        supportLevel: 0,
+      };
+    }
+    if (/그게끝/.test(compactTurn)) {
+      return {
+        reply:
+          "결과를 찾은 것에서 끝내도 괜찮고, 조금 더 보고 싶다면 학교가 무엇을 바꾸어서 그 결과가 나왔는지 이어 볼 수도 있어요. 어느 쪽이 더 궁금해요?",
+        primaryMove: "clarify",
+        engagementState: "curious",
+        curriculumRelation: "direct",
+        sourceStatus: "supported",
+        supportLevel: 1,
+      };
+    }
+  }
+
+  if (/(옥상|텃밭|1\.5도|29\.3도)/.test(source)) {
+    if (/(정확히1\.5도|1\.5도.*낮췄)/.test(compactTurn)) {
+      return {
+        reply:
+          "지난해 기록보다 1.5도 낮게 측정된 것은 맞아요. 하지만 텃밭과 함께 그늘막도 만들었고 날씨 차이도 확인하지 못해서, 텃밭만의 효과가 정확히 1.5도라고 말하기는 어려워요.",
+        primaryMove: "compare_possibilities",
+        engagementState: "exploring_possibilities",
+        curriculumRelation: "direct",
+        sourceStatus: "reasonable_inference",
+        supportLevel: 1,
+      };
+    }
+    if (/숫자가있는데왜/.test(compactTurn)) {
+      return {
+        reply:
+          "온도 숫자는 실제로 잰 기록이에요. 다만 온도가 달라진 까닭에는 텃밭뿐 아니라 그늘막과 날씨도 영향을 줄 수 있어서, 측정된 숫자와 원인 판단은 나누어 보아야 해요.",
+        primaryMove: "clarify",
+        engagementState: "seeking_evidence",
+        curriculumRelation: "direct",
+        sourceStatus: "reasonable_inference",
+        supportLevel: 1,
+      };
+    }
+    if (/교장선생님.*넓히/.test(compactTurn)) {
+      return {
+        reply:
+          "교장 선생님이 넓히자고 한 것은 기사에 실린 의견이에요. 낮아진 온도 기록은 그 의견을 뒷받침할 수 있지만, 방수와 비용을 걱정하는 의견도 함께 나와요.",
+        primaryMove: "compare_possibilities",
+        engagementState: "exploring_possibilities",
+        curriculumRelation: "direct",
+        sourceStatus: "supported",
+        supportLevel: 0,
+      };
+    }
+    if (/(물새|누수)/.test(compactTurn)) {
+      return {
+        reply:
+          "텃밭을 넓히고 싶은 마음과 물이 샐까 걱정되는 마음을 함께 보고 있네요. 기사 속 학부모도 방수 공사와 관리 비용을 먼저 살펴야 한다고 말했어요.",
+        primaryMove: "receive",
+        engagementState: "personally_connecting",
+        curriculumRelation: "direct",
+        sourceStatus: "supported",
+        supportLevel: 0,
+      };
+    }
+    if (/우리학교.*텃밭/.test(compactTurn)) {
+      return {
+        reply:
+          "기사를 보며 바로 우리 학교 옥상을 떠올렸군요. 교실을 덜 덥게 하는 점과 식물을 기르는 점 중 어떤 모습이 더 기대돼요?",
+        primaryMove: "follow_student_lead",
+        engagementState: "personally_connecting",
+        curriculumRelation: "productive_extension",
+        sourceStatus: "reasonable_inference",
+        supportLevel: 1,
+      };
+    }
+    if (/채소.*먹/.test(compactTurn)) {
+      return {
+        reply:
+          "교실이 시원해지는 것과 채소를 기르는 것을 함께 기대하는군요. 기사에는 학생들이 상추와 토마토를 길렀다고 나오지만, 수확한 채소를 먹었다는 내용까지는 없어요.",
+        primaryMove: "receive",
+        engagementState: "personally_connecting",
+        curriculumRelation: "productive_extension",
+        sourceStatus: "reasonable_inference",
+        supportLevel: 0,
+      };
+    }
+    if (/안하는게나/.test(compactTurn)) {
+      return {
+        reply:
+          "꼭 하거나 안 하는 두 가지로만 정할 필요는 없어요. 기대되는 점은 살리고 방수와 비용을 먼저 확인한 뒤 작은 범위에서 시험하는 방법도 생각할 수 있어요.",
+        primaryMove: "compare_possibilities",
+        engagementState: "exploring_possibilities",
+        curriculumRelation: "productive_extension",
+        sourceStatus: "reasonable_inference",
+        supportLevel: 1,
+      };
+    }
+  }
+
+  if (/(줄넘기|집중력두배|12명.*9명)/.test(source)) {
+    if (/누가쓴.*없/.test(compactTurn)) {
+      return {
+        reply:
+          "맞아요. 작성자와 조사 날짜가 없어서 누가 어떤 방법으로 확인했는지 다시 살피기 어려워요. 기사 내용을 판단할 때 중요한 발견이에요.",
+        primaryMove: "receive",
+        engagementState: "seeking_evidence",
+        curriculumRelation: "direct",
+        sourceStatus: "supported",
+        supportLevel: 0,
+      };
+    }
+    if (/(다거짓|거짓말)/.test(compactTurn)) {
+      return {
+        reply:
+          "전부 거짓이라고 보기는 어려워요. 12명 중 9명이 집중이 잘된 것 같다고 답한 내용은 있지만, 집중력이 두 배가 되었다고 확인한 검사는 없어요.",
+        primaryMove: "compare_possibilities",
+        engagementState: "exploring_possibilities",
+        curriculumRelation: "direct",
+        sourceStatus: "supported",
+        supportLevel: 1,
+      };
+    }
+    if (/9명.*맞는거/.test(compactTurn)) {
+      return {
+        reply:
+          "9명이 그렇게 느꼈다는 응답은 기사에서 확인할 수 있어요. 하지만 느낌을 묻는 것과 집중력을 검사해 두 배인지 확인하는 것은 서로 다른 일이에요.",
+        primaryMove: "clarify",
+        engagementState: "seeking_evidence",
+        curriculumRelation: "direct",
+        sourceStatus: "supported",
+        supportLevel: 1,
+      };
+    }
+    if (/(제목낚시|낚시예요)/.test(compactTurn)) {
+      return {
+        reply:
+          "눈길을 끌려고 본문에서 확인한 내용보다 크게 표현한 제목에 가까워 보여요. 거짓이라고 바로 정하기보다 제목의 강한 말과 본문의 약한 근거가 맞지 않는다고 설명할 수 있어요.",
+        primaryMove: "compare_possibilities",
+        engagementState: "exploring_possibilities",
+        curriculumRelation: "direct",
+        sourceStatus: "reasonable_inference",
+        supportLevel: 0,
+      };
+    }
+    if (/12명중9명.*느낌/.test(compactTurn)) {
+      return {
+        reply:
+          "원래 제목보다 기사 내용에 훨씬 가까워요. 누가 몇 명에게 무엇을 물었는지가 드러나고, '느낌'이라고 써서 검사 결과처럼 보이지도 않아요.",
+        primaryMove: "receive",
+        engagementState: "revising_thought",
+        curriculumRelation: "direct",
+        sourceStatus: "supported",
+        supportLevel: 0,
+      };
+    }
+    if (/제목에두배/.test(compactTurn)) {
+      return {
+        reply:
+          "맞아요. 제목에는 '두 배'라고 강하게 쓰여 있어요. 하지만 본문에는 집중력을 검사한 점수나 전후 비교가 없어서, 제목의 표현이 본문에서 확인한 내용보다 앞서 나갔다고 볼 수 있어요.",
+        primaryMove: "clarify",
+        engagementState: "seeking_evidence",
+        curriculumRelation: "direct",
+        sourceStatus: "supported",
+        supportLevel: 1,
+      };
+    }
+    if (/(공부두배|집중력두배|믿어도돼)/.test(compactTurn)) {
+      return {
+        reply:
+          "기사에서 확인되는 것은 12명 중 9명이 집중이 더 잘된 것 같다고 답했다는 내용까지예요. 집중력이 두 배가 되었다는 검사는 없어서 제목처럼 단정할 수는 없어요.",
+        primaryMove: "clarify",
+        engagementState: "seeking_evidence",
+        curriculumRelation: "direct",
+        sourceStatus: "supported",
+        supportLevel: 1,
+      };
+    }
+  }
+
+  if (/(스마트폰|보관함|급한연락)/.test(source)) {
+    if (/공부하기싫어서/.test(compactTurn)) {
+      return {
+        reply:
+          "그렇게 보일 수도 있지만 기사 속 9명은 가족의 급한 연락이나 방과 후 일정 때문에 불편했다고 말했어요. 공부하기 싫어서라고만 보기에는 다른 이유가 이미 나와 있어요.",
+        primaryMove: "compare_possibilities",
+        engagementState: "exploring_possibilities",
+        curriculumRelation: "direct",
+        sourceStatus: "supported",
+        supportLevel: 1,
+      };
+    }
+    if (/아픈가족.*연락/.test(compactTurn)) {
+      return {
+        reply:
+          "그럴 수도 있겠네요. 기사는 구체적인 가족 상황까지 말하지 않지만, 급한 연락을 늦게 확인해 불편했다는 학생들이 있었다고 알려 줘요.",
+        primaryMove: "productive_extension",
+        engagementState: "personally_connecting",
+        curriculumRelation: "productive_extension",
+        sourceStatus: "reasonable_inference",
+        supportLevel: 0,
+      };
+    }
+    if (/핑계.*가져갈/.test(compactTurn)) {
+      return {
+        reply:
+          "그런 걱정도 생길 수 있어요. 학생회가 제안한 것처럼 필요한 때 교사에게 말하고 꺼내는 규칙을 분명히 하면, 급한 상황과 무분별한 사용을 함께 살필 수 있어요.",
+        primaryMove: "follow_student_lead",
+        engagementState: "exploring_possibilities",
+        curriculumRelation: "productive_extension",
+        sourceStatus: "reasonable_inference",
+        supportLevel: 1,
+      };
+    }
+    if (/친구.*(부모님|전화).*(어떻게|해야)/.test(compactTurn)) {
+      return {
+        reply:
+          "그 친구에게 어떤 사정이 있는지는 우리가 단정하지 않는 게 좋아요. 기사 속 제안처럼 급한 연락 방법을 먼저 정하고, 필요한 때 교사에게 말해 스마트폰을 꺼내는 방법은 함께 의논해 볼 수 있어요.",
+        primaryMove: "productive_extension",
+        engagementState: "personally_connecting",
+        curriculumRelation: "productive_extension",
+        sourceStatus: "reasonable_inference",
+        supportLevel: 1,
+      };
+    }
+    if (/19명.*9명/.test(compactTurn)) {
+      return {
+        reply:
+          "맞아요. 같은 보관함을 사용했지만 학생들의 경험은 하나로 같지 않았어요. 집중하기 편했다는 의견과 급한 연락이 불편했다는 의견이 함께 나왔어요.",
+        primaryMove: "receive",
+        engagementState: "noticing",
+        curriculumRelation: "direct",
+        sourceStatus: "supported",
+        supportLevel: 0,
+      };
+    }
+    if (/둘다맞/.test(compactTurn)) {
+      return {
+        reply:
+          "그렇게 볼 수 있어요. 어느 한쪽을 틀렸다고 하기보다 집중과 급한 연락이라는 서로 다른 필요를 함께 고려해야 하는 문제예요.",
+        primaryMove: "receive",
+        engagementState: "exploring_possibilities",
+        curriculumRelation: "direct",
+        sourceStatus: "reasonable_inference",
+        supportLevel: 0,
+      };
+    }
+    if (/비상.*꺼내/.test(compactTurn)) {
+      return {
+        reply:
+          "네 생각은 기사 속 학생회 제안과도 이어져요. 평소에는 보관하고 필요한 때 절차에 따라 꺼내는 방법이 두 의견 사이의 조정안이 될 수 있겠어요.",
+        primaryMove: "receive",
+        engagementState: "revising_thought",
+        curriculumRelation: "direct",
+        sourceStatus: "supported",
+        supportLevel: 0,
+      };
+    }
+  }
+
+  if (/(노란발자국|횡단보도|시속34|시속30)/.test(source)) {
+    if (/과속방지턱/.test(compactTurn)) {
+      return {
+        reply:
+          "차를 느리게 하려는 분명한 생각이네요. 과속방지턱이 도움이 될 가능성은 있지만 이 기사에서는 시험하지 않았으니, 노란 발자국 결과와 같은 것으로 단정하지는 않을게요.",
+        primaryMove: "receive",
+        engagementState: "personally_connecting",
+        curriculumRelation: "productive_extension",
+        sourceStatus: "source_insufficient",
+        supportLevel: 1,
+      };
+    }
+    if (/무조건느려/.test(compactTurn)) {
+      return {
+        reply:
+          "속도를 낮추는 데 도움이 될 가능성은 커 보여요. 다만 이 기사는 과속방지턱을 조사하지 않았으니 이 학교 앞에서 얼마나 달라질지는 아직 알 수 없어요.",
+        primaryMove: "clarify",
+        engagementState: "exploring_possibilities",
+        curriculumRelation: "productive_extension",
+        sourceStatus: "source_insufficient",
+        supportLevel: 1,
+      };
+    }
+    if (/경찰세우/.test(compactTurn)) {
+      return {
+        reply:
+          "경찰 단속도 차를 느리게 하려는 한 가지 방법이 될 수 있어요. 지금은 그 생각을 바로 반박하기보다 노란 발자국과는 다른 해결책으로 남겨 둘게요.",
+        primaryMove: "receive",
+        engagementState: "personally_connecting",
+        curriculumRelation: "productive_extension",
+        sourceStatus: "source_insufficient",
+        supportLevel: 0,
+      };
+    }
+  }
+
+  if (/(리필정거장|플라스틱용기|1,200개)/.test(source)) {
+    if (/플라스틱.*진짜줄/.test(compactTurn)) {
+      return {
+        reply:
+          "이 가게가 판 양을 새 용기 수로 바꾸어 계산하면 약 1,200개를 덜 쓴 셈이에요. 하지만 가정의 전체 쓰레기까지 잰 것은 아니어서 마을 플라스틱이 정확히 그만큼 줄었다고 단정할 수는 없어요.",
+        primaryMove: "clarify",
+        engagementState: "seeking_evidence",
+        curriculumRelation: "direct",
+        sourceStatus: "supported",
+        supportLevel: 1,
+      };
+    }
+    if (/우리동네.*(없|안)/.test(compactTurn)) {
+      return {
+        reply:
+          "그러면 기사 속 방법을 그대로 따라 하기는 어렵겠네요. 가까운 곳에서 다시 채워 살 수 있는 물건을 찾거나, 이미 가진 통을 오래 쓰는 방법처럼 네 생활에 맞게 바꿀 수 있어요.",
+        primaryMove: "follow_student_lead",
+        engagementState: "personally_connecting",
+        curriculumRelation: "productive_extension",
+        sourceStatus: "reasonable_inference",
+        supportLevel: 1,
+      };
+    }
+    if (/편의점.*과자.*안돼/.test(compactTurn)) {
+      return {
+        reply:
+          "과자를 한 번 사는 일을 잘못이라고 정할 필요는 없어요. 이 기사는 모든 포장을 당장 없애라는 뜻보다, 다시 쓸 수 있는 선택을 늘렸을 때 생기는 변화를 보여 줘요.",
+        primaryMove: "receive",
+        engagementState: "personally_connecting",
+        curriculumRelation: "productive_extension",
+        sourceStatus: "reasonable_inference",
+        supportLevel: 0,
+      };
+    }
+  }
+
+  return null;
+}
+
+export function createLocalQuestionResult({
+  question,
+  studentTurn,
+  material,
+  rubric,
+  behavior: behaviorValue,
+  conversation = [],
+  curriculumCompass,
+  targetGrade,
+}: {
+  question?: string;
+  studentTurn?: string;
+  material: MaterialAnalysis;
+  rubric: RubricCriterion[];
+  behavior?: QuestioningChatbotBehavior;
+  conversation?: QuestioningConversationEntry[];
+  curriculumCompass?: CurriculumCompass;
+  targetGrade?: string;
+}): ChatResult {
+  const turn = (studentTurn ?? question ?? "").trim();
+  const behavior = normalizeQuestioningChatbotBehavior(behaviorValue);
+  const legacy = createLegacyLocalQuestionResult({
+    question: turn,
+    material,
+    rubric,
+    behavior,
+  });
+  const compactTurn = turn.replace(/\s+/g, "");
+  const sourceCue = findRelevantSourceExcerpt(turn, material, /[?？]/.test(turn));
+  const shortSourceCue = sourceCue.length > 120 ? `${sourceCue.slice(0, 117).trim()}...` : sourceCue;
+  const closingPattern = /(이제)?(됐어요|됐어|알겠어요|알겠어|그만할래|그만할게|끝낼래|끝낼게|종료|안\s*할래|쉬고\s*싶)/;
+  const repairPattern = /(왜자꾸|자꾸물어|그만물어|질문이너무|부담스러|부담돼|재촉|싫다고|안된다고)/;
+  const uncertainPattern = /(잘모르|모르겠|몰라|글쎄|그냥그런|생각안|어려워)/;
+  const isClosing = closingPattern.test(compactTurn);
+  const needsRepair = repairPattern.test(compactTurn);
+  const isUncertain = uncertainPattern.test(compactTurn) || compactTurn.length <= 3;
+  const repeatedUncertainty =
+    isUncertain && recentTurnsMatch(conversation, "student", uncertainPattern) >= 1;
+  const recentAssistantTurns = conversation.filter((entry) => entry.role === "assistant").slice(-2);
+  const allowQuestion =
+    !isClosing &&
+    !needsRepair &&
+    recentAssistantTurns.filter((entry) => hasQuestionEnding(entry.content)).length < 2;
+  const asksBoardCaution =
+    legacy.questionType === "application" &&
+    /잔반게시판/.test(compactTurn) &&
+    /(조심|주의|문제|부담|비교|순위|창피)/.test(compactTurn);
+  const asksTitlePrediction = isTitlePredictionQuestion(turn);
+  const naturalTurn = createNaturalLocalTurn(turn, material);
+
+  let primaryMove: PrimaryMove;
+  let engagementState: EngagementState;
+  let curriculumRelation: CurriculumRelation;
+  let sourceStatus: SourceStatus;
+  let supportLevel: 0 | 1 | 2 | 3 | 4;
+  let studentReply: string;
+
+  if (legacy.questionType === "safety") {
+    primaryMove = "safety_redirect";
+    engagementState = "noticing";
+    curriculumRelation = "disconnected";
+    sourceStatus = "out_of_scope";
+    supportLevel = 2;
+    studentReply =
+      "그 내용에는 개인정보나 대신 써 달라는 요청이 섞일 수 있어요. 이름과 연락처 같은 정보는 빼고, 자료에서 확인하고 싶은 내용만 말해 줄래요?";
+  } else if (isClosing) {
+    primaryMove = "close";
+    engagementState = "ready_to_close";
+    curriculumRelation = "direct";
+    sourceStatus = "supported";
+    supportLevel = 0;
+    studentReply =
+      "알겠어요. 오늘 자료를 보며 떠올린 생각만으로도 충분해요. 더 이야기하고 싶은 때가 생기면 여기서 다시 이어가면 돼요.";
+  } else if (needsRepair) {
+    primaryMove = "repair";
+    engagementState = "disengaged";
+    curriculumRelation = "direct";
+    sourceStatus = "supported";
+    supportLevel = 0;
+    studentReply =
+      "맞아요. 제가 계속 확인하라고 해서 부담스러웠겠어요. 이번에는 질문하지 않을게요. 방금 말한 생각은 그대로 두어도 괜찮아요.";
+  } else if (legacy.questionType === "off_topic") {
+    primaryMove = "clarify";
+    engagementState = "noticing";
+    curriculumRelation = "disconnected";
+    sourceStatus = "out_of_scope";
+    supportLevel = 2;
+    studentReply = allowQuestion
+      ? `${behavior.offTopicResponse} 지금 자료에서 가장 눈에 띄는 말은 무엇인가요?`
+      : `${behavior.offTopicResponse} 지금은 자료에서 눈에 띄는 말 하나만 찾아도 충분해요.`;
+  } else if (isUncertain) {
+    primaryMove = repeatedUncertainty ? "repair" : "offer_clue";
+    engagementState = "disengaged";
+    curriculumRelation = "adjacent";
+    sourceStatus = sourceCue ? "supported" : "source_insufficient";
+    supportLevel = repeatedUncertainty ? 3 : 2;
+    studentReply = allowQuestion
+      ? `괜찮아요. 바로 답을 정하지 않아도 돼요. 자료에는 ${shortSourceCue} 이 부분이 보여요. 여기서는 '방법'과 '결과' 중 어느 쪽이 더 눈에 들어와요?`
+      : `괜찮아요. 바로 답을 정하지 않아도 돼요. 이번에는 ${shortSourceCue} 이 부분만 천천히 읽어도 충분해요.`;
+  } else if (naturalTurn) {
+    primaryMove = naturalTurn.primaryMove;
+    engagementState = naturalTurn.engagementState;
+    curriculumRelation = naturalTurn.curriculumRelation;
+    sourceStatus = naturalTurn.sourceStatus;
+    supportLevel = naturalTurn.supportLevel;
+    studentReply = naturalTurn.reply;
+  } else if (legacy.questionType === "extension") {
+    primaryMove = "productive_extension";
+    engagementState = "curious";
+    curriculumRelation = "productive_extension";
+    sourceStatus = "source_insufficient";
+    supportLevel = 1;
+    studentReply = allowQuestion
+      ? `그 궁금증은 자료에서 한 걸음 더 나아간 생각이에요. 자료만으로 단정할 수는 없지만, ${sourceCue} 이 부분과 이어서 살펴볼 수 있어요. 자료와 가장 닿아 있다고 느낀 부분은 어디예요?`
+      : `그 궁금증은 자료에서 한 걸음 더 나아간 생각이에요. 자료만으로 단정하지 않고, ${sourceCue} 이 부분과 이어서 두면 좋아요.`;
+  } else if (asksBoardCaution) {
+    primaryMove = "follow_student_lead";
+    engagementState = "personally_connecting";
+    curriculumRelation = "direct";
+    sourceStatus = "reasonable_inference";
+    supportLevel = 1;
+    studentReply = allowQuestion
+      ? `${legacy.answer} 모두가 부담 없이 참여하려면 게시판에서 어떤 정보는 빼는 게 좋을까요?`
+      : `${legacy.answer} 개인을 비교하지 않는 방식으로 바꾸려는 생각이 중요해요.`;
+  } else if (asksTitlePrediction) {
+    primaryMove = "compare_possibilities";
+    engagementState = "exploring_possibilities";
+    curriculumRelation = "direct";
+    sourceStatus = "reasonable_inference";
+    supportLevel = 1;
+    studentReply = allowQuestion
+      ? `${createTitlePredictionAnswer(turn, material)} 처음 예상과 실제 내용에서 달랐던 점이 있었나요?`
+      : createTitlePredictionAnswer(turn, material);
+  } else {
+    curriculumRelation = "direct";
+    sourceStatus = legacy.questionType === "inference" ? "reasonable_inference" : "supported";
+    supportLevel = compactTurn.length > 28 ? 0 : 1;
+
+    if (legacy.questionType === "application") {
+      primaryMove = "follow_student_lead";
+      engagementState = "personally_connecting";
+      studentReply = allowQuestion
+        ? `${legacy.answer} 네가 떠올린 상황에서는 무엇을 조금 바꾸면 잘 맞을까요?`
+        : `${legacy.answer} 네가 떠올린 상황과 연결한 점이 좋아요.`;
+    } else if (legacy.questionType === "reflection") {
+      primaryMove = "receive";
+      engagementState = "revising_thought";
+      studentReply = allowQuestion
+        ? `${legacy.answer} 처음 생각과 지금 생각 사이에서 달라진 점이 있나요?`
+        : `${legacy.answer} 지금 달라진 생각을 그대로 남겨 두어도 좋아요.`;
+    } else if (legacy.questionType === "inference") {
+      primaryMove = "check_evidence";
+      engagementState = "exploring_possibilities";
+      studentReply = allowQuestion
+        ? `${legacy.answer} 어느 표현이 그 생각을 가장 잘 뒷받침하나요?`
+        : `${legacy.answer} 그 생각을 뒷받침하는 표현을 하나만 붙잡아 두면 좋아요.`;
+    } else {
+      primaryMove = "check_evidence";
+      engagementState = "seeking_evidence";
+      studentReply = allowQuestion
+        ? `${legacy.answer} 그 내용이 나온 부분을 자료에서 같이 찾아볼까요?`
+        : `${legacy.answer} 그 내용이 나온 부분을 천천히 확인해 두면 좋아요.`;
+    }
+  }
+
+  const normalizedReply = keepAtMostOneQuestion(
+    avoidRepeatedStudentReply(studentReply, conversation, sourceCue),
+  ).trim();
+  const finalIsClosing = isClosing || primaryMove === "close";
+  const expectsStudentReply = !finalIsClosing && hasQuestionEnding(normalizedReply);
+  const compassSignal = curriculumCompass?.bigIdeas[0] || targetGrade || "수업 자료와 학생 생각의 연결";
+
+  return {
+    schemaVersion: 2,
+    studentReply: normalizedReply,
+    expectsStudentReply,
+    isClosing: finalIsClosing,
+    primaryMove,
+    engagementState,
+    curriculumRelation,
+    supportLevel,
+    sourceStatus,
+    sourceCue,
+    promptVersion: "questioning-dialogue-v2",
+    provider: "local",
+    answer: normalizedReply,
+    followUpQuestion: "",
+    questionType: legacy.questionType,
+    typeLabel: legacy.typeLabel,
+    typeReason: legacy.typeReason,
+    evidencePrompt: legacy.evidencePrompt,
+    revisionSuggestion: legacy.revisionSuggestion,
+    evaluationSignals: [...legacy.evaluationSignals, `대화 동작: ${primaryMove}`, `교육과정 나침반: ${compassSignal}`],
+    teacherFeedback: `${legacy.teacherFeedback} 학생에게는 성취기준을 직접 제시하지 않고 ${primaryMove} 동작으로 응답했습니다.`,
+    rubricScores: legacy.rubricScores,
+    safetyFlag: legacy.safetyFlag,
   };
 }

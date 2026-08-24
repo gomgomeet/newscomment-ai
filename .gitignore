@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+/evals/questioning-chatbot/results/*.json
+!/evals/questioning-chatbot/results/.gitkeep
 
 # next.js
 /.next/

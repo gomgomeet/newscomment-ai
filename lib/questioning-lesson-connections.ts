@@ -112,10 +112,6 @@ export async function saveQuestioningLessonConnection(input: SaveQuestioningLess
   const notionPrepDatabaseId = normalizeDatabaseId(input.notionPrepDatabaseId);
   const notionResultDatabaseId = normalizeDatabaseId(input.notionResultDatabaseId);
 
-  if (!input.geminiApiKey.trim()) {
-    throw new Error("Gemini API 키를 입력해 주세요.");
-  }
-
   if (!input.notionApiKey.trim()) {
     throw new Error("Notion API 토큰을 입력해 주세요.");
   }
