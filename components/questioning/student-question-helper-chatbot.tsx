@@ -287,28 +287,39 @@ export function StudentQuestionHelperChatbot() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="border-b border-border bg-card">
+    <div
+      className="min-h-screen bg-[linear-gradient(135deg,#fde7c6_0%,#bdebf0_46%,#ddd6fe_100%)] text-slate-800"
+      style={{
+        fontFamily:
+          '"Comic Sans MS", "Segoe Print", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif',
+      }}
+    >
+      <header className="border-b border-teal-100 bg-white/90 shadow-sm backdrop-blur">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-5 sm:px-6 lg:px-8">
           <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end">
             <div>
-              <div className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-muted-foreground">
-                <Bot className="size-4 text-primary" aria-hidden="true" />
+              <div className="inline-flex items-center gap-2 rounded-full border border-teal-100 bg-cyan-50 px-4 py-2 text-sm font-semibold text-teal-700 shadow-sm">
+                <Bot className="size-4 text-teal-500" aria-hidden="true" />
                 질문 챗봇(학생용)
               </div>
-              <h1 className="mt-4 text-2xl font-semibold leading-tight sm:text-3xl">
+              <h1 className="mt-4 text-2xl font-bold leading-tight text-slate-900 sm:text-3xl">
                 챗봇에게 질문하기
               </h1>
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
+              <p className="mt-3 max-w-3xl text-sm font-medium leading-6 text-slate-600">
                 {config.subjectUnit} · {config.targetGrade || "대상 미정"}
               </p>
             </div>
-            <Button asChild type="button" variant="outline">
+            <Button
+              asChild
+              type="button"
+              variant="outline"
+              className="rounded-full border-teal-100 bg-white/90 text-teal-700 shadow-sm hover:bg-cyan-50"
+            >
               <a href="/questioning-board">교사용 보드</a>
             </Button>
           </div>
           {notice ? (
-            <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            <div className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-900 shadow-sm">
               <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
               <p>{notice}</p>
             </div>
@@ -318,31 +329,31 @@ export function StudentQuestionHelperChatbot() {
 
       <main className="mx-auto w-full max-w-5xl space-y-4 px-4 py-5 sm:px-6 lg:px-8">
         <section className="space-y-4">
-          <div className="rounded-md border border-border bg-card">
-            <div className="border-b border-border p-4">
+          <div className="rounded-3xl border border-teal-100 bg-white/95 shadow-sm backdrop-blur">
+            <div className="border-b border-teal-100 p-4">
               <div className="flex items-center gap-2">
-                <CheckCircle2 className="size-5 text-primary" aria-hidden="true" />
-                <h2 className="text-base font-semibold">제작보드 연결</h2>
+                <CheckCircle2 className="size-5 text-teal-500" aria-hidden="true" />
+                <h2 className="text-base font-bold text-slate-900">제작보드 연결</h2>
               </div>
             </div>
             <div className="grid gap-3 p-4 text-sm leading-6 sm:grid-cols-2">
               <div>
-                <p className="text-xs font-semibold text-muted-foreground">수업 자료</p>
-                <p className="mt-1 font-medium">{config.material.materialTitle || "연결된 자료 없음"}</p>
+                <p className="text-xs font-bold text-teal-700">수업 자료</p>
+                <p className="mt-1 font-semibold text-slate-800">{config.material.materialTitle || "연결된 자료 없음"}</p>
               </div>
               <div>
-                <p className="text-xs font-semibold text-muted-foreground">연결 상태</p>
-                <p className="mt-1 font-medium">
+                <p className="text-xs font-bold text-teal-700">연결 상태</p>
+                <p className="mt-1 font-semibold text-slate-800">
                   {materialReady ? `연결됨${connectedAt ? ` · ${connectedAt}` : ""}` : "교사용 보드 설정 필요"}
                 </p>
               </div>
               <div>
-                <p className="text-xs font-semibold text-muted-foreground">성취기준</p>
-                <p className="mt-1 text-muted-foreground">{config.standard || "성취기준 미연결"}</p>
+                <p className="text-xs font-bold text-teal-700">성취기준</p>
+                <p className="mt-1 text-slate-600">{config.standard || "성취기준 미연결"}</p>
               </div>
               <div>
-                <p className="text-xs font-semibold text-muted-foreground">AI 응답</p>
-                <p className="mt-1 text-muted-foreground">
+                <p className="text-xs font-bold text-teal-700">AI 응답</p>
+                <p className="mt-1 text-slate-600">
                   {aiSettings?.apiKey
                     ? "제작보드에 저장된 Gemini API 키 사용"
                     : "서버 기본 설정 또는 로컬 예비 모드"}
@@ -351,19 +362,19 @@ export function StudentQuestionHelperChatbot() {
             </div>
           </div>
 
-          <div className="rounded-md border border-border bg-card">
+          <div className="rounded-3xl border border-sky-100 bg-white/95 shadow-sm backdrop-blur">
             <div
               className={cn(
                 "flex items-center justify-between gap-3 p-4",
-                isQuestionMaterialOpen && "border-b border-border",
+                isQuestionMaterialOpen && "border-b border-sky-100",
               )}
             >
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <ShieldCheck className="size-5 shrink-0 text-primary" aria-hidden="true" />
-                  <h2 className="text-base font-semibold">질문 자료</h2>
+                  <ShieldCheck className="size-5 shrink-0 text-sky-500" aria-hidden="true" />
+                  <h2 className="text-base font-bold text-slate-900">질문 자료</h2>
                 </div>
-                <p className="mt-1 break-words pl-7 text-lg font-semibold leading-7 text-foreground">
+                <p className="mt-1 break-words pl-7 text-xl font-bold leading-8 text-slate-900">
                   {config.material.materialTitle || "연결된 질문 자료 없음"}
                 </p>
               </div>
@@ -374,6 +385,7 @@ export function StudentQuestionHelperChatbot() {
                 aria-expanded={isQuestionMaterialOpen}
                 aria-controls="student-question-material"
                 onClick={() => setIsQuestionMaterialOpen((current) => !current)}
+                className="rounded-full border-sky-100 bg-sky-50 text-sky-700 hover:bg-sky-100"
               >
                 {isQuestionMaterialOpen ? "닫기" : "열기"}
                 {isQuestionMaterialOpen ? (
@@ -385,13 +397,13 @@ export function StudentQuestionHelperChatbot() {
             </div>
             {isQuestionMaterialOpen ? (
               <div id="student-question-material" className="space-y-3 p-4">
-                <p className="whitespace-pre-wrap break-words text-sm leading-7 text-muted-foreground">
+                <p className="whitespace-pre-wrap break-words rounded-2xl bg-sky-100/80 p-4 text-sm leading-7 text-slate-800">
                   {questionMaterialText || "아직 교사용 보드에서 연결된 질문 자료가 없습니다."}
                 </p>
                 {config.material.keyConcepts.length ? (
                   <div className="flex flex-wrap gap-2">
                     {config.material.keyConcepts.map((concept) => (
-                      <span key={concept} className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+                      <span key={concept} className="rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
                         {concept}
                       </span>
                     ))}
@@ -401,17 +413,18 @@ export function StudentQuestionHelperChatbot() {
             ) : null}
           </div>
 
-          <div className="rounded-md border border-border bg-card">
-            <div className="flex items-center justify-between gap-3 border-b border-border p-4">
+          <div className="rounded-3xl border border-violet-100 bg-white/95 shadow-sm backdrop-blur">
+            <div className="flex items-center justify-between gap-3 border-b border-violet-100 p-4">
               <div className="flex items-center gap-2">
-                <Bot className="size-5 text-primary" aria-hidden="true" />
-                <h2 className="text-base font-semibold">질문 대화</h2>
+                <Bot className="size-5 text-violet-500" aria-hidden="true" />
+                <h2 className="text-base font-bold text-slate-900">질문 대화</h2>
               </div>
               <Button
                 type="button"
                 size="sm"
                 onClick={handleStartChat}
                 disabled={isChatStarted || !materialReady}
+                className="rounded-full bg-violet-500 text-white shadow-sm hover:bg-violet-600"
               >
                 <MessageCircle className="size-4" aria-hidden="true" />
                 {isChatStarted ? "대화 중" : "채팅 시작"}
@@ -425,14 +438,14 @@ export function StudentQuestionHelperChatbot() {
                     type="button"
                     onClick={() => setQuestion(seed)}
                     disabled={!isChatStarted}
-                    className="rounded-md border border-border bg-background px-2 py-1 text-left text-xs text-muted-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                    className="rounded-full border border-amber-100 bg-amber-100/90 px-3 py-1.5 text-left text-xs font-semibold text-amber-900 shadow-sm hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {seed}
                   </button>
                 ))}
               </div>
               <div
-                className="h-[460px] space-y-3 overflow-y-auto rounded-md border border-border bg-background p-3"
+                className="h-[460px] space-y-3 overflow-y-auto rounded-3xl border border-violet-100 bg-violet-100/70 p-3"
                 aria-live="polite"
               >
                 {messages.length ? (
@@ -440,20 +453,20 @@ export function StudentQuestionHelperChatbot() {
                     <div
                       key={message.id}
                       className={cn(
-                        "rounded-md border p-3 text-sm leading-6",
+                        "rounded-3xl border p-4 text-sm leading-6 shadow-sm",
                         message.role === "student"
-                          ? "ml-8 border-primary/20 bg-primary/5"
-                          : "mr-8 border-border bg-card",
+                          ? "ml-8 border-teal-100 bg-teal-50 text-teal-950"
+                          : "mr-8 border-white bg-white text-slate-800",
                       )}
                     >
-                      <p className="mb-1 text-xs font-semibold text-muted-foreground">
+                      <p className="mb-1 text-xs font-bold text-slate-500">
                         {message.role === "student" ? "내 말" : "질문 도우미"}
                       </p>
                       <p>{message.content}</p>
                       {message.result?.followUpQuestion ? (
-                        <div className="mt-3 border-l-2 border-primary pl-3">
-                          <p className="text-xs font-semibold text-primary">이어서 이야기해 볼까요?</p>
-                          <p className="mt-1 text-sm font-medium text-foreground">
+                        <div className="mt-3 rounded-2xl border-l-4 border-violet-300 bg-violet-50 px-3 py-2">
+                          <p className="text-xs font-bold text-violet-600">이어서 이야기해 볼까요?</p>
+                          <p className="mt-1 text-sm font-semibold text-slate-800">
                             {message.result.followUpQuestion}
                           </p>
                         </div>
@@ -461,14 +474,14 @@ export function StudentQuestionHelperChatbot() {
                     </div>
                   ))
                 ) : (
-                  <div className="flex h-full flex-col items-center justify-center text-center text-sm text-muted-foreground">
-                    <Bot className="mb-3 size-8 text-primary" aria-hidden="true" />
+                  <div className="flex h-full flex-col items-center justify-center text-center text-sm font-medium text-slate-500">
+                    <Bot className="mb-3 size-8 text-violet-400" aria-hidden="true" />
                     위의 채팅 시작을 누르면 질문 도우미가 먼저 인사해요.
                   </div>
                 )}
               </div>
               <form className="space-y-2" onSubmit={handleAskQuestion}>
-                <Label htmlFor="student-question">내 생각이나 질문</Label>
+                <Label htmlFor="student-question" className="font-bold text-slate-700">내 생각이나 질문</Label>
                 <Textarea
                   id="student-question"
                   value={question}
@@ -478,12 +491,12 @@ export function StudentQuestionHelperChatbot() {
                       ? "질문 도우미에게 궁금한 점이나 내 생각을 적어 보세요."
                       : "먼저 채팅 시작을 눌러 주세요."
                   }
-                  className="min-h-24"
+                  className="min-h-24 rounded-3xl border-violet-100 bg-white/90 px-4 py-3 text-slate-800 shadow-sm placeholder:text-slate-400"
                   disabled={!isChatStarted}
                 />
                 <Button
                   type="submit"
-                  className="w-full"
+                  className="w-full rounded-full bg-teal-500 font-bold text-white shadow-sm hover:bg-teal-600"
                   disabled={isSending || !materialReady || !isChatStarted}
                 >
                   {isSending ? <RefreshCw className="size-4 animate-spin" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />}
