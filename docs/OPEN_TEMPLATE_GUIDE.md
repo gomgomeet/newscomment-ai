@@ -1,29 +1,29 @@
-# Open Template Guide
+# 공개 템플릿 안내
 
-NewsComment AI can be shared as an open template for other teachers.
+이 저장소는 다른 교사가 복제해 사용할 수 있는 공개 템플릿으로 공유할 수 있다. 단, 실제 학생 데이터와 API 키가 섞이지 않도록 반드시 확인해야 한다.
 
-## What to Share
+## 1. 공유해도 되는 것
 
-Recommended to share:
+- 소스 코드
+- Supabase 마이그레이션 SQL
+- README와 설정 문서
+- 실제 학생 데이터가 없는 예시 루브릭
+- 가짜 데이터로 만든 화면 캡처
+- 질문 챗봇 수업용 예시 자료
 
-- Source code
-- Supabase migration SQL
-- README and setup docs
-- Example rubrics without real student data
-- Screenshots made with fake data
-
-Do not share:
+## 2. 공유하면 안 되는 것
 
 - `.env.local`
-- Supabase service role keys
-- OpenAI API keys
-- Real student comments
-- Real evaluation records
-- Database exports containing student data
+- Supabase `service_role` 키
+- OpenAI API 키
+- Gemini API 키
+- Notion 내부 연동 토큰
+- 실제 학생 댓글
+- 실제 평가 기록
+- 학생 데이터가 들어 있는 데이터베이스 내보내기 파일
+- 학생 이름, 얼굴, 연락처가 보이는 캡처 화면
 
-## Repository Model
-
-Recommended public repository structure:
+## 3. 권장 저장소 구조
 
 ```text
 newscomment-ai/
@@ -38,11 +38,11 @@ newscomment-ai/
 └─ package.json
 ```
 
-## Suggested Release Steps
+## 4. 공개 전 확인 순서
 
-1. Confirm `.env.local` is not tracked.
-2. Confirm sample screenshots use fake data.
-3. Run verification:
+1. `.env.local`이 Git에 포함되어 있지 않은지 확인한다.
+2. 샘플 화면 캡처가 모두 가짜 데이터인지 확인한다.
+3. 아래 명령을 실행한다.
 
 ```bash
 npm run lint
@@ -50,18 +50,20 @@ npm run typecheck
 npm run build
 ```
 
-4. Create a public repository.
-5. Push the source code.
-6. Add a clear note that every teacher must connect their own Supabase project.
+4. 공개 저장소를 만든다.
+5. 소스 코드를 올린다.
+6. 각 교사가 자신의 Supabase 프로젝트와 Gemini API 키를 연결해야 한다는 안내를 적는다.
 
-## Suggested Public Description
+## 5. 공개 설명문 예시
 
 ```text
-Open-source template for teachers to evaluate student news comments with rubrics, Supabase-backed storage, and optional AI draft feedback.
+교사가 학생 댓글과 질문 활동을 루브릭으로 평가하고, 선택적으로 생성형 AI 초안 피드백을 활용할 수 있도록 만든 수업용 웹앱 템플릿입니다.
 ```
 
-## License Decision
+## 6. 라이선스 결정
 
-Choose a license before public release. If you want broad reuse by teachers, a permissive license such as MIT is common, but the final license choice should match your sharing goals and institutional requirements.
+공개하기 전에 라이선스를 정해야 한다.
 
-Do not publish as open source without a license decision.
+다른 교사들이 넓게 재사용하도록 허용하려면 MIT 같은 허용적 라이선스를 선택할 수 있다. 다만 최종 라이선스는 공유 목적, 학교나 기관 지침, 저작권 조건에 맞춰 정한다.
+
+라이선스를 정하지 않은 상태로 오픈소스처럼 배포하지 않는다.

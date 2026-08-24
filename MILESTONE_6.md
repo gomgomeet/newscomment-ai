@@ -1,15 +1,15 @@
-# NewsComment AI Milestone 6
+# NewsComment AI 마일스톤 6
 
-## Completed
+## 완료
 
-- Rubric detail now includes a rubric edit form.
-- Teachers can update rubric title and description.
-- Rubric updates validate ownership on the server.
-- Each rubric criterion now includes an edit form.
-- Teachers can update criterion label, description, max score, and sort order.
-- Criterion updates validate rubric ownership on the server.
+- 루브릭 상세 페이지에 루브릭 수정 폼을 추가했다.
+- 교사는 루브릭 제목과 설명을 수정할 수 있다.
+- 루브릭 수정은 서버에서 소유권을 검증한다.
+- 각 루브릭 기준에 수정 폼을 추가했다.
+- 교사는 기준 라벨, 설명, 최대 점수, 정렬 순서를 수정할 수 있다.
+- 기준 수정은 서버에서 루브릭 소유권을 검증한다.
 
-## Verification
+## 검증
 
 ```bash
 npm run lint
@@ -17,11 +17,11 @@ npm run typecheck
 npm run build
 ```
 
-All three commands pass after the Milestone 6 changes.
+마일스톤 6 변경 후 세 명령이 모두 통과했다.
 
-## Remaining Issues
+## 남은 문제
 
-- Destructive delete flows are not implemented yet.
-- Existing evaluation scores are not automatically normalized when a criterion max score is lowered.
-- AI evaluation remains unconnected.
-- Live Supabase credentials and migrations are required for real backend testing.
+- 삭제처럼 파괴적인 흐름은 아직 구현되지 않았다.
+- 기준 최대 점수를 낮출 때 기존 평가 점수는 자동으로 정규화되지 않는다.
+- AI 평가는 아직 연결되지 않았다.
+- 실제 백엔드 테스트에는 라이브 Supabase 자격 정보와 마이그레이션이 필요하다.

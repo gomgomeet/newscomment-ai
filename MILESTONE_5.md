@@ -1,16 +1,16 @@
-# NewsComment AI Milestone 5
+# NewsComment AI 마일스톤 5
 
-## Completed
+## 완료
 
-- Project detail now includes a project edit form.
-- Teachers can update project title, description, source URL, status, and rubric.
-- Project updates validate project ownership on the server.
-- Rubric changes validate rubric ownership on the server.
-- Comment cards now include a comment edit form.
-- Teachers can update student name and comment content.
-- Comment updates validate project ownership and comment membership on the server.
+- 프로젝트 상세 페이지에 프로젝트 수정 폼을 추가했다.
+- 교사는 프로젝트 제목, 설명, 출처 URL, 상태, 루브릭을 수정할 수 있다.
+- 프로젝트 수정은 서버에서 프로젝트 소유권을 검증한다.
+- 루브릭 변경은 서버에서 루브릭 소유권을 검증한다.
+- 댓글 카드에 댓글 수정 폼을 추가했다.
+- 교사는 학생 이름과 댓글 내용을 수정할 수 있다.
+- 댓글 수정은 서버에서 프로젝트 소유권과 댓글 소속을 검증한다.
 
-## Verification
+## 검증
 
 ```bash
 npm run lint
@@ -18,11 +18,11 @@ npm run typecheck
 npm run build
 ```
 
-All three commands pass after the Milestone 5 changes.
+마일스톤 5 변경 후 세 명령이 모두 통과했다.
 
-## Remaining Issues
+## 남은 문제
 
-- Destructive delete flows are not implemented yet.
-- Rubric and criterion editing are not implemented yet.
-- AI evaluation remains unconnected.
-- Live Supabase credentials and migrations are required for real backend testing.
+- 삭제처럼 파괴적인 흐름은 아직 구현되지 않았다.
+- 루브릭과 기준 수정은 아직 구현되지 않았다.
+- AI 평가는 아직 연결되지 않았다.
+- 실제 백엔드 테스트에는 라이브 Supabase 자격 정보와 마이그레이션이 필요하다.

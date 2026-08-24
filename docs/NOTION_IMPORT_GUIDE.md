@@ -1,121 +1,114 @@
-# Notion Import Guide
+# Notion 가져오기 안내
 
-NewsComment AI can pull student comments straight from a Notion database, so a class discussion
-collected in Notion becomes a rubric-scored project without any copy and paste.
+NewsComment AI는 Notion 데이터베이스에 모은 학생 댓글을 바로 가져올 수 있다. Notion에서 수집한 학급 토론 기록을 복사해 붙여 넣지 않고, 루브릭 평가 프로젝트로 연결하기 위한 기능이다.
 
-Each row of the Notion database becomes one comment.
+Notion 데이터베이스의 한 행은 앱에서 댓글 하나가 된다.
 
-## 1. Build the Notion Database
+## 1. Notion 데이터베이스 만들기
 
-Create a Notion database where one row is one student comment. A simple layout works well:
+학생 댓글 한 개가 한 행이 되도록 Notion 데이터베이스를 만든다. 간단한 구조면 충분하다.
 
-| Property | Type | Purpose |
+| 속성 | 유형 | 용도 |
 | --- | --- | --- |
-| `이름` | Title or Text | Student name or alias |
-| `댓글` | Text | The comment itself |
-| `주제` | Select or Text | Article or topic (optional) |
+| `이름` | 제목 또는 텍스트 | 학생 이름, 별칭, 학생 번호 |
+| `댓글` | 텍스트 | 학생이 쓴 댓글 |
+| `주제` | 선택 또는 텍스트 | 기사나 수업 주제, 선택 사항 |
 
-Property names are up to you. You type the names into the import form, and matching ignores case
-and surrounding spaces.
+속성 이름은 교사가 정해도 된다. 가져오기 화면에서 속성명을 직접 입력하면 되고, 대소문자와 앞뒤 공백은 크게 문제 되지 않도록 처리한다.
 
-Supported property types for reading text: title, rich text, select, multi-select, status, people,
-number, checkbox, url, email, phone, date, created time, last edited time, unique id, files,
-formula, and rollup.
+읽을 수 있는 속성 유형은 제목, 텍스트, 선택, 다중 선택, 상태, 사람, 숫자, 체크박스, URL, 이메일, 전화번호, 날짜, 생성 시간, 마지막 수정 시간, 고유 ID, 파일, 수식, 롤업이다.
 
-## 2. Create a Notion Integration
+## 2. Notion 연동 만들기
 
-1. Open <https://www.notion.so/my-integrations>.
-2. Select **New integration**.
-3. Give it a name such as `NewsComment AI`.
-4. Choose the workspace that holds your class pages.
-5. Keep the capabilities at **Read content** only. The app never writes to Notion.
-6. Copy the **Internal Integration Token**.
+1. <https://www.notion.so/my-integrations>를 연다.
+2. **New integration**을 선택한다.
+3. `NewsComment AI`처럼 알아볼 수 있는 이름을 붙인다.
+4. 수업 페이지가 있는 워크스페이스를 선택한다.
+5. 권한은 **Read content**만 유지한다. 이 앱은 Notion에 쓰지 않고 읽기만 한다.
+6. **Internal Integration Token**을 복사한다.
 
-## 3. Scope the Integration Narrowly
+## 3. 연동 범위 좁히기
 
-A Notion integration can only read pages that are explicitly shared with it, but it is easy to
-share far more than you meant to. Connecting an integration to a top-level page grants it every
-page underneath, which in a personal workspace can mean thousands of pages including finance,
-health, or private notes.
+Notion 연동은 명시적으로 공유된 페이지만 읽을 수 있다. 하지만 상위 페이지를 너무 넓게 공유하면 의도보다 많은 페이지에 접근할 수 있다.
 
-Keep the blast radius small:
+예를 들어 개인 워크스페이스의 최상위 페이지에 연결하면 금융, 건강, 개인 메모까지 포함된 수많은 하위 페이지가 열릴 수 있다.
 
-1. Create one parent page that holds only your class material, for example `NewsComment AI 수업 자료`.
-2. Move the article database and the comment database under that page.
-3. Connect the integration to that parent page only.
+범위를 좁게 유지한다.
 
-You can check what a token can actually reach by calling the Notion API's `search` endpoint with
-it. If the result includes databases unrelated to your class, the integration is too broad, and
-you should create a new one with a narrower connection and replace the token.
+1. 수업 자료만 담는 상위 페이지를 하나 만든다. 예: `NewsComment AI 수업 자료`
+2. 기사 데이터베이스와 댓글 데이터베이스를 그 페이지 아래로 옮긴다.
+3. Notion 연동은 그 상위 페이지에만 연결한다.
 
-## 4. Connect the Database to the Integration
+토큰이 실제로 어디까지 접근할 수 있는지 확인하려면 Notion API의 `search` 엔드포인트로 점검할 수 있다. 결과에 수업과 관련 없는 데이터베이스가 보이면 연동 범위가 너무 넓은 것이다. 새 연동을 좁은 범위로 다시 만들고 토큰을 교체한다.
 
-Notion integrations only see pages you explicitly share with them.
+## 4. 데이터베이스와 연동 연결하기
 
-1. Open the database page in Notion.
-2. Select the `...` menu in the top right.
-3. Select **Connections** (in some versions, **Add connections**).
-4. Choose the integration you created.
+Notion 연동은 교사가 명시적으로 공유한 페이지만 볼 수 있다.
 
-Without this step the import fails with a "database not found" error, even when the token is valid.
+1. Notion에서 데이터베이스 페이지를 연다.
+2. 오른쪽 위 `...` 메뉴를 선택한다.
+3. **Connections** 또는 **Add connections**를 선택한다.
+4. 앞에서 만든 연동을 선택한다.
 
-## 5. Add the Token to the App
+이 단계를 하지 않으면 토큰이 맞아도 “데이터베이스를 찾을 수 없음” 오류가 난다.
 
-Add the token to `.env.local` for local use, or to your hosting provider's environment variables in
-production:
+## 5. 앱에 토큰 넣기
+
+로컬에서 사용할 때는 `.env.local`에 넣고, 배포 환경에서는 호스팅 서비스의 환경변수에 넣는다.
 
 ```bash
 NOTION_API_KEY=ntn_your-internal-integration-token
 NOTION_API_VERSION=2022-06-28
 ```
 
-`NOTION_API_VERSION` is optional. Leave it unset unless you need a newer Notion API version; the app
-resolves database data sources automatically when a newer version returns them.
+`NOTION_API_VERSION`은 선택 항목이다. 특별히 새 버전이 필요한 경우가 아니라면 비워 두어도 된다.
 
-Restart the dev server after changing environment variables.
+환경변수를 바꾼 뒤에는 개발 서버를 다시 시작한다.
 
-## 6. Apply Migration 002
+## 6. 마이그레이션 002 적용
 
-The import remembers each project's Notion database and property mapping, which needs a new column.
+가져오기 기능은 프로젝트별 Notion 데이터베이스 URL과 속성 매핑을 기억한다. 이를 위해 새 열이 필요하다.
 
-In the Supabase SQL Editor, run:
+Supabase SQL Editor에서 아래 파일 내용을 실행한다.
 
 ```text
 supabase/migrations/002_project_notion_source.sql
 ```
 
-## 7. Import
+## 7. 가져오기 실행
 
-1. Open a project in the dashboard.
-2. Find the **Notion에서 가져오기** card in the right column.
-3. Paste the Notion database URL.
-4. Type the property name that holds the comment text.
-5. Optionally type the student name and topic property names.
-6. Select **Notion에서 가져오기**.
+1. 대시보드에서 프로젝트를 연다.
+2. 오른쪽 열의 **Notion에서 가져오기** 카드를 찾는다.
+3. Notion 데이터베이스 URL을 붙여 넣는다.
+4. 댓글 본문이 들어 있는 속성명을 입력한다.
+5. 필요하면 학생 이름과 주제 속성명도 입력한다.
+6. **Notion에서 가져오기**를 선택한다.
 
-The app stores the settings on the project, so later imports only need one click.
+앱은 이 설정을 프로젝트에 저장한다. 이후에는 한 번의 클릭으로 같은 설정을 다시 사용할 수 있다.
 
-## Behavior and Limits
+## 8. 동작 방식과 제한
 
-- Rows already imported into this project are skipped, so re-importing only adds new comments.
-- Up to 200 comments are imported per run, ordered by Notion creation time.
-- Each comment is truncated to 5000 characters.
-- Rows with an empty comment property are skipped.
-- Edits made in Notion after an import do not update comments already stored in the app.
-- The Notion token stays server-side and is never sent to the browser.
+- 이미 가져온 행은 건너뛰므로 다시 실행해도 새 댓글만 추가된다.
+- 한 번에 최대 200개 댓글을 가져오며, Notion 생성 시간 순서로 가져온다.
+- 댓글 하나는 최대 5000자로 잘린다.
+- 댓글 속성이 비어 있는 행은 건너뛴다.
+- 가져온 뒤 Notion에서 수정한 내용은 앱에 이미 저장된 댓글에 자동 반영되지 않는다.
+- Notion 토큰은 서버에만 머물고 브라우저로 보내지 않는다.
 
-## Troubleshooting
+## 9. 문제 해결
 
-| Message | Cause |
+| 메시지 | 원인 |
 | --- | --- |
-| `NOTION_API_KEY가 설정되어 있지 않습니다.` | The environment variable is missing or the server was not restarted. |
-| `Notion 토큰이 올바르지 않습니다.` | The token is wrong, or it belongs to a different workspace. |
-| `Notion 데이터베이스를 찾을 수 없습니다.` | The database was not shared with the integration, or the URL points to a normal page. |
-| `... 속성이 없습니다.` | The property name does not match. The message lists the available property names. |
-| `가져올 댓글을 찾지 못했습니다.` | The property exists but every row is empty, or the wrong property was selected. |
+| `NOTION_API_KEY가 설정되어 있지 않습니다.` | 환경변수가 없거나 서버를 다시 시작하지 않았다. |
+| `Notion 토큰이 올바르지 않습니다.` | 토큰이 틀렸거나 다른 워크스페이스의 토큰이다. |
+| `Notion 데이터베이스를 찾을 수 없습니다.` | 데이터베이스가 연동과 공유되지 않았거나 URL이 일반 페이지를 가리킨다. |
+| `... 속성이 없습니다.` | 입력한 속성명이 실제 속성명과 맞지 않는다. 오류 메시지에 사용 가능한 속성명이 표시된다. |
+| `가져올 댓글을 찾지 못했습니다.` | 속성은 있지만 모든 행이 비어 있거나 잘못된 속성을 선택했다. |
 
-## Privacy Note
+## 10. 개인정보 주의
 
-Importing from Notion copies student text into your Supabase database. Apply the same rules as any
-other student data: prefer aliases or student numbers, confirm school policy, and test with sample
-rows first.
+Notion에서 가져오면 학생 글이 Supabase 데이터베이스로 복사된다. 다른 학생 데이터와 같은 기준으로 관리한다.
+
+- 실명보다 학생 번호나 별칭을 우선 사용한다.
+- 학교 정책을 확인한다.
+- 실제 수업 전 샘플 행으로 먼저 테스트한다.

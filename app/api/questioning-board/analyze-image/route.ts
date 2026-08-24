@@ -1,4 +1,4 @@
-import { analyzeMaterialImageWithOpenAI } from "@/lib/openai/questioning-board";
+import { analyzeMaterialImageWithGemini } from "@/lib/gemini/questioning-board";
 
 const MAX_IMAGE_DATA_URL_LENGTH = 7_500_000;
 
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "이미지 파일이 너무 큽니다. 더 작은 이미지로 다시 시도해 주세요." }, { status: 413 });
     }
 
-    const result = await analyzeMaterialImageWithOpenAI({
+    const result = await analyzeMaterialImageWithGemini({
       imageDataUrl,
       standard: typeof body.standard === "string" ? body.standard : "",
       targetGrade: typeof body.targetGrade === "string" ? body.targetGrade : "",
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
     return Response.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "이미지 분석에 실패했습니다.";
-    const status = message.includes("API 키") || message.includes("OPENAI_API_KEY") ? 503 : 500;
+    const status = message.includes("API 키") || message.includes("GEMINI_API_KEY") ? 503 : 500;
     return Response.json({ error: message }, { status });
   }
 }

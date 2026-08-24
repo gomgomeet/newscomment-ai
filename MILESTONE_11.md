@@ -1,16 +1,16 @@
-# NewsComment AI Milestone 11
+# NewsComment AI 마일스톤 11
 
-## Completed
+## 완료
 
-- Added teacher-facing setup documentation.
-- Added open template sharing guide.
-- Added privacy and security checklist.
-- Added deployment checklist.
-- Updated README with open-template sharing guidance and doc links.
-- Replaced Settings placeholder with an operational readiness page.
-- Settings now shows environment status, template sharing guidance, deployment checklist, and privacy checklist.
+- 교사용 설정 문서를 추가했다.
+- 공개 템플릿 공유 안내를 추가했다.
+- 개인정보 및 보안 체크리스트를 추가했다.
+- 배포 체크리스트를 추가했다.
+- README에 공개 템플릿 공유 안내와 문서 링크를 반영했다.
+- 설정 자리표시자 페이지를 운영 준비 상태 페이지로 교체했다.
+- 설정 화면에서 환경 상태, 템플릿 공유 안내, 배포 체크리스트, 개인정보 체크리스트를 보여 준다.
 
-## Verification
+## 검증
 
 ```bash
 npm run lint
@@ -18,11 +18,11 @@ npm run typecheck
 npm run build
 ```
 
-All three commands pass after the Milestone 11 changes.
+마일스톤 11 변경 후 세 명령이 모두 통과했다.
 
-## Remaining Issues
+## 남은 문제
 
-- Public release still needs a license decision.
-- Live Supabase testing requires real Supabase credentials and applied migrations.
-- Live OpenAI evaluation testing requires `OPENAI_API_KEY`.
-- GitHub commit, push, and PR creation still require explicit publishing authorization.
+- 공개 배포 전 라이선스 결정이 필요하다.
+- 라이브 Supabase 테스트에는 실제 Supabase 자격 정보와 적용된 마이그레이션이 필요하다.
+- 라이브 OpenAI 평가 테스트에는 `OPENAI_API_KEY`가 필요하다.
+- GitHub 커밋, 푸시, PR 생성에는 명시적인 게시 승인이 필요하다.

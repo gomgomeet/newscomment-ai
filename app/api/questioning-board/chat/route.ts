@@ -1,4 +1,4 @@
-import { answerQuestionWithOpenAI } from "@/lib/openai/questioning-board";
+import { answerQuestionWithGemini } from "@/lib/gemini/questioning-board";
 import {
   normalizeQuestioningChatbotBehavior,
   type MaterialAnalysis,
@@ -73,7 +73,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "평가 루브릭을 먼저 준비해 주세요." }, { status: 400 });
     }
 
-    const result = await answerQuestionWithOpenAI({
+    const result = await answerQuestionWithGemini({
       standard: typeof body.standard === "string" ? body.standard : "",
       targetGrade: typeof body.targetGrade === "string" ? body.targetGrade : "",
       subjectUnit: typeof body.subjectUnit === "string" ? body.subjectUnit : "",
@@ -89,7 +89,7 @@ export async function POST(request: Request) {
     return Response.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "챗봇 응답 생성에 실패했습니다.";
-    const status = message.includes("API 키") || message.includes("OPENAI_API_KEY") ? 503 : 500;
+    const status = message.includes("API 키") || message.includes("GEMINI_API_KEY") ? 503 : 500;
     return Response.json({ error: message }, { status });
   }
 }

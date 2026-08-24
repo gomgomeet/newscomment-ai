@@ -1,14 +1,14 @@
-# NewsComment AI Milestone 12
+# NewsComment AI 마일스톤 12
 
-## Completed
+## 완료
 
-- Added comment import from public TXT, CSV, TSV, and JSON URLs.
-- Added guardrails to reject general HTML webpages for automatic import.
-- Added comment length and import count limits to avoid oversized form submissions.
-- Kept manual comment entry and bulk pasted comment import available.
-- Verified the app after the automatic import changes.
+- 공개 TXT, CSV, TSV, JSON URL에서 댓글을 가져오는 기능을 추가했다.
+- 일반 HTML 웹페이지를 자동 가져오기 대상으로 받지 않도록 제한했다.
+- 지나치게 큰 폼 제출을 피하기 위해 댓글 길이와 가져오기 개수 제한을 추가했다.
+- 댓글 직접 입력과 대량 붙여넣기 가져오기는 계속 사용할 수 있게 유지했다.
+- 자동 가져오기 변경 후 앱을 검증했다.
 
-## Verification
+## 검증
 
 ```bash
 npm run lint
@@ -16,11 +16,11 @@ npm run typecheck
 npm run build
 ```
 
-All three commands pass after the Milestone 12 changes.
+마일스톤 12 변경 후 세 명령이 모두 통과했다.
 
-## Remaining Issues
+## 남은 문제
 
-- General website comment scraping is intentionally not implemented.
-- AI draft evaluation requires an OpenAI API key with available billing credits.
-- Production deployment needs environment variables configured in the hosting provider.
-- Public release still needs a license decision.
+- 일반 웹사이트 댓글 긁어오기는 의도적으로 구현하지 않았다.
+- AI 평가 초안에는 결제 크레딧이 있는 OpenAI API 키가 필요하다.
+- 운영 배포에는 호스팅 서비스에 환경변수 설정이 필요하다.
+- 공개 배포 전 라이선스 결정이 필요하다.

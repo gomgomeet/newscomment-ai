@@ -124,14 +124,15 @@ export const QUESTIONING_CHATBOT_CONFIG_KEY = "questioning-chatbot-config";
 export const QUESTIONING_AI_SETTINGS_KEY = "questioning-ai-settings";
 
 export type QuestioningAiSettings = {
+  provider: "gemini";
   apiKey: string;
   model: string;
 };
 
 export const questioningAiModelOptions = [
-  { value: "gpt-5.6", label: "GPT-5.6 (기본 · 정확)" },
-  { value: "gpt-5.6-mini", label: "GPT-5.6 mini (빠름)" },
-  { value: "gpt-4.1", label: "GPT-4.1 (호환)" },
+  { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash (기본 · 균형)" },
+  { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite (빠름 · 절약)" },
+  { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro (정확 · 심화)" },
 ];
 
 export function isQuestioningAiSettings(value: unknown): value is QuestioningAiSettings {
@@ -140,7 +141,11 @@ export function isQuestioningAiSettings(value: unknown): value is QuestioningAiS
   }
 
   const settings = value as Partial<QuestioningAiSettings>;
-  return typeof settings.apiKey === "string" && typeof settings.model === "string";
+  return (
+    settings.provider === "gemini" &&
+    typeof settings.apiKey === "string" &&
+    typeof settings.model === "string"
+  );
 }
 
 export const defaultQuestioningChatbotBehavior: QuestioningChatbotBehavior = {

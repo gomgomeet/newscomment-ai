@@ -343,7 +343,9 @@ export function StudentQuestionHelperChatbot() {
               <div>
                 <p className="text-xs font-semibold text-muted-foreground">AI 응답</p>
                 <p className="mt-1 text-muted-foreground">
-                  {aiSettings?.apiKey ? "제작보드에 저장된 API 키 사용" : "서버 기본 설정 또는 로컬 예비 모드"}
+                  {aiSettings?.apiKey
+                    ? "제작보드에 저장된 Gemini API 키 사용"
+                    : "서버 기본 설정 또는 로컬 예비 모드"}
                 </p>
               </div>
             </div>

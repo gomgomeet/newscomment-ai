@@ -55,7 +55,7 @@ const quickQuestions = [
   "내 질문은 자료 속 근거를 확인하기에 좋은 질문인가요?",
 ];
 
-const defaultAiModel = questioningAiModelOptions[0]?.value || "gpt-5.6";
+const defaultAiModel = questioningAiModelOptions[0]?.value || "gemini-2.5-flash";
 const defaultLessonMaterial = createDefaultQuestioningLessonMaterial();
 const defaultChatbotBehavior = createDefaultQuestioningChatbotBehavior();
 
@@ -563,13 +563,14 @@ export function QuestioningChatbotBoard() {
     }
 
     const settings: QuestioningAiSettings = {
+      provider: "gemini",
       apiKey,
       model: aiModel,
     };
     window.localStorage.setItem(QUESTIONING_AI_SETTINGS_KEY, JSON.stringify(settings));
     setAiApiKey(apiKey);
     setIsAiKeySaved(true);
-    setNotice("생성형 AI API 키를 이 브라우저에 저장했습니다.");
+    setNotice("Gemini API 키를 이 브라우저에 저장했습니다.");
   }
 
   function handleClearAiSettings() {
@@ -577,7 +578,7 @@ export function QuestioningChatbotBoard() {
     setAiApiKey("");
     setAiModel(defaultAiModel);
     setIsAiKeySaved(false);
-    setNotice("생성형 AI API 키를 이 브라우저에서 삭제했습니다.");
+    setNotice("Gemini API 키를 이 브라우저에서 삭제했습니다.");
   }
 
   function handleStandardChange(value: string) {
@@ -757,14 +758,14 @@ export function QuestioningChatbotBoard() {
           <div className="rounded-md border border-border bg-background p-4">
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <KeyRound className="size-4 text-primary" aria-hidden="true" />
-              <p className="font-semibold">생성형 AI API 연결</p>
+              <p className="font-semibold">Gemini API 연결</p>
               <p className="text-muted-foreground">
-                OpenAI 키를 넣으면 이미지 분석과 학생 챗봇 응답을 AI가 처리합니다.
+                Google AI Studio에서 발급한 키를 넣으면 이미지 분석과 학생 챗봇 응답을 Gemini가 처리합니다.
               </p>
             </div>
             <div className="mt-3 grid gap-2 lg:grid-cols-[minmax(0,1fr)_220px_auto_auto]">
               <Label htmlFor="ai-api-key" className="sr-only">
-                OpenAI API 키
+                Gemini API 키
               </Label>
               <Input
                 id="ai-api-key"
@@ -774,11 +775,11 @@ export function QuestioningChatbotBoard() {
                   setAiApiKey(event.target.value);
                   setIsAiKeySaved(false);
                 }}
-                placeholder="OpenAI API 키 입력 (sk-...)"
+                placeholder="Gemini API 키 입력"
                 autoComplete="off"
               />
               <Label htmlFor="ai-model" className="sr-only">
-                생성형 AI 모델
+                Gemini 모델
               </Label>
               <Select id="ai-model" value={aiModel} onChange={(event) => setAiModel(event.target.value)}>
                 {questioningAiModelOptions.map((option) => (
