@@ -39,6 +39,8 @@
 ## 배포 메모
 
 - 권장 배포는 GitHub 브랜치/PR 푸시 후 Vercel 원격 빌드 방식이다.
+- Codex 일반 샌드박스에서 `npm run build`가 `spawn EPERM`으로 실패할 수 있으나, 단순 Node 하위 프로세스 실행도 막히는 환경 권한 문제로 확인했다.
+- 같은 코드에서 권한 상승 실행의 `npm run build`는 통과했다.
 - 로컬 `vercel build --prod`는 Windows 심볼릭 링크 권한 문제로 실패할 수 있다.
 - 불가피하게 로컬 prebuilt 배포를 사용할 경우 관리자 권한 PowerShell 또는 Windows 개발자 모드에서 아래 순서로 진행한다.
 

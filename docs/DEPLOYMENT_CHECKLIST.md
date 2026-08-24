@@ -14,6 +14,21 @@ npm run build
 
 오류가 있으면 배포 전에 먼저 수정한다.
 
+Windows 또는 Codex 샌드박스에서 `npm run build`가 `spawn EPERM`으로 실패할 수 있다. 이때는 먼저 코드 오류인지 실행 환경 문제인지 분리한다.
+
+```powershell
+node -e "const {spawnSync}=require('child_process'); const r=spawnSync(process.execPath,['-e','console.log(123)'],{encoding:'utf8'}); console.log(r.error || r.stdout)"
+```
+
+이 명령도 `spawnSync ... EPERM`을 출력하면 Next.js 코드 문제가 아니라 현재 터미널/샌드박스가 하위 Node 프로세스 실행을 막는 상태다. Codex 일반 샌드박스에서는 이 현상이 날 수 있으며, 같은 코드가 일반 PowerShell 또는 권한 상승 실행에서는 정상 빌드될 수 있다.
+
+해결 순서는 다음과 같다.
+
+- 일반 PowerShell 또는 Windows Terminal에서 직접 `npm run build`를 실행한다.
+- 계속 막히면 관리자 권한 PowerShell 또는 Windows 개발자 모드를 사용한다.
+- 로컬 Windows 권한 문제가 반복되면 GitHub 브랜치/PR 푸시 후 Vercel 원격 빌드로 배포한다.
+- Codex 안에서 검증할 때만 권한 상승 실행을 허용해 `npm run build`를 돌린다.
+
 ## 2. Supabase 확인
 
 댓글 평가 웹앱 기능을 함께 사용할 경우 확인한다.

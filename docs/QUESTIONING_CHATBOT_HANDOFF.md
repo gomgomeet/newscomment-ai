@@ -110,3 +110,21 @@ npm run dev
 ```
 
 5. 확인할 주소는 `http://localhost:3000/questioning-board`와 `http://localhost:3000/questioning-chatbot?lesson=수업코드`이다.
+
+## Windows 빌드 오류 메모
+
+Codex 일반 샌드박스에서 `npm run build`가 아래 오류로 멈출 수 있다.
+
+```text
+Error: spawn EPERM
+```
+
+이 현상은 확인 결과 코드 오류가 아니라 현재 실행 환경이 `C:\Program Files\nodejs\node.exe`를 하위 프로세스로 실행하지 못해서 생긴다. 같은 코드에서 권한 상승 실행으로 `npm run build`는 통과했다.
+
+진단 명령은 다음과 같다.
+
+```powershell
+node -e "const {spawnSync}=require('child_process'); const r=spawnSync(process.execPath,['-e','console.log(123)'],{encoding:'utf8'}); console.log(r.error || r.stdout)"
+```
+
+이 명령도 `spawnSync ... EPERM`을 출력하면 Next.js 문제가 아니라 터미널/샌드박스 권한 문제다. 다른 컴퓨터에서는 일반 PowerShell에서 먼저 `npm run build`를 실행하고, 실패하면 관리자 권한 PowerShell, Windows 개발자 모드, 또는 GitHub 브랜치 푸시 후 Vercel 원격 빌드를 사용한다.
