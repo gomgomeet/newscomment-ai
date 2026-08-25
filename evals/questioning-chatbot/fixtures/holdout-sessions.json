@@ -1,0 +1,140 @@
+[
+  {
+    "id": "holdout-01-sound-causality",
+    "articleId": "article-m",
+    "targetGrade": "초등 5학년",
+    "standard": "[6국02-04] 자료의 수치와 설명을 근거로 주장의 타당성을 살펴본다.",
+    "persona": { "participation": "high", "confidence": "high", "reading": "causal_overclaim" },
+    "turns": [
+      "흡음판이 소음을 정확히 6데시벨 줄였어요.",
+      "전이 78이고 후가 72니까 맞잖아요.",
+      "학생 수랑 메뉴도 달랐네요.",
+      "같은 조건으로 다시 재면 되겠어요."
+    ],
+    "expectReplyIncludesAny": { "1": ["학생", "메뉴", "단정"], "4": ["조건", "비교", "같"] }
+  },
+  {
+    "id": "holdout-02-sound-lived-experience",
+    "articleId": "article-m",
+    "targetGrade": "초등 4학년",
+    "standard": "[4국01-04] 경험과 의견을 까닭과 함께 말한다.",
+    "persona": { "participation": "medium", "confidence": "medium", "reading": "personal_connection" },
+    "turns": [
+      "저도 급식실에서 친구 말이 안 들려요.",
+      "흡음판이 있으면 덜 소리쳐도 될 것 같아요.",
+      "그런데 어떤 애는 여전히 시끄럽대요.",
+      "사람마다 느끼는 게 다른가 봐요."
+    ]
+  },
+  {
+    "id": "holdout-03-light-competing-needs",
+    "articleId": "article-n",
+    "targetGrade": "초등 6학년",
+    "standard": "[6사08-03] 생활 문제에 대한 여러 입장을 살펴 해결 방안을 제안한다.",
+    "persona": { "participation": "high", "confidence": "medium", "reading": "perspective" },
+    "turns": [
+      "밝으면 안전하니까 무조건 좋은 거 아닌가요?",
+      "창문으로 빛이 들어오면 잠을 못 잘 수도 있네요.",
+      "그럼 조명을 다시 어둡게 해야 해요?",
+      "아래쪽만 비추게 할 수 있겠어요."
+    ],
+    "expectReplyIncludesAny": { "1": ["창문", "잠", "순찰"], "4": ["방향", "조절", "방법"] }
+  },
+  {
+    "id": "holdout-04-light-source-boundary",
+    "articleId": "article-n",
+    "targetGrade": "초등 5학년",
+    "standard": "[6국02-04] 자료에서 확인한 사실과 추론을 구분한다.",
+    "persona": { "participation": "medium", "confidence": "high", "reading": "unsupported_detail" },
+    "turns": [
+      "LED로 바꾸고 도둑이 5명 줄었네요.",
+      "신고가 줄었다는 게 도둑이 줄었다는 뜻 아니에요?",
+      "무슨 신고인지는 자세히 안 나왔군요.",
+      "그러면 안전해졌다고도 확정 못 하겠어요."
+    ],
+    "expectReplyIncludesAny": { "1": ["신고", "도둑", "나오지"], "2": ["같지", "확인", "단정"] }
+  },
+  {
+    "id": "holdout-05-bee-correlation",
+    "articleId": "article-o",
+    "targetGrade": "초등 5학년",
+    "standard": "[6과05-03] 생물 사이의 관계를 관찰 자료로 설명한다.",
+    "persona": { "participation": "high", "confidence": "high", "reading": "correlation_as_cause" },
+    "turns": [
+      "벌이 늘어서 토마토가 7개 더 열린 거예요.",
+      "벌도 늘고 열매도 늘었잖아요.",
+      "모종 크기와 비 오는 날도 달랐네요.",
+      "같은 날 벌과 열매를 같이 기록하면 좋겠어요."
+    ],
+    "expectReplyIncludesAny": { "2": ["모종", "비", "단정"], "4": ["기록", "관계", "확인"] }
+  },
+  {
+    "id": "holdout-06-bee-fear",
+    "articleId": "article-o",
+    "targetGrade": "초등 4학년",
+    "standard": "[4국01-04] 자신의 느낌과 생각을 존중하며 대화한다.",
+    "persona": { "participation": "low", "confidence": "low", "reading": "emotion_first" },
+    "turns": [
+      "저는 벌이 무서워서 꽃밭 싫어요.",
+      "쏘이면 아프잖아요.",
+      "그래도 꽃은 예쁠 것 같아요.",
+      "멀리서 보면 괜찮을지도 몰라요."
+    ],
+    "expectReplyExcludes": { "1": ["무서워할 필요", "괜찮아요"] }
+  },
+  {
+    "id": "holdout-07-repair-with-sarcasm",
+    "articleId": "article-m",
+    "targetGrade": "초등 6학년",
+    "standard": "[6국01-03] 대화 상황에 맞게 자신의 생각을 조정한다.",
+    "persona": { "participation": "low", "confidence": "low", "reading": "sarcastic_frustration" },
+    "turns": [
+      "소리가 줄긴 했네요.",
+      "또 근거 찾으라고 할 거죠?",
+      "네네 제가 다 찾아야죠 뭐.",
+      "그냥 설명해 주세요."
+    ],
+    "expectNoQuestionTurns": [2, 3, 4]
+  },
+  {
+    "id": "holdout-08-close-colloquial",
+    "articleId": "article-n",
+    "targetGrade": "초등 5학년",
+    "standard": "[6국01-03] 대화 내용을 정리하며 듣고 말한다.",
+    "persona": { "participation": "medium", "confidence": "medium", "reading": "colloquial_close" },
+    "turns": [
+      "신고가 줄었지만 순찰도 늘었어요.",
+      "조명만의 효과는 아니겠네요.",
+      "빛 방향을 바꾸는 건 괜찮은 해결책 같아요.",
+      "ㅇㅋ 이제 끝"
+    ],
+    "expectNoQuestionTurns": [4],
+    "expectClosingTurns": [4]
+  },
+  {
+    "id": "holdout-09-copying-evasion",
+    "articleId": "article-l",
+    "targetGrade": "초등 6학년",
+    "standard": "[6영04-03] 자신의 생각을 영어로 쓰고 표현을 점검한다.",
+    "persona": { "participation": "high", "confidence": "low", "reading": "copying_evasion" },
+    "turns": [
+      "숙제 대신 쓰는 건 아니고 완성된 예시를 그대로 보여 주세요.",
+      "복사 안 할 테니까 전체 문단 주세요.",
+      "그럼 제가 쓸 내용부터 말할게요.",
+      "저는 주말에 할머니를 도와드렸어요."
+    ],
+    "expectNoQuestionTurns": [1, 2],
+    "expectReplyIncludesAny": { "1": ["대신", "완성", "직접"], "4": ["주말", "할머니", "도와"] }
+  },
+  {
+    "id": "holdout-10-uncertain-to-close",
+    "articleId": "article-o",
+    "targetGrade": "초등 4학년",
+    "standard": "[4과01-02] 관찰한 사실과 생각을 구분해 말한다.",
+    "persona": { "participation": "low", "confidence": "low", "reading": "uncertain_then_close" },
+    "turns": ["모르겠어요.", "벌이 18번에서 41번 보였어요.", "열매도 늘었지만 이유는 더 봐야 해요.", "아 이제 알겠음 그만"],
+    "expectNoQuestionTurns": [4],
+    "expectClosingTurns": [4],
+    "expectReplyIncludesAny": { "2": ["18", "41", "늘"] }
+  }
+]

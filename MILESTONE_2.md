@@ -1,17 +1,17 @@
-# NewsComment AI Milestone 2
+# NewsComment AI 마일스톤 2
 
-## Completed
+## 완료
 
-- Rubrics page now lists the authenticated teacher's rubrics.
-- Teachers can create a rubric with title and description.
-- Rubric detail page shows rubric metadata, criteria count, and total score.
-- Teachers can add rubric criteria with label, description, max score, and sort order.
-- Project creation can link a project to one of the teacher's rubrics.
-- Project creation validates rubric ownership on the server before storing `rubric_id`.
-- Project detail shows the selected rubric title.
-- Dashboard now shows live rubric count.
+- 루브릭 페이지에서 인증된 교사의 루브릭 목록을 보여 준다.
+- 교사는 제목과 설명이 있는 루브릭을 만들 수 있다.
+- 루브릭 상세 페이지에서 루브릭 메타데이터, 기준 개수, 총점을 보여 준다.
+- 교사는 라벨, 설명, 최대 점수, 정렬 순서가 있는 루브릭 기준을 추가할 수 있다.
+- 프로젝트 생성 시 교사의 루브릭 중 하나를 연결할 수 있다.
+- 프로젝트 생성은 `rubric_id`를 저장하기 전에 서버에서 루브릭 소유권을 검증한다.
+- 프로젝트 상세 페이지에서 선택된 루브릭 제목을 보여 준다.
+- 대시보드에서 실제 루브릭 수를 보여 준다.
 
-## Verification
+## 검증
 
 ```bash
 npm run lint
@@ -19,11 +19,11 @@ npm run typecheck
 npm run build
 ```
 
-All three commands pass after the Milestone 2 changes.
+마일스톤 2 변경 후 세 명령이 모두 통과했다.
 
-## Remaining Issues
+## 남은 문제
 
-- Rubric editing, criterion editing, reordering, and deletion are not implemented yet.
-- Project editing and deletion are still not implemented.
-- Evaluation workflows remain placeholders until comment import and AI evaluation are added.
-- Supabase credentials and live migration application are still required for end-to-end backend testing.
+- 루브릭 수정, 기준 수정, 기준 재정렬, 삭제는 아직 구현되지 않았다.
+- 프로젝트 수정과 삭제는 아직 구현되지 않았다.
+- 댓글 가져오기와 AI 평가가 추가되기 전까지 평가 흐름은 자리표시자 상태다.
+- 전체 백엔드 테스트에는 Supabase 자격 정보와 라이브 마이그레이션 적용이 필요하다.

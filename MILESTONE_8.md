@@ -1,16 +1,16 @@
-# NewsComment AI Milestone 8
+# NewsComment AI 마일스톤 8
 
-## Completed
+## 완료
 
-- `/dashboard/compare` now shows saved evaluation results.
-- Compare view groups evaluation data with project and comment context.
-- Teachers can open the source project from each comparison card.
-- `/dashboard/insights` now summarizes saved evaluation scores.
-- Insights view shows project, evaluation, and score counts.
-- Insights view calculates criterion-level average scores.
-- Criterion averages are sorted from lowest percentage to highest to surface weak areas first.
+- `/dashboard/compare`에서 저장된 평가 결과를 보여 준다.
+- 비교 화면은 평가 데이터를 프로젝트와 댓글 맥락으로 묶어 보여 준다.
+- 교사는 각 비교 카드에서 원본 프로젝트를 열 수 있다.
+- `/dashboard/insights`에서 저장된 평가 점수를 요약한다.
+- 인사이트 화면에서 프로젝트 수, 평가 수, 점수 수를 보여 준다.
+- 인사이트 화면에서 기준별 평균 점수를 계산한다.
+- 취약 영역이 먼저 보이도록 기준 평균을 낮은 비율에서 높은 비율 순으로 정렬한다.
 
-## Verification
+## 검증
 
 ```bash
 npm run lint
@@ -18,10 +18,10 @@ npm run typecheck
 npm run build
 ```
 
-All three commands pass after the Milestone 8 changes.
+마일스톤 8 변경 후 세 명령이 모두 통과했다.
 
-## Remaining Issues
+## 남은 문제
 
-- Insights are still basic aggregates; no filters, date ranges, or export.
-- Compare does not yet show criterion-by-criterion details per comment.
-- Live Supabase credentials and migrations are required for real backend testing.
+- 인사이트는 아직 기본 집계 수준이며 필터, 기간 선택, 내보내기는 없다.
+- 비교 화면은 아직 댓글별 기준 세부 점수를 보여 주지 않는다.
+- 실제 백엔드 테스트에는 라이브 Supabase 자격 정보와 마이그레이션이 필요하다.

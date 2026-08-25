@@ -1,119 +1,96 @@
-# Track B — The Web App
+# 웹앱 개발 트랙 기록
 
-Decision record, parked 2026-08-21.
+2026-08-21에 보류해 둔 의사결정 기록이다.
 
-The teacher training package was split into two tracks:
+교사 연수 패키지는 두 갈래로 나누어 진행했다.
 
-- **Track A — the workshop being run now.** Notion only. Teachers duplicate a template; the
-  facilitator demonstrates evaluation on screen. No deployment, no accounts beyond Notion, no API
-  keys. 40 participants, 3 hours.
-- **Track B — this repository.** Supabase, Vercel, and the coding work behind the tool. Kept for a
-  separate, later workshop aimed at teachers who want to build rather than watch.
+- **Notion 연수 트랙**: Notion만 사용한다. 교사는 템플릿을 복제하고, 진행자가 평가 과정을 화면으로 시연한다. 배포, 별도 계정, API 키가 필요 없다. 참가자 40명, 3시간 기준이다.
+- **웹앱 개발 트랙**: Supabase, Vercel, 코딩으로 만든 평가 도구를 다룬다. 직접 만들고 싶은 교사를 위한 별도 후속 연수로 남겨 둔다.
 
-Track B is paused, not abandoned. The app still has one job in Track A: the facilitator demonstrates
-it live, so it must be deployed and working before the workshop even though participants never touch
-it.
+웹앱 개발 트랙은 중단이 아니라 보류 상태다. Notion 연수 트랙에서도 이 앱은 진행자 시연용 역할이 있으므로, 참가자가 직접 만지지 않더라도 연수 전에는 배포되어 작동해야 한다.
 
-## Status
+## 현재 상태
 
-Working and verified against live services:
+실제 서비스와 연결해 확인된 기능:
 
-- Email/password auth, projects, rubrics, criteria
-- Manual comment entry, bulk paste, import from TXT/CSV/TSV/JSON URLs
-- Import from a Notion database with per-project property mapping and duplicate skipping
-- Manual rubric scoring, optional AI draft evaluation, compare and insights pages
-- Migrations `001` and `002` applied to the live Supabase project
+- 이메일/비밀번호 로그인, 프로젝트, 루브릭, 기준 관리
+- 댓글 직접 입력, 대량 붙여넣기, TXT/CSV/TSV/JSON URL에서 가져오기
+- Notion 데이터베이스에서 프로젝트별 속성 매핑으로 가져오기, 중복 건너뛰기
+- 수동 루브릭 채점, 선택적 AI 평가 초안, 비교와 인사이트 화면
+- 라이브 Supabase 프로젝트에 마이그레이션 `001`, `002` 적용 완료
 
-Not deployed. `origin/main` still holds the Create Next App starter; the whole app lives on
-`milestone-1`. Production deployment requires a merge, nothing more.
+아직 배포하지 않았다. `origin/main`에는 Create Next App 초기 상태가 남아 있었고, 전체 앱은 `milestone-1`에 있었다. 운영 배포에는 병합이 필요하다.
 
-## Open decisions
+## 남은 의사결정
 
-These block each other in order. The first one decides most of the rest.
+아래 결정은 서로 연결되어 있다. 첫 번째 결정이 나머지 대부분을 좌우한다.
 
-### 1. Fork or hosted
+### 1. 각 교사 복제 방식 또는 중앙 호스팅 방식
 
-| | Fork: each teacher deploys | Hosted: one instance for everyone |
+| 항목 | 각 교사 복제 방식 | 중앙 호스팅 방식 |
 | --- | --- | --- |
-| Teacher accounts | GitHub, Supabase, Vercel | none |
-| Student data lives | with each teacher | on the facilitator's server |
-| Facilitator obligation | none after handover | ongoing operation, cost, support |
-| School approval | not an external service | an external service |
-| Beginner success rate | medium, and only with the helpers below | high |
+| 교사 계정 | GitHub, Supabase, Vercel 필요 | 추가 계정 거의 없음 |
+| 학생 데이터 위치 | 각 교사 계정 안 | 진행자 서버 안 |
+| 진행자 책임 | 넘겨준 뒤 운영 책임 적음 | 지속적인 운영, 비용, 지원 필요 |
+| 학교 승인 부담 | 교사 개인 또는 학교 계정 중심 | 외부 서비스 운영에 가까움 |
+| 초보자 성공 가능성 | 보조 도구가 있으면 중간 | 높음 |
 
-Fork keeps the facilitator out of the role of service operator and keeps student writing inside each
-teacher's own accounts. That is why it is currently favoured. Hosted wins only on onboarding ease.
+현재는 각 교사 복제 방식이 더 적절해 보인다. 진행자가 서비스 운영자가 되는 부담을 줄이고, 학생 글을 각 교사의 계정 안에 둘 수 있기 때문이다. 중앙 호스팅 방식은 시작이 쉽다는 장점이 있다.
 
-If fork is chosen, two things must be built first or beginners will not get through it:
+각 교사 복제 방식을 선택한다면 초보 교사를 위해 두 가지가 먼저 필요하다.
 
-- A Vercel Deploy button that folds fork, project creation, and environment variables into one
-  guided screen, with a description next to each variable saying where to copy the value from.
-- A self-diagnosis screen in the app that reports what is wrong: migration not applied, Notion token
-  invalid, integration scope too wide, expected databases not found. During setup on 2026-08-21 the
-  blockers were an environment variable name mismatch, a database not connected to the integration,
-  and an over-broad integration. All three were found by writing throwaway scripts, which a teacher
-  cannot do. This screen is the difference between the fork route working and not.
+- Vercel Deploy 버튼: 복제, 프로젝트 생성, 환경변수 입력을 한 화면에서 안내한다. 각 환경변수 옆에 어디에서 값을 복사해야 하는지 설명한다.
+- 자가 진단 화면: 마이그레이션 미적용, Notion 토큰 오류, 연동 범위 과다, 예상 데이터베이스 없음 등을 앱 안에서 알려 준다.
 
-### 2. OAuth for the Notion connection
+2026-08-21 설정 과정에서 실제로 막힌 지점은 환경변수 이름 불일치, 데이터베이스와 연동 미연결, 연동 범위 과다였다. 개발자는 임시 스크립트로 찾을 수 있지만, 교사가 직접 해결하기는 어렵다. 자가 진단 화면은 복제 방식이 현실적으로 작동하게 만드는 핵심 장치다.
 
-Deferred to Track B, and **only meaningful under the hosted model**. OAuth needs a public
-integration registered by whoever runs the service; under fork, each teacher would have to register
-their own, which is not realistic.
+### 2. Notion 연결 OAuth
 
-Under fork, each teacher keeps their own internal integration token, which is the current design.
+웹앱 개발 트랙으로 미룬다. OAuth는 **중앙 호스팅 방식에서만 의미가 크다.** OAuth는 서비스를 운영하는 사람이 공개 연동을 등록해야 한다. 각 교사 복제 방식에서는 교사마다 직접 등록해야 하므로 현실적이지 않다.
 
-OAuth's second benefit, letting Notion's own page picker limit what the token can reach, is real but
-does not require OAuth. A narrowly connected internal integration achieves the same scope with no
-code change.
+각 교사 복제 방식에서는 현재 설계처럼 교사가 자신의 내부 연동 토큰을 관리한다.
 
-### 3. System of record
+OAuth의 장점은 Notion의 페이지 선택 화면으로 접근 범위를 줄일 수 있다는 점이다. 다만 꼭 OAuth가 아니어도, 좁게 연결한 내부 연동으로 같은 목적을 어느 정도 달성할 수 있다.
 
-The PRD (§4) has the tool read comments from Notion, evaluate, and **write results back into Notion**
-fields that already exist (`AI 점수`, `평가 근거`, `강점`, `AI 확신도`, `분석 상태`, `평가 버전`,
-`교사 확인`). Notion is the record; the tool is an evaluation engine.
+### 3. 기록의 기준 위치
 
-The app currently does the opposite: Supabase is the record and Notion is a one-way import source.
-Only the read half of PRD §15's `자동평가 웹도구와 Notion API 연결` exists.
+PRD에서는 도구가 Notion에서 댓글을 읽고, 평가한 뒤, 결과를 Notion 필드에 다시 쓰도록 되어 있다. 이 경우 Notion이 공식 기록이고 앱은 평가 엔진이다.
 
-Following the PRD would also mean the app stores no student writing at all, which removes most of
-the privacy burden from a hosted deployment. That interacts with decision 1.
+현재 앱은 반대로 작동한다. Supabase가 공식 기록이고 Notion은 한 번 가져오는 입력 자료이다. PRD의 `자동평가 웹도구와 Notion API 연결` 중 읽기 부분만 구현되어 있다.
 
-### 4. Score scale
+PRD를 따르면 앱이 학생 글을 거의 저장하지 않아도 되므로 중앙 호스팅 방식의 개인정보 부담이 크게 줄어든다. 이 문제는 1번 결정과 연결된다.
 
-PRD §13 leaves this open: the rubric table recommends 0–4 per area, while the Notion database
-describes `AI 점수` and `교사 점수` as 0–5. The app defaults `max_score` to 5. Pick one before
-building area-level scoring.
+### 4. 점수 척도
 
-## Gaps against the PRD
+PRD에는 영역별 0~4점과 0~5점 설명이 섞여 있다. 앱은 기본값을 5점으로 둔다. 영역별 채점을 본격화하기 전에 하나로 확정해야 한다.
 
-| PRD | App today |
+## PRD와 현재 앱의 차이
+
+| PRD | 현재 앱 |
 | --- | --- |
-| §F1 article records: body, source, field, thinking type, key question | no article entity; a project has one `source_url` |
-| §4-4 AI receives article body and key question | AI receives project title, rubric title, comment, criteria |
-| §F3 fixed three areas (understanding, connection, expression) | arbitrary criteria |
-| §F4 output: evidence, strength, next_step, confidence, needs_teacher_review | feedback plus per-criterion score and rationale |
-| §F5 AI score and teacher score kept separately, review state, re-evaluation version | one combined evaluation, no review state |
+| 기사 기록: 본문, 출처, 분야, 사고 유형, 핵심 질문 | 별도 기사 엔티티 없음. 프로젝트에 `source_url` 하나만 있음 |
+| AI가 기사 본문과 핵심 질문을 함께 받음 | AI가 프로젝트 제목, 루브릭 제목, 댓글, 기준을 받음 |
+| 이해, 연결, 표현의 고정 3영역 | 임의 기준을 만들 수 있음 |
+| 출력: 근거, 강점, 다음 단계, 확신도, 교사 검토 필요 | 피드백, 기준별 점수, 근거 |
+| AI 점수와 교사 점수 분리, 검토 상태, 재평가 버전 | 하나의 평가 결과, 검토 상태 없음 |
 
-A parallel effort adding standards-based rubric generation was in progress and uncommitted when this
-track was parked. It is not in the PRD and points away from §F3's fixed three areas; reconcile before
-continuing.
+성취기준 기반 루브릭 생성 작업도 병렬로 진행 중이었다. 이것은 PRD의 고정 3영역 방향과 다르므로, 이어서 개발하기 전에 조정이 필요하다.
 
-## Suggested order when Track B resumes
+## 웹앱 개발 트랙 재개 순서 제안
 
-1. Answer decision 1. Everything else follows from it.
-2. Feed the article body and key question into the AI call. Cheapest large gain in evaluation quality.
-3. Fill out the §F4 output fields.
-4. Separate AI score from teacher score and add the review state.
-5. Only then, the Deploy button and self-diagnosis screen, or OAuth, depending on decision 1.
+1. 각 교사 복제 방식인지 중앙 호스팅 방식인지 결정한다.
+2. AI 호출에 기사 본문과 핵심 질문을 넣는다.
+3. PRD의 출력 필드인 근거, 강점, 다음 단계, 확신도, 교사 검토 필요를 채운다.
+4. AI 점수와 교사 점수를 분리하고 검토 상태를 추가한다.
+5. 결정한 배포 방식에 따라 Deploy 버튼과 자가 진단 화면 또는 OAuth를 만든다.
 
-## Verified on 2026-08-21
+## 2026-08-21 검증 기록
 
-Notion import was tested against a real integration token and the live
-`💬 학생 댓글 · 생각 나누기` database:
+Notion 가져오기는 실제 연동 토큰과 라이브 `💬 학생 댓글 · 생각 나누기` 데이터베이스로 테스트했다.
 
-- 6 of 7 rows imported; the row with an empty comment property was skipped as designed.
-- A second run added nothing and skipped all 6, confirming duplicate handling.
-- Property mapping persisted to `projects.notion_source`.
-- Korean property names matched correctly.
+- 7행 중 6행을 가져왔다. 댓글 속성이 빈 행은 설계대로 건너뛰었다.
+- 두 번째 실행에서는 새로 추가된 항목 없이 6건 모두 중복으로 건너뛰어 중복 처리를 확인했다.
+- 속성 매핑은 `projects.notion_source`에 저장되었다.
+- 한글 속성명이 정상적으로 매칭되었다.
 
-See `MILESTONE_13.md` for the full record.
+전체 기록은 `MILESTONE_13.md`에 있다.

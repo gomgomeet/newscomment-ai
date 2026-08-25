@@ -1,16 +1,16 @@
-# NewsComment AI Milestone 4
+# NewsComment AI 마일스톤 4
 
-## Completed
+## 완료
 
-- Project detail now supports bulk comment import.
-- Teachers can paste one comment per line.
-- Teachers can paste `student name + tab + comment` rows.
-- Teachers can paste `student name,comment` rows.
-- Bulk-imported comments are stored in Supabase `comments`.
-- Bulk import validates project ownership on the server before inserting.
-- Imported comment metadata records `source: "bulk-paste"`.
+- 프로젝트 상세 페이지에서 댓글 대량 가져오기를 지원한다.
+- 교사는 한 줄에 댓글 하나씩 붙여 넣을 수 있다.
+- 교사는 `학생 이름 + 탭 + 댓글` 형식의 행을 붙여 넣을 수 있다.
+- 교사는 `학생 이름,댓글` 형식의 행을 붙여 넣을 수 있다.
+- 대량으로 가져온 댓글은 Supabase `comments`에 저장된다.
+- 대량 가져오기는 삽입 전에 서버에서 프로젝트 소유권을 검증한다.
+- 가져온 댓글 메타데이터에 `source: "bulk-paste"`를 기록한다.
 
-## Verification
+## 검증
 
 ```bash
 npm run lint
@@ -18,11 +18,11 @@ npm run typecheck
 npm run build
 ```
 
-All three commands pass after the Milestone 4 changes.
+마일스톤 4 변경 후 세 명령이 모두 통과했다.
 
-## Remaining Issues
+## 남은 문제
 
-- Full CSV file upload is not implemented yet.
-- Comment editing and deletion are not implemented yet.
-- AI evaluation remains unconnected.
-- Live Supabase credentials and migrations are required for real backend testing.
+- 전체 CSV 파일 업로드는 아직 구현되지 않았다.
+- 댓글 수정과 삭제는 아직 구현되지 않았다.
+- AI 평가는 아직 연결되지 않았다.
+- 실제 백엔드 테스트에는 라이브 Supabase 자격 정보와 마이그레이션이 필요하다.

@@ -4,10 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "eval:questioning": "node scripts/run-questioning-dialogue-eval.mjs --suite=all",
+    "eval:questioning:development": "node scripts/run-questioning-dialogue-eval.mjs --suite=development",
+    "eval:questioning:holdout": "node scripts/run-questioning-dialogue-eval.mjs --suite=holdout"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.3.3",
@@ -30,5 +33,8 @@
     "eslint-config-next": "16.3.1",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "allowScripts": {
+    "unrs-resolver@1.12.2": true
   }
 }

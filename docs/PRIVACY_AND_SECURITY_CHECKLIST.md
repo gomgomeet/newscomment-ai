@@ -1,48 +1,57 @@
-# Privacy and Security Checklist
+# 개인정보 및 보안 체크리스트
 
-This checklist is a practical starting point, not legal advice. Confirm school, district, and national requirements before storing real student data.
+이 문서는 실무 점검용 안내이다. 법률 자문은 아니므로 실제 학생 데이터를 저장하기 전에는 학교, 교육청, 기관의 개인정보 및 생성형 AI 활용 지침을 확인해야 한다.
 
-## Data Minimization
+## 1. 데이터 최소화
 
-- Store only the data needed for evaluation.
-- Prefer aliases, student numbers, or initials over full names.
-- Do not paste sensitive personal details into comments.
-- Remove data after the evaluation period if it is no longer needed.
+- 평가에 꼭 필요한 정보만 저장한다.
+- 실명보다 별칭, 학생 번호, 이니셜을 우선 사용한다.
+- 댓글이나 질문 기록에 민감한 개인정보를 붙여 넣지 않는다.
+- 평가 기간이 끝난 뒤 필요 없는 데이터는 삭제한다.
 
-## Supabase
+## 2. Supabase
 
-- Keep RLS enabled on all student-data tables.
-- Do not expose the Supabase `service_role` key to the browser.
-- Do not commit `.env.local`.
-- Limit Supabase dashboard access to trusted staff.
-- Review Auth redirect URLs before production use.
-- Use separate Supabase projects for testing and real classroom data.
+- 학생 데이터가 들어가는 모든 테이블에 RLS를 켠다.
+- Supabase `service_role` 키를 브라우저에 노출하지 않는다.
+- `.env.local`을 Git에 커밋하지 않는다.
+- Supabase 대시보드 접근 권한은 신뢰할 수 있는 담당자로 제한한다.
+- 배포 전 Auth 리다이렉트 주소를 확인한다.
+- 테스트용 프로젝트와 실제 수업용 프로젝트를 분리하는 것이 좋다.
 
-## OpenAI
+## 3. OpenAI
 
-- Use AI draft evaluation only when your school policy allows it.
-- Avoid sending unnecessary personal identifiers to AI.
-- Keep `OPENAI_API_KEY` server-side only.
-- Test prompts with fake data before using classroom data.
-- Review generated feedback before sharing it with students.
+- AI 평가 초안 기능은 학교 정책상 허용될 때만 사용한다.
+- 학생을 식별할 수 있는 정보를 불필요하게 보내지 않는다.
+- `OPENAI_API_KEY`는 서버 쪽 환경변수로만 보관한다.
+- 실제 수업 데이터 전에 가짜 데이터로 먼저 테스트한다.
+- 생성된 피드백은 학생에게 보여 주기 전에 교사가 반드시 검토한다.
 
-## GitHub
+## 4. Gemini 질문 챗봇
 
-- Do not commit real student comments, names, grades, or screenshots.
-- Keep `.env.local` out of Git.
-- If making the repository public, verify it contains only source code, sample data, and documentation.
-- Use issues and pull requests without student personal data.
+- Gemini 이미지 분석과 학생 채팅은 학교 정책상 허용될 때만 사용한다.
+- 학생 이름, 얼굴, 연락처, 민감한 상황이 포함된 이미지를 업로드하지 않는다.
+- 교사용 제작보드에 입력한 Gemini API 키는 해당 브라우저의 `localStorage`에만 저장된다.
+- 학교 공용 PC나 연수장 PC에서는 수업 후 반드시 `키 지우기`를 누른다.
+- 서버 기본 키를 사용할 경우 `GEMINI_API_KEY`는 `.env.local` 또는 배포 환경변수에만 저장하고 커밋하지 않는다.
+- 학생에게 열기 전에 추출된 질문 자료 원문과 챗봇 응답을 교사가 확인한다.
 
-## Classroom Operations
+## 5. GitHub
 
-- Tell participating teachers where the data is stored.
-- Decide who can export, edit, or delete data.
-- Keep a simple deletion process for test data and old projects.
-- Use fake sample data during demonstrations.
+- 실제 학생 댓글, 이름, 점수, 캡처 화면을 커밋하지 않는다.
+- `.env.local`을 Git에 올리지 않는다.
+- 저장소를 공개할 경우 소스 코드, 샘플 데이터, 문서만 들어 있는지 확인한다.
+- 이슈나 PR에도 학생 개인정보를 쓰지 않는다.
 
-## Deployment
+## 6. 수업 운영
 
-- Use HTTPS for production.
-- Set production redirect URLs in Supabase.
-- Rotate keys if a secret was exposed.
-- Check access after every deployment or ownership change.
+- 참여 교사에게 데이터가 어디에 저장되는지 설명한다.
+- 누가 내보내기, 수정, 삭제 권한을 갖는지 정한다.
+- 테스트 데이터와 오래된 프로젝트를 삭제하는 절차를 마련한다.
+- 시연에는 가짜 학생 데이터와 예시 자료를 사용한다.
+
+## 7. 배포
+
+- 실제 배포 주소는 HTTPS를 사용한다.
+- Supabase 배포 리다이렉트 주소를 등록한다.
+- 비밀 키가 노출되면 즉시 폐기하고 새 키로 교체한다.
+- 배포나 소유권 변경 후 접근 권한을 다시 확인한다.

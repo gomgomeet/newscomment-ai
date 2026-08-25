@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+/evals/questioning-chatbot/results/*.json
+!/evals/questioning-chatbot/results/.gitkeep
 
 # next.js
 /.next/
@@ -44,3 +46,4 @@ next-env.d.ts
 /tmp/
 /output/**/*.inspect.ndjson
 /output/**/slide-*.png
+/output/**/~$*

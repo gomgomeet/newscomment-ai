@@ -199,6 +199,58 @@ export type Database = {
         };
         Relationships: [];
       };
+      questioning_lesson_connections: {
+        Row: {
+          id: string;
+          lesson_code: string;
+          teacher_label: string | null;
+          lesson_title: string | null;
+          gemini_model: string;
+          gemini_api_key_ciphertext: string;
+          notion_api_key_ciphertext: string;
+          notion_prep_database_id: string;
+          notion_result_database_id: string;
+          chatbot_config: Json;
+          student_chatbot_path: string;
+          status: "active" | "archived";
+          expires_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          lesson_code: string;
+          teacher_label?: string | null;
+          lesson_title?: string | null;
+          gemini_model?: string;
+          gemini_api_key_ciphertext: string;
+          notion_api_key_ciphertext: string;
+          notion_prep_database_id: string;
+          notion_result_database_id: string;
+          chatbot_config?: Json;
+          student_chatbot_path?: string;
+          status?: "active" | "archived";
+          expires_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          lesson_code?: string;
+          teacher_label?: string | null;
+          lesson_title?: string | null;
+          gemini_model?: string;
+          gemini_api_key_ciphertext?: string;
+          notion_api_key_ciphertext?: string;
+          notion_prep_database_id?: string;
+          notion_result_database_id?: string;
+          chatbot_config?: Json;
+          student_chatbot_path?: string;
+          status?: "active" | "archived";
+          expires_at?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;

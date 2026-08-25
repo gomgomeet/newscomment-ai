@@ -1,18 +1,18 @@
-# NewsComment AI Milestone 3
+# NewsComment AI 마일스톤 3
 
-## Completed
+## 완료
 
-- Project detail now supports manual comment entry.
-- Comments are stored in Supabase `comments` with project ownership enforced by RLS and server-side checks.
-- Project detail now shows all comments for the selected project.
-- Teachers can save rubric-based evaluations for each comment.
-- Evaluation totals are calculated on the server and stored in `evaluations`.
-- Criterion-level scores and rationales are stored in `evaluation_scores`.
-- Existing manual evaluations can be updated through the same form.
-- `/dashboard/evaluation` is now a real evaluation hub listing the teacher's projects.
-- Dashboard now shows live evaluation count.
+- 프로젝트 상세 페이지에서 댓글을 직접 입력할 수 있다.
+- 댓글은 Supabase `comments`에 저장되며, RLS와 서버 확인으로 프로젝트 소유권을 강제한다.
+- 프로젝트 상세 페이지에서 선택한 프로젝트의 모든 댓글을 보여 준다.
+- 교사는 각 댓글에 대해 루브릭 기반 평가를 저장할 수 있다.
+- 평가 총점은 서버에서 계산해 `evaluations`에 저장한다.
+- 기준별 점수와 근거는 `evaluation_scores`에 저장한다.
+- 기존 수동 평가는 같은 폼에서 업데이트할 수 있다.
+- `/dashboard/evaluation`은 교사의 프로젝트를 보여 주는 실제 평가 허브가 되었다.
+- 대시보드에서 실제 평가 수를 보여 준다.
 
-## Verification
+## 검증
 
 ```bash
 npm run lint
@@ -20,11 +20,11 @@ npm run typecheck
 npm run build
 ```
 
-All three commands pass after the Milestone 3 changes.
+마일스톤 3 변경 후 세 명령이 모두 통과했다.
 
-## Remaining Issues
+## 남은 문제
 
-- Bulk comment import from CSV, Notion, or pasted table is not implemented yet.
-- AI evaluation is not connected yet; saved evaluations are manual teacher evaluations.
-- Rubric/project editing and deletion are still not implemented.
-- End-to-end backend testing still requires live Supabase credentials and migration application.
+- CSV, Notion, 붙여넣은 표에서 대량 댓글을 가져오는 기능은 아직 구현되지 않았다.
+- AI 평가는 아직 연결되지 않았고, 저장되는 평가는 교사의 수동 평가다.
+- 루브릭과 프로젝트의 수정 및 삭제는 아직 구현되지 않았다.
+- 전체 백엔드 테스트에는 라이브 Supabase 자격 정보와 마이그레이션 적용이 필요하다.
