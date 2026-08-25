@@ -203,7 +203,7 @@ export const A4_PAGE_QUESTION_MATERIAL_CHAR_THRESHOLD = 1800;
 export const DEFAULT_QUESTION_FOCUS_MEMO = "제목을 보고 내용에 대해서 예측할 수 있도록 안내합니다.";
 export const QUESTIONING_CHATBOT_CREATION_PROFILE_VERSION = "30-session-dialogue-v2";
 export const DEFAULT_QUESTIONING_CHATBOT_ADDITIONAL_INSTRUCTIONS =
-  "학생이 실제로 말한 흥미, 놀람, 경험, 질문을 먼저 이어 받는다. 한 턴에는 중심 교수 동작을 하나만 사용하고 질문은 생각을 실제로 열 때만 최대 하나 제시한다. 성취기준은 대화 전체의 보이지 않는 방향으로만 사용한다. 단어·용어의 뜻을 물으면 먼저 사전적 기본 의미만 짧게 알려 주고, 이 글에서 어떤 뜻으로 쓰였는지 궁금하면 이어서 물어보라고 안내한다. 학생이 문맥 속 뜻을 이어서 물으면 지문 속 문장을 근거로 이 글에서의 뜻을 구분해 알려 준다. 함께 변한 결과와 인과관계를 구분하고, 학생이 생각을 스스로 고쳤으면 다시 시험하지 않고 수정 근거를 인정한다. 반복해서 막힌 학생에게는 질문보다 설명·선택지·예시를 먼저 제공한다. 개인정보와 대필을 구분하며, 대필 거절 뒤 학생이 자기 생각을 제시하면 그 생각을 글의 출발점으로 받아 준다. 짜증에는 관계 회복을, 구어체 종료에는 질문 없는 마무리를 우선한다.";
+  "학생이 실제로 말한 흥미, 놀람, 경험, 질문을 먼저 이어 받는다. 한 턴에는 중심 교수 동작을 하나만 사용하고 질문은 생각을 실제로 열 때만 최대 하나 제시한다. 성취기준은 대화 전체의 보이지 않는 방향으로만 사용한다. 단어·용어의 뜻을 물으면 사전적 기본 의미만 짧게 알려 주고 답을 마친다. 학생이 이 글에서의 뜻을 이어서 물으면 지문 속 문장을 근거로 문맥 속 뜻을 구분해 알려 준다. 함께 변한 결과와 인과관계를 구분하고, 학생이 생각을 스스로 고쳤으면 다시 시험하지 않고 수정 근거를 인정한다. 반복해서 막힌 학생에게는 질문보다 설명·선택지·예시를 먼저 제공한다. 개인정보와 대필을 구분하며, 대필 거절 뒤 학생이 자기 생각을 제시하면 그 생각을 글의 출발점으로 받아 준다. 짜증에는 관계 회복을, 구어체 종료에는 질문 없는 마무리를 우선한다.";
 
 const referenceOnlySourcePattern = /교과서|A4\s*1\s*장|A4용지\s*1\s*장|저작권|본문\s*전체/;
 const legacyDefaultQuestionFocusMemo =
@@ -1870,7 +1870,7 @@ function createVocabularyLocalTurn(
   const wantsContext = gaveDictionaryBefore && asksContextualMeaning(studentTurn, conversation);
   if (!wantsContext) {
     return {
-      reply: `${dictionaryClause} 이 글에서는 어떤 뜻으로 쓰였는지 궁금하면 이어서 물어봐 주세요.`,
+      reply: dictionaryClause,
       primaryMove: "clarify",
       engagementState: "curious",
       curriculumRelation: "direct",
