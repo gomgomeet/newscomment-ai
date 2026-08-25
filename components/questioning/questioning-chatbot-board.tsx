@@ -28,6 +28,16 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  buildThinkingCard,
+  formatThinkingCard,
+  type ThinkingCard,
+} from "@/lib/questioning-thinking-card";
+import {
+  formatAttendanceSummary,
+  parseParticipatedNumbers,
+  summarizeAttendance,
+} from "@/lib/questioning-attendance";
+import {
   QUESTIONING_AI_SETTINGS_KEY,
   QUESTIONING_CHATBOT_CONFIG_KEY,
   QUESTIONING_CHATBOT_CREATION_PROFILE_VERSION,
@@ -624,6 +634,11 @@ export function QuestioningChatbotBoard() {
   const [savedStudentChatbotUrl, setSavedStudentChatbotUrl] = useState("");
   const [isSavingLessonConnection, setIsSavingLessonConnection] = useState(false);
   const [notice, setNotice] = useState("");
+  const [thinkingCard, setThinkingCard] = useState<ThinkingCard | null>(null);
+  const [classLabel, setClassLabel] = useState("");
+  const [classTotal, setClassTotal] = useState("");
+  const [participationInput, setParticipationInput] = useState("");
+  const [isThinkingCardOpen, setIsThinkingCardOpen] = useState(false);
 
   const selectedStandard = standardOptions.find((option) => option.id === selectedStandardId) || standardOptions[0];
   const standardText = selectedStandardId === "custom" ? customStandard : selectedStandard.standard;
@@ -673,6 +688,10 @@ export function QuestioningChatbotBoard() {
     );
     return { ...configuredMaterial, vocabulary: [...curated, ...analyzed] };
   }, [configuredMaterial, teacherVocabulary]);
+  const attendanceSummary = useMemo(
+    () => summarizeAttendance(Number.parseInt(classTotal, 10), parseParticipatedNumbers(participationInput)),
+    [classTotal, participationInput],
+  );
   const prdText = useMemo(
     () =>
       buildPrdText({
@@ -877,6 +896,72 @@ export function QuestioningChatbotBoard() {
         ? "긴 지문 또는 교과서 자료는 학생 화면에 교과서 확인 안내만 반영했고, 질문 성격 메모도 PRD에 함께 반영했습니다."
         : "교사가 입력한 질문 자료 전체 내용과 질문 성격 메모를 학생용 챗봇 PRD에 함께 반영했습니다.",
     );
+  }
+
+  function handleBuildThinkingCard() {
+    const card = buildThinkingCard(configuredMaterialWithVocabulary);
+    setThinkingCard(card);
+    setIsThinkingCardOpen(true);
+    const openCount = card.openQuestions.length;
+    setNotice(
+      openCount > 0
+        ? `생각 카드를 만들었습니다. 지문으로 답할 수 없는 질문 ${openCount}개는 교사가 확인해 주세요.`
+        : "생각 카드를 만들었습니다. 내용이 맞는지 확인한 뒤 챗봇에 반영해 주세요.",
+    );
+  }
+
+  async function handleCopyThinkingCard() {
+    if (!thinkingCard) return;
+    try {
+      await navigator.clipboard.writeText(formatThinkingCard(thinkingCard));
+      setNotice("생각 카드를 복사했습니다.");
+    } catch {
+      setNotice("복사에 실패했습니다. 카드 내용을 직접 선택해 복사해 주세요.");
+    }
+  }
+
+  /**
+   * 생각 카드에서 답 가능한 질문을 챗봇 추가 지시로 넘긴다.
+   * 지문 밖 질문은 교사가 확인해야 하므로 자동으로 넘기지 않는다.
+   */
+  function handleApplyThinkingCardToChatbot() {
+    if (!thinkingCard) return;
+    const answerable = thinkingCard.simulatedQuestions.filter((item) => item.answerableFromText);
+    if (answerable.length === 0) {
+      setNotice("지문에서 근거를 찾은 질문이 없어 반영할 내용이 없습니다.");
+      return;
+    }
+    const lines = [
+      "[예상 질문과 지문 근거]",
+      ...answerable.map((item) => `- ${item.question} → 근거: "${item.evidenceSentence}"`),
+    ];
+    if (thinkingCard.misconceptionWatch.length > 0) {
+      lines.push("[오개념 주의]");
+      thinkingCard.misconceptionWatch.forEach((item) => lines.push(`- ${item}`));
+    }
+    const addition = lines.join("\n");
+    setBehavior((current) => {
+      const existing = current.additionalInstructions.trim();
+      if (existing.includes("[예상 질문과 지문 근거]")) {
+        return { ...current, additionalInstructions: addition };
+      }
+      return {
+        ...current,
+        additionalInstructions: existing ? `${existing}\n\n${addition}` : addition,
+      };
+    });
+    setNotice(
+      `예상 질문 ${answerable.length}개와 근거를 챗봇 추가 지시에 반영했습니다. 4번에서 확인한 뒤 챗봇에 적용해 주세요.`,
+    );
+  }
+
+  async function handleCopyAttendanceSummary() {
+    try {
+      await navigator.clipboard.writeText(formatAttendanceSummary(attendanceSummary, classLabel));
+      setNotice("참여 현황을 복사했습니다.");
+    } catch {
+      setNotice("복사에 실패했습니다. 내용을 직접 선택해 복사해 주세요.");
+    }
   }
 
   function handleClassifierKeywordsChange(key: keyof QuestionClassifierKeywords, value: string) {
@@ -1618,6 +1703,93 @@ export function QuestioningChatbotBoard() {
                   전체 내용·메모 반영
                 </Button>
               </div>
+
+              <div className="space-y-3 rounded-md border border-border bg-background p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-semibold">생각 카드 — 학생 관점 미리 보기</h3>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      여섯 가지 학생 관점으로 질문을 만들어 보고, 지문으로 답할 수 있는지 미리 확인합니다.
+                    </p>
+                  </div>
+                  <Button type="button" size="sm" onClick={handleBuildThinkingCard}>
+                    생각 카드 만들기
+                  </Button>
+                </div>
+
+                {thinkingCard ? (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className="rounded-full bg-muted px-2 py-1 font-medium">
+                        지문으로 답 가능 {thinkingCard.answerableCount}/{thinkingCard.simulatedQuestions.length}
+                      </span>
+                      {thinkingCard.openQuestions.length > 0 ? (
+                        <span className="rounded-full bg-amber-100 px-2 py-1 font-medium text-amber-900">
+                          함께 확인할 질문 {thinkingCard.openQuestions.length}
+                        </span>
+                      ) : null}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setIsThinkingCardOpen((current) => !current)}
+                      >
+                        {isThinkingCardOpen ? "접기" : "펼쳐보기"}
+                      </Button>
+                    </div>
+
+                    {isThinkingCardOpen ? (
+                      <div className="space-y-3 text-sm">
+                        <ul className="space-y-2">
+                          {thinkingCard.simulatedQuestions.map((item, index) => (
+                            <li key={index} className="rounded-md border border-dashed border-border p-2">
+                              <p className="font-medium">
+                                <span className="mr-2 rounded bg-muted px-1.5 py-0.5 text-xs">{item.lensLabel}</span>
+                                {item.question}
+                              </p>
+                              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                                {item.answerableFromText
+                                  ? `지문 근거: "${item.evidenceSentence}"`
+                                  : "지문 안에서 답을 찾지 못했습니다. 배경 지식으로 답할지, 학생과 함께 확인할지 정해 주세요."}
+                              </p>
+                              <p className="mt-1 text-xs leading-5 text-muted-foreground">교사 메모: {item.teacherNote}</p>
+                            </li>
+                          ))}
+                        </ul>
+
+                        {thinkingCard.misconceptionWatch.length > 0 ? (
+                          <div>
+                            <h4 className="text-sm font-semibold">오개념 주의</h4>
+                            <ul className="mt-1 list-disc space-y-1 pl-5 text-xs leading-5 text-muted-foreground">
+                              {thinkingCard.misconceptionWatch.map((item, index) => (
+                                <li key={index}>{item}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+
+                        <div>
+                          <h4 className="text-sm font-semibold">교사 확인 사항</h4>
+                          <ul className="mt-1 list-disc space-y-1 pl-5 text-xs leading-5 text-muted-foreground">
+                            {thinkingCard.teacherChecklist.map((item, index) => (
+                              <li key={index}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <Button type="button" size="sm" variant="outline" onClick={handleApplyThinkingCardToChatbot}>
+                            예상 질문·근거를 챗봇에 반영
+                          </Button>
+                          <Button type="button" size="sm" variant="ghost" onClick={handleCopyThinkingCard}>
+                            카드 복사
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
 
@@ -1732,6 +1904,94 @@ export function QuestioningChatbotBoard() {
                   <Download className="size-4" aria-hidden="true" />
                   엑셀 다운로드
                 </Button>
+              </div>
+
+              <div className="mt-4 space-y-3 rounded-md border border-border bg-background p-3">
+                <div>
+                  <h3 className="text-sm font-semibold">참여 현황 — 아직 질문하지 않은 학생 찾기</h3>
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    노션 결과 DB의 <code>학교_반_번호</code> 목록을 붙여넣으면 기록이 없는 번호를 찾아 줍니다.
+                    번호만 쉼표로 나열해도 됩니다. 참여 여부만 보며, 질문 개수를 세지 않습니다.
+                  </p>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="attendance-class">반 이름 (선택)</Label>
+                    <Input
+                      id="attendance-class"
+                      value={classLabel}
+                      onChange={(event) => setClassLabel(event.target.value)}
+                      placeholder="예: 4학년 2반"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="attendance-total">학급 인원</Label>
+                    <Input
+                      id="attendance-total"
+                      type="number"
+                      min={1}
+                      max={60}
+                      value={classTotal}
+                      onChange={(event) => setClassTotal(event.target.value)}
+                      placeholder="예: 24"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="attendance-records">질문 기록 목록</Label>
+                  <Textarea
+                    id="attendance-records"
+                    value={participationInput}
+                    onChange={(event) => setParticipationInput(event.target.value)}
+                    className="min-h-24 font-mono text-xs"
+                    placeholder={"푸른초등학교_4-2_1\n푸른초등학교_4-2_3\n푸른초등학교_4-2_7"}
+                  />
+                </div>
+
+                {attendanceSummary.total > 0 ? (
+                  <div className="space-y-2 rounded-md border border-dashed border-border p-3 text-sm">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className="rounded-full bg-muted px-2 py-1 font-medium">
+                        참여 {attendanceSummary.participatedNumbers.length}/{attendanceSummary.total}명 (
+                        {attendanceSummary.participationRate}%)
+                      </span>
+                      {attendanceSummary.missingNumbers.length > 0 ? (
+                        <span className="rounded-full bg-amber-100 px-2 py-1 font-medium text-amber-900">
+                          미제출 {attendanceSummary.missingNumbers.length}명
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-emerald-100 px-2 py-1 font-medium text-emerald-900">
+                          전원 참여
+                        </span>
+                      )}
+                    </div>
+
+                    {attendanceSummary.missingNumbers.length > 0 ? (
+                      <p className="leading-6">
+                        아직 질문하지 않은 학생:{" "}
+                        <b>{attendanceSummary.missingNumbers.map((number) => `${number}번`).join(", ")}</b>
+                      </p>
+                    ) : (
+                      <p className="leading-6">모든 학생에게 질문 기록이 있습니다.</p>
+                    )}
+
+                    {attendanceSummary.outOfRangeNumbers.length > 0 ? (
+                      <p className="text-xs leading-5 text-amber-800">
+                        학급 인원({attendanceSummary.total}명)을 넘는 번호가 있습니다:{" "}
+                        {attendanceSummary.outOfRangeNumbers.join(", ")}. 다른 반 기록이거나 번호 오타일 수 있으니
+                        확인해 주세요.
+                      </p>
+                    ) : null}
+
+                    <Button type="button" size="sm" variant="outline" onClick={handleCopyAttendanceSummary}>
+                      참여 현황 복사
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">학급 인원을 입력하면 미제출 학생을 찾아 드립니다.</p>
+                )}
               </div>
             </div>
             <div className="overflow-x-auto">
