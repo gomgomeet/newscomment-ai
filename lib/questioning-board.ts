@@ -2496,7 +2496,49 @@ function createGeneralNaturalTurn({
   const compactTurn = studentTurn.toLowerCase().replace(/\s+/g, "");
   const source = `${material.materialTitle}\n${material.summary}\n${material.visibleText}`;
   const compactSource = source.toLowerCase().replace(/\s+/g, "");
-  const cue = quoteSourceSentence(bestSourceSentence(sourceCue || material.summary, studentTurn, 165));
+  // 근거 문장을 못 찾았을 때 빈칸이 템플릿에 그대로 들어가면 "  이 근거로 한 가지
+  // 가능성은…"처럼 주어 없는 문장이 나간다. 요약으로 물러서고, 그것도 없으면
+  // 못 찾았다고 정직하게 말한다.
+  const pickedCue = quoteSourceSentence(bestSourceSentence(sourceCue || material.summary, studentTurn, 165));
+  const cue =
+    pickedCue ||
+    quoteSourceSentence(firstSourceSentence(stripMarkdownNoise(material.summary), 165)) ||
+    "자료에서 이 질문과 바로 이어지는 문장은 찾지 못했어요.";
+
+  // 인사는 인사로 받는다. "안녕하세요"를 "라고 짚었군요"로 받으면 첫마디부터 이상하다.
+  if (/^(안녕하세요|안녕하십니까|안녕|하이|헬로|방가|반가워요?|반갑습니다)[!~.?\s]*$/.test(studentTurn.trim())) {
+    return {
+      reply: `안녕하세요! 만나서 반가워요. 오늘은 「${material.materialTitle || "질문 자료"}」로 이야기해요. 자료를 읽고 궁금한 점이 생기면 편하게 물어봐 주세요.`,
+      primaryMove: "receive",
+      engagementState: "curious",
+      curriculumRelation: "direct",
+      sourceStatus: "supported",
+      supportLevel: 0,
+    };
+  }
+
+  // "네가 먼저 질문해봐"는 챗봇더러 물어보라는 요청이다. 이때 아이 말을 되받거나
+  // "궁금한 걸 말해 줘"라고 답하면 요청과 정반대가 된다. 진짜로 질문한다.
+  const askMeFirst = studentTurn.replace(/\s+/g, " ");
+  if (
+    /(네가|니가|너가|먼저).{0,10}(질문|물어).{0,6}(봐|줘|주세요|볼래)/.test(askMeFirst) ||
+    /^질문해\s*봐/.test(askMeFirst) ||
+    // "내가 알고 있는지 질문해 줄 수 있어?" / "퀴즈 내 줘" — 시험 삼아 물어봐 달라는 요청
+    /(질문|퀴즈|문제).{0,8}(내\s*줘|내\s*줄|해\s*줘|해\s*줄|해\s*봐|던져)/.test(askMeFirst)
+  ) {
+    const starterTopic = firstKeyConceptOf(material);
+    return {
+      reply: starterTopic
+        ? `좋아요, 그럼 내가 먼저 물어볼게요. 이 글에서 ${starterTopic}에 대해 가장 크게 달라진 점은 무엇이었나요? 자료에서 그 부분을 찾아 말해 주세요.`
+        : `좋아요, 그럼 내가 먼저 물어볼게요. 제목을 보고 어떤 내용일 거라고 짐작했나요? 짐작과 실제 내용이 같았는지 자료에서 확인해 볼까요?`,
+      primaryMove: "clarify",
+      engagementState: "curious",
+      curriculumRelation: "direct",
+      sourceStatus: "supported",
+      supportLevel: 1,
+    };
+  }
+
   const limitation = withoutLeadingConnector(sourceLimitationCue(material));
   const studentIdea = compactStudentIdea(studentTurn);
   const recentStudentTurns = conversation
@@ -2682,7 +2724,12 @@ function createGeneralNaturalTurn({
         (term) =>
           term.length >= 2 &&
           !questionSearchStopwords.has(term) &&
-          !["기사", "자료", "나와", "있어", "말해", "써있"].includes(term),
+          ![
+            "기사", "자료", "나와", "있어", "말해", "써있",
+            // 대명사와 상투어. '내가'를 빠진 개념이라고 말하면 헛소리가 된다.
+            "내가", "네가", "제가", "저는", "나는", "너는", "우리", "우리가", "저희",
+            "내용", "질문", "생각", "얘기", "이야기",
+          ].includes(term),
       );
     const missingTerm = queryTerms.find((term) => !compactSource.includes(term.replace(/\s+/g, "")));
     return {
@@ -2778,33 +2825,6 @@ function createGeneralNaturalTurn({
     };
   }
 
-  // 인사는 인사로 받는다. "안녕하세요"를 "라고 짚었군요"로 받으면 첫마디부터 이상하다.
-  if (/^(안녕하세요|안녕하십니까|안녕|하이|헬로|방가|반가워요?|반갑습니다)[!~.?\s]*$/.test(studentIdea.trim())) {
-    return {
-      reply: `안녕하세요! 만나서 반가워요. 오늘은 「${material.materialTitle || "질문 자료"}」로 이야기해요. 자료를 읽고 궁금한 점이 생기면 편하게 물어봐 주세요.`,
-      primaryMove: "receive",
-      engagementState: "curious",
-      curriculumRelation: "direct",
-      sourceStatus: "supported",
-      supportLevel: 0,
-    };
-  }
-
-  // "네가 먼저 질문해봐"는 챗봇더러 물어보라는 요청이다. 이때 아이 말을 되받거나
-  // "궁금한 걸 말해 줘"라고 답하면 요청과 정반대가 된다. 진짜로 질문한다.
-  if (/(네가|니가|너가|먼저).{0,10}(질문|물어).{0,6}(봐|줘|주세요|볼래)|^질문해\s*봐/.test(studentIdea.replace(/\s+/g, " "))) {
-    const starterTopic = firstKeyConceptOf(material);
-    return {
-      reply: starterTopic
-        ? `좋아요, 그럼 내가 먼저 물어볼게요. 이 글에서 ${starterTopic}에 대해 가장 크게 달라진 점은 무엇이었나요? 자료에서 그 부분을 찾아 말해 주세요.`
-        : `좋아요, 그럼 내가 먼저 물어볼게요. 제목을 보고 어떤 내용일 거라고 짐작했나요? 짐작과 실제 내용이 같았는지 자료에서 확인해 볼까요?`,
-      primaryMove: "clarify",
-      engagementState: "curious",
-      curriculumRelation: "direct",
-      sourceStatus: "supported",
-      supportLevel: 1,
-    };
-  }
 
   // 학생이 자기 생각을 말한 게 아니라 물어본 것이라면 되받아 읊지 않는다.
   // "설명해 주세요"를 "라고 짚었군요"로 받으면 묻는 사람을 무안하게 만든다.
