@@ -528,6 +528,7 @@ function buildEvaluationWorkbookXml({
   assessmentAnalysis,
   materialTitle,
   rubric,
+  records = [],
 }: {
   targetGrade: string;
   subjectUnit: string;
@@ -535,21 +536,46 @@ function buildEvaluationWorkbookXml({
   assessmentAnalysis: StandardAssessmentAnalysis;
   materialTitle: string;
   rubric: RubricCriterion[];
+  /** 질문 분석으로 채운 학생별 행. 있으면 빈 양식 대신 이 데이터를 내보낸다. */
+  records?: Array<{
+    studentKey: string;
+    scores: number[];
+    basis: string;
+    questions: string;
+    answers: string;
+    feedback: string;
+  }>;
 }) {
   const recordHeaders = [
     ...evaluationRecordColumns.map((column) => column.label),
   ];
   const scoreColumnCount = 4;
   const mergedHeaderColumns = recordHeaders.length - 1;
-  const blankRows = Array.from({ length: 30 }, (_, index) => {
-    const cells = [
-      textCell(index === 0 ? "예: 푸른초등학교_4-2_15" : ""),
-      ...Array.from({ length: scoreColumnCount }, () => numberCell(0)),
-      formulaCell(`=SUM(RC[-${scoreColumnCount}]:RC[-1])`, "Score"),
-      ...Array.from({ length: 4 }, () => textCell("")),
-    ];
-    return `<Row>${cells.join("")}</Row>`;
-  }).join("");
+  const blankRows =
+    records.length > 0
+      ? records
+          .map((record) => {
+            const cells = [
+              textCell(record.studentKey),
+              ...record.scores.map((score) => numberCell(score)),
+              numberCell(record.scores.reduce((sum, score) => sum + score, 0)),
+              textCell(record.basis),
+              textCell(record.questions),
+              textCell(record.answers),
+              textCell(record.feedback),
+            ];
+            return `<Row>${cells.join("")}</Row>`;
+          })
+          .join("")
+      : Array.from({ length: 30 }, (_, index) => {
+          const cells = [
+            textCell(index === 0 ? "예: 푸른초등학교_4-2_15" : ""),
+            ...Array.from({ length: scoreColumnCount }, () => numberCell(0)),
+            formulaCell(`=SUM(RC[-${scoreColumnCount}]:RC[-1])`, "Score"),
+            ...Array.from({ length: 4 }, () => textCell("")),
+          ];
+          return `<Row>${cells.join("")}</Row>`;
+        }).join("");
 
   const levelScores = [0, 1, 2, 3, 4, 5];
   const rubricRows = rubric
@@ -690,17 +716,23 @@ export function QuestioningChatbotBoard() {
   const [isBuildingCards, setIsBuildingCards] = useState(false);
   // 어휘표 직접 입력 화면은 걷어냈다. 낱말은 이미지 분석과 AI 리서치가 채운다.
   const [teacherVocabulary] = useState<MaterialVocabularyEntry[]>([]);
-  // [질문 분석] 결과 — 학생별 질문 통계와 평가 문장 초안
+  // [질문 분석] 결과 — 학생별 질문 통계와 평가 문장 초안. 하단 평가 기록 표를 채운다.
   const [questionAnalysis, setQuestionAnalysis] = useState<
     Array<{
       studentKey: string;
       questionCount: number;
       intents: string[];
       sampleQuestions: string[];
+      questions: string[];
+      answers: string[];
       answerableRate: number;
       comment: string;
     }>
   >([]);
+  // 점수는 교사가 표에서 직접 입력한다. 분석은 재료만 주고 판단은 교사가 한다.
+  const [evaluationEdits, setEvaluationEdits] = useState<
+    Record<string, { scores: [string, string, string, string]; basis: string; feedback: string }>
+  >({});
   const [isAnalyzingQuestions, setIsAnalyzingQuestions] = useState(false);
   const [imageDataUrl, setImageDataUrl] = useState("");
   const [imageName, setImageName] = useState("");
@@ -1170,10 +1202,25 @@ export function QuestioningChatbotBoard() {
       const payload = (await response.json()) as { students?: typeof questionAnalysis; error?: string };
       if (!response.ok) throw new Error(payload.error || "질문 분석에 실패했습니다.");
 
-      setQuestionAnalysis(payload.students ?? []);
+      const students = payload.students ?? [];
+      setQuestionAnalysis(students);
+      // 표의 편집칸을 미리 채운다. 점수는 비워 두고(교사 몫), 근거·피드백은 초안으로.
+      setEvaluationEdits((current) => {
+        const next = { ...current };
+        students.forEach((entry) => {
+          if (!next[entry.studentKey]) {
+            next[entry.studentKey] = {
+              scores: ["", "", "", ""],
+              basis: `질문 ${entry.questionCount}개 · ${entry.intents.join("·") || "유형 없음"}`,
+              feedback: entry.comment,
+            };
+          }
+        });
+        return next;
+      });
       setNotice(
-        payload.students?.length
-          ? `학생 ${payload.students.length}명의 질문 기록을 분석했습니다. 문장은 초안이니 검토 후 사용해 주세요.`
+        students.length
+          ? `학생 ${students.length}명의 기록으로 아래 평가 기록 표를 채웠습니다. 점수를 입력하고 엑셀로 내려받으세요.`
           : "아직 분석할 질문 기록이 없습니다.",
       );
     } catch (error) {
@@ -1183,24 +1230,16 @@ export function QuestioningChatbotBoard() {
     }
   }
 
-  async function handleCopyQuestionAnalysis() {
-    const lines = questionAnalysis.map((entry) =>
-      [
-        entry.studentKey,
-        `질문 ${entry.questionCount}개 (${entry.intents.join("·") || "유형 없음"})`,
-        `대표 질문: ${entry.sampleQuestions.join(" / ")}`,
-        entry.comment ? `평가 초안: ${entry.comment}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    );
-    try {
-      await navigator.clipboard.writeText(lines.join("\n\n"));
-      setNotice("질문 분석 결과를 복사했습니다.");
-    } catch {
-      setNotice("복사에 실패했습니다. 내용을 직접 선택해 복사해 주세요.");
-    }
+
+
+  /** 점수 4칸의 합. 비어 있으면 그 칸은 0으로 본다. */
+  function totalOf(scores?: [string, string, string, string]): number {
+    return (scores ?? ["", "", "", ""]).reduce((sum, value) => {
+      const parsed = Number.parseInt(value, 10);
+      return sum + (Number.isFinite(parsed) ? parsed : 0);
+    }, 0);
   }
+
 
   async function handleCopyAttendanceSummary() {
     try {
@@ -1639,6 +1678,21 @@ export function QuestioningChatbotBoard() {
   }
 
   function handleDownloadEvaluationWorkbook() {
+    // 질문 분석으로 표를 채웠으면 점수·피드백까지 그대로 내보낸다. 아니면 빈 양식.
+    const records = questionAnalysis.map((entry) => {
+      const edits = evaluationEdits[entry.studentKey];
+      return {
+        studentKey: entry.studentKey,
+        scores: (edits?.scores ?? ["", "", "", ""]).map((value) => {
+          const parsed = Number.parseInt(value, 10);
+          return Number.isFinite(parsed) ? parsed : 0;
+        }),
+        basis: edits?.basis ?? "",
+        questions: entry.questions.join(" / "),
+        answers: entry.answers.join(" / "),
+        feedback: edits?.feedback ?? "",
+      };
+    });
     const workbookXml = buildEvaluationWorkbookXml({
       targetGrade,
       subjectUnit,
@@ -1646,6 +1700,7 @@ export function QuestioningChatbotBoard() {
       assessmentAnalysis,
       materialTitle: configuredMaterialWithVocabulary.materialTitle || materialTitle,
       rubric,
+      records,
     });
     const filename = `${sanitizeFilename(subjectUnit || materialTitle)}_교사용_평가기록.xls`;
     downloadExcelWorkbook(workbookXml, filename);
@@ -2453,34 +2508,7 @@ export function QuestioningChatbotBoard() {
                 )}
               </div>
 
-              {questionAnalysis.length > 0 ? (
-                <div className="mt-4 space-y-3 rounded-md border border-border bg-background p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h3 className="text-sm font-semibold">질문 분석 — 학생별 평가 초안</h3>
-                    <Button type="button" size="sm" variant="outline" onClick={handleCopyQuestionAnalysis}>
-                      <Copy className="size-4" aria-hidden="true" />
-                      전체 복사
-                    </Button>
-                  </div>
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    실제로 한 질문만 근거로 만든 초안입니다. 최종 평가는 선생님이 판단해 주세요.
-                  </p>
-                  {questionAnalysis.map((entry) => (
-                    <div key={entry.studentKey} className="rounded-md border border-border p-3 text-sm leading-6">
-                      <p>
-                        <b>{entry.studentKey}</b>
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          질문 {entry.questionCount}개 · {entry.intents.join("·") || "유형 없음"}
-                        </span>
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {entry.sampleQuestions.map((question) => `"${question}"`).join(" / ")}
-                      </p>
-                      {entry.comment ? <p className="mt-1">{entry.comment}</p> : null}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
+
 
 
             </div>
@@ -2496,15 +2524,80 @@ export function QuestioningChatbotBoard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {Array.from({ length: 4 }, (_, rowIndex) => (
-                    <tr key={rowIndex} className="border-b border-border align-top">
-                      {evaluationRecordColumns.map((column) => (
-                        <td key={column.label} className="px-4 py-3 text-muted-foreground">
-                          {rowIndex === 0 ? column.placeholder : ""}
-                        </td>
+                  {questionAnalysis.length > 0
+                    ? questionAnalysis.map((entry) => {
+                        const edits =
+                          evaluationEdits[entry.studentKey] ?? {
+                            scores: ["", "", "", ""] as [string, string, string, string],
+                            basis: "",
+                            feedback: "",
+                          };
+                        const setEdits = (
+                          updater: (current: { scores: [string, string, string, string]; basis: string; feedback: string }) => {
+                            scores: [string, string, string, string];
+                            basis: string;
+                            feedback: string;
+                          },
+                        ) =>
+                          setEvaluationEdits((current) => ({
+                            ...current,
+                            [entry.studentKey]: updater(current[entry.studentKey] ?? edits),
+                          }));
+                        return (
+                          <tr key={entry.studentKey} className="border-b border-border align-top">
+                            <td className="px-4 py-3 font-medium">{entry.studentKey}</td>
+                            {edits.scores.map((score, scoreIndex) => (
+                              <td key={scoreIndex} className="px-2 py-2">
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  max={5}
+                                  value={score}
+                                  className="w-16"
+                                  onChange={(event) =>
+                                    setEdits((current) => {
+                                      const scores = [...current.scores] as [string, string, string, string];
+                                      scores[scoreIndex] = event.target.value;
+                                      return { ...current, scores };
+                                    })
+                                  }
+                                />
+                              </td>
+                            ))}
+                            <td className="px-4 py-3 font-semibold">{totalOf(edits.scores)}</td>
+                            <td className="px-2 py-2">
+                              <Input
+                                value={edits.basis}
+                                onChange={(event) => setEdits((current) => ({ ...current, basis: event.target.value }))}
+                              />
+                            </td>
+                            <td className="max-w-64 px-4 py-3 text-xs leading-5 text-muted-foreground">
+                              {entry.questions.join(" / ")}
+                            </td>
+                            <td className="max-w-64 px-4 py-3 text-xs leading-5 text-muted-foreground">
+                              {entry.answers.join(" / ")}
+                            </td>
+                            <td className="px-2 py-2">
+                              <Textarea
+                                value={edits.feedback}
+                                className="min-h-16 min-w-56 text-xs"
+                                onChange={(event) =>
+                                  setEdits((current) => ({ ...current, feedback: event.target.value }))
+                                }
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })
+                    : Array.from({ length: 4 }, (_, rowIndex) => (
+                        <tr key={rowIndex} className="border-b border-border align-top">
+                          {evaluationRecordColumns.map((column) => (
+                            <td key={column.label} className="px-4 py-3 text-muted-foreground">
+                              {rowIndex === 0 ? column.placeholder : ""}
+                            </td>
+                          ))}
+                        </tr>
                       ))}
-                    </tr>
-                  ))}
                 </tbody>
               </table>
             </div>

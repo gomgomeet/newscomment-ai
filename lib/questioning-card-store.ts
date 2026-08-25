@@ -682,6 +682,9 @@ export type StudentQuestionStats = {
   /** 많이 나온 질문 유형 순 */
   intents: string[];
   sampleQuestions: string[];
+  /** 평가 기록 표의 질문모음·답변모음 칸을 채우는 전체 목록 */
+  questions: string[];
+  answers: string[];
   answerableRate: number;
 };
 
@@ -695,7 +698,7 @@ export async function loadStudentQuestionStats(lessonCode: string): Promise<Stud
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("questioning_student_questions")
-    .select("student_key, raw_question, question_intent, answerable, created_at")
+    .select("student_key, raw_question, answer_text, question_intent, answerable, created_at")
     .eq("lesson_code", lessonCode)
     .not("student_key", "is", null)
     .order("created_at", { ascending: true })
@@ -705,13 +708,15 @@ export async function loadStudentQuestionStats(lessonCode: string): Promise<Stud
     throw new Error(`질문 기록 조회 실패: ${error.message}`);
   }
 
-  const byStudent = new Map<string, { questions: string[]; intents: Map<string, number>; answerable: number }>();
+  const byStudent = new Map<string, { questions: string[]; answers: string[]; intents: Map<string, number>; answerable: number }>();
   (data ?? []).forEach((row) => {
     const key = (row.student_key ?? "").trim();
     if (!key) return;
     const entry =
-      byStudent.get(key) ?? { questions: [] as string[], intents: new Map<string, number>(), answerable: 0 };
+      byStudent.get(key) ??
+      { questions: [] as string[], answers: [] as string[], intents: new Map<string, number>(), answerable: 0 };
     entry.questions.push(row.raw_question);
+    entry.answers.push((row.answer_text ?? "").slice(0, 160));
     if (row.question_intent) {
       entry.intents.set(row.question_intent, (entry.intents.get(row.question_intent) ?? 0) + 1);
     }
@@ -728,6 +733,8 @@ export async function loadStudentQuestionStats(lessonCode: string): Promise<Stud
         .map(([intent]) => intent)
         .slice(0, 3),
       sampleQuestions: entry.questions.slice(0, 3),
+      questions: entry.questions.slice(0, 30),
+      answers: entry.answers.slice(0, 30),
       answerableRate: entry.questions.length
         ? Math.round((entry.answerable / entry.questions.length) * 100)
         : 0,
