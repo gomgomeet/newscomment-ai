@@ -634,12 +634,43 @@ function answersQuestion(card: ThinkingCardDraft, question: string): boolean {
 export function attachAiCards(cardSet: CardSet, aiCards: ThinkingCardDraft[]): CardSet {
   if (aiCards.length === 0) return cardSet;
 
+  // 같은 낱말을 두 곳에서 풀 수 있다 — 교사 어휘표와 AI 리서치. 교사 카드가 우선이고,
+  // AI는 교사 카드의 **빈 곳만 채운다**. 교사가 일부러 짧게 쓴 뜻을 AI가 덮으면 안 된다.
+  const existingVocabulary = new Map(
+    cardSet.cards
+      .filter((card) => card.cardType === "vocabulary")
+      .map((card) => [compact(card.title), card] as const),
+  );
+  const mergedIntoExisting = new Map<string, ThinkingCardDraft>();
+  const newAiCards: ThinkingCardDraft[] = [];
+
+  aiCards.forEach((aiCard) => {
+    if (aiCard.cardType !== "vocabulary") {
+      newAiCards.push(aiCard);
+      return;
+    }
+    const existing = existingVocabulary.get(compact(aiCard.title));
+    if (!existing) {
+      newAiCards.push(aiCard);
+      return;
+    }
+    mergedIntoExisting.set(existing.localId, {
+      ...existing,
+      summary: existing.summary.trim() ? existing.summary : aiCard.summary,
+      content: existing.content.trim() ? existing.content : aiCard.content,
+      keywords: Array.from(new Set([...existing.keywords, ...aiCard.keywords])),
+    });
+  });
+
+  const baseCards = cardSet.cards.map((card) => mergedIntoExisting.get(card.localId) ?? card);
+  const mergedSet: CardSet = { cards: baseCards, relations: cardSet.relations };
+
   // 답변에 쓸 수 있는 AI 카드만 후보로 본다. 등급이 낮아 꺼 둔 리서치 카드로
   // 질문을 되살리면, 교사가 확인 화면에서 끄기도 전에 이미 쓰이게 된다.
-  const usableAiCards = aiCards.filter((card) => card.isEnabled);
+  const usableAiCards = newAiCards.filter((card) => card.isEnabled);
   const relations: CardRelationDraft[] = [];
 
-  const cards = cardSet.cards.map((card) => {
+  const cards = mergedSet.cards.map((card) => {
     if (card.cardType !== "expected_question" || card.isEnabled) return card;
 
     const answer = usableAiCards.find((candidate) => answersQuestion(candidate, card.title));
@@ -664,8 +695,8 @@ export function attachAiCards(cardSet: CardSet, aiCards: ThinkingCardDraft[]): C
   });
 
   return {
-    cards: [...cards, ...aiCards],
-    relations: [...cardSet.relations, ...relations],
+    cards: [...cards, ...newAiCards],
+    relations: [...mergedSet.relations, ...relations],
   };
 }
 

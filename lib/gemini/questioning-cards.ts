@@ -128,6 +128,11 @@ type RawAiCard = {
   keywords?: unknown;
   relatedQuestions?: unknown;
   sourceIndex?: unknown;
+  // 낱말 카드 전용 — 사전적 뜻, 이 글에서의 뜻, 아이 눈높이 예문
+  term?: unknown;
+  dictionaryMeaning?: unknown;
+  contextualMeaning?: unknown;
+  example?: unknown;
 };
 
 function text(value: unknown, limit = 400): string {
@@ -187,15 +192,50 @@ export function buildAiCards(rawCards: unknown, sources: GroundedSource[]): Thin
   let researchIndex = 0;
   let extensionIndex = 0;
 
+  let vocabularyIndex = 0;
+
   rawCards.forEach((entry) => {
     if (typeof entry !== "object" || entry === null) return;
     const raw = entry as RawAiCard;
 
+    const kind = text(raw.kind, 20);
+
+    // 낱말 카드는 제목·내용 대신 낱말·뜻으로 판정한다.
+    if (kind === "vocabulary") {
+      const term = text(raw.term ?? raw.title, 30);
+      const dictionaryMeaning = text(raw.dictionaryMeaning, 400);
+      const contextualMeaning = text(raw.contextualMeaning, 300);
+      // 사전 뜻이 없는 낱말 카드는 뜻풀이가 아니다. 버린다.
+      if (!term || !dictionaryMeaning) return;
+
+      const example = text(raw.example, 200);
+      const contentParts = [
+        contextualMeaning ? `이 글에서는 ${contextualMeaning}` : "",
+        example ? `예문: ${example}` : "",
+      ].filter(Boolean);
+
+      cards.push(
+        baseDraft({
+          localId: `ai-vocabulary-${vocabularyIndex}`,
+          cardType: "vocabulary",
+          title: term,
+          summary: dictionaryMeaning,
+          content: contentParts.join("\n"),
+          sourceType: "ai",
+          // 사전 뜻은 확정된 지식이라 위험이 낮다. 다만 AI가 푼 것이므로 1.0은 아니다.
+          confidence: 0.7,
+          knowledgeStatus: "inferred",
+          keywords: [term, ...stringArray(raw.keywords, 4)],
+          relatedQuestions: [`${term}이 무슨 뜻이에요?`],
+        }),
+      );
+      vocabularyIndex += 1;
+      return;
+    }
+
     const title = text(raw.title, 80);
     const content = text(raw.content, 600);
     if (!title || !content) return;
-
-    const kind = text(raw.kind, 20);
     const summary = text(raw.summary, 200);
     const keywords = stringArray(raw.keywords);
     const relatedQuestions = stringArray(raw.relatedQuestions, 4);
@@ -275,6 +315,8 @@ export function buildAiCards(rawCards: unknown, sources: GroundedSource[]): Thin
 
 const CARD_INSTRUCTION = [
   "You prepare background knowledge for a Korean elementary questioning chatbot.",
+  "Research vocabulary thoroughly: for every term a student might stumble on, give the precise dictionary sense,",
+  "the sense selected by this exact passage, and one example sentence a child would understand.",
   "Search the web when the passage needs outside knowledge, and ground every research card in a real search result.",
   "Write all card text in Korean at the given grade level.",
   "Never state a fact the passage does not support unless a search result backs it.",
@@ -284,12 +326,17 @@ const CARD_INSTRUCTION = [
 function buildCardTask(material: MaterialAnalysis, standard: string, targetGrade: string) {
   return JSON.stringify({
     task: [
-      "아래 지문으로 수업할 때 학생이 물어볼 만한데 지문에는 없는 지식을 카드로 만드세요.",
-      "kind는 background(지문 이해에 필요한 배경 지식), research(웹에서 확인한 사실), extension(더 나아가는 질문거리) 중 하나입니다.",
+      "아래 지문으로 수업할 때 필요한 지식을 카드로 만드세요.",
+      "kind는 vocabulary(낱말 뜻), background(지문 이해에 필요한 배경 지식), research(웹에서 확인한 사실), extension(더 나아가는 질문거리) 중 하나입니다.",
+      "① 낱말부터 꼼꼼하게: 학생이 막힐 만한 낱말을 지문에서 모두 찾아 vocabulary 카드로 만드세요.",
+      "dictionaryMeaning에는 정확하고 상세한 사전적 뜻을(뜻이 여러 갈래면 이 글과 맞는 갈래를 분명히), contextualMeaning에는 이 지문에서 실제로 쓰인 뜻을, example에는 아이 눈높이 예문 한 문장을 쓰세요.",
+      "'석 달'처럼 띄어 쓴 말, 세는 말, 관용 표현도 낱말로 다루세요.",
+      "② 지문 전체의 맥락: 이 글이 어떤 상황·배경에서 나온 이야기인지 background 카드 한 장으로 정리하세요.",
+      "③ 관련 내용 리서치: 지문 주제와 이어지는 사실을 웹에서 검색해 research 카드로 만드세요.",
       "research 카드는 실제로 검색한 결과에 근거할 때만 만들고, 그 결과가 몇 번째였는지 sourceIndex(0부터)에 적으세요.",
       "검색하지 않았거나 근거를 댈 수 없으면 research 카드를 만들지 마세요. 지어낸 출처는 없느니만 못합니다.",
       "배경 카드는 출처를 적지 말고, 학년 수준에서 이해할 수 있는 말로 쓰세요.",
-      "카드는 모두 합쳐 8장을 넘지 마세요.",
+      "낱말 카드는 8장까지, 나머지는 모두 합쳐 8장을 넘지 마세요.",
     ].join(" "),
     targetGrade,
     standard,
@@ -300,8 +347,12 @@ function buildCardTask(material: MaterialAnalysis, standard: string, targetGrade
     responseShape: {
       cards: [
         {
-          kind: "background | research | extension",
-          title: "카드 제목",
+          kind: "vocabulary | background | research | extension",
+          title: "카드 제목 (vocabulary는 낱말 그대로)",
+          term: "vocabulary일 때 — 낱말",
+          dictionaryMeaning: "vocabulary일 때 — 상세한 사전적 뜻",
+          contextualMeaning: "vocabulary일 때 — 이 글에서 쓰인 뜻",
+          example: "vocabulary일 때 — 아이 눈높이 예문 한 문장",
           summary: "한 줄 요약",
           content: "학생에게 설명할 내용",
           keywords: ["핵심어"],
@@ -372,7 +423,7 @@ export async function generateKnowledgeCardsWithGemini({
       systemInstruction: { parts: [{ text: CARD_INSTRUCTION }] },
       contents: [{ role: "user", parts: [{ text: buildCardTask(material, standard, targetGrade) }] }],
       tools: [{ google_search: {} }],
-      generationConfig: { maxOutputTokens: 4000, temperature: 0.3 },
+      generationConfig: { maxOutputTokens: 6000, temperature: 0.3 },
       store: false,
     }),
   });

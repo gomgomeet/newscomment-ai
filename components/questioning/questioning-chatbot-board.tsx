@@ -220,6 +220,10 @@ type UnansweredQuestion = {
 };
 
 const CARD_CHOICE_MEMORY_KEY = "questioning-card-choices-v1";
+// 노션 토큰도 Gemini 키처럼 이 브라우저에만 저장한다. 서버·노션·코드에는 남기지 않는다.
+const NOTION_TOKEN_STORAGE_KEY = "questioning-notion-token-v1";
+// 매번 다시 적기 귀찮은 학급 정보도 브라우저에 기억해 둔다.
+const CLASS_INFO_STORAGE_KEY = "questioning-class-info-v1";
 
 /**
  * 같은 카드를 두 번 묻지 않기 위한 열쇠. id는 저장할 때마다 새로 생기므로 쓸 수 없고,
@@ -701,6 +705,7 @@ export function QuestioningChatbotBoard() {
   const [connectionLessonCode, setConnectionLessonCode] = useState("");
   const [connectionSetupToken, setConnectionSetupToken] = useState("");
   const [notionApiKey, setNotionApiKey] = useState("");
+  const [isNotionTokenSaved, setIsNotionTokenSaved] = useState(false);
   const [notionPrepDatabaseId, setNotionPrepDatabaseId] = useState("");
   const [notionResultDatabaseId, setNotionResultDatabaseId] = useState("");
   const [savedStudentChatbotUrl, setSavedStudentChatbotUrl] = useState("");
@@ -799,6 +804,24 @@ export function QuestioningChatbotBoard() {
         }
       }
 
+      const storedNotionToken = window.localStorage.getItem(NOTION_TOKEN_STORAGE_KEY);
+      if (storedNotionToken) {
+        setNotionApiKey(storedNotionToken);
+        setIsNotionTokenSaved(true);
+      }
+
+      const storedClassInfo = window.localStorage.getItem(CLASS_INFO_STORAGE_KEY);
+      if (storedClassInfo) {
+        try {
+          const parsed = JSON.parse(storedClassInfo) as { school?: string; classroom?: string; classSize?: string };
+          if (typeof parsed.school === "string") setSchoolName(parsed.school);
+          if (typeof parsed.classroom === "string") setClassroomName(parsed.classroom);
+          if (typeof parsed.classSize === "string") setClassSize(parsed.classSize);
+        } catch {
+          window.localStorage.removeItem(CLASS_INFO_STORAGE_KEY);
+        }
+      }
+
       const storedConfig = window.localStorage.getItem(QUESTIONING_CHATBOT_CONFIG_KEY);
       if (storedConfig) {
         try {
@@ -850,6 +873,39 @@ export function QuestioningChatbotBoard() {
     setAiModel(defaultAiModel);
     setIsAiKeySaved(false);
     setNotice("Gemini API 키를 이 브라우저에서 삭제했습니다.");
+  }
+
+  function handleSaveNotionToken() {
+    const token = notionApiKey.trim();
+    if (!token) {
+      window.localStorage.removeItem(NOTION_TOKEN_STORAGE_KEY);
+      setIsNotionTokenSaved(false);
+      setNotice("Notion API 토큰이 비어 있어 저장하지 않았습니다.");
+      return;
+    }
+    window.localStorage.setItem(NOTION_TOKEN_STORAGE_KEY, token);
+    setNotionApiKey(token);
+    setIsNotionTokenSaved(true);
+    setNotice("Notion API 토큰을 이 브라우저에 저장했습니다.");
+  }
+
+  function handleClearNotionToken() {
+    window.localStorage.removeItem(NOTION_TOKEN_STORAGE_KEY);
+    setNotionApiKey("");
+    setIsNotionTokenSaved(false);
+    setNotice("Notion API 토큰을 이 브라우저에서 삭제했습니다.");
+  }
+
+  /** 학급 정보를 브라우저에 기억해 둔다. 다음에 보드를 열면 그대로 채워진다. */
+  function rememberClassInfo(school: string, classroom: string, size: string) {
+    try {
+      window.localStorage.setItem(
+        CLASS_INFO_STORAGE_KEY,
+        JSON.stringify({ school, classroom, classSize: size }),
+      );
+    } catch {
+      // 저장 실패는 무시한다. 다음에 다시 적으면 된다.
+    }
   }
 
   function handleStandardChange(value: string) {
@@ -1523,21 +1579,35 @@ export function QuestioningChatbotBoard() {
               </div>
               <div className="space-y-2 lg:col-span-2 xl:col-span-1">
                 <Label htmlFor="notion-api-key">② Notion API 토큰</Label>
-                <Input
-                  id="notion-api-key"
-                  type="password"
-                  value={notionApiKey}
-                  onChange={(event) => setNotionApiKey(event.target.value)}
-                  placeholder="ntn_... 또는 secret_..."
-                  autoComplete="off"
-                />
+                <div className="flex gap-2">
+                  <Input
+                    id="notion-api-key"
+                    type="password"
+                    value={notionApiKey}
+                    onChange={(event) => {
+                      setNotionApiKey(event.target.value);
+                      setIsNotionTokenSaved(false);
+                    }}
+                    placeholder="ntn_... 또는 secret_..."
+                    autoComplete="off"
+                  />
+                  <Button type="button" variant="outline" className="whitespace-nowrap" onClick={handleSaveNotionToken}>
+                    저장
+                  </Button>
+                  <Button type="button" variant="outline" className="whitespace-nowrap" onClick={handleClearNotionToken}>
+                    삭제
+                  </Button>
+                </div>
               </div>
             </div>
             <p className="mt-3 text-xs leading-5 text-muted-foreground">
               Notion 템플릿 페이지에 Integration을 연결하면 준비 DB와 결과 DB는 자동으로 찾습니다. 키와 토큰은 코드나 문서에 포함하지 않습니다.{" "}
               <span className="font-medium text-foreground">
                 {isAiKeySaved ? "Gemini 키 브라우저 저장됨" : "Gemini 키는 저장 전입니다."}
-              </span>
+                {" · "}
+                {isNotionTokenSaved ? "Notion 토큰 브라우저 저장됨" : "Notion 토큰은 저장 전입니다."}
+              </span>{" "}
+              키와 토큰은 이 브라우저에만 저장됩니다. 다른 컴퓨터나 브라우저에서 열면 다시 입력해야 합니다.
             </p>
 
             <div className="mt-4 border-t border-border pt-4">
@@ -1559,32 +1629,41 @@ export function QuestioningChatbotBoard() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="connection-school">학교</Label>
+                  <Label htmlFor="connection-school">③-1 학교</Label>
                   <Input
                     id="connection-school"
                     value={schoolName}
-                    onChange={(event) => setSchoolName(event.target.value)}
+                    onChange={(event) => {
+                      setSchoolName(event.target.value);
+                      rememberClassInfo(event.target.value, classroomName, classSize);
+                    }}
                     placeholder="예: 푸른초등학교"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="connection-classroom">학년반</Label>
+                  <Label htmlFor="connection-classroom">③-2 학년반</Label>
                   <Input
                     id="connection-classroom"
                     value={classroomName}
-                    onChange={(event) => setClassroomName(event.target.value)}
+                    onChange={(event) => {
+                      setClassroomName(event.target.value);
+                      rememberClassInfo(schoolName, event.target.value, classSize);
+                    }}
                     placeholder="예: 4-2"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="connection-class-size">학급 인원</Label>
+                  <Label htmlFor="connection-class-size">③-3 학급 인원</Label>
                   <Input
                     id="connection-class-size"
                     type="number"
                     min={1}
                     max={60}
                     value={classSize}
-                    onChange={(event) => setClassSize(event.target.value)}
+                    onChange={(event) => {
+                      setClassSize(event.target.value);
+                      rememberClassInfo(schoolName, classroomName, event.target.value);
+                    }}
                     placeholder="예: 24"
                   />
                 </div>
