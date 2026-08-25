@@ -71,6 +71,16 @@ function makeId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+/** 자료가 언제 적용된 것인지 사람이 읽을 수 있게. 오래된 자료를 한눈에 알아본다. */
+function formatAppliedAt(value: string): string {
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return "시각 미상";
+  const date = new Date(time);
+  return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, "0")}:${String(
+    date.getMinutes(),
+  ).padStart(2, "0")}`;
+}
+
 function createFallbackConfig(): QuestioningChatbotConfig {
   const material = createDefaultQuestioningLessonMaterial();
   return {
@@ -218,6 +228,8 @@ export function StudentQuestionHelperChatbot() {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const chatSessionIdRef = useRef(makeId());
   const [config, setConfig] = useState<QuestioningChatbotConfig>(() => createFallbackConfig());
+  // 지금 보이는 자료가 어디서 왔는지. "왜 안 바뀌지?"를 화면이 직접 말하게 한다.
+  const [configSource, setConfigSource] = useState<"fallback" | "local" | "remote">("fallback");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [question, setQuestion] = useState("");
   const [lessonCode, setLessonCode] = useState("");
@@ -324,6 +336,7 @@ export function StudentQuestionHelperChatbot() {
 
       const nextLessonCode = payload.lessonCode || trimmedCode.toUpperCase();
       usesRemoteLessonRef.current = true;
+      setConfigSource("remote");
       setLessonCode(nextLessonCode);
       setConfig(normalizeQuestioningChatbotConfig(payload.config));
       window.localStorage.setItem(LESSON_CODE_KEY, nextLessonCode);
@@ -339,6 +352,7 @@ export function StudentQuestionHelperChatbot() {
     function applyChatbotConfig(storedValue: string | null, successMessage: string) {
       if (!storedValue) {
         setConfig(createFallbackConfig());
+        setConfigSource("fallback");
         setNotice("기본 수업 자료가 연결되었습니다. 교사용 보드에서 수정하면 수정한 자료가 우선 적용됩니다.");
         return;
       }
@@ -349,6 +363,7 @@ export function StudentQuestionHelperChatbot() {
           throw new Error("저장된 챗봇 설정 형식이 올바르지 않습니다.");
         }
         setConfig(normalizeQuestioningChatbotConfig(parsed));
+        setConfigSource("local");
         setNotice(successMessage);
       } catch (error) {
         const message = error instanceof Error ? error.message : "챗봇 설정을 읽을 수 없습니다.";
@@ -418,9 +433,26 @@ export function StudentQuestionHelperChatbot() {
     };
   }, []);
 
+  // 교사가 수업 연결에 학교·학년반을 적어 두었으면 아이는 번호만 고르면 된다.
+  const classInfo = config.classInfo;
+  const numberChoices = useMemo(() => {
+    const size = classInfo?.classSize ?? 0;
+    return size > 0 ? Array.from({ length: size }, (_, index) => String(index + 1)) : [];
+  }, [classInfo?.classSize]);
+
+  // 교사가 정한 값을 상태에 밀어 넣지 않고 화면에서 덮어쓴다. 아이가 예전에 다른
+  // 학교를 저장해 두었더라도 이번 수업 기록은 이 학급 이름으로 남아야 한다.
+  const shownDraft = classInfo
+    ? { ...profileDraft, school: classInfo.school, classroom: classInfo.classroom }
+    : profileDraft;
+
   function handleSaveStudentProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const normalizedProfile = normalizeStudentProfile(profileDraft);
+    const normalizedProfile = normalizeStudentProfile(
+      classInfo
+        ? { ...profileDraft, school: classInfo.school, classroom: classInfo.classroom }
+        : profileDraft,
+    );
 
     if (!normalizedProfile.school || !normalizedProfile.classroom || !normalizedProfile.number) {
       setNotice("학교, 반, 번호를 모두 입력해 주세요. 이름은 입력하지 않아도 됩니다.");
@@ -595,6 +627,13 @@ export function StudentQuestionHelperChatbot() {
                 {config.subjectUnit} · {config.targetGrade || "대상 미정"}
                 {lessonCode ? ` · 수업 코드 ${lessonCode}` : ""}
               </p>
+              <p className="mt-1 text-xs font-medium leading-5 text-slate-500">
+                {configSource === "remote"
+                  ? `수업 연결 자료 · ${formatAppliedAt(config.updatedAt)} 적용`
+                  : configSource === "local"
+                    ? `교사용 보드 자료(이 브라우저) · ${formatAppliedAt(config.updatedAt)} 적용`
+                    : "⚠ 예시 자료가 보이는 중 — 수업 코드로 접속하거나, 교사용 보드에서 ⑧을 눌러 주세요."}
+              </p>
             </div>
           </div>
           {notice ? (
@@ -650,10 +689,11 @@ export function StudentQuestionHelperChatbot() {
                   </Label>
                   <Input
                     id="student-school"
-                    value={profileDraft.school}
+                    value={shownDraft.school}
                     onChange={(event) => setProfileDraft((current) => ({ ...current, school: event.target.value }))}
                     placeholder="예: 푸른초등학교"
-                    className="rounded-2xl border-rose-100 bg-white px-4 py-3 text-slate-800 shadow-sm placeholder:text-slate-400"
+                    readOnly={Boolean(classInfo)}
+                    className="rounded-2xl border-rose-100 bg-white px-4 py-3 text-slate-800 shadow-sm placeholder:text-slate-400 read-only:bg-slate-100 read-only:text-slate-500"
                   />
                 </div>
                 <div className="space-y-2">
@@ -662,23 +702,40 @@ export function StudentQuestionHelperChatbot() {
                   </Label>
                   <Input
                     id="student-classroom"
-                    value={profileDraft.classroom}
+                    value={shownDraft.classroom}
                     onChange={(event) => setProfileDraft((current) => ({ ...current, classroom: event.target.value }))}
                     placeholder="예: 4-2"
-                    className="rounded-2xl border-rose-100 bg-white px-4 py-3 text-slate-800 shadow-sm placeholder:text-slate-400"
+                    readOnly={Boolean(classInfo)}
+                    className="rounded-2xl border-rose-100 bg-white px-4 py-3 text-slate-800 shadow-sm placeholder:text-slate-400 read-only:bg-slate-100 read-only:text-slate-500"
                   />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="student-number" className="font-bold text-slate-700">
                     번호
                   </Label>
-                  <Input
-                    id="student-number"
-                    value={profileDraft.number}
-                    onChange={(event) => setProfileDraft((current) => ({ ...current, number: event.target.value }))}
-                    placeholder="예: 15"
-                    className="rounded-2xl border-rose-100 bg-white px-4 py-3 text-slate-800 shadow-sm placeholder:text-slate-400"
-                  />
+                  {numberChoices.length > 0 ? (
+                    <select
+                      id="student-number"
+                      value={shownDraft.number}
+                      onChange={(event) => setProfileDraft((current) => ({ ...current, number: event.target.value }))}
+                      className="w-full rounded-2xl border border-rose-100 bg-white px-4 py-3 text-slate-800 shadow-sm"
+                    >
+                      <option value="">번호 고르기</option>
+                      {numberChoices.map((choice) => (
+                        <option key={choice} value={choice}>
+                          {choice}번
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Input
+                      id="student-number"
+                      value={shownDraft.number}
+                      onChange={(event) => setProfileDraft((current) => ({ ...current, number: event.target.value }))}
+                      placeholder="예: 15"
+                      className="rounded-2xl border-rose-100 bg-white px-4 py-3 text-slate-800 shadow-sm placeholder:text-slate-400"
+                    />
+                  )}
                 </div>
                 <div className="flex items-end">
                   <Button type="submit" className="w-full rounded-full bg-rose-500 font-bold text-white hover:bg-rose-600 sm:w-auto">
@@ -893,6 +950,14 @@ export function StudentQuestionHelperChatbot() {
                   }
                   className="min-h-24 rounded-3xl border-violet-100 bg-white/90 px-4 py-3 text-slate-800 shadow-sm placeholder:text-slate-400"
                   disabled={!isChatStarted || isTypingAssistantResponse}
+                  onKeyDown={(event) => {
+                    // 엔터로 바로 보낸다. 줄을 바꾸고 싶으면 Shift+엔터.
+                    // 한글 조합 중(isComposing)의 엔터는 글자 확정이므로 보내지 않는다.
+                    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                      event.preventDefault();
+                      event.currentTarget.form?.requestSubmit();
+                    }
+                  }}
                 />
                 <Button
                   type="submit"

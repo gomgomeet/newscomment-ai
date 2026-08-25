@@ -144,6 +144,48 @@ function propertySchemaType(schema: unknown) {
   return asString(asRecord(schema)?.type);
 }
 
+/**
+ * select·status 속성에 실제로 있는 선택지 이름을 읽는다.
+ *
+ * status 속성은 노션 API가 **없는 선택지를 새로 만들지 못한다.** 없는 이름을 보내면
+ * "Status option ... does not exist"로 저장 전체가 실패한다. 그래서 보내기 전에
+ * DB에 무엇이 있는지 확인해야 한다.
+ */
+function propertyOptionNames(schema: unknown): string[] {
+  const record = asRecord(schema);
+  const type = asString(record?.type);
+  if (type !== "select" && type !== "status") return [];
+
+  const detail = asRecord(record?.[type]);
+  const options = detail?.options;
+  if (!Array.isArray(options)) return [];
+
+  return options
+    .map((option) => asString(asRecord(option)?.name))
+    .filter((name): name is string => Boolean(name));
+}
+
+/**
+ * 교사마다 DB의 상태 선택지 이름이 다르다("준비 완료", "완료", "Done"…).
+ * 뜻이 같은 이름을 넓게 받아들이고, 맞는 것이 하나도 없으면 상태를 건드리지 않는다.
+ * 이름 하나 때문에 수업 준비 저장이 통째로 실패하면 안 된다.
+ */
+function pickMatchingOption(optionNames: string[], preferred: string): string | null {
+  if (optionNames.length === 0) return null;
+
+  const normalize = (value: string) => value.trim().toLowerCase().replace(/\s+/g, "");
+  const wanted = normalize(preferred);
+
+  const exact = optionNames.find((name) => normalize(name) === wanted);
+  if (exact) return exact;
+
+  // "준비 완료"를 못 찾으면 완료를 뜻하는 다른 이름을 찾는다.
+  const doneLike = optionNames.find((name) => /완료|준비|done|complete|ready/i.test(name));
+  if (doneLike) return doneLike;
+
+  return null;
+}
+
 function findPropertyKey(properties: Record<string, unknown>, candidates: string[]) {
   const keys = Object.keys(properties);
 
@@ -164,7 +206,7 @@ function findPropertyKey(properties: Record<string, unknown>, candidates: string
   );
 }
 
-function buildPropertyValue(type: string, value: unknown) {
+function buildPropertyValue(type: string, value: unknown, schema?: unknown) {
   const text = plainText(value);
 
   switch (type) {
@@ -172,10 +214,23 @@ function buildPropertyValue(type: string, value: unknown) {
       return { title: richText(truncateText(text)) };
     case "rich_text":
       return { rich_text: richText(truncateText(text)) };
-    case "select":
-      return text.trim() ? { select: { name: truncateText(text, 90) } } : null;
-    case "status":
-      return text.trim() ? { status: { name: truncateText(text, 90) } } : null;
+    case "select": {
+      if (!text.trim()) return null;
+      const optionNames = propertyOptionNames(schema);
+      // 선택지가 정의돼 있으면 그 안에서 고른다. 노션은 select에 새 이름을 만들어
+      // 주기도 하지만, 교사 DB에 뜻 모를 항목이 늘어나는 것보다 있는 것을 쓰는 게 낫다.
+      if (optionNames.length > 0) {
+        const matched = pickMatchingOption(optionNames, text);
+        return matched ? { select: { name: matched } } : null;
+      }
+      return { select: { name: truncateText(text, 90) } };
+    }
+    case "status": {
+      if (!text.trim()) return null;
+      // status는 없는 선택지를 만들 수 없다. 맞는 것이 없으면 아예 보내지 않는다.
+      const matched = pickMatchingOption(propertyOptionNames(schema), text);
+      return matched ? { status: { name: matched } } : null;
+    }
     case "multi_select":
       return {
         multi_select: text
@@ -215,7 +270,7 @@ function applyProperty(
     return;
   }
 
-  const propertyValue = buildPropertyValue(propertySchemaType(schema[key]), value);
+  const propertyValue = buildPropertyValue(propertySchemaType(schema[key]), value, schema[key]);
   if (propertyValue) {
     properties[key] = propertyValue;
   }

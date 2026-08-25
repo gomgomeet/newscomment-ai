@@ -118,6 +118,8 @@ function toStudentLessonConfig(config: QuestioningChatbotConfig): QuestioningCha
     rubric: [],
     behavior: createDefaultQuestioningChatbotBehavior(),
     prdText: "",
+    // 학생 화면에서 학교·학년반을 대신 채우기 위해 이것만 함께 보낸다.
+    classInfo: config.classInfo,
     updatedAt: config.updatedAt,
   };
 }

@@ -221,10 +221,17 @@ function normalizeSupportLevel(value: unknown): 0 | 1 | 2 | 3 | 4 {
   return value === 0 || value === 1 || value === 2 || value === 3 || value === 4 ? value : 1;
 }
 
-function sanitizeStudentReply(value: unknown) {
+function sanitizeStudentReply(value: unknown, studentTurn = "") {
   const raw = typeof value === "string" ? value.trim().slice(0, 700) : "";
   if (!raw) {
     return "말해 준 생각을 잘 들었어요. 지금 눈에 들어온 자료의 한 부분부터 천천히 이어 가도 괜찮아요.";
+  }
+
+  // 모델이 학생 말을 그대로 돌려보내는 일이 드물게 있다. 복창은 응답이 아니다.
+  const compactReply = raw.replace(/[\s?？!.,'"'"]/g, "");
+  const compactTurn = studentTurn.replace(/[\s?？!.,'"'"]/g, "");
+  if (compactTurn.length >= 6 && compactReply === compactTurn) {
+    return "좋은 질문이에요. 그 부분은 자료에서 함께 확인해 볼게요. 자료의 어느 문장이 이 질문과 이어져 보이나요?";
   }
 
   if (/(primaryMove|engagementState|curriculumRelation|supportLevel|rubricScores|루브릭\s*점수)/i.test(raw)) {
@@ -474,6 +481,7 @@ export async function answerQuestionWithGemini({
   conversation = [],
   apiKey: apiKeyOverride,
   model: modelOverride,
+  knowledgeCards = [],
 }: {
   standard: string;
   targetGrade: string;
@@ -486,6 +494,8 @@ export async function answerQuestionWithGemini({
   conversation?: { role: "student" | "assistant"; content: string }[];
   apiKey?: string;
   model?: string;
+  /** 교사 답변·리서치 등 저장된 생각 카드 중 이 질문과 이어지는 것들 */
+  knowledgeCards?: Array<{ kind: string; title: string; content: string; source: string }>;
 }): Promise<ChatResult & { model: string }> {
   const apiKey = getApiKey(apiKeyOverride);
   const model = getModel(modelOverride);
@@ -530,7 +540,12 @@ export async function answerQuestionWithGemini({
           })),
           recentConversation: conversation.slice(-8),
           studentTurn: question,
+          // 교사가 확인한 지식 카드. 지문 밖 질문에 "없어요"로만 끝내지 않기 위한 재료다.
+          teacherKnowledgeCards: knowledgeCards,
           responseRules: [
+            knowledgeCards.length > 0
+              ? "teacherKnowledgeCards에 학생 질문과 이어지는 내용이 있으면 그것을 우선 사용해 답하기. source가 '선생님'인 카드는 선생님이 알려 준 내용임을 자연스럽게 밝히고, 출처 기관이 있는 카드는 출처를 짧게 함께 말하기. 카드에 없는 내용을 카드가 말한 것처럼 지어내지 않기"
+              : "저장된 지식 카드가 없으므로 지문과 일반 지식 범위에서 답하기",
             "학생 발화가 질문이면 자료에 근거해 답하고, 대답·감정·경험·생각이면 그 구체적인 내용을 먼저 받아 주기",
             "학생이 낱말·단어·용어·표현의 뜻을 물으면 questionType을 vocabulary로 분류하고 질문에 먼저 직접 답하기",
             "어휘 답변은 2단계로 나누기: 낱말 뜻을 처음 물으면 ① 짧은 사전적 기본 뜻만 알려 주고 답을 마치기(이어서 물어보라는 안내 문장은 붙이지 않기), 학생이 이 글에서의 뜻을 이어서 물으면 ② 낱말이 쓰인 지문 문장을 근거로 이 글에서 선택된 문맥적 뜻을 설명하기",
@@ -603,7 +618,7 @@ export async function answerQuestionWithGemini({
     : policyDecision.allowedMoves[0];
   const parsedSupportLevel = normalizeSupportLevel(parsed.supportLevel);
   const supportLevel = Math.min(parsedSupportLevel, policyDecision.maxSupportLevel) as 0 | 1 | 2 | 3 | 4;
-  const studentReply = sanitizeStudentReply(parsed.studentReply);
+  const studentReply = sanitizeStudentReply(parsed.studentReply, question);
   const isClosing =
     policyDecision.shouldClose ||
     primaryMove === "close" ||
