@@ -115,3 +115,27 @@ applyThinkingCardToBehavior가 새 동작 설정을 반환해 그대로 넘기�
 오개념 블록 포함, PRD에도 반영, 재실행 시 블록 1개 유지.
 
 검증: typecheck·lint 통과(경고 0), Chrome 실기 확인.
+
+## 2026-08-25 생각 카드 지식베이스 설계 (문서만, 구현 전)
+
+교사가 제시한 설계를 `docs/THINKING_CARD_KNOWLEDGE_BASE.md`로 정리했다.
+생각 카드를 "요약 모음"이 아니라 **근거·추론·출처·신뢰도를 갖춘 지식 단위
+네트워크**로 재설계하는 내용.
+
+핵심: 카드 7종(vocabulary/fact/inference/background/research/expected_question/
+extension) + 공통 메타데이터(source_type·reasoning_type·confidence·
+knowledge_status·student_level) + 카드 간 연결. 예상질문카드는 답을 담지 않고
+관련 카드를 잇는 **라우터**. 검색은 문자열이 아니라 embedding 기반.
+Teacher AI(고성능, 카드 생성) / Student AI(저비용, 카드 검색·조합) 분리.
+테이블 4개: documents / thinking_cards / card_relations / student_questions.
+
+### 현재 구현과의 격차 (문서 11절에 기록)
+일치: 근거·추론 구분(SourceStatus), 지어내지 않기, 근거 문장 보존,
+Teacher/Student AI 분리.
+격차: ①카드가 DB에 저장되지 않고 프롬프트 텍스트로 소비됨 → 교사 검토·재사용·
+질문 연결 불가 ②embedding 없어 같은 뜻 다른 표현 질문을 못 잇음 ③7종 카드와
+카드 간 연결 없음, 특히 리서치카드(외부 정보+출처 등급) 부재.
+
+### 다음 순서
+스키마 → 7종 타입 → Teacher AI 생성 → 임베딩 → 검색·랭킹 → 답변 파이프라인 →
+교사 검토 화면 → 질문 기록·분석. 각 단계가 독립 검증 가능하도록 이 순서 유지.
