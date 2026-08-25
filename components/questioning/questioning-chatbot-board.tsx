@@ -46,6 +46,7 @@ import {
   standardSource,
   type QuestioningAiSettings,
   type MaterialAnalysis,
+  type MaterialVocabularyEntry,
   type QuestionClassifierKeywords,
   type QuestioningChatbotConfig,
   type QuestioningChatbotBehavior,
@@ -598,6 +599,9 @@ export function QuestioningChatbotBoard() {
   const [materialTitle, setMaterialTitle] = useState(defaultLessonMaterial.materialTitle);
   const [teacherNotes, setTeacherNotes] = useState(defaultLessonMaterial.visibleText);
   const [questionFocusMemo, setQuestionFocusMemo] = useState(defaultLessonMaterial.questionFocusMemo || "");
+  const [teacherVocabulary, setTeacherVocabulary] = useState<MaterialVocabularyEntry[]>(
+    defaultLessonMaterial.vocabulary?.map((entry) => ({ ...entry })) ?? [],
+  );
   const [imageDataUrl, setImageDataUrl] = useState("");
   const [imageName, setImageName] = useState("");
   const [material, setMaterial] = useState<MaterialAnalysis>(defaultLessonMaterial);
@@ -654,6 +658,21 @@ export function QuestioningChatbotBoard() {
 
     return createManualMaterial({ title: nextTitle, notes: fullText, questionFocusMemo });
   }, [isReferenceOnlyMaterial, material, materialTitle, questionFocusMemo, teacherNotes]);
+  const configuredMaterialWithVocabulary = useMemo<MaterialAnalysis>(() => {
+    const curated = teacherVocabulary
+      .map((entry) => ({
+        term: entry.term.trim(),
+        dictionaryMeaning: entry.dictionaryMeaning.trim(),
+        contextualMeaning: entry.contextualMeaning.trim(),
+        contextSentence: entry.contextSentence?.trim() || "",
+      }))
+      .filter((entry) => entry.term && entry.dictionaryMeaning);
+    if (curated.length === 0) return configuredMaterial;
+    const analyzed = (configuredMaterial.vocabulary || []).filter(
+      (entry) => !curated.some((item) => item.term.replace(/\s+/g, "") === entry.term.replace(/\s+/g, "")),
+    );
+    return { ...configuredMaterial, vocabulary: [...curated, ...analyzed] };
+  }, [configuredMaterial, teacherVocabulary]);
   const prdText = useMemo(
     () =>
       buildPrdText({
@@ -661,11 +680,11 @@ export function QuestioningChatbotBoard() {
         subjectUnit,
         standard: standardText,
         assessmentAnalysis,
-        material: configuredMaterial,
+        material: configuredMaterialWithVocabulary,
         rubric,
         behavior,
       }),
-    [assessmentAnalysis, behavior, configuredMaterial, rubric, standardText, subjectUnit, targetGrade],
+    [assessmentAnalysis, behavior, configuredMaterialWithVocabulary, rubric, standardText, subjectUnit, targetGrade],
   );
 
   useEffect(() => {
@@ -878,7 +897,7 @@ export function QuestioningChatbotBoard() {
   }
 
   function buildCurrentChatbotConfig() {
-    if (!configuredMaterial.visibleText.trim() && !configuredMaterial.summary.trim()) {
+    if (!configuredMaterialWithVocabulary.visibleText.trim() && !configuredMaterialWithVocabulary.summary.trim()) {
       setNotice("학생용 챗봇을 열기 전에 질문 자료 전체 내용을 입력해 주세요.");
       return null;
     }
@@ -889,7 +908,7 @@ export function QuestioningChatbotBoard() {
       subjectUnit,
       standard: standardText,
       assessmentAnalysis,
-      material: configuredMaterial,
+      material: configuredMaterialWithVocabulary,
       rubric,
       behavior: normalizedBehavior,
     });
@@ -899,7 +918,7 @@ export function QuestioningChatbotBoard() {
       standard: standardText,
       assessmentAnalysis,
       curriculumCompass: buildCurriculumCompass(standardText, assessmentAnalysis),
-      material: configuredMaterial,
+      material: configuredMaterialWithVocabulary,
       rubric,
       behavior: normalizedBehavior,
       prdText: normalizedPrdText,
@@ -916,7 +935,7 @@ export function QuestioningChatbotBoard() {
     }
 
     window.localStorage.setItem(QUESTIONING_CHATBOT_CONFIG_KEY, JSON.stringify(config));
-    setMaterial(configuredMaterial);
+    setMaterial(configuredMaterialWithVocabulary);
     setBehavior(config.behavior);
     setNotice(successNotice);
     return true;
@@ -1079,7 +1098,7 @@ export function QuestioningChatbotBoard() {
       subjectUnit,
       standard: standardText,
       assessmentAnalysis,
-      materialTitle: configuredMaterial.materialTitle || materialTitle,
+      materialTitle: configuredMaterialWithVocabulary.materialTitle || materialTitle,
       rubric,
     });
     const filename = `${sanitizeFilename(subjectUnit || materialTitle)}_교사용_평가기록.xls`;
@@ -1463,6 +1482,97 @@ export function QuestioningChatbotBoard() {
                   <p className="text-xs leading-5 text-muted-foreground">
                     원문은 교사용 보드에 남기고, 체크하면 학생 화면에는 종이 자료 확인 안내만 보여 줍니다.
                   </p>
+                </div>
+                <div className="space-y-2 rounded-md border border-border bg-background p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Label className="text-sm font-semibold">낱말 뜻 알려 주기 (선택)</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setTeacherVocabulary((current) => [
+                          ...current,
+                          { term: "", dictionaryMeaning: "", contextualMeaning: "", contextSentence: "" },
+                        ])
+                      }
+                    >
+                      낱말 추가
+                    </Button>
+                  </div>
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    학생이 뜻을 물어볼 만한 낱말을 미리 등록하면 챗봇이 <b>사전적 뜻 → 지문 문장 → 이 글에서의 뜻</b> 순서로
+                    답합니다. 등록하지 않은 낱말은 챗봇이 아는 기본 어휘로 답하고, 근거가 없으면 뜻을 지어내지 않습니다.
+                  </p>
+                  {teacherVocabulary.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      등록한 낱말이 없습니다. 지문에서 어려운 낱말 2~5개를 넣어 두면 수업 중 질문에 바로 답할 수 있습니다.
+                    </p>
+                  ) : null}
+                  {teacherVocabulary.map((entry, index) => (
+                    <div key={index} className="space-y-2 rounded-md border border-dashed border-border p-2">
+                      <div className="flex items-center gap-2">
+                        <Input
+                          value={entry.term}
+                          onChange={(event) =>
+                            setTeacherVocabulary((current) =>
+                              current.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, term: event.target.value } : item,
+                              ),
+                            )
+                          }
+                          placeholder="낱말 (예: 공회전)"
+                          className="h-9"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setTeacherVocabulary((current) => current.filter((_, itemIndex) => itemIndex !== index))
+                          }
+                        >
+                          삭제
+                        </Button>
+                      </div>
+                      <Input
+                        value={entry.dictionaryMeaning}
+                        onChange={(event) =>
+                          setTeacherVocabulary((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, dictionaryMeaning: event.target.value } : item,
+                            ),
+                          )
+                        }
+                        placeholder="사전적 뜻 (예: 차량이 멈춘 채 엔진만 돌아가는 일)"
+                        className="h-9"
+                      />
+                      <Input
+                        value={entry.contextualMeaning}
+                        onChange={(event) =>
+                          setTeacherVocabulary((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, contextualMeaning: event.target.value } : item,
+                            ),
+                          )
+                        }
+                        placeholder="이 글에서의 뜻 (비우면 사전적 뜻으로 안내)"
+                        className="h-9"
+                      />
+                      <Input
+                        value={entry.contextSentence || ""}
+                        onChange={(event) =>
+                          setTeacherVocabulary((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, contextSentence: event.target.value } : item,
+                            ),
+                          )
+                        }
+                        placeholder="근거 문장 (비우면 지문에서 자동으로 찾음)"
+                        className="h-9"
+                      />
+                    </div>
+                  ))}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="question-focus-memo">챗봇 질문 성격 메모</Label>

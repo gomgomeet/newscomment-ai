@@ -47,3 +47,6 @@ next-env.d.ts
 /output/**/*.inspect.ndjson
 /output/**/slide-*.png
 /output/**/~$*
+
+# questioning chatbot eval outputs
+/evals/**/results/*.json
