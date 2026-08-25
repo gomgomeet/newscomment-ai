@@ -1,8 +1,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 
-const baseUrl = "http://localhost:3000";
-const lessonCode = "Q-LIVE-TEST-01";
+const baseUrl = (process.env.QUESTIONING_LIVE_BASE_URL || "http://localhost:3000").replace(/\/$/, "");
+const lessonCode =
+  process.env.QUESTIONING_LIVE_LESSON_CODE || `Q-LIVE-${Date.now().toString(36).toUpperCase()}`;
 const scenario = "live-simulation-actual";
 const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 

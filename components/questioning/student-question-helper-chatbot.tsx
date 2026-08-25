@@ -439,12 +439,31 @@ export function StudentQuestionHelperChatbot() {
     const size = classInfo?.classSize ?? 0;
     return size > 0 ? Array.from({ length: size }, (_, index) => String(index + 1)) : [];
   }, [classInfo?.classSize]);
+  const activeStudentProfile = useMemo(() => {
+    if (!studentProfile || !classInfo) return studentProfile;
+    const parsedNumber = Number(studentProfile.number);
+    const numberIsAllowed =
+      !classInfo.classSize ||
+      (Number.isInteger(parsedNumber) && parsedNumber >= 1 && parsedNumber <= classInfo.classSize);
+    return studentProfile.school === classInfo.school &&
+      studentProfile.classroom === classInfo.classroom &&
+      numberIsAllowed
+      ? studentProfile
+      : null;
+  }, [classInfo, studentProfile]);
 
   // 교사가 정한 값을 상태에 밀어 넣지 않고 화면에서 덮어쓴다. 아이가 예전에 다른
   // 학교를 저장해 두었더라도 이번 수업 기록은 이 학급 이름으로 남아야 한다.
   const shownDraft = classInfo
-    ? { ...profileDraft, school: classInfo.school, classroom: classInfo.classroom }
+    ? {
+        ...profileDraft,
+        school: classInfo.school,
+        classroom: classInfo.classroom,
+        number:
+          numberChoices.length === 0 || numberChoices.includes(profileDraft.number) ? profileDraft.number : "",
+      }
     : profileDraft;
+  const shouldShowProfilePanel = isProfilePanelOpen || !activeStudentProfile;
 
   function handleSaveStudentProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -472,7 +491,7 @@ export function StudentQuestionHelperChatbot() {
       return;
     }
 
-    if (!studentProfile) {
+    if (!activeStudentProfile) {
       setNotice("먼저 학교·반·번호를 입력해 주세요. 이름은 입력하지 않아도 됩니다.");
       setIsProfilePanelOpen(true);
       return;
@@ -509,7 +528,7 @@ export function StudentQuestionHelperChatbot() {
       return;
     }
 
-    if (!studentProfile) {
+    if (!activeStudentProfile) {
       setNotice("먼저 학교·반·번호를 입력해 주세요. 이름은 입력하지 않아도 됩니다.");
       setIsProfilePanelOpen(true);
       return;
@@ -541,7 +560,7 @@ export function StudentQuestionHelperChatbot() {
             lessonCode,
             sessionId: chatSessionIdRef.current,
             question: trimmedQuestion,
-            studentProfile,
+            studentProfile: activeStudentProfile,
             conversation: recentConversation,
           }
         : {
@@ -553,7 +572,7 @@ export function StudentQuestionHelperChatbot() {
             behavior: config.behavior,
             sessionId: chatSessionIdRef.current,
             question: trimmedQuestion,
-            studentProfile,
+            studentProfile: activeStudentProfile,
             conversation: recentConversation,
           };
       const response = await fetch("/api/questioning-board/chat", {
@@ -655,12 +674,14 @@ export function StudentQuestionHelperChatbot() {
                   <h2 className="text-base font-bold text-slate-900">학생 정보</h2>
                 </div>
                 <p className="mt-1 text-sm leading-6 text-slate-600">
-                  {studentProfile
-                    ? formatStudentProfile(studentProfile)
-                    : "이름 대신 학교·반·번호만 입력해 주세요."}
+                  {activeStudentProfile
+                    ? formatStudentProfile(activeStudentProfile)
+                    : studentProfile && classInfo
+                      ? "새 수업의 학교·반에 맞게 번호를 다시 확인해 주세요."
+                      : "이름 대신 학교·반·번호만 입력해 주세요."}
                 </p>
               </div>
-              {studentProfile ? (
+              {activeStudentProfile ? (
                 <Button
                   type="button"
                   size="sm"
@@ -677,7 +698,7 @@ export function StudentQuestionHelperChatbot() {
                 </Button>
               ) : null}
             </div>
-            {isProfilePanelOpen ? (
+            {shouldShowProfilePanel ? (
               <>
                 <form
                   className="grid gap-3 border-t border-rose-100 p-4 sm:grid-cols-[1.4fr_0.8fr_0.8fr_auto]"
