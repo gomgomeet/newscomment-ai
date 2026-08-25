@@ -139,3 +139,40 @@ Teacher/Student AI 분리.
 ### 다음 순서
 스키마 → 7종 타입 → Teacher AI 생성 → 임베딩 → 검색·랭킹 → 답변 파이프라인 →
 교사 검토 화면 → 질문 기록·분석. 각 단계가 독립 검증 가능하도록 이 순서 유지.
+
+## 2026-08-25 생각 카드 스키마 작성 + 보드 수정 계획
+
+### 스키마 (마이그레이션 004·005)
+`supabase/migrations/004_questioning_thinking_cards.sql` — 표 4개:
+questioning_documents / questioning_thinking_cards / questioning_card_relations /
+questioning_student_questions. 카드는 유형별 표를 나누지 않고 card_type으로 구분.
+
+카드 **8종**(설계의 7종 + `dialogue_design`). 대화설계 카드는 교사 메모에서
+생성되며 trigger·prompt·goal을 갖는다. 예: "제목 추론을 도와줘" → 대화 시작·막힘
+시 "제목을 보고 궁금한 점이 있나요?".
+
+메타데이터: source_type(passage/inference/external/teacher/ai) + source_text +
+source_location, reasoning_type 8종, confidence(0~1), knowledge_status,
+student_level/difficulty, related_card_ids(예상질문=라우터),
+리서치 출처 4필드 + source_reliability(A~D), is_enabled(교사가 끈 카드).
+
+**pgvector 분리**: 확장을 못 쓰는 환경에서 004 전체가 실패하지 않도록 벡터 열을
+005(선택)로 뺐다. 004는 embedding_json + embedding_model만 쓰고 앱에서 코사인
+유사도를 계산한다. 지문당 카드 수십 개라 충분히 빠르다.
+
+RLS 켜고 anon/authenticated 권한 회수, service_role만 접근(기존 003과 동일).
+
+### 승인 정책 확정 (설계 문서 9절 교체)
+교사 검토 화면을 만들지 않는다. 낱말·사실·추론 등은 지문에서 기계적으로 나오므로
+승인 대상이 아니다. **확인이 필요한 두 가지를 한 화면에 모아 한 번만** 묻는다:
+①교사 메모 해석 결과(승인이 아니라 발문 문장을 고칠 수 있게) ②웹 리서치 목록
+(출처 A·B 기본 체크, C·D·근거부족 기본 해제). 확인할 것이 없으면 창이 뜨지 않고
+지금처럼 ⑧ 한 번에 끝난다. 직전 선택은 기억한다.
+knowledge_status는 승인 대기 상태가 아니라 출처 등급으로 쓴다.
+
+### 보드 수정 계획
+`docs/THINKING_CARD_BOARD_PLAN.md` — 파일별 수정 범위와 순서:
+①thinking-card.ts 8종 확장 ②gemini 카드 생성(출처 없으면 카드로 안 만듦, 키 없으면
+로컬 카드만) ③questioning-card-store.ts 신설 ④api/cards 라우트 ⑤보드 확인 창
+⑥학생 응답 검색은 **이번 범위 제외**(카드가 쌓이는 것을 먼저 확인).
+과도기 동안 프롬프트 삽입 경로는 남겨 둔다 — 지금 지우면 챗봇이 카드를 못 쓴다.
