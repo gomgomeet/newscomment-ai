@@ -2637,6 +2637,68 @@ function createGeneralNaturalTurn({
     };
   }
 
+  // 결과의 기준을 구체적으로 물었는데 다시 "무엇이 궁금한지" 되묻지 않는다.
+  // 자료에 조사 방법이 있으면 바로 보여 주고, 없으면 없다고 분명히 말한다.
+  const asksAboutEvidenceBasis =
+    /(기준|측정|조사|비교방법|확인방법)/.test(compactTurn) &&
+    /(결과|수치|변화|효과|줄|늘|판단|봤|본|확인)/.test(compactTurn);
+  if (asksAboutEvidenceBasis) {
+    const basisSentences = `${material.visibleText}\n${material.summary}`
+      .replace(/(\d)\.(\d)/g, "$1<decimal>$2")
+      .split(/\n+|(?<=[.!?])\s+/)
+      .map((sentence) => sentence.replace(/<decimal>/g, ".").trim())
+      .filter(Boolean);
+    const basisSentence =
+      basisSentences.find((sentence) => /(측정|조사|설문|기록|평균|차례|명 가운데|전후)/.test(sentence)) ||
+      basisSentences.find((sentence) => /동안/.test(sentence));
+    return {
+      reply: basisSentence
+        ? `${quoteSourceSentence(firstSourceSentence(basisSentence, 180))} 이 문장에 나온 기간·횟수·평균값이 자료에서 확인할 수 있는 기준이에요. 자료에 나오지 않은 측정 방법까지 추측해서 보태면 안 돼요.`
+        : "자료에는 변화한 결과는 나오지만, 무엇을 어떤 기간과 단위로 비교했는지까지는 분명하지 않아요. 기준이 확인되기 전에는 변화의 크기나 원인을 단정하면 안 돼요.",
+      primaryMove: "check_evidence",
+      engagementState: "seeking_evidence",
+      curriculumRelation: "direct",
+      sourceStatus: basisSentence ? "supported" : "source_insufficient",
+      supportLevel: 1,
+    };
+  }
+
+  // 한 수업의 결과를 다른 학교·반·지역에 그대로 옮길 수 있는지 묻는 전이 질문.
+  // 비슷한 가능성과 동일한 결과 보장을 분리해 답한다.
+  const asksForSameResultElsewhere =
+    /(우리|다른|새로운).*(학교|반|지역|상황).*(똑같|같은결과|동일|그대로|같을)/.test(compactTurn) ||
+    /적용.*(똑같|같은결과|동일)/.test(compactTurn);
+  if (asksForSameResultElsewhere) {
+    return {
+      reply:
+        "비슷한 변화가 나타날 가능성은 있지만, 똑같은 결과가 난다고 장담할 수는 없어요. 학생 수, 실행 방법, 기간과 주변 조건이 달라질 수 있으므로 이 자료는 가능성을 보여 주는 근거로 살펴봐야 해요.",
+      primaryMove: "compare_possibilities",
+      engagementState: "exploring_possibilities",
+      curriculumRelation: "productive_extension",
+      sourceStatus: "source_insufficient",
+      supportLevel: 1,
+    };
+  }
+
+  // 학생이 까닭을 제안한 평서문은 발화 전체를 인용해 되돌려 주지 않는다. 가능한
+  // 설명과 자료에서 직접 확인한 원인을 구분하면 학생 생각을 존중하면서도 과장을 막는다.
+  const statesPossibleCause =
+    !asksRatherThanStates(studentTurn) &&
+    /(왜냐하면|때문에|때문인|원인은|까닭은|영향을.*수있|해서.*수있)/.test(compactTurn);
+  if (statesPossibleCause) {
+    const studentAlreadyLimitedClaim = /(수있다고만|단정하지|확정하지|조심해서|가능성으로)/.test(compactTurn);
+    return {
+      reply: studentAlreadyLimitedClaim
+        ? "좋아요. 다른 조건도 함께 보고 ‘영향을 주었을 수 있다’고 표현하면, 가능성은 남기면서 원인으로 단정하지 않게 돼요. 스스로 근거의 한계를 반영해 생각을 고친 점이 정확해요."
+        : "그럴 가능성이 있어요. 지금 말한 내용은 결과를 설명하는 하나의 가설이고, 자료에서 그 원인을 직접 확인한 사실과는 구분해야 해요. 직접 조사한 근거가 없다면 ‘영향을 주었을 수 있다’고 표현하는 것이 정확해요.",
+      primaryMove: studentAlreadyLimitedClaim ? "receive" : "check_evidence",
+      engagementState: "exploring_possibilities",
+      curriculumRelation: "direct",
+      sourceStatus: "reasonable_inference",
+      supportLevel: 1,
+    };
+  }
+
   const limitation = withoutLeadingConnector(sourceLimitationCue(material));
   const studentIdea = compactStudentIdea(studentTurn);
   const recentStudentTurns = conversation
@@ -3476,8 +3538,7 @@ export function createLocalQuestionResult({
     curriculumRelation = "direct";
     sourceStatus = "supported";
     supportLevel = 0;
-    studentReply =
-      "알겠어요. 오늘 자료를 보며 떠올린 생각만으로도 충분해요. 더 이야기하고 싶은 때가 생기면 여기서 다시 이어가면 돼요.";
+    studentReply = "좋아요. 여기까지 정리해도 충분해요. 더 이야기하고 싶은 내용이 생기면 다시 이어가면 돼요.";
   } else if (needsRepair) {
     primaryMove = "repair";
     engagementState = "disengaged";
