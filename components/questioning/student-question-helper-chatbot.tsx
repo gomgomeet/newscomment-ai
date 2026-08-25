@@ -50,7 +50,21 @@ type StudentProfile = {
 
 type ChatApiResponse = StudentChatResponse & {
   error?: string;
+  /** 미리보기에서만 온다 — 이 답에 쓰인 카드 */
+  previewCards?: PreviewCard[];
 };
+
+/** 이 답을 만드는 데 쓰인 생각 카드. 교사가 잘못된 카드를 끌 수 있게 한다. */
+type PreviewCard = { id: string; title: string; cardType: string };
+
+/**
+ * 교사가 학생인 척 돌려 보는 중인지.
+ *
+ * 보드의 [학생 챗봇 시작]이 `preview=1`을 붙여 연다. 이건 화면 힌트일 뿐이고,
+ * 실제 수정 저장은 서버가 연결 저장 암호로 막는다 — 학생이 주소에 직접 붙여도
+ * 고칠 수 없다.
+ */
+const PREVIEW_TOKEN_KEY = "questioning-connection-setup-token";
 
 type LessonConnectionResponse = {
   ok?: boolean;
@@ -241,6 +255,15 @@ export function StudentQuestionHelperChatbot() {
   const [profileDraft, setProfileDraft] = useState<StudentProfile>(emptyStudentProfile);
   const [isProfilePanelOpen, setIsProfilePanelOpen] = useState(true);
   const [activeTypingMessageId, setActiveTypingMessageId] = useState<string | null>(null);
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [previewSetupToken, setPreviewSetupToken] = useState("");
+  // 답변 id → 그 답에 쓰인 카드. 교사가 "이 카드 끄기"를 할 때 쓴다.
+  const [previewCardsByMessage, setPreviewCardsByMessage] = useState<Record<string, PreviewCard[]>>({});
+  // 지금 고치는 중인 답변 id와 입력 내용
+  const [fixingMessageId, setFixingMessageId] = useState<string | null>(null);
+  const [fixMode, setFixMode] = useState<"answer" | "rule">("answer");
+  const [fixText, setFixText] = useState("");
+  const [isFixing, setIsFixing] = useState(false);
   const [typedAssistantText, setTypedAssistantText] = useState("");
 
   const materialReady = Boolean(config.material.visibleText.trim() || config.material.summary.trim());
@@ -313,6 +336,97 @@ export function StudentQuestionHelperChatbot() {
     setMessages((current) => [...current, message]);
     setActiveTypingMessageId(message.id);
     setTypedAssistantText("");
+  }
+
+  /** 이 답변을 만들어 낸 학생 질문. 고칠 때 "언제 쓸 답인지"의 실마리가 된다. */
+  function questionBehind(messageId: string): string {
+    const index = messages.findIndex((message) => message.id === messageId);
+    for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+      if (messages[cursor].role === "student") return messages[cursor].content;
+    }
+    return "";
+  }
+
+  function openFixPanel(messageId: string, mode: "answer" | "rule") {
+    setFixingMessageId(messageId);
+    setFixMode(mode);
+    setFixText("");
+  }
+
+  /** 교사가 적은 답·규칙을 카드로 저장한다. 다음 질문부터 챗봇이 쓴다. */
+  async function handleSaveFix() {
+    const messageId = fixingMessageId;
+    const text = fixText.trim();
+    if (!messageId || !text) {
+      setNotice("고칠 내용을 적어 주세요.");
+      return;
+    }
+
+    setIsFixing(true);
+    try {
+      const response = await fetch("/api/questioning-board/fix", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lessonCode,
+          setupToken: previewSetupToken,
+          mode: fixMode,
+          question: questionBehind(messageId),
+          ...(fixMode === "answer" ? { answer: text } : { rule: text }),
+        }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "고치지 못했습니다.");
+
+      setFixingMessageId(null);
+      setFixText("");
+      setNotice(
+        fixMode === "answer"
+          ? "답을 카드로 저장했습니다. 아래 [다시 물어보기]로 확인해 보세요."
+          : "규칙을 저장했습니다. 아래 [다시 물어보기]로 확인해 보세요.",
+      );
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "고치지 못했습니다.");
+    } finally {
+      setIsFixing(false);
+    }
+  }
+
+  /** 이 답에 쓰인 카드를 끈다. 잘못된 카드가 계속 답에 실리는 것을 막는다. */
+  async function handleDisableCards(messageId: string) {
+    const cards = previewCardsByMessage[messageId] ?? [];
+    if (cards.length === 0) return;
+
+    setIsFixing(true);
+    try {
+      const response = await fetch("/api/questioning-board/fix", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lessonCode,
+          setupToken: previewSetupToken,
+          mode: "disable",
+          cardIds: cards.map((card) => card.id),
+        }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "카드를 끄지 못했습니다.");
+
+      setPreviewCardsByMessage((current) => ({ ...current, [messageId]: [] }));
+      setNotice(`카드 ${cards.length}장을 껐습니다. 이제 이 내용은 답에 쓰이지 않습니다.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "카드를 끄지 못했습니다.");
+    } finally {
+      setIsFixing(false);
+    }
+  }
+
+  /** 고친 것이 실제로 반영됐는지 같은 질문을 다시 던져 확인한다. */
+  function handleAskAgain(messageId: string) {
+    const previous = questionBehind(messageId);
+    if (!previous) return;
+    setQuestion(previous);
+    setFixingMessageId(null);
   }
 
   async function loadLessonConnection(code: string, successMessage = "수업 코드의 질문 자료가 연결되었습니다.") {
@@ -402,7 +516,15 @@ export function StudentQuestionHelperChatbot() {
     }
 
     const timer = window.setTimeout(() => {
-      const urlLessonCode = new URLSearchParams(window.location.search).get("lesson") || "";
+      const params = new URLSearchParams(window.location.search);
+      const urlLessonCode = params.get("lesson") || "";
+
+      // 보드에서 [학생 챗봇 시작]으로 열면 preview=1이 붙는다. 같은 브라우저에 저장된
+      // 연결 저장 암호가 있어야 실제로 고칠 수 있다(없으면 서버가 막는다).
+      if (params.get("preview") === "1") {
+        setIsPreviewMode(true);
+        setPreviewSetupToken(window.localStorage.getItem(PREVIEW_TOKEN_KEY) ?? "");
+      }
 
       if (urlLessonCode) {
         void loadLessonConnection(urlLessonCode, "공유된 수업 링크의 질문 자료가 연결되었습니다.");
@@ -543,6 +665,7 @@ export function StudentQuestionHelperChatbot() {
             question: trimmedQuestion,
             studentProfile,
             conversation: recentConversation,
+            isPreview: isPreviewMode,
           }
         : {
             standard: config.standard,
@@ -574,6 +697,10 @@ export function StudentQuestionHelperChatbot() {
         result: payload,
       };
       appendAssistantMessage(assistantMessage);
+      if (payload.previewCards?.length) {
+        const cards = payload.previewCards;
+        setPreviewCardsByMessage((current) => ({ ...current, [assistantMessage.id]: cards }));
+      }
       if (payload.noticeCode === "provider_unavailable") {
         setNotice("지금은 준비된 질문 자료 안에서 안전하게 대화를 이어 가고 있어요.");
       } else if (payload.noticeCode === "source_limited") {
@@ -897,6 +1024,96 @@ export function StudentQuestionHelperChatbot() {
                             <span className="ml-1 inline-block h-4 w-1 animate-pulse rounded-full bg-violet-400 align-[-2px]" />
                           ) : null}
                         </p>
+
+                        {/* 교사 미리보기에서만 보이는 고치기 도구. 학생 화면에는 없다. */}
+                        {isPreviewMode && message.role === "assistant" && !isAssistantTyping ? (
+                          <div className="mt-3 border-t border-slate-100 pt-2">
+                            {fixingMessageId === message.id ? (
+                              <div className="space-y-2">
+                                <div className="flex gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => setFixMode("answer")}
+                                    className={cn(
+                                      "rounded-full px-3 py-1 text-xs font-bold",
+                                      fixMode === "answer"
+                                        ? "bg-violet-600 text-white"
+                                        : "bg-slate-100 text-slate-600",
+                                    )}
+                                  >
+                                    답이 틀렸어요
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setFixMode("rule")}
+                                    className={cn(
+                                      "rounded-full px-3 py-1 text-xs font-bold",
+                                      fixMode === "rule"
+                                        ? "bg-violet-600 text-white"
+                                        : "bg-slate-100 text-slate-600",
+                                    )}
+                                  >
+                                    말투·방식이 문제예요
+                                  </button>
+                                </div>
+                                <Textarea
+                                  value={fixText}
+                                  onChange={(event) => setFixText(event.target.value)}
+                                  placeholder={
+                                    fixMode === "answer"
+                                      ? "이렇게 답해야 합니다 — 아이 눈높이로 적어 주세요."
+                                      : "이럴 땐 이렇게 — 예: 숫자를 물으면 표에서 찾아 읽어 주세요."
+                                  }
+                                  className="min-h-20 rounded-2xl border-violet-100 text-sm"
+                                />
+                                <div className="flex flex-wrap gap-2">
+                                  <Button type="button" size="sm" onClick={handleSaveFix} disabled={isFixing}>
+                                    저장하고 반영
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setFixingMessageId(null)}
+                                    disabled={isFixing}
+                                  >
+                                    닫기
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex flex-wrap items-center gap-2 text-xs">
+                                <button
+                                  type="button"
+                                  onClick={() => openFixPanel(message.id, "answer")}
+                                  className="rounded-full bg-violet-50 px-3 py-1 font-bold text-violet-700 hover:bg-violet-100"
+                                >
+                                  ✏️ 이 답 고치기
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleAskAgain(message.id)}
+                                  className="rounded-full bg-slate-100 px-3 py-1 font-bold text-slate-600 hover:bg-slate-200"
+                                >
+                                  🔁 다시 물어보기
+                                </button>
+                                {previewCardsByMessage[message.id]?.length ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDisableCards(message.id)}
+                                    disabled={isFixing}
+                                    className="rounded-full bg-amber-50 px-3 py-1 font-bold text-amber-800 hover:bg-amber-100"
+                                    title={previewCardsByMessage[message.id]
+                                      .map((card) => card.title)
+                                      .join(" / ")}
+                                  >
+                                    🚫 쓰인 카드 끄기 ({previewCardsByMessage[message.id].length})
+                                  </button>
+                                ) : null}
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
                       </div>
                       {message.role === "student" ? (
                         <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-teal-100 bg-teal-100 text-xs font-bold text-teal-800 shadow-sm">

@@ -430,6 +430,7 @@ export type Database = {
           answer_confidence: number | null;
           answerable: boolean | null;
           missing_information: string | null;
+          is_preview: boolean;
           created_at: string;
         };
         Insert: {
@@ -445,6 +446,7 @@ export type Database = {
           answer_confidence?: number | null;
           answerable?: boolean | null;
           missing_information?: string | null;
+          is_preview?: boolean;
           created_at?: string;
         };
         Update: {

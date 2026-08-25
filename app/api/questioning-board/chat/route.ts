@@ -30,6 +30,9 @@ type ChatRequest = {
   studentProfile?: unknown;
   sessionId?: unknown;
   lessonCode?: unknown;
+  /** 교사가 학생인 척 돌려 보는 중인지. 집계에서 빼기 위해 기록에만 쓴다. */
+  isPreview?: unknown;
+
 };
 
 type StudentProfile = {
@@ -395,8 +398,12 @@ export async function POST(request: Request) {
     // 기록에 실패해도 아이와의 대화는 이어져야 하므로 오류를 삼킨다.
     const answeredFromSource =
       result.sourceStatus === "supported" || result.sourceStatus === "reasonable_inference";
+    // 교사 미리보기는 학생 기록과 같은 표에 남기되 집계에서 뺀다.
+    const isPreview = body.isPreview === true;
+
     await recordStudentQuestion({
       lessonCode,
+      isPreview,
       studentKey: studentProfile
         ? `${studentProfile.school}_${studentProfile.classroom}_${studentProfile.number}`
         : undefined,
@@ -410,14 +417,20 @@ export async function POST(request: Request) {
       // 저장소가 준비되지 않았거나 잠시 끊긴 경우. 수업을 멈출 이유는 아니다.
     });
 
-    return Response.json(
-      toStudentChatResponse(result, {
+    // 미리보기일 때만 이번 답에 쓰인 카드를 알려 준다. 학생 화면에는 나가지 않는다.
+    const previewCards = isPreview
+      ? relevantCards.map((card) => ({ id: card.id, title: card.title, cardType: card.cardType }))
+      : undefined;
+
+    return Response.json({
+      ...toStudentChatResponse(result, {
         localFallback,
         providerUnavailable,
         recordUnavailable,
         answeredByResearch,
       }),
-    );
+      ...(previewCards ? { previewCards } : {}),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "챗봇 응답 생성에 실패했습니다.";
     return Response.json({ error: message }, { status: 500 });

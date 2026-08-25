@@ -405,6 +405,8 @@ export async function recordStudentQuestion(input: {
   answerable: boolean;
   missingInformation?: string;
   usedCardIds?: string[];
+  /** 교사가 학생인 척 돌려 본 발화. 남기되 집계에서는 뺀다. */
+  isPreview?: boolean;
 }) {
   if (!isCardStorageConfigured()) return;
   if (!input.rawQuestion.trim()) return;
@@ -421,6 +423,7 @@ export async function recordStudentQuestion(input: {
     normalized_question: input.rawQuestion.trim().replace(/\s+/g, " ").slice(0, 800),
     question_intent: input.questionIntent ?? null,
     used_card_ids: input.usedCardIds ?? [],
+    is_preview: input.isPreview ?? false,
     answer_text: (input.answerText ?? "").slice(0, 2000),
     answerable: input.answerable,
     missing_information: input.missingInformation ?? null,
@@ -453,6 +456,7 @@ export async function loadUnansweredQuestions(
     .from("questioning_student_questions")
     .select("normalized_question, raw_question, question_intent, created_at")
     .eq("lesson_code", lessonCode)
+    .eq("is_preview", false)
     .eq("answerable", false)
     .order("created_at", { ascending: false })
     .limit(400);
@@ -737,6 +741,7 @@ export async function loadParticipants(lessonCode: string): Promise<string[]> {
     .from("questioning_student_questions")
     .select("student_key")
     .eq("lesson_code", lessonCode)
+    .eq("is_preview", false)
     .not("student_key", "is", null)
     .limit(2000);
 
@@ -775,6 +780,7 @@ export async function loadStudentQuestionStats(lessonCode: string): Promise<Stud
     .from("questioning_student_questions")
     .select("student_key, raw_question, answer_text, question_intent, answerable, created_at")
     .eq("lesson_code", lessonCode)
+    .eq("is_preview", false)
     .not("student_key", "is", null)
     .order("created_at", { ascending: true })
     .limit(2000);
@@ -815,4 +821,59 @@ export async function loadStudentQuestionStats(lessonCode: string): Promise<Stud
         : 0,
     }))
     .sort((left, right) => left.studentKey.localeCompare(right.studentKey, "ko"));
+}
+
+
+/**
+ * 교사가 미리보기 중에 남긴 대화 규칙을 카드로 만든다.
+ *
+ * "답이 틀렸다"가 아니라 "이렇게 말하지 마라 / 이럴 땐 이렇게 해라"에 해당한다.
+ * 무엇을 답할지가 아니라 어떻게 답할지를 고치는 것이라 대화 설계 카드로 남긴다.
+ * 교사가 실제 답을 보고 쓴 규칙이므로 확인 절차 없이 바로 쓴다.
+ */
+export async function addTeacherRuleCard(input: {
+  documentId: string;
+  /** 이 규칙을 떠올리게 한 학생 질문 — 언제 적용할지의 실마리 */
+  triggerQuestion: string;
+  rule: string;
+}): Promise<SavedCard | null> {
+  const rule = input.rule.trim();
+  if (!rule) {
+    throw new Error("고칠 내용을 적어 주세요.");
+  }
+
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("questioning_thinking_cards")
+    .insert({
+      document_id: input.documentId,
+      card_type: "dialogue_design",
+      title: rule.slice(0, 80),
+      summary: "선생님이 대화를 보며 정한 규칙",
+      content: rule.slice(0, 2000),
+      source_type: "teacher",
+      source_text: input.triggerQuestion.trim().slice(0, 400),
+      source_location: "미리보기 대화",
+      confidence: 1,
+      knowledge_status: "verified",
+      dialogue_trigger: input.triggerQuestion.trim()
+        ? `학생이 "${input.triggerQuestion.trim().slice(0, 60)}"처럼 물을 때`
+        : "대화 중 알맞은 때",
+      dialogue_prompt: rule.slice(0, 400),
+      dialogue_goal: rule.slice(0, 200),
+      is_enabled: true,
+    })
+    .select(CARD_COLUMNS)
+    .single();
+
+  if (error || !data) {
+    throw new Error(`대화 규칙 저장 실패: ${error?.message ?? "알 수 없는 오류"}`);
+  }
+  return toCard(data as CardRow);
+}
+
+/** 수업 코드로 지금 쓰는 지문을 찾는다. 미리보기 수정이 붙을 자리다. */
+export async function resolveDocumentIdForLesson(lessonCode: string): Promise<string | null> {
+  if (!lessonCode.trim()) return null;
+  return loadLatestDocumentId(lessonCode).catch(() => null);
 }

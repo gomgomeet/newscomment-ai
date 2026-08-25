@@ -714,6 +714,7 @@ export function QuestioningChatbotBoard() {
   const [cardSelections, setCardSelections] = useState<Record<string, boolean>>({});
   const [cardPrompts, setCardPrompts] = useState<Record<string, string>>({});
   const [isBuildingCards, setIsBuildingCards] = useState(false);
+  const [isTestOpening, setIsTestOpening] = useState(false);
   // 어휘표 직접 입력 화면은 걷어냈다. 낱말은 이미지 분석과 AI 리서치가 채운다.
   const [teacherVocabulary] = useState<MaterialVocabularyEntry[]>([]);
   // [질문 분석] 결과 — 학생별 질문 통계와 평가 문장 초안. 하단 평가 기록 표를 채운다.
@@ -1327,14 +1328,38 @@ export function QuestioningChatbotBoard() {
     return true;
   }
 
-  function handleOpenStudentChatbot() {
+  /**
+   * 학생 챗봇을 교사 미리보기로 연다.
+   *
+   * `preview=1`이 붙으면 답변마다 [이 답 고치기]가 나온다. 실제 저장은 서버가
+   * 연결 저장 암호로 막으므로, 같은 브라우저에 암호를 남겨 두어야 고칠 수 있다.
+   * 학생에게 나눠 주는 링크에는 이 표시가 없다.
+   */
+  async function handleOpenStudentChatbot() {
+    try {
+      window.localStorage.setItem("questioning-connection-setup-token", connectionSetupToken);
+    } catch {
+      // 저장 실패는 무시한다. 암호가 없으면 서버가 수정을 막을 뿐이다.
+    }
+
+    const withPreview = (url: string) => `${url}${url.includes("?") ? "&" : "?"}preview=1`;
+
     if (savedStudentChatbotUrl) {
-      window.open(savedStudentChatbotUrl, "_blank", "noopener,noreferrer");
+      window.open(withPreview(savedStudentChatbotUrl), "_blank", "noopener,noreferrer");
       return;
     }
 
-    if (saveStudentChatbotConfig("현재 설정을 학생용 챗봇에 적용하고 열었습니다.")) {
-      window.open(studentChatbotPath, "_blank", "noopener,noreferrer");
+    // 아직 챗봇을 만든 적이 없으면 테스트할 것도 없다. 먼저 만들고 연다 —
+    // 연수생이 "테스트"를 눌렀는데 "⑧을 먼저 누르세요"만 나오면 흐름이 끊긴다.
+    setIsTestOpening(true);
+    try {
+      await handleApplyAndSave();
+    } finally {
+      setIsTestOpening(false);
+    }
+
+    if (saveStudentChatbotConfig("챗봇을 만들고 테스트 화면을 열었습니다.")) {
+      window.open(withPreview(studentChatbotPath), "_blank", "noopener,noreferrer");
     }
   }
 
@@ -2320,6 +2345,28 @@ export function QuestioningChatbotBoard() {
                   <Textarea value={prdText} readOnly className="mt-2 min-h-[360px] font-mono text-xs leading-5" />
                 ) : null}
               </div>
+              {/* 만들기 전에 먼저 돌려 보고 고치는 자리. 연수생이 여기서 시뮬레이션한다. */}
+              <div className="mb-3 rounded-md border border-primary/40 bg-primary/5 p-3">
+                <Button
+                  type="button"
+                  className="w-full bg-primary/90 py-6 text-base font-bold hover:bg-primary"
+                  onClick={handleOpenStudentChatbot}
+                  disabled={isTestOpening}
+                >
+                  {isTestOpening ? (
+                    <RefreshCw className="size-5 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Bot className="size-5" aria-hidden="true" />
+                  )}
+                  챗봇 테스트 하기
+                </Button>
+                <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                  학생인 척 질문해 보세요. 답이 이상하면 그 답 아래 <b>[✏️ 이 답 고치기]</b>로 바로
+                  고치고 <b>[🔁 다시 물어보기]</b>로 확인할 수 있습니다. 고친 내용은 카드로 남아
+                  다음 질문부터 쓰입니다.
+                </p>
+              </div>
+
               <Button
                 type="button"
                 className="w-full"
@@ -2332,15 +2379,6 @@ export function QuestioningChatbotBoard() {
                   <Database className="size-4" aria-hidden="true" />
                 )}
                 {isBuildingCards ? "생각 카드를 만드는 중..." : "⑧ 모두 적용 및 노션 저장"}
-              </Button>
-
-              <Button
-                type="button"
-                className="mt-2 w-full bg-primary/90 py-6 text-base font-bold hover:bg-primary"
-                onClick={handleOpenStudentChatbot}
-              >
-                <Bot className="size-5" aria-hidden="true" />
-                학생 챗봇 시작
               </Button>
 
               {cardConfirmation ? (
