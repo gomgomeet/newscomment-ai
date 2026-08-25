@@ -391,3 +391,27 @@ questioning_student_questions / questioning_thinking_cards.
 **아직 확인 못 한 것**: 보드 ⑧에서 카드가 실제로 저장되는지. 알림에
 "생각 카드 N장을 저장했습니다"가 뜨는지로 판별한다. 그리고 Gemini 키로 검색 호출을
 했을 때 `groundingChunks`가 파싱하는 모양과 같은지.
+
+## 2026-08-25 노션 저장 실패 수정 — "Status option 준비 완료 does not exist"
+
+선생님이 ⑧을 눌렀을 때 노션 준비 DB 저장에서 실패했다. 코드가 상태값 `준비 완료`를
+무조건 보내는데, **status 속성은 노션 API가 없는 선택지를 새로 만들지 못한다.**
+교사마다 DB의 상태 이름이 다르므로(시작 전/진행 중/완료, Not started/Done…) 그대로
+보내면 저장 전체가 실패한다.
+
+`lib/notion/questioning-chatbot.ts`:
+- `propertyOptionNames()` — 스키마에서 select·status의 실제 선택지 이름을 읽는다
+- `pickMatchingOption()` — 같은 이름 → 띄어쓰기 무시 일치 → `완료|준비|done|complete|ready`
+  중 하나 → **없으면 null(상태를 아예 건드리지 않음)**
+- `buildPropertyValue`가 스키마를 받아 select·status를 보내기 전에 검사
+
+이름 하나 때문에 수업 준비 저장이 통째로 실패하면 안 된다. 맞는 상태가 없으면 상태만
+비우고 나머지는 저장한다.
+
+select도 같이 처리했다. 노션이 select에는 새 이름을 만들어 주기도 하지만, 교사 DB에
+뜻 모를 항목이 늘어나는 것보다 있는 것을 쓰는 편이 낫다. 선택지가 아예 정의돼 있지
+않은 select에는 예전처럼 값을 그대로 보낸다.
+
+단위 검증 12건 통과 — 선택지 읽기 5(깨진 스키마 포함), 상태 고르기 7(띄어쓰기 차이·
+영어 DB·대소문자·맞는 것 없음·빈 목록).
+typecheck·lint·build 통과.
