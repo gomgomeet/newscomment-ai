@@ -203,7 +203,7 @@ export const A4_PAGE_QUESTION_MATERIAL_CHAR_THRESHOLD = 1800;
 export const DEFAULT_QUESTION_FOCUS_MEMO = "제목을 보고 내용에 대해서 예측할 수 있도록 안내합니다.";
 export const QUESTIONING_CHATBOT_CREATION_PROFILE_VERSION = "30-session-dialogue-v2";
 export const DEFAULT_QUESTIONING_CHATBOT_ADDITIONAL_INSTRUCTIONS =
-  "학생이 실제로 말한 흥미, 놀람, 경험, 질문을 먼저 이어 받는다. 한 턴에는 중심 교수 동작을 하나만 사용하고 질문은 생각을 실제로 열 때만 최대 하나 제시한다. 성취기준은 대화 전체의 보이지 않는 방향으로만 사용한다. 단어·용어의 뜻을 물으면 사전적 기본 의미를 먼저 짧게 설명하고, 지문 속 문장을 근거로 그 문맥에서의 뜻을 구분해 알려 준다. 함께 변한 결과와 인과관계를 구분하고, 학생이 생각을 스스로 고쳤으면 다시 시험하지 않고 수정 근거를 인정한다. 반복해서 막힌 학생에게는 질문보다 설명·선택지·예시를 먼저 제공한다. 개인정보와 대필을 구분하며, 대필 거절 뒤 학생이 자기 생각을 제시하면 그 생각을 글의 출발점으로 받아 준다. 짜증에는 관계 회복을, 구어체 종료에는 질문 없는 마무리를 우선한다.";
+  "학생이 실제로 말한 흥미, 놀람, 경험, 질문을 먼저 이어 받는다. 한 턴에는 중심 교수 동작을 하나만 사용하고 질문은 생각을 실제로 열 때만 최대 하나 제시한다. 성취기준은 대화 전체의 보이지 않는 방향으로만 사용한다. 단어·용어의 뜻을 물으면 먼저 사전적 기본 의미만 짧게 알려 주고, 이 글에서 어떤 뜻으로 쓰였는지 궁금하면 이어서 물어보라고 안내한다. 학생이 문맥 속 뜻을 이어서 물으면 지문 속 문장을 근거로 이 글에서의 뜻을 구분해 알려 준다. 함께 변한 결과와 인과관계를 구분하고, 학생이 생각을 스스로 고쳤으면 다시 시험하지 않고 수정 근거를 인정한다. 반복해서 막힌 학생에게는 질문보다 설명·선택지·예시를 먼저 제공한다. 개인정보와 대필을 구분하며, 대필 거절 뒤 학생이 자기 생각을 제시하면 그 생각을 글의 출발점으로 받아 준다. 짜증에는 관계 회복을, 구어체 종료에는 질문 없는 마무리를 우선한다.";
 
 const referenceOnlySourcePattern = /교과서|A4\s*1\s*장|A4용지\s*1\s*장|저작권|본문\s*전체/;
 const legacyDefaultQuestionFocusMemo =
@@ -1219,12 +1219,19 @@ export function isVocabularyQuestion(value: string, vocabularySignals: string[] 
         /(?:뭐|무엇|무슨|어떤|알려|모르|궁금|풀이|설명|쉽게|해\s*줘)/.test(normalized),
     );
 
+  // `그럼 흡음판은요?`처럼 앞 어휘 질문을 이어받는 짧은 되물음
+  const shortVocabularyFollowUp =
+    /^(?:그럼|그러면|그리고|그런데)\s*[가-힣A-Za-z][가-힣A-Za-z0-9·\-]{1,14}(?:은|는|이|가)\s*요\s*[?？]$/.test(
+      normalized,
+    );
+
   return (
     quotedVocabularyQuestion ||
     configuredVocabularyQuestion ||
+    shortVocabularyFollowUp ||
     /(낱말|단어|용어|표현).{0,16}(뜻|의미).{0,12}(뭐|무엇|알려|모르|궁금)/.test(normalized) ||
     /(뜻|의미).{0,12}(뭐|무엇|알려|모르|궁금)/.test(normalized) ||
-    /(?:^|\s)[가-힣a-z][가-힣a-z0-9·\-]{1,24}(?:이|가|은|는)?\s*(무슨\s*뜻|무슨\s*말|뭐예요|뭔가요|무엇인가요)/.test(
+    /(?:^|\s)[가-힣a-z][가-힣a-z0-9·\-]{1,24}(?:이|가|은|는)?\s*(무슨\s*뜻|무슨\s*말|뭐예요|뭔가요|무엇인가요|뭐야|뭐지|뭐니|뭐냐)/.test(
       normalized,
     ) ||
     /[가-힣a-z][가-힣a-z0-9·\-]{1,24}(?:이라는|라는)\s*말(?:은|이)?\s*(뭐|무엇|무슨)/.test(
@@ -1509,9 +1516,12 @@ function createTitlePredictionAnswer(question: string, material: MaterialAnalysi
 }
 
 const localVocabularyMeanings: Record<string, string> = {
+  // 수업 자료에 자주 나오는 생활·시사 어휘
   잔반: "먹고 남긴 밥이나 음식",
   배식: "여러 사람에게 음식을 나누어 줌",
   "선택 배식": "먹을 사람이 음식의 종류나 양을 골라 받는 배식 방식",
+  급식: "학교나 회사에서 여러 사람에게 끼니를 마련해 주는 일",
+  영양: "생물이 살아가는 데 필요한 성분을 몸에 받아들이는 일",
   출처: "말이나 자료가 나온 곳",
   집중력: "한 가지 일에 마음과 주의를 모으는 힘",
   보관함: "물건을 넣어 간직하는 함이나 공간",
@@ -1519,15 +1529,123 @@ const localVocabularyMeanings: Record<string, string> = {
   미세먼지: "눈에 잘 보이지 않을 만큼 매우 작은 먼지",
   리필: "다 쓴 용기에 내용물을 다시 채우는 일",
   다회용: "한 번 버리지 않고 여러 차례 사용할 수 있음",
+  일회용: "한 번만 쓰고 버리도록 만든 것",
   흡음판: "소리를 흡수하여 울림이나 소음을 줄이는 판",
   데시벨: "소리의 크기를 나타내는 단위",
+  소음: "불쾌하거나 시끄럽게 느껴지는 소리",
   누수: "물이 새어 나옴",
+  재활용: "쓰고 버리는 물건을 다시 쓸 수 있게 만드는 일",
+  분리배출: "쓰레기를 종류별로 나누어 내놓는 일",
+  자원: "사람이 생활하고 생산하는 데 이용하는 원료나 재료",
+  환경: "생물이 살아가는 데 영향을 주는 자연이나 조건",
+  오염: "더러워지거나 해로운 물질에 물듦",
+  절약: "함부로 쓰지 않고 아껴 씀",
+  온실가스: "지구의 열이 빠져나가지 못하게 막아 기온을 높이는 기체",
+  기후변화: "오랜 기간에 걸쳐 기후의 평균 상태가 달라지는 현상",
+  탄소중립: "내뿜은 이산화 탄소만큼 흡수하거나 줄여 실제 배출량을 0으로 만드는 일",
+  // 탐구·과학 도구 어휘
   변인: "실험 결과에 영향을 줄 수 있어 살펴보거나 통제하는 조건",
   상관관계: "한 현상이 변할 때 다른 현상도 함께 변하는 관계",
   인과관계: "어떤 일이 원인이 되어 다른 결과가 생기는 관계",
   지속가능성: "현재의 필요를 채우면서도 미래 세대가 살아갈 조건을 해치지 않고 이어 갈 수 있는 성질",
   토종: "어떤 지역에서 본래부터 자라거나 살아온 종류",
+  관찰: "사물이나 현상을 주의 깊게 살펴봄",
+  실험: "조건을 정해 놓고 결과를 알아보는 일",
+  가설: "어떤 사실을 설명하기 위해 미리 세운 생각",
+  통계: "어떤 현상을 수로 나타내어 정리한 자료",
+  평균: "여러 수의 합을 그 개수로 나눈 값",
+  비율: "전체에 대하여 어떤 부분이 차지하는 정도",
+  증가: "수나 양이 늘어남",
+  감소: "수나 양이 줄어듦",
+  // 읽기·쓰기 학습 어휘 (질문하기 수업의 핵심)
+  사실: "실제로 있었던 일이나 확인할 수 있는 내용",
+  의견: "어떤 일에 대하여 가지는 생각",
+  주장: "자기의 생각을 굳게 내세움",
+  근거: "어떤 주장이나 판단의 바탕이 되는 까닭",
+  까닭: "일이 그렇게 된 이유",
+  이유: "어떤 결과가 생긴 까닭",
+  요약: "말이나 글의 중요한 내용만 골라 간추림",
+  중심생각: "글에서 글쓴이가 가장 말하고 싶은 내용",
+  주제: "글이나 이야기에서 나타내려는 중심 내용",
+  예측: "앞으로 일어날 일을 미리 짐작함",
+  추론: "이미 아는 사실을 바탕으로 알지 못하는 것을 미루어 생각함",
+  점검: "빠짐이나 잘못이 없는지 하나하나 살펴봄",
+  성찰: "자기의 생각이나 행동을 되돌아봄",
+  비교: "둘 이상을 견주어 같은 점과 다른 점을 살펴봄",
+  분석: "복잡한 것을 나누어 자세히 살펴봄",
+  판단: "어떤 것에 대하여 생각을 정하여 정함",
+  신뢰: "굳게 믿고 의지함",
+  신뢰성: "믿고 받아들일 만한 정도",
+  타당성: "이치에 맞아 옳다고 인정할 만한 성질",
+  공정: "어느 한쪽으로 치우치지 않고 올바름",
+  과장: "실제보다 부풀려 나타냄",
+  왜곡: "사실과 다르게 해석하거나 그릇되게 함",
+  편견: "한쪽으로 치우친 생각",
+  관점: "사물이나 현상을 바라보고 생각하는 태도나 방향",
+  입장: "처하여 있는 형편이나 처지",
+  반론: "남의 의견에 반대하여 말함",
+  토의: "어떤 문제를 여러 사람이 의논함",
+  토론: "어떤 주제에 대해 찬성과 반대로 나뉘어 근거를 들어 말함",
+  설득: "상대가 내 말을 따르도록 여러 가지로 깨우쳐 말함",
+  매체: "어떤 사실이나 정보를 전달하는 수단",
+  기사: "신문이나 잡지에서 어떤 사실을 알리는 글",
+  인용: "남의 말이나 글을 자기 말이나 글 속에 끌어 씀",
+  // 사회·시민 어휘
+  민주주의: "국민이 권력을 가지고 그 권력을 스스로 행사하는 제도",
+  참여: "어떤 일에 끼어들어 함께 활동함",
+  권리: "어떤 일을 하거나 요구할 수 있는 정당한 자격",
+  의무: "마땅히 해야 할 일",
+  책임: "맡아서 해야 할 임무나 그에 따르는 부담",
+  인권: "사람이 사람답게 살기 위해 당연히 가지는 권리",
+  존중: "높이어 귀중하게 대함",
+  배려: "도와주거나 보살펴 주려고 마음을 씀",
+  공감: "남의 감정이나 생각을 자기도 그렇다고 느낌",
+  갈등: "서로 생각이나 이해가 달라 부딪침",
+  협력: "힘을 합하여 서로 도움",
+  규칙: "여럿이 다 같이 지키기로 정한 것",
+  제도: "사회에서 지키도록 마련된 법이나 관습의 체계",
+  정책: "정부나 단체가 목표를 이루려고 정한 방침",
+  예산: "필요한 비용을 미리 헤아려 계산한 금액",
+  복지: "행복하고 안락하게 사는 삶",
+  공공: "사회 구성원 전체에 관계되는 것",
+  시민: "그 사회에서 권리와 의무를 가지고 살아가는 사람",
+  여론: "사회 문제에 대해 많은 사람이 가지는 공통된 의견",
+  홍보: "널리 알림",
+  캠페인: "어떤 목적을 위해 여러 사람에게 알리며 벌이는 활동",
+  실천: "생각한 것을 실제로 행함",
+  대안: "어떤 안을 대신하는 다른 안",
+  해결: "문제를 풀어 처리함",
+  // 디지털·정보 어휘
+  정보: "어떤 일에 대한 지식이나 자료",
+  자료: "연구나 판단의 바탕이 되는 재료",
+  검색: "필요한 자료를 찾아봄",
+  누리집: "인터넷에서 정보를 담아 보여 주는 곳",
+  댓글: "인터넷 글에 남기는 짧은 의견",
+  네티켓: "인터넷에서 지켜야 할 예절",
+  개인정보: "이름, 주소처럼 특정한 사람을 알아볼 수 있는 정보",
+  인공지능: "사람처럼 배우고 판단하도록 만든 컴퓨터 기술",
 };
+
+/**
+ * 파생어·복합어에서 내장 사전 표제어를 찾는다.
+ * 예: `재활용품` → `재활용`, `신뢰성이` → `신뢰성`
+ * 표제어를 그대로 포함하고 남는 글자가 2자 이하일 때만 인정해 과잉 매칭을 막는다.
+ */
+function findBuiltInVocabularyMeaning(term: string) {
+  const compact = term.replace(/\s+/g, "");
+  if (!compact) return "";
+
+  const direct = localVocabularyMeanings[term] || localVocabularyMeanings[compact];
+  if (direct) return direct;
+
+  const entries = Object.keys(localVocabularyMeanings).sort((left, right) => right.length - left.length);
+  const matched = entries.find((entry) => {
+    const entryCompact = entry.replace(/\s+/g, "");
+    if (entryCompact.length < 2 || !compact.includes(entryCompact)) return false;
+    return compact.length - entryCompact.length <= 2;
+  });
+  return matched ? localVocabularyMeanings[matched] : "";
+}
 
 const vocabularyTermStopwords = new Set([
   "뜻",
@@ -1545,6 +1663,16 @@ const vocabularyTermStopwords = new Set([
   "이건",
   "그게",
   "그건",
+  "그",
+  "이",
+  "그거",
+  "이거",
+  "글",
+  "글에서",
+  "기사에서",
+  "자료에서",
+  "여기",
+  "본문",
 ]);
 
 function sourceSentences(material: MaterialAnalysis) {
@@ -1596,23 +1724,36 @@ function normalizeRequestedVocabularyTerm(value: string, material: MaterialAnaly
   const source = `${material.materialTitle}\n${material.visibleText}\n${material.summary}`.replace(/\s+/g, "");
   if (source.includes(trimmed.replace(/\s+/g, ""))) return trimmed;
 
-  const withoutParticle = trimmed.replace(/(이|가|은|는|을|를)$/, "");
-  return source.includes(withoutParticle.replace(/\s+/g, "")) ? withoutParticle : trimmed;
+  // 학생 말투에 붙는 조사·인용 어미를 단계적으로 떼어 낸다. 예: `제트기라는`, `데시벨이란`, `흡음판은`
+  const particlePattern = /(이라는|라는|이라고|라고|이란|란|이라|에서는|에서|에게|으로|로|은|는|이|가|을|를|도|만|와|과|의)$/;
+  let candidate = trimmed;
+  for (let step = 0; step < 3; step += 1) {
+    const stripped = candidate.replace(particlePattern, "");
+    if (stripped === candidate || stripped.length < 2) break;
+    candidate = stripped;
+    if (source.includes(candidate.replace(/\s+/g, ""))) return candidate;
+  }
+  if (candidate !== trimmed && candidate.length >= 2 && !vocabularyTermStopwords.has(candidate)) {
+    return candidate;
+  }
+  return trimmed;
 }
 
 function extractRequestedVocabularyTerm(studentTurn: string, material: MaterialAnalysis) {
-  const configuredTerms = normalizeMaterialVocabulary(material.vocabulary)
-    .map((entry) => entry.term)
-    .sort((left, right) => right.length - left.length);
-  const configuredMatch = configuredTerms.find((term) =>
-    studentTurn.replace(/\s+/g, "").includes(term.replace(/\s+/g, "")),
-  );
-  if (configuredMatch) return configuredMatch;
+  const compactTurn = studentTurn.replace(/\s+/g, "");
+  // 교사 등록 어휘와 내장 사전 표제어를 긴 것부터 맞춰 `선택 배식` 같은 복합어를 놓치지 않는다.
+  const knownTerms = [
+    ...normalizeMaterialVocabulary(material.vocabulary).map((entry) => entry.term),
+    ...Object.keys(localVocabularyMeanings),
+  ].sort((left, right) => right.length - left.length);
+  const knownMatch = knownTerms.find((term) => compactTurn.includes(term.replace(/\s+/g, "")));
+  if (knownMatch) return knownMatch;
 
   const quoted = /["'“‘]([^"'”’]{1,30})["'”’]/.exec(studentTurn)?.[1];
   if (quoted) return normalizeRequestedVocabularyTerm(quoted, material);
 
-  const beforeMeaning = /([가-힣A-Za-z][가-힣A-Za-z0-9·\- ]{0,24}?)(?:이|가|은|는)?\s*(?:무슨\s*)?(?:뜻|의미|말)(?:이|인|이에|인가|일)?/.exec(
+  // `제트기라는 말은`처럼 인용 어미가 붙어도 낱말만 남긴다.
+  const beforeMeaning = /([가-힣A-Za-z][가-힣A-Za-z0-9·\- ]{0,24}?)(?:이라|라)?(?:이|가|은|는)?\s*(?:무슨\s*)?(?:뜻|의미|말)(?:이|인|이에|인가|일)?/.exec(
     studentTurn,
   )?.[1];
   if (beforeMeaning) {
@@ -1620,14 +1761,51 @@ function extractRequestedVocabularyTerm(studentTurn: string, material: MaterialA
     return normalizeRequestedVocabularyTerm(tokens.at(-1) || "", material);
   }
 
-  const beforeDefinition = /([가-힣A-Za-z][가-힣A-Za-z0-9·\-]{1,24})(?:이|가|은|는)?\s*(?:뭐예요|뭔가요|무엇인가요)/.exec(
+  const beforeDefinition = /([가-힣A-Za-z][가-힣A-Za-z0-9·\-]{1,24})(?:이|가|은|는)?\s*(?:뭐예요|뭔가요|무엇인가요|뭐야|뭐지|뭐니|뭐냐)/.exec(
     studentTurn,
   )?.[1];
-  return beforeDefinition ? normalizeRequestedVocabularyTerm(beforeDefinition, material) : "";
+  if (beforeDefinition) return normalizeRequestedVocabularyTerm(beforeDefinition, material);
+
+  // `그럼 흡음판은요?`처럼 앞 대화를 이어받는 짧은 되물음
+  const shortFollowUp = /^(?:그럼|그러면|그리고|그런데)\s*([가-힣A-Za-z][가-힣A-Za-z0-9·\-]{1,14})(?:은|는|이|가)\s*요\s*[?？]$/.exec(
+    studentTurn.trim(),
+  )?.[1];
+  if (shortFollowUp) {
+    return normalizeRequestedVocabularyTerm(shortFollowUp, material);
+  }
+  return "";
 }
 
-function createVocabularyLocalTurn(studentTurn: string, material: MaterialAnalysis): NaturalLocalTurn {
-  const term = extractRequestedVocabularyTerm(studentTurn, material);
+/**
+ * 학생이 이 글에서의 뜻(문맥적 의미)을 이어서 묻는지 판단한다.
+ * 예: `이 글에서는 무슨 뜻이에요?`, `여기서는요?`, `기사에서는 어떻게 쓰였어요?`
+ */
+function asksContextualMeaning(studentTurn: string, conversation: QuestioningConversationEntry[] = []) {
+  const compact = studentTurn.replace(/\s+/g, "");
+  const mentionsMaterial = /(이글|이기사|이자료|본문|여기서|여기선|글에서|기사에서|자료에서|문장에서)/.test(compact);
+  const asksUsage = /(무슨뜻|어떤뜻|무슨의미|어떤의미|어떻게쓰|왜썼|쓰였|가리키|말하는거|뜻이에요|뜻인가요|의미예요|요\?|\?)/.test(
+    compact,
+  );
+  if (mentionsMaterial && asksUsage) return true;
+
+  // 직전에 챗봇이 사전 뜻만 안내했다면 짧은 되물음도 문맥 요청으로 본다.
+  const lastAssistant = [...conversation].reverse().find((entry) => entry.role === "assistant")?.content || "";
+  const gaveDictionaryOnly = /말해요\.|뜻이에요\./.test(lastAssistant) && /사전/.test(lastAssistant);
+  return gaveDictionaryOnly && mentionsMaterial;
+}
+
+function createVocabularyLocalTurn(
+  studentTurn: string,
+  material: MaterialAnalysis,
+  conversation: QuestioningConversationEntry[] = [],
+): NaturalLocalTurn {
+  const wantsContextFollowUp = asksContextualMeaning(studentTurn, conversation);
+  let term = "";
+  if (wantsContextFollowUp) {
+    const lastAssistant = [...conversation].reverse().find((entry) => entry.role === "assistant")?.content || "";
+    term = /‘([^’]{1,20})’/.exec(lastAssistant)?.[1] || "";
+  }
+  if (!term) term = extractRequestedVocabularyTerm(studentTurn, material);
   if (!term) {
     return {
       reply: "뜻을 알고 싶은 낱말을 따옴표로 표시해 주세요. 예를 들면 ‘공회전’이 무슨 뜻이에요처럼 쓰면 그 문장에 맞춰 설명할게요.",
@@ -1649,7 +1827,7 @@ function createVocabularyLocalTurn(studentTurn: string, material: MaterialAnalys
   const dictionaryMeaning = (
     configured?.dictionaryMeaning ||
     inlineMeaning ||
-    localVocabularyMeanings[term] ||
+    findBuiltInVocabularyMeaning(term) ||
     ""
   ).slice(0, 95);
   const contextualMeaning =
@@ -1660,8 +1838,8 @@ function createVocabularyLocalTurn(studentTurn: string, material: MaterialAnalys
   if (!dictionaryMeaning) {
     return {
       reply: contextSentence
-        ? `‘${term}’이 쓰인 부분은 “${contextSentence}”예요. 이 자료만으로 정확한 사전 뜻까지 단정하면 지어낼 수 있어서, 국어사전에서 ‘${term}’을 찾은 뒤 이 문장과 맞는 뜻을 골라야 해요.`
-        : `자료에서 ‘${term}’이 쓰인 문장을 찾지 못했어요. 뜻을 지어내지 않고, 국어사전에서 기본 뜻을 확인한 뒤 앞뒤 문장과 맞는 뜻을 골라야 해요.`,
+        ? `‘${term}’의 사전에 실린 뜻은 내가 가진 자료에 없어서 지어내지 않을게요. 대신 이 글에서는 “${contextSentence}”처럼 쓰였어요. 이 문장 앞뒤에서 ‘${term}’이 무엇을 가리키는지 먼저 짐작해 보고, 국어사전에서 기본 뜻을 확인해 맞는지 견주어 보면 돼요.`
+        : `‘${term}’의 뜻은 지어내지 않을게요. 자료에서 그 낱말이 쓰인 문장을 찾지 못했거든요. 낱말이 나온 부분을 알려 주거나, 국어사전에서 기본 뜻을 확인한 뒤 이 글의 내용과 맞는 뜻을 골라 보세요.`,
       primaryMove: "check_evidence",
       engagementState: "seeking_evidence",
       curriculumRelation: "direct",
@@ -1671,11 +1849,39 @@ function createVocabularyLocalTurn(studentTurn: string, material: MaterialAnalys
   }
 
   const contextExplanation = (contextualMeaning || dictionaryMeaning).slice(0, 110);
+  const dictionaryClause = `‘${term}’${topicParticle(term)} 사전적으로 “${dictionaryMeaning}”${quotedModifier(dictionaryMeaning)} 뜻을 말해요.`;
+  // 문맥 뜻이 사전 뜻과 같으면 같은 문장을 두 번 말하지 않는다.
+  const hasDistinctContextMeaning =
+    contextExplanation.replace(/\s+/g, "") !== dictionaryMeaning.replace(/\s+/g, "");
+  const contextClause = contextSentence
+    ? hasDistinctContextMeaning
+      ? `이 글의 “${contextSentence}”에서는 “${contextExplanation}”${quotedModifier(contextExplanation)} 뜻으로 쓰였어요.`
+      : `이 글에서는 “${contextSentence}”처럼 쓰였으니, 그 문장에 이 뜻을 넣어 읽으면 돼요.`
+    : hasDistinctContextMeaning
+      ? `이 자료에서는 “${contextExplanation}”${quotedModifier(contextExplanation)} 뜻으로 이해하면 돼요.`
+      : `이 자료에서도 같은 뜻으로 쓰였어요.`;
+
+  // 2단계 응답: 먼저 사전적 뜻만 짧게 알려 주고, 글 속 쓰임은 학생이 이어서 물을 때 설명한다.
+  // 첫 질문에 `여기서`가 섞여 있어도 사전 뜻부터 안내한다.
+  const lastAssistantReply =
+    [...conversation].reverse().find((entry) => entry.role === "assistant")?.content || "";
+  const gaveDictionaryBefore =
+    /사전적으로/.test(lastAssistantReply) && lastAssistantReply.includes(`‘${term}’`);
+  const wantsContext = gaveDictionaryBefore && asksContextualMeaning(studentTurn, conversation);
+  if (!wantsContext) {
+    return {
+      reply: `${dictionaryClause} 이 글에서는 어떤 뜻으로 쓰였는지 궁금하면 이어서 물어봐 주세요.`,
+      primaryMove: "clarify",
+      engagementState: "curious",
+      curriculumRelation: "direct",
+      sourceStatus: "supported",
+      supportLevel: 1,
+    };
+  }
+
   return {
-    reply: contextSentence
-      ? `‘${term}’${topicParticle(term)} 사전적으로 “${dictionaryMeaning}”${quotedModifier(dictionaryMeaning)} 뜻이에요. 이 글의 “${contextSentence}”에서는 “${contextExplanation}”${quotedModifier(contextExplanation)} 뜻으로 쓰였어요.`
-      : `‘${term}’${topicParticle(term)} 사전적으로 “${dictionaryMeaning}”${quotedModifier(dictionaryMeaning)} 뜻이에요. 이 자료에서는 “${contextExplanation}”${quotedModifier(contextExplanation)} 뜻으로 이해하면 돼요.`,
-    primaryMove: "clarify",
+    reply: contextClause,
+    primaryMove: "check_evidence",
     engagementState: "seeking_evidence",
     curriculumRelation: "direct",
     sourceStatus: contextSentence ? "supported" : "reasonable_inference",
@@ -2826,8 +3032,14 @@ export function createLocalQuestionResult({
     /잔반게시판/.test(compactTurn) &&
     /(조심|주의|문제|부담|비교|순위|창피)/.test(compactTurn);
   const asksTitlePrediction = isTitlePredictionQuestion(turn);
+  // 직전에 사전 뜻을 안내했고 학생이 `이 글에서는 무슨 뜻이에요?`처럼 되물으면 어휘 경로로 이어 간다.
+  const lastAssistantContent = [...conversation].reverse().find((entry) => entry.role === "assistant")?.content || "";
+  const isVocabularyContextFollowUp =
+    /사전적으로/.test(lastAssistantContent) && asksContextualMeaning(turn, conversation);
   const vocabularyTurn =
-    legacy.questionType === "vocabulary" ? createVocabularyLocalTurn(turn, material) : null;
+    legacy.questionType === "vocabulary" || isVocabularyContextFollowUp
+      ? createVocabularyLocalTurn(turn, material, conversation)
+      : null;
   const naturalTurn = createNaturalLocalTurn(turn, material);
   const generalTurn = createGeneralNaturalTurn({
     studentTurn: turn,

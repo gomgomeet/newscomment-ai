@@ -148,10 +148,19 @@ function inspectTurn({ response, session, turnNumber, studentTurn, previousRepli
     failures.push("closing signal must close without a question");
   }
   if (previousReplies.includes(reply)) failures.push("assistant reply repeated exactly");
-  if (vocabularyQuestion && !/(사전적으로|사전적|기본 뜻|국어사전)/.test(reply)) {
+  const previousReply = previousReplies.at(-1) || "";
+  const contextStageAfterDictionary =
+    /사전적으로/.test(previousReply) && /(이 글|이 문장|이 자료|기사에서|여기서)/.test(studentTurn);
+  const dictionaryStageInvitingContext =
+    /(사전적으로|사전적|기본 뜻|국어사전)/.test(reply) && /(이어서 물어|궁금하면)/.test(reply);
+  if (vocabularyQuestion && !contextStageAfterDictionary && !/(사전적으로|사전적|기본 뜻|국어사전)/.test(reply)) {
     failures.push("vocabulary response must distinguish the dictionary meaning");
   }
-  if (vocabularyQuestion && !/(이 글|이 문장|이 자료|앞뒤 문장|쓰인 부분)/.test(reply)) {
+  if (
+    vocabularyQuestion &&
+    !dictionaryStageInvitingContext &&
+    !/(이 글|이 문장|이 자료|앞뒤 문장|쓰인 부분)/.test(reply)
+  ) {
     failures.push("vocabulary response must connect the meaning to source context");
   }
   if (includesAny.length > 0 && !matchesAny(reply, includesAny)) {
