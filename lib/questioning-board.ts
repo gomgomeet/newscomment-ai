@@ -258,7 +258,10 @@ export function normalizeQuestioningClassInfo(value: unknown): QuestioningClassI
 export const QUESTIONING_CHATBOT_CONFIG_KEY = "questioning-chatbot-config";
 export const QUESTIONING_AI_SETTINGS_KEY = "questioning-ai-settings";
 export const REFERENCE_ONLY_QUESTION_MATERIAL_TEXT = "교과서를 살펴보세요.";
-export const A4_PAGE_QUESTION_MATERIAL_CHAR_THRESHOLD = 1800;
+// 신문 기사 한 편은 보통 1,000~2,000자다. 1,800자로 잡으면 평범한 기사가 통째로
+// "교과서를 살펴보세요"로 바뀌어, 교사가 붙여 넣은 지문을 학생이 못 본다.
+// 이 규칙이 막으려던 것은 교과서 몇 쪽을 통째로 옮기는 경우이므로 그 선까지 올린다.
+export const A4_PAGE_QUESTION_MATERIAL_CHAR_THRESHOLD = 4000;
 export const DEFAULT_QUESTION_FOCUS_MEMO = "제목을 보고 내용에 대해서 예측할 수 있도록 안내합니다.";
 export const QUESTIONING_CHATBOT_CREATION_PROFILE_VERSION = "30-session-dialogue-v2";
 export const DEFAULT_QUESTIONING_CHATBOT_ADDITIONAL_INSTRUCTIONS =
@@ -292,10 +295,11 @@ export function shouldUseReferenceOnlyQuestionMaterial({
   forceReferenceOnly?: boolean;
 }) {
   const trimmedText = text.trim();
-  const sourceSignal = `${title}\n${trimmedText.slice(0, 180)}`;
+  // 낱말 감지는 제목에서만 한다. 본문에 '교과서'가 한 번 스쳤다고 지문 전체를
+  // 감추면, 교과서를 소재로 다룬 기사를 학생이 읽을 수 없게 된다.
   return (
     forceReferenceOnly ||
-    referenceOnlySourcePattern.test(sourceSignal) ||
+    referenceOnlySourcePattern.test(title) ||
     trimmedText.length >= A4_PAGE_QUESTION_MATERIAL_CHAR_THRESHOLD
   );
 }
