@@ -91,6 +91,14 @@ export async function POST(request: Request) {
     const material = body.material;
     const standard = optionalText(body.standard);
     const targetGrade = optionalText(body.targetGrade);
+    const lessonCode = optionalText(body.lessonCode);
+
+    if (!lessonCode) {
+      return Response.json(
+        { error: "생각 카드를 학생 챗봇에서 쓰려면 먼저 수업 코드를 만들어 주세요." },
+        { status: 400 },
+      );
+    }
 
     // 지문에서 기계적으로 뽑는 카드가 먼저다. AI가 없어도 여기까지는 늘 만들어진다.
     let cardSet: CardSet = buildLocalCardSet(material);
@@ -138,7 +146,7 @@ export async function POST(request: Request) {
     }
 
     const saved = await saveDocumentWithCards({
-      lessonCode: optionalText(body.lessonCode),
+      lessonCode,
       title: material.materialTitle || "질문 자료",
       bodyText: material.visibleText,
       summary: material.summary,

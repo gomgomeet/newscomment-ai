@@ -123,17 +123,20 @@ function toStudentChatResponse(
     localFallback,
     providerUnavailable,
     recordUnavailable,
+    answeredByResearch = false,
   }: {
     localFallback: boolean;
     providerUnavailable: boolean;
     recordUnavailable: boolean;
+    answeredByResearch?: boolean;
   },
 ): StudentChatResponse {
   const noticeCode = result.safetyFlag
     ? "safety_redirect"
     : providerUnavailable
       ? "provider_unavailable"
-      : result.sourceStatus === "source_insufficient" || result.sourceStatus === "out_of_scope"
+      : !answeredByResearch &&
+          (result.sourceStatus === "source_insufficient" || result.sourceStatus === "out_of_scope")
         ? "source_limited"
         : recordUnavailable
           ? "record_unavailable"
@@ -298,32 +301,6 @@ export async function POST(request: Request) {
       });
     }
 
-    const studentProfile = normalizeStudentProfile(body.studentProfile);
-    const notionSave = studentProfile
-      ? await saveQuestioningResultToNotion({
-          config,
-          studentProfile,
-          question,
-          result,
-          conversation,
-          credentials: lessonConnection
-            ? {
-                apiKey: lessonConnection.notionApiKey,
-                prepDatabaseId: lessonConnection.notionPrepDatabaseId,
-                resultDatabaseId: lessonConnection.notionResultDatabaseId,
-              }
-            : undefined,
-        }).catch((error: unknown) => ({
-          ok: false,
-          warning: error instanceof Error ? error.message : "Notion 결과 DB 저장에 실패했습니다.",
-        }))
-      : {
-          ok: false,
-          skipped: true,
-          warning: "학생의 학교·반·번호가 없어 Notion 결과 DB 저장을 건너뛰었습니다.",
-        };
-    const recordUnavailable = !notionSave.ok && !("skipped" in notionSave && notionSave.skipped);
-
     // 자료에 없지만 주제와 이어지는 질문은 웹에서 찾아 출처와 함께 답해 준다.
     // "염증이 생기면 어떤 일이 생겨요?"를 "자료에 없어요"로만 끝내지 않기 위해서다.
     // 검색 근거(A·B 출처)가 없으면 조용히 기존의 정직한 답을 그대로 쓴다.
@@ -366,6 +343,32 @@ export async function POST(request: Request) {
       }
     }
 
+    const studentProfile = normalizeStudentProfile(body.studentProfile);
+    const notionSave = studentProfile
+      ? await saveQuestioningResultToNotion({
+          config,
+          studentProfile,
+          question,
+          result,
+          conversation,
+          credentials: lessonConnection
+            ? {
+                apiKey: lessonConnection.notionApiKey,
+                prepDatabaseId: lessonConnection.notionPrepDatabaseId,
+                resultDatabaseId: lessonConnection.notionResultDatabaseId,
+              }
+            : undefined,
+        }).catch((error: unknown) => ({
+          ok: false,
+          warning: error instanceof Error ? error.message : "Notion 결과 DB 저장에 실패했습니다.",
+        }))
+      : {
+          ok: false,
+          skipped: true,
+          warning: "학생의 학교·반·번호가 없어 Notion 결과 DB 저장을 건너뛰었습니다.",
+        };
+    const recordUnavailable = !notionSave.ok && !("skipped" in notionSave && notionSave.skipped);
+
     // 카드로 답하지 못한 질문을 남겨 교사가 다음 수업에 채울 수 있게 한다.
     // 기록에 실패해도 아이와의 대화는 이어져야 하므로 오류를 삼킨다.
     const answeredFromSource =
@@ -380,6 +383,7 @@ export async function POST(request: Request) {
       answerText: result.studentReply,
       answerable: answeredFromSource || answeredByResearch,
       missingInformation: answeredFromSource || answeredByResearch ? undefined : result.sourceStatus,
+      usedCardIds: relevantCards.map((card) => card.id),
     }).catch(() => {
       // 저장소가 준비되지 않았거나 잠시 끊긴 경우. 수업을 멈출 이유는 아니다.
     });
@@ -389,6 +393,7 @@ export async function POST(request: Request) {
         localFallback,
         providerUnavailable,
         recordUnavailable,
+        answeredByResearch,
       }),
     );
   } catch (error) {

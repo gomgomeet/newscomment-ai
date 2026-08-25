@@ -221,7 +221,19 @@ function normalizeSupportLevel(value: unknown): 0 | 1 | 2 | 3 | 4 {
   return value === 0 || value === 1 || value === 2 || value === 3 || value === 4 ? value : 1;
 }
 
-function sanitizeStudentReply(value: unknown, studentTurn = "") {
+function removeDisallowedQuestionSentences(reply: string) {
+  const sentences = reply.match(/[^.!?？]+[.!?？]?/g) ?? [reply];
+  const kept = sentences.filter((sentence) => !/[?？]/.test(sentence)).join(" ").trim();
+
+  return kept || "말해 준 생각을 잘 들었어요. 지금은 여기까지 차분히 정리해도 괜찮아요.";
+}
+
+function sanitizeStudentReply(
+  value: unknown,
+  studentTurn = "",
+  options: { allowQuestion?: boolean } = {},
+) {
+  const allowQuestion = options.allowQuestion ?? true;
   const raw = typeof value === "string" ? value.trim().slice(0, 700) : "";
   if (!raw) {
     return "말해 준 생각을 잘 들었어요. 지금 눈에 들어온 자료의 한 부분부터 천천히 이어 가도 괜찮아요.";
@@ -231,7 +243,9 @@ function sanitizeStudentReply(value: unknown, studentTurn = "") {
   const compactReply = raw.replace(/[\s?？!.,'"'"]/g, "");
   const compactTurn = studentTurn.replace(/[\s?？!.,'"'"]/g, "");
   if (compactTurn.length >= 6 && compactReply === compactTurn) {
-    return "좋은 질문이에요. 그 부분은 자료에서 함께 확인해 볼게요. 자료의 어느 문장이 이 질문과 이어져 보이나요?";
+    return allowQuestion
+      ? "좋은 질문이에요. 그 부분은 자료에서 함께 확인해 볼게요. 자료의 어느 문장이 이 질문과 이어져 보이나요?"
+      : "좋은 질문이에요. 그 부분은 자료에서 함께 확인해 볼게요.";
   }
 
   if (/(primaryMove|engagementState|curriculumRelation|supportLevel|rubricScores|루브릭\s*점수)/i.test(raw)) {
@@ -239,13 +253,15 @@ function sanitizeStudentReply(value: unknown, studentTurn = "") {
   }
 
   let questionMarkSeen = false;
-  return raw.replace(/[?？]/g, () => {
+  const sanitized = raw.replace(/[?？]/g, () => {
     if (questionMarkSeen) {
       return ".";
     }
     questionMarkSeen = true;
     return "?";
   });
+
+  return allowQuestion ? sanitized : removeDisallowedQuestionSentences(sanitized);
 }
 
 const materialAnalysisSchema: JsonSchema = {
@@ -618,7 +634,9 @@ export async function answerQuestionWithGemini({
     : policyDecision.allowedMoves[0];
   const parsedSupportLevel = normalizeSupportLevel(parsed.supportLevel);
   const supportLevel = Math.min(parsedSupportLevel, policyDecision.maxSupportLevel) as 0 | 1 | 2 | 3 | 4;
-  const studentReply = sanitizeStudentReply(parsed.studentReply, question);
+  const studentReply = sanitizeStudentReply(parsed.studentReply, question, {
+    allowQuestion: policyDecision.allowQuestion,
+  });
   const isClosing =
     policyDecision.shouldClose ||
     primaryMove === "close" ||

@@ -1778,6 +1778,30 @@ function quotedModifier(value: string) {
   return hasKoreanFinalConsonant(value) ? "이라는" : "라는";
 }
 
+function normalizeMeaningForReply(value: string) {
+  return value.trim().replace(/^["'“”‘’]+|["'“”‘’]+$/g, "").replace(/\s+/g, " ");
+}
+
+function ensureSentenceEnding(value: string) {
+  return /[.!?？]$/.test(value) ? value : `${value}.`;
+}
+
+function isCompleteMeaningSentence(value: string) {
+  return (
+    /[.!?？]$/.test(value) ||
+    /(뜻|의미|말)(이에요|입니다|예요|을 말해요|를 말해요|을 가리켜요|를 가리켜요)\.?$/.test(value)
+  );
+}
+
+function formatDictionaryMeaningClause(term: string, meaning: string) {
+  const normalized = normalizeMeaningForReply(meaning);
+  if (isCompleteMeaningSentence(normalized)) {
+    return `‘${term}’${topicParticle(term)} 사전적으로 ${ensureSentenceEnding(normalized)}`;
+  }
+
+  return `‘${term}’${topicParticle(term)} 사전적으로 “${normalized}”${quotedModifier(normalized)} 뜻을 말해요.`;
+}
+
 function normalizeRequestedVocabularyTerm(value: string, material: MaterialAnalysis) {
   const trimmed = value.trim().replace(/^["'“”‘’]|["'“”‘’]$/g, "");
   if (!trimmed || vocabularyTermStopwords.has(trimmed)) return "";
@@ -1926,11 +1950,11 @@ function createVocabularyLocalTurn(
     ? firstSourceSentence(configured.contextSentence, 105)
     : findVocabularyContextSentence(term, material);
   const inlineMeaning = extractInlineVocabularyMeaning(term, contextSentence);
-  const dictionaryMeaning = (
+  const dictionaryMeaning = normalizeMeaningForReply(
     configured?.dictionaryMeaning ||
     inlineMeaning ||
     findBuiltInVocabularyMeaning(term) ||
-    ""
+    "",
   ).slice(0, 95);
   const contextualMeaning =
     configured?.contextualMeaning ||
@@ -1951,7 +1975,7 @@ function createVocabularyLocalTurn(
   }
 
   const contextExplanation = (contextualMeaning || dictionaryMeaning).slice(0, 110);
-  const dictionaryClause = `‘${term}’${topicParticle(term)} 사전적으로 “${dictionaryMeaning}”${quotedModifier(dictionaryMeaning)} 뜻을 말해요.`;
+  const dictionaryClause = formatDictionaryMeaningClause(term, dictionaryMeaning);
   // 문맥 뜻이 사전 뜻과 같으면 같은 문장을 두 번 말하지 않는다.
   const hasDistinctContextMeaning =
     contextExplanation.replace(/\s+/g, "") !== dictionaryMeaning.replace(/\s+/g, "");
@@ -2593,7 +2617,12 @@ function createGeneralNaturalTurn({
   const givesOwnStartingIdea =
     followsCopyingRequest && /(저는|나는|제가|내가).*(쓰고싶|말하고싶|좋아|했어요|할머니|축구)/.test(studentTurn);
   const asksForFirstSentence = followsCopyingRequest && /(첫문장|시작문장|한문장만)/.test(compactTurn);
+  const vocabularyConfirmationQuestion =
+    /(죠|지요)\s*[?？]$/.test(studentTurn.trim()) &&
+    !/(왜|어떻게|우리|하면|좋|해야|어때|까요|나요|무엇|뭐)/.test(compactTurn);
+  const asksNewQuestionAfterVocabulary = /[?？]/.test(studentTurn) && !vocabularyConfirmationQuestion;
   const followsVocabularyExplanation =
+    !asksNewQuestionAfterVocabulary &&
     recentStudentTurns.some((entry) =>
       /(뜻|무슨\s*말|의미|낱말|단어|용어|뭐예요|뭔가요|무엇인가요)/.test(entry),
     ) &&

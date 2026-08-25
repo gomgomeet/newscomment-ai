@@ -1344,14 +1344,24 @@ export function QuestioningChatbotBoard() {
    * 카드 저장소가 아직 준비되지 않았거나 서버가 실패해도 수업 준비를 막지 않는다.
    * 그때는 null을 돌려주고, ⑧은 지금까지처럼 프롬프트에 카드를 넣어 진행한다.
    */
+  function studentChatbotUrlForLesson(lessonCode: string) {
+    const normalizedLessonCode = lessonCode.trim();
+    return normalizedLessonCode
+      ? `${studentChatbotPath}?lesson=${encodeURIComponent(normalizedLessonCode)}`
+      : studentChatbotPath;
+  }
+
   async function requestThinkingCards(): Promise<CardBuildResult | null> {
+    const lessonCode = connectionLessonCode.trim();
+    if (!lessonCode) return null;
+
     try {
       const response = await fetch("/api/questioning-board/cards", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           material: configuredMaterialWithVocabulary,
-          lessonCode: connectionLessonCode,
+          lessonCode,
           standard: standardText,
           targetGrade,
           subjectUnit,
@@ -1427,8 +1437,9 @@ export function QuestioningChatbotBoard() {
     writeCardChoiceMemory(memory);
 
     setIsBuildingCards(true);
+    let confirmationWarning = "";
     try {
-      await fetch("/api/questioning-board/cards", {
+      const response = await fetch("/api/questioning-board/cards", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1439,13 +1450,18 @@ export function QuestioningChatbotBoard() {
           dialogueEdits,
         }),
       });
-    } catch {
-      // 반영에 실패해도 챗봇 적용과 노션 저장은 이어서 진행한다.
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(payload.error || "카드 확인 결과를 저장하지 못했습니다.");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "카드 확인 결과를 저장하지 못했습니다.";
+      confirmationWarning = ` ⚠ 카드 확인 결과 저장은 실패했습니다(${message}).`;
     }
     setIsBuildingCards(false);
 
     setCardConfirmation(null);
-    await finishApplyAndSave(pending);
+    await finishApplyAndSave(pending, confirmationWarning);
   }
 
   /** 확인 창을 닫고 이번에는 카드 없이 진행한다. */
@@ -1456,7 +1472,7 @@ export function QuestioningChatbotBoard() {
   }
 
   /** ⑧의 나머지 — 챗봇 적용과 노션 저장. 확인 창이 있든 없든 여기로 모인다. */
-  async function finishApplyAndSave(cardResult: CardBuildResult | null) {
+  async function finishApplyAndSave(cardResult: CardBuildResult | null, confirmationWarning = "") {
     // 카드 검색이 학생 응답에 붙기 전까지는 프롬프트에도 넣어 둔다.
     // 지금 빼면 챗봇이 카드를 전혀 쓰지 못한다.
     const { card, applied: questionCount, nextBehavior } = buildAndApplyThinkingCard();
@@ -1464,7 +1480,11 @@ export function QuestioningChatbotBoard() {
       card.openQuestions.length > 0
         ? ` 예상 질문 ${questionCount}개를 반영했고, 지문으로 답할 수 없는 질문 ${card.openQuestions.length}개는 학생과 함께 확인하도록 두었습니다.`
         : ` 예상 질문 ${questionCount}개를 반영했습니다.`;
-    const storedNote = cardResult ? ` 생각 카드 ${cardResult.total}장을 저장했습니다.` : "";
+    const storedNote = cardResult
+      ? ` 생각 카드 ${cardResult.total}장을 저장했습니다.`
+      : connectionLessonCode.trim()
+        ? ""
+        : " 수업 코드가 없어 생각 카드는 학생용 저장소에 따로 저장하지 않았습니다.";
 
     const saved = saveStudentChatbotConfig(
       `학생용 챗봇에 적용했습니다.${cardNote}${storedNote}`,
@@ -1478,13 +1498,13 @@ export function QuestioningChatbotBoard() {
 
     if (!notionApiKey.trim()) {
       setNotice(
-        `학생용 챗봇에 적용했습니다.${cardNote}${storedNote}${connectionNote} 노션에도 저장하려면 위 ②에 Notion API 토큰을 입력해 주세요.`,
+        `학생용 챗봇에 적용했습니다.${cardNote}${storedNote}${confirmationWarning}${connectionNote} 노션에도 저장하려면 위 ②에 Notion API 토큰을 입력해 주세요.`,
       );
       return;
     }
 
     await handleSavePreparationToNotion(
-      `학생용 챗봇에 적용하고 노션 준비 DB에도 저장했습니다.${cardNote}${storedNote}${connectionNote}`,
+      `학생용 챗봇에 적용하고 노션 준비 DB에도 저장했습니다.${cardNote}${storedNote}${confirmationWarning}${connectionNote}`,
       nextBehavior,
     );
   }
@@ -1555,7 +1575,7 @@ export function QuestioningChatbotBoard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           config,
-          studentChatbotUrl: studentChatbotPath,
+          studentChatbotUrl: studentChatbotUrlForLesson(connectionLessonCode),
           notionApiKey,
           notionPrepDatabaseId,
           notionResultDatabaseId,
