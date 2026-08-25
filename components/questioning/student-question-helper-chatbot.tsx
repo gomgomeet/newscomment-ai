@@ -928,6 +928,14 @@ export function StudentQuestionHelperChatbot() {
                   }
                   className="min-h-24 rounded-3xl border-violet-100 bg-white/90 px-4 py-3 text-slate-800 shadow-sm placeholder:text-slate-400"
                   disabled={!isChatStarted || isTypingAssistantResponse}
+                  onKeyDown={(event) => {
+                    // 엔터로 바로 보낸다. 줄을 바꾸고 싶으면 Shift+엔터.
+                    // 한글 조합 중(isComposing)의 엔터는 글자 확정이므로 보내지 않는다.
+                    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                      event.preventDefault();
+                      event.currentTarget.form?.requestSubmit();
+                    }
+                  }}
                 />
                 <Button
                   type="submit"

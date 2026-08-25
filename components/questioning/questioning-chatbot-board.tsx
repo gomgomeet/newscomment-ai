@@ -71,6 +71,17 @@ const quickQuestions = [
 
 const defaultAiModel = questioningAiModelOptions[0]?.value || "gemini-2.5-flash";
 const defaultLessonMaterial = createDefaultQuestioningLessonMaterial();
+
+/** 본문 첫 줄을 자료 이름 후보로 다듬는다. 너무 길면 이름이 아니라 문장이다. */
+function firstLineTitle(text: string): string {
+  const firstLine = text
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  if (!firstLine) return "";
+  return firstLine.length <= 60 ? firstLine : "";
+}
+
 const defaultChatbotBehavior = createDefaultQuestioningChatbotBehavior();
 
 const classifierKeywordFields: {
@@ -739,7 +750,9 @@ export function QuestioningChatbotBoard() {
   const totalScore = rubric.length * 5;
   const configuredMaterial = useMemo(() => {
     const fullText = teacherNotes.trim();
-    const nextTitle = materialTitle.trim() || material.materialTitle || "교사 입력 질문 자료";
+    // 자료 이름이 비어 있으면 본문 첫 줄(대개 기사 제목)을 이름으로 쓴다.
+    const derivedTitle = firstLineTitle(fullText);
+    const nextTitle = materialTitle.trim() || derivedTitle || material.materialTitle || "교사 입력 질문 자료";
     const useReferenceOnly = shouldUseReferenceOnlyQuestionMaterial({
       title: nextTitle,
       text: fullText,
@@ -1320,6 +1333,12 @@ export function QuestioningChatbotBoard() {
    * 확인할 것이 없으면 멈추지 않고 그대로 끝낸다 — 버튼을 하나로 합친 뜻이 이것이다.
    */
   async function handleApplyAndSave() {
+    // 자료 이름이 비어 있으면 본문 첫 줄로 채워 화면에도 보여 준다.
+    if (!materialTitle.trim()) {
+      const derived = firstLineTitle(teacherNotes.trim());
+      if (derived) setMaterialTitle(derived);
+    }
+
     setIsBuildingCards(true);
     const cardResult = await requestThinkingCards();
     setIsBuildingCards(false);
