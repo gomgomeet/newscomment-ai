@@ -727,6 +727,7 @@ export function QuestioningChatbotBoard() {
       answers: string[];
       answerableRate: number;
       comment: string;
+      suggestedScores: number[];
     }>
   >([]);
   // 점수는 교사가 표에서 직접 입력한다. 분석은 재료만 주고 판단은 교사가 한다.
@@ -1209,8 +1210,10 @@ export function QuestioningChatbotBoard() {
         const next = { ...current };
         students.forEach((entry) => {
           if (!next[entry.studentKey]) {
+            // 추천 점수를 미리 채운다. 교사가 검토하며 고치는 초안이다.
+            const suggested = entry.suggestedScores.length === 4 ? entry.suggestedScores.map(String) : ["", "", "", ""];
             next[entry.studentKey] = {
-              scores: ["", "", "", ""],
+              scores: suggested as [string, string, string, string],
               basis: `질문 ${entry.questionCount}개 · ${entry.intents.join("·") || "유형 없음"}`,
               feedback: entry.comment,
             };
@@ -1220,7 +1223,7 @@ export function QuestioningChatbotBoard() {
       });
       setNotice(
         students.length
-          ? `학생 ${students.length}명의 기록으로 아래 평가 기록 표를 채웠습니다. 점수를 입력하고 엑셀로 내려받으세요.`
+          ? `학생 ${students.length}명의 기록으로 아래 평가 기록 표를 채웠습니다. 점수는 추천값이니 검토·수정한 뒤 엑셀로 내려받으세요.`
           : "아직 분석할 질문 기록이 없습니다.",
       );
     } catch (error) {

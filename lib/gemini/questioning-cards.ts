@@ -576,7 +576,7 @@ export async function generateQuestionAnalysisWithGemini({
   targetGrade: string;
   apiKey?: string;
   model?: string;
-}): Promise<Map<string, string>> {
+}): Promise<Map<string, { comment: string; scores: number[] }>> {
   const apiKey = getApiKey(apiKeyOverride);
   const model = getModel(modelOverride);
 
@@ -591,7 +591,9 @@ export async function generateQuestionAnalysisWithGemini({
             text: [
               "You write Korean assessment notes for a teacher based only on the questions each student actually asked.",
               "Two sentences per student at most, observation-based, no praise inflation, no invented behavior.",
-              'Return a JSON array only: [{"studentKey": "...", "comment": "..."}].',
+              "Also suggest four rubric scores from 0 to 5, in this order: 성취기준·자료 연결, 자료 근거 확인, 질문 유형 확장, 질문 다시 쓰기·성찰.",
+              "Score only what the questions show. A student with one simple question cannot earn high scores everywhere.",
+              'Return a JSON array only: [{"studentKey": "...", "comment": "...", "scores": [0,0,0,0]}].',
             ].join(" "),
           },
         ],
@@ -602,7 +604,7 @@ export async function generateQuestionAnalysisWithGemini({
           parts: [
             {
               text: JSON.stringify({
-                task: "각 학생이 실제로 한 질문을 근거로, 성취기준과 연결한 평가 기록 초안을 학생마다 1~2문장으로 쓰세요. 질문을 그대로 인용하거나 요약해 근거를 남기고, 하지 않은 행동을 지어내지 마세요.",
+                task: "각 학생이 실제로 한 질문을 근거로 ①평가 기록 초안 1~2문장과 ②루브릭 추천 점수 4개(각 0~5)를 쓰세요. 순서는 성취기준·자료 연결, 자료 근거 확인, 질문 유형 확장, 질문 다시 쓰기·성찰. 질문이 보여 주지 않은 것에 점수를 주지 말고, 하지 않은 행동을 지어내지 마세요. 점수는 교사가 검토할 추천값입니다.",
                 standard,
                 targetGrade,
                 students,
@@ -629,15 +631,22 @@ export async function generateQuestionAnalysisWithGemini({
     .map((part) => (typeof part.text === "string" ? part.text : ""))
     .join("");
   const parsed = parseCardsFromText(outputText);
-  const comments = new Map<string, string>();
+  const results = new Map<string, { comment: string; scores: number[] }>();
   if (Array.isArray(parsed)) {
     parsed.forEach((entry) => {
       if (typeof entry !== "object" || entry === null) return;
-      const row = entry as { studentKey?: unknown; comment?: unknown };
+      const row = entry as { studentKey?: unknown; comment?: unknown; scores?: unknown };
       const key = typeof row.studentKey === "string" ? row.studentKey.trim() : "";
       const comment = typeof row.comment === "string" ? row.comment.trim().slice(0, 300) : "";
-      if (key && comment) comments.set(key, comment);
+      // 점수는 0~5 정수 4개만 인정한다. 모양이 어긋나면 점수 없이 문장만 쓴다.
+      const scores = Array.isArray(row.scores)
+        ? row.scores
+            .slice(0, 4)
+            .map((value) => (typeof value === "number" && Number.isFinite(value) ? Math.min(5, Math.max(0, Math.round(value))) : null))
+        : [];
+      const validScores = scores.length === 4 && scores.every((value): value is number => value !== null) ? scores : [];
+      if (key && comment) results.set(key, { comment, scores: validScores });
     });
   }
-  return comments;
+  return results;
 }

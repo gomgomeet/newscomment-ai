@@ -47,7 +47,7 @@ export async function POST(request: Request) {
     }
 
     // 평가 문장은 있으면 좋은 것. Gemini가 실패해도 통계는 그대로 돌려준다.
-    let comments = new Map<string, string>();
+    let comments = new Map<string, { comment: string; scores: number[] }>();
     const geminiApiKey = optionalText(body.geminiApiKey);
     if (geminiApiKey) {
       try {
@@ -72,7 +72,8 @@ export async function POST(request: Request) {
       lessonCode,
       students: stats.map((entry) => ({
         ...entry,
-        comment: comments.get(entry.studentKey) ?? "",
+        comment: comments.get(entry.studentKey)?.comment ?? "",
+        suggestedScores: comments.get(entry.studentKey)?.scores ?? [],
       })),
     });
   } catch (error) {
