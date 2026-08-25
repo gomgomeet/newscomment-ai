@@ -675,3 +675,19 @@ B교사 가상 시나리오로 6개 규칙 작동 검증(문서 내 표). 주의
 상세 버전 프롬프트 2종은 main의 docs/GENERAL_TEACHER_READY_TO_COPY_
 CHATBOT_PROMPT.md(329줄)·GENERAL_TEACHER_STANDALONE_HTML_CHATBOT_PROMPT.md
 (580줄) — lessonData KB(keyConcepts·오개념·responseExamples·어휘표) 내장.
+
+## 2026-08-25 1회성 프롬프트 대화 깊이 검증·보강 + READY_TO_COPY 배경지식(PR #11)
+
+- PR #11 (claude/background-knowledge-card → main, draft): 최종 복사
+  프롬프트에 0단계 배경 지식 카드 통합 — 교사 입력란, lessonData.
+  backgroundKnowledge({question,answer,keywords,sourceNote} 6개+),
+  로컬 엔진 "지문에는 없지만" 규칙, 마스터 프롬프트 참조. 구독 완료.
+- 1회성 프롬프트 깊이 시뮬레이션(사용자 요청): 까다로운 학생 7턴
+  (사실→수치 해석→추론→일반화 반론→한계 지적→배경→자기 질문 점검)으로
+  가상 실행. 발견된 약점: 수치 크기 감각 지원 없음, 일반화 질문 조건
+  비교 없음, 지문 한계 인정 규칙 없음, 자기 질문 점검 대응 없음.
+- 보강: [깊이 있는 대화 규칙] 12~18 추가 — 근거 문장·수치 직접 인용,
+  수치 관점 짚기, 상관≠인과, 일반화엔 조건 비교, 지문 한계 인정,
+  다른 관점 나란히 제시, 질문 점검 피드백. 노션 페이지에도 반영.
+- 한계 명시: 시뮬레이션은 클로드 기준이며 Gemini 무료 모델은 다소 낮을
+  수 있음 → 실기 테스트 권장.
