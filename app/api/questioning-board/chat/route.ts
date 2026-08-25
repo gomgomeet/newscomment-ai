@@ -1,5 +1,6 @@
 import { answerQuestionWithGemini } from "@/lib/gemini/questioning-board";
-import { recordStudentQuestion } from "@/lib/questioning-card-store";
+import { addLiveResearchCard, findRelevantCards, recordStudentQuestion } from "@/lib/questioning-card-store";
+import { researchAnswerForStudent } from "@/lib/gemini/questioning-cards";
 import {
   loadQuestioningLessonConnection,
   normalizeLessonCode,
@@ -231,6 +232,22 @@ export async function POST(request: Request) {
     let providerUnavailable = false;
     let result: ChatResult & { model?: string };
 
+    // 저장된 생각 카드(교사 답변·리서치·배경) 중 이 질문과 이어지는 것을 찾아
+    // 답변 프롬프트에 싣는다. "답을 적으면 다음 질문부터 챗봇이 씁니다"가
+    // 여기서 비로소 사실이 된다.
+    const relevantCards = lessonCode
+      ? await findRelevantCards(lessonCode, question).catch(() => [])
+      : [];
+    const knowledgeCards = relevantCards.map((card) => ({
+      kind: card.cardType,
+      title: card.title,
+      content: card.content || card.summary,
+      source:
+        card.sourceType === "teacher"
+          ? "선생님"
+          : card.externalSourceOrganization || (card.cardType === "research" ? "웹 검색" : "수업 자료 분석"),
+    }));
+
     if (useApprovedExternalProvider && lessonConnection) {
       // 무료 키는 분당 요청 제한에 자주 걸린다. 한 번 실패했다고 바로 규칙 엔진으로
       // 떨어지면 대화가 "좋았다 나빴다"를 오간다 — 잠깐 기다렸다 한 번 더 부른다.
@@ -247,6 +264,7 @@ export async function POST(request: Request) {
           conversation,
           apiKey: lessonConnection.geminiApiKey,
           model: lessonConnection.geminiModel,
+          knowledgeCards,
         });
       try {
         try {
@@ -306,6 +324,48 @@ export async function POST(request: Request) {
         };
     const recordUnavailable = !notionSave.ok && !("skipped" in notionSave && notionSave.skipped);
 
+    // 자료에 없지만 주제와 이어지는 질문은 웹에서 찾아 출처와 함께 답해 준다.
+    // "염증이 생기면 어떤 일이 생겨요?"를 "자료에 없어요"로만 끝내지 않기 위해서다.
+    // 검색 근거(A·B 출처)가 없으면 조용히 기존의 정직한 답을 그대로 쓴다.
+    let answeredByResearch = false;
+    const onTopic =
+      result.curriculumRelation === "direct" || result.curriculumRelation === "productive_extension";
+    if (
+      useApprovedExternalProvider &&
+      lessonConnection &&
+      result.sourceStatus === "source_insufficient" &&
+      knowledgeCards.length === 0 &&
+      onTopic &&
+      result.questionType !== "safety" &&
+      result.questionType !== "off_topic"
+    ) {
+      try {
+        const researched = await researchAnswerForStudent({
+          questionText: question,
+          materialTitle: config.material.materialTitle,
+          materialSummary: config.material.summary,
+          targetGrade: config.targetGrade,
+          apiKey: lessonConnection.geminiApiKey,
+          model: lessonConnection.geminiModel,
+        });
+        if (researched) {
+          result.studentReply = `${result.studentReply}\n\n자료 밖에서 찾아봤어요. ${researched.answer} (출처: ${researched.sourceOrganization})`;
+          answeredByResearch = true;
+          // 다음 학생부터 재사용되도록 리서치 카드로도 남긴다. 실패는 무시한다.
+          void addLiveResearchCard({
+            lessonCode,
+            question,
+            answer: researched.answer,
+            sourceOrganization: researched.sourceOrganization,
+            sourceUrl: researched.sourceUrl,
+            reliability: researched.reliability,
+          }).catch(() => {});
+        }
+      } catch {
+        // 리서치 실패는 기존의 정직한 "자료에 없어요" 답으로 충분하다.
+      }
+    }
+
     // 카드로 답하지 못한 질문을 남겨 교사가 다음 수업에 채울 수 있게 한다.
     // 기록에 실패해도 아이와의 대화는 이어져야 하므로 오류를 삼킨다.
     const answeredFromSource =
@@ -318,8 +378,8 @@ export async function POST(request: Request) {
       rawQuestion: question,
       questionIntent: result.typeLabel,
       answerText: result.studentReply,
-      answerable: answeredFromSource,
-      missingInformation: answeredFromSource ? undefined : result.sourceStatus,
+      answerable: answeredFromSource || answeredByResearch,
+      missingInformation: answeredFromSource || answeredByResearch ? undefined : result.sourceStatus,
     }).catch(() => {
       // 저장소가 준비되지 않았거나 잠시 끊긴 경우. 수업을 멈출 이유는 아니다.
     });

@@ -446,3 +446,198 @@ export async function generateKnowledgeCardsWithGemini({
   const sources = extractGroundedSources(payload);
   return { cards: buildAiCards(parseCardsFromText(outputText), sources), sources, model };
 }
+
+// ---------------------------------------------------------------------------
+// 수업 중 실시간 리서치
+// ---------------------------------------------------------------------------
+
+export type LiveResearchAnswer = {
+  answer: string;
+  sourceOrganization: string;
+  sourceUrl: string;
+  reliability: CardSourceReliability;
+};
+
+/**
+ * 자료에 없지만 주제와 이어지는 학생 질문을 웹에서 찾아 답한다.
+ *
+ * 원칙은 리서치 카드와 같다 — **검색 근거가 있을 때만** 답하고, 출처 등급 A·B가
+ * 아니면 답하지 않는다(null). 아이에게 나가는 답이므로 카드보다 기준이 더 엄격해야
+ * 하면 했지 느슨해선 안 된다. null이면 부른 쪽이 기존의 정직한 "자료에 없어요"
+ * 응답을 그대로 쓴다.
+ */
+export async function researchAnswerForStudent({
+  questionText,
+  materialTitle,
+  materialSummary,
+  targetGrade,
+  apiKey: apiKeyOverride,
+  model: modelOverride,
+}: {
+  questionText: string;
+  materialTitle: string;
+  materialSummary: string;
+  targetGrade: string;
+  apiKey?: string;
+  model?: string;
+}): Promise<LiveResearchAnswer | null> {
+  const apiKey = getApiKey(apiKeyOverride);
+  const model = getModel(modelOverride);
+
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+    body: JSON.stringify({
+      systemInstruction: {
+        parts: [
+          {
+            text: [
+              "You answer a Korean elementary student's question by searching the web.",
+              "Search first, then answer in 2-3 short Korean sentences at the given grade level.",
+              "State only what the search results support. No question marks — the answer must not ask anything back.",
+              "If the search does not clearly support an answer, reply with the single word 모름.",
+            ].join(" "),
+          },
+        ],
+      },
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: JSON.stringify({
+                question: questionText,
+                lessonTopic: materialTitle,
+                lessonSummary: materialSummary.slice(0, 300),
+                targetGrade,
+              }),
+            },
+          ],
+        },
+      ],
+      tools: [{ google_search: {} }],
+      generationConfig: { maxOutputTokens: 800, temperature: 0.2 },
+      store: false,
+    }),
+  });
+
+  const rawText = await response.text();
+  let payload: GeminiApiPayload;
+  try {
+    payload = JSON.parse(rawText) as GeminiApiPayload;
+  } catch {
+    return null;
+  }
+  if (!response.ok) return null;
+
+  const answer = (payload.candidates?.[0]?.content?.parts ?? [])
+    .map((part) => (typeof part.text === "string" ? part.text : ""))
+    .join("")
+    .trim();
+  if (!answer || answer === "모름" || answer.length < 10) return null;
+
+  // 검색 근거가 없으면 모델이 기억으로 지어낸 것일 수 있다. 답하지 않는다.
+  const sources = extractGroundedSources(payload);
+  const graded = sources
+    .map((source) => ({ ...source, grade: gradeSourceReliability(source.domain || source.url) }))
+    .filter((source) => source.grade === "A" || source.grade === "B");
+  if (graded.length === 0) return null;
+
+  const best = graded[0];
+  return {
+    // 아이 화면에 물음표가 섞여 나가지 않게 한 번 더 걸러 둔다.
+    answer: answer.replace(/[?？]/g, ".").slice(0, 400),
+    sourceOrganization: best.domain || best.title,
+    sourceUrl: best.url,
+    reliability: best.grade,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 학생별 질문 분석 평가 문장
+// ---------------------------------------------------------------------------
+
+/**
+ * 학생별 질문 기록을 근거로 평가(세특형) 문장을 쓴다.
+ *
+ * 원칙: 실제로 한 질문만 근거로 쓰고, 하지 않은 것을 지어내지 않는다.
+ * 이름은 모른다 — student_key만 다룬다. 문장은 교사가 고칠 초안이다.
+ */
+export async function generateQuestionAnalysisWithGemini({
+  students,
+  standard,
+  targetGrade,
+  apiKey: apiKeyOverride,
+  model: modelOverride,
+}: {
+  students: Array<{ studentKey: string; sampleQuestions: string[]; intents: string[]; questionCount: number }>;
+  standard: string;
+  targetGrade: string;
+  apiKey?: string;
+  model?: string;
+}): Promise<Map<string, string>> {
+  const apiKey = getApiKey(apiKeyOverride);
+  const model = getModel(modelOverride);
+
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+    body: JSON.stringify({
+      systemInstruction: {
+        parts: [
+          {
+            text: [
+              "You write Korean assessment notes for a teacher based only on the questions each student actually asked.",
+              "Two sentences per student at most, observation-based, no praise inflation, no invented behavior.",
+              'Return a JSON array only: [{"studentKey": "...", "comment": "..."}].',
+            ].join(" "),
+          },
+        ],
+      },
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: JSON.stringify({
+                task: "각 학생이 실제로 한 질문을 근거로, 성취기준과 연결한 평가 기록 초안을 학생마다 1~2문장으로 쓰세요. 질문을 그대로 인용하거나 요약해 근거를 남기고, 하지 않은 행동을 지어내지 마세요.",
+                standard,
+                targetGrade,
+                students,
+              }),
+            },
+          ],
+        },
+      ],
+      generationConfig: { maxOutputTokens: 4000, temperature: 0.3, responseMimeType: "application/json" },
+      store: false,
+    }),
+  });
+
+  const rawText = await response.text();
+  let payload: GeminiApiPayload;
+  try {
+    payload = JSON.parse(rawText) as GeminiApiPayload;
+  } catch {
+    return new Map();
+  }
+  if (!response.ok) return new Map();
+
+  const outputText = (payload.candidates?.[0]?.content?.parts ?? [])
+    .map((part) => (typeof part.text === "string" ? part.text : ""))
+    .join("");
+  const parsed = parseCardsFromText(outputText);
+  const comments = new Map<string, string>();
+  if (Array.isArray(parsed)) {
+    parsed.forEach((entry) => {
+      if (typeof entry !== "object" || entry === null) return;
+      const row = entry as { studentKey?: unknown; comment?: unknown };
+      const key = typeof row.studentKey === "string" ? row.studentKey.trim() : "";
+      const comment = typeof row.comment === "string" ? row.comment.trim().slice(0, 300) : "";
+      if (key && comment) comments.set(key, comment);
+    });
+  }
+  return comments;
+}

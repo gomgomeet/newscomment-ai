@@ -461,6 +461,16 @@ export async function loadUnansweredQuestions(
     throw new Error(`학생 질문 조회 실패: ${error.message}`);
   }
 
+  // 교사 답변이나 리서치로 이미 카드가 된 질문은 다시 묻지 않는다.
+  // 목록이 이미 답한 것으로 차면 교사는 진짜 빈 곳을 못 본다.
+  const documentId = await loadLatestDocumentId(lessonCode).catch(() => null);
+  const coveredQuestions = documentId
+    ? (await loadCards(documentId, { enabledOnly: true }).catch(() => []))
+        .flatMap((card) => [...card.relatedQuestions, card.title])
+        .map((value) => value.replace(/[\s?？!.,]/g, "").toLowerCase())
+        .filter((value) => value.length >= 6)
+    : [];
+
   const grouped = new Map<string, UnansweredQuestion>();
   (data ?? []).forEach((row) => {
     // 문장부호와 띄어쓰기만 다른 질문은 같은 질문으로 본다.
@@ -468,6 +478,7 @@ export async function loadUnansweredQuestions(
       .replace(/[\s?？!.,]/g, "")
       .toLowerCase();
     if (!key) return;
+    if (coveredQuestions.some((covered) => key.includes(covered) || covered.includes(key))) return;
 
     const existing = grouped.get(key);
     if (existing) {
@@ -531,4 +542,195 @@ export async function addTeacherAnswerCard(input: {
     throw new Error(`선생님 답변 저장 실패: ${error?.message ?? "알 수 없는 오류"}`);
   }
   return toCard(data as CardRow);
+}
+
+/**
+ * 수업 중 실시간 리서치로 답한 내용을 리서치 카드로 남긴다.
+ *
+ * 첫 학생은 검색을 기다리지만, 카드로 남으므로 같은 것을 묻는 다음 학생부터는
+ * 쌓인 답을 쓸 수 있다. 실패해도 조용히 넘어간다 — 답은 이미 나갔다.
+ */
+export async function addLiveResearchCard(input: {
+  lessonCode: string;
+  question: string;
+  answer: string;
+  sourceOrganization: string;
+  sourceUrl: string;
+  reliability: "A" | "B" | "C" | "D";
+}): Promise<void> {
+  if (!isCardStorageConfigured()) return;
+
+  const documentId = await loadLatestDocumentId(input.lessonCode).catch(() => null);
+  if (!documentId) return;
+
+  const supabase = createAdminClient();
+  await supabase.from("questioning_thinking_cards").insert({
+    document_id: documentId,
+    card_type: "research",
+    title: input.question.slice(0, 80),
+    summary: "수업 중 학생 질문에 실시간 리서치로 답한 내용",
+    content: input.answer.slice(0, 2000),
+    source_type: "external",
+    source_location: input.sourceOrganization,
+    confidence: input.reliability === "A" ? 0.9 : 0.8,
+    knowledge_status: "researched",
+    related_questions: [input.question],
+    external_source_url: input.sourceUrl,
+    external_source_title: input.sourceOrganization,
+    external_source_organization: input.sourceOrganization,
+    source_reliability: input.reliability,
+    is_enabled: true,
+  });
+}
+
+
+// ---------------------------------------------------------------------------
+// 답변에 쓸 카드 찾기 — 저장만 하던 카드가 여기서 비로소 쓰인다
+// ---------------------------------------------------------------------------
+
+function compactText(value: string): string {
+  return value.replace(/[\s?？!.,·'"'"]/g, "").toLowerCase();
+}
+
+function simpleKeywords(value: string, limit = 8): string[] {
+  const found = value
+    .split(/[^가-힣A-Za-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2);
+  return Array.from(new Set(found)).slice(0, limit);
+}
+
+/** 질문과 카드가 맞닿는 정도. 문장 단위 일치가 낱말 겹침보다 훨씬 확실하다. */
+function scoreCardForQuestion(card: SavedCard, question: string): number {
+  const compactQuestion = compactText(question);
+  let score = 0;
+
+  const declared = card.relatedQuestions.some((candidate) => {
+    const compactCandidate = compactText(candidate);
+    return (
+      compactCandidate.length >= 6 &&
+      (compactQuestion.includes(compactCandidate) || compactCandidate.includes(compactQuestion))
+    );
+  });
+  if (declared) score += 10;
+
+  const asked = new Set(simpleKeywords(question));
+  score += card.keywords.filter((keyword) => asked.has(keyword)).length * 2;
+  if (compactText(card.title).length >= 4 && compactQuestion.includes(compactText(card.title))) score += 4;
+
+  // 교사가 직접 쓴 답이 가장 확실하고, 그다음이 출처 있는 리서치다.
+  if (card.sourceType === "teacher") score += 3;
+  else if (card.cardType === "research") score += 2;
+
+  return score;
+}
+
+/**
+ * 학생 질문과 이어지는 카드를 찾아 준다. 챗봇 답변 프롬프트에 실린다.
+ *
+ * 문턱(4점)을 두는 이유: 낱말 하나 겹친다고 아무 카드나 실으면, 모델이 엉뚱한
+ * 카드를 근거로 답하는 더 나쁜 실패가 생긴다. 확실한 카드만 싣고, 없으면 없이 간다.
+ */
+export async function findRelevantCards(
+  lessonCode: string,
+  question: string,
+  limit = 4,
+): Promise<SavedCard[]> {
+  if (!isCardStorageConfigured() || !lessonCode.trim() || !question.trim()) return [];
+
+  const documentId = await loadLatestDocumentId(lessonCode).catch(() => null);
+  if (!documentId) return [];
+
+  const cards = await loadCards(documentId, { enabledOnly: true }).catch(() => []);
+  return cards
+    .map((card) => ({ card, score: scoreCardForQuestion(card, question) }))
+    .filter((entry) => entry.score >= 4)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, limit)
+    .map((entry) => entry.card);
+}
+
+/**
+ * 이 수업에서 질문한 학생 목록. 참여 현황을 노션에서 복사해 붙이지 않아도
+ * 서버 기록만으로 채워진다.
+ */
+export async function loadParticipants(lessonCode: string): Promise<string[]> {
+  if (!isCardStorageConfigured() || !lessonCode.trim()) return [];
+
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("questioning_student_questions")
+    .select("student_key")
+    .eq("lesson_code", lessonCode)
+    .not("student_key", "is", null)
+    .limit(2000);
+
+  if (error) return [];
+  return Array.from(
+    new Set(
+      (data ?? [])
+        .map((row) => (row.student_key ?? "").trim())
+        .filter((key) => key.length > 0),
+    ),
+  ).sort();
+}
+
+
+export type StudentQuestionStats = {
+  studentKey: string;
+  questionCount: number;
+  /** 많이 나온 질문 유형 순 */
+  intents: string[];
+  sampleQuestions: string[];
+  answerableRate: number;
+};
+
+/**
+ * 학생별로 질문 기록을 묶는다. 평가의 재료다 — 점수가 아니라
+ * "무엇을 몇 번, 어떤 유형으로 물었는가"라는 관찰 사실만 계산한다.
+ */
+export async function loadStudentQuestionStats(lessonCode: string): Promise<StudentQuestionStats[]> {
+  if (!isCardStorageConfigured() || !lessonCode.trim()) return [];
+
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("questioning_student_questions")
+    .select("student_key, raw_question, question_intent, answerable, created_at")
+    .eq("lesson_code", lessonCode)
+    .not("student_key", "is", null)
+    .order("created_at", { ascending: true })
+    .limit(2000);
+
+  if (error) {
+    throw new Error(`질문 기록 조회 실패: ${error.message}`);
+  }
+
+  const byStudent = new Map<string, { questions: string[]; intents: Map<string, number>; answerable: number }>();
+  (data ?? []).forEach((row) => {
+    const key = (row.student_key ?? "").trim();
+    if (!key) return;
+    const entry =
+      byStudent.get(key) ?? { questions: [] as string[], intents: new Map<string, number>(), answerable: 0 };
+    entry.questions.push(row.raw_question);
+    if (row.question_intent) {
+      entry.intents.set(row.question_intent, (entry.intents.get(row.question_intent) ?? 0) + 1);
+    }
+    if (row.answerable) entry.answerable += 1;
+    byStudent.set(key, entry);
+  });
+
+  return Array.from(byStudent.entries())
+    .map(([studentKey, entry]) => ({
+      studentKey,
+      questionCount: entry.questions.length,
+      intents: Array.from(entry.intents.entries())
+        .sort((left, right) => right[1] - left[1])
+        .map(([intent]) => intent)
+        .slice(0, 3),
+      sampleQuestions: entry.questions.slice(0, 3),
+      answerableRate: entry.questions.length
+        ? Math.round((entry.answerable / entry.questions.length) * 100)
+        : 0,
+    }))
+    .sort((left, right) => left.studentKey.localeCompare(right.studentKey, "ko"));
 }

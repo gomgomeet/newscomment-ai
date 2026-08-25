@@ -19,6 +19,7 @@ import {
   isCardStorageConfigured,
   loadCards,
   loadLatestDocumentId,
+  loadParticipants,
   loadUnansweredQuestions,
   saveDocumentWithCards,
   updateCardEnabled,
@@ -258,11 +259,12 @@ export async function GET(request: Request) {
       return Response.json({ error: "Supabase 저장소가 설정되어 있지 않습니다." }, { status: 400 });
     }
 
-    const [questions, documentId] = await Promise.all([
+    const [questions, documentId, participants] = await Promise.all([
       loadUnansweredQuestions(lessonCode),
       loadLatestDocumentId(lessonCode),
+      loadParticipants(lessonCode),
     ]);
-    return Response.json({ lessonCode, documentId, questions });
+    return Response.json({ lessonCode, documentId, questions, participants });
   } catch (error) {
     const message = error instanceof Error ? error.message : "학생 질문을 불러오지 못했습니다.";
     return Response.json({ error: message }, { status: 500 });

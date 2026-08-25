@@ -221,14 +221,6 @@ type CardBuildResult = {
   needsConfirmation: CardConfirmationItem[];
 };
 
-/** 카드로 답하지 못해 교사에게 돌아온 학생 질문. */
-type UnansweredQuestion = {
-  question: string;
-  askedCount: number;
-  questionIntent: string;
-  lastAskedAt: string;
-};
-
 const CARD_CHOICE_MEMORY_KEY = "questioning-card-choices-v1";
 // 노션 토큰도 Gemini 키처럼 이 브라우저에만 저장한다. 서버·노션·코드에는 남기지 않는다.
 const NOTION_TOKEN_STORAGE_KEY = "questioning-notion-token-v1";
@@ -696,13 +688,20 @@ export function QuestioningChatbotBoard() {
   const [cardSelections, setCardSelections] = useState<Record<string, boolean>>({});
   const [cardPrompts, setCardPrompts] = useState<Record<string, string>>({});
   const [isBuildingCards, setIsBuildingCards] = useState(false);
-  // 카드로 답하지 못한 질문. 교사가 답을 적으면 그것이 다시 카드가 된다.
-  const [unansweredQuestions, setUnansweredQuestions] = useState<UnansweredQuestion[]>([]);
-  const [unansweredDocumentId, setUnansweredDocumentId] = useState("");
-  const [teacherAnswers, setTeacherAnswers] = useState<Record<string, string>>({});
-  const [isLoadingQuestions, setIsLoadingQuestions] = useState(false);
   // 어휘표 직접 입력 화면은 걷어냈다. 낱말은 이미지 분석과 AI 리서치가 채운다.
   const [teacherVocabulary] = useState<MaterialVocabularyEntry[]>([]);
+  // [질문 분석] 결과 — 학생별 질문 통계와 평가 문장 초안
+  const [questionAnalysis, setQuestionAnalysis] = useState<
+    Array<{
+      studentKey: string;
+      questionCount: number;
+      intents: string[];
+      sampleQuestions: string[];
+      answerableRate: number;
+      comment: string;
+    }>
+  >([]);
+  const [isAnalyzingQuestions, setIsAnalyzingQuestions] = useState(false);
   const [imageDataUrl, setImageDataUrl] = useState("");
   const [imageName, setImageName] = useState("");
   const [material, setMaterial] = useState<MaterialAnalysis>(() => ({
@@ -1125,12 +1124,16 @@ export function QuestioningChatbotBoard() {
     fetch(`/api/questioning-board/cards?lessonCode=${encodeURIComponent(lessonCode)}`)
       .then(async (response) => {
         if (!response.ok) return null;
-        return (await response.json()) as { questions?: UnansweredQuestion[]; documentId?: string };
+        return (await response.json()) as { participants?: string[] };
       })
       .then((payload) => {
         if (cancelled || !payload) return;
-        setUnansweredQuestions(payload.questions ?? []);
-        setUnansweredDocumentId(payload.documentId ?? "");
+        // 참여 현황을 서버 기록으로 채운다. 노션에서 복사해 붙일 필요가 없다.
+        // 교사가 직접 붙여 넣은 값이 있으면 덮지 않는다.
+        const participants = payload.participants ?? [];
+        if (participants.length > 0) {
+          setParticipationInput((current) => (current.trim() ? current : participants.join("\n")));
+        }
       })
       .catch(() => {
         // 자동 조회 실패는 조용히 넘어간다. [새로 고침]으로 다시 시도할 수 있다.
@@ -1140,76 +1143,61 @@ export function QuestioningChatbotBoard() {
     };
   }, [connectionLessonCode]);
 
-  /** 수업 코드로 아이들이 물었는데 카드에 없던 질문을 불러온다. */
-  async function handleLoadUnansweredQuestions() {
+
+
+  /** 학생별 질문 기록을 분석해 평가 초안을 만든다. */
+  async function handleAnalyzeQuestions() {
     if (!connectionLessonCode.trim()) {
-      setNotice("먼저 수업 코드를 입력하거나 ④에서 수업 연결을 저장해 주세요.");
+      setNotice("먼저 ④에서 수업 연결을 저장해 주세요. 분석은 수업 코드의 질문 기록으로 합니다.");
       return;
     }
 
-    setIsLoadingQuestions(true);
+    setIsAnalyzingQuestions(true);
     try {
-      const response = await fetch(
-        `/api/questioning-board/cards?lessonCode=${encodeURIComponent(connectionLessonCode.trim())}`,
-      );
-      const payload = (await response.json()) as {
-        questions?: UnansweredQuestion[];
-        documentId?: string;
-        error?: string;
-      };
-      if (!response.ok) throw new Error(payload.error || "학생 질문을 불러오지 못했습니다.");
+      const response = await fetch("/api/questioning-board/analysis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lessonCode: connectionLessonCode,
+          setupToken: connectionSetupToken,
+          standard: standardText,
+          targetGrade,
+          geminiApiKey: aiApiKey,
+          geminiModel: aiModel,
+        }),
+      });
+      const payload = (await response.json()) as { students?: typeof questionAnalysis; error?: string };
+      if (!response.ok) throw new Error(payload.error || "질문 분석에 실패했습니다.");
 
-      setUnansweredQuestions(payload.questions ?? []);
-      setUnansweredDocumentId(payload.documentId ?? "");
+      setQuestionAnalysis(payload.students ?? []);
       setNotice(
-        payload.questions?.length
-          ? `카드로 답하지 못한 질문 ${payload.questions.length}가지를 찾았습니다.`
-          : "카드로 답하지 못한 질문이 없습니다.",
+        payload.students?.length
+          ? `학생 ${payload.students.length}명의 질문 기록을 분석했습니다. 문장은 초안이니 검토 후 사용해 주세요.`
+          : "아직 분석할 질문 기록이 없습니다.",
       );
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "학생 질문을 불러오지 못했습니다.");
+      setNotice(error instanceof Error ? error.message : "질문 분석에 실패했습니다.");
     } finally {
-      setIsLoadingQuestions(false);
+      setIsAnalyzingQuestions(false);
     }
   }
 
-  /** 교사가 적은 답을 카드로 만든다. 그다음 질문부터 챗봇이 이 답을 쓴다. */
-  async function handleSaveTeacherAnswers() {
-    const answers = Object.entries(teacherAnswers)
-      .map(([question, answer]) => ({ question, answer: answer.trim() }))
-      .filter((entry) => entry.answer.length > 0);
-
-    if (answers.length === 0) {
-      setNotice("답을 적은 질문이 없습니다.");
-      return;
-    }
-    if (!unansweredDocumentId) {
-      setNotice("먼저 ⑧을 눌러 이 수업의 생각 카드를 만들어 주세요.");
-      return;
-    }
-
-    setIsLoadingQuestions(true);
+  async function handleCopyQuestionAnalysis() {
+    const lines = questionAnalysis.map((entry) =>
+      [
+        entry.studentKey,
+        `질문 ${entry.questionCount}개 (${entry.intents.join("·") || "유형 없음"})`,
+        `대표 질문: ${entry.sampleQuestions.join(" / ")}`,
+        entry.comment ? `평가 초안: ${entry.comment}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    );
     try {
-      const response = await fetch("/api/questioning-board/cards", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          documentId: unansweredDocumentId,
-          setupToken: connectionSetupToken,
-          teacherAnswers: answers,
-        }),
-      });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(payload.error || "답변을 저장하지 못했습니다.");
-
-      setTeacherAnswers({});
-      setNotice(
-        `답 ${answers.length}개를 카드로 만들었습니다. 다음 질문부터 챗봇이 이 답을 씁니다.`,
-      );
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "답변을 저장하지 못했습니다.");
-    } finally {
-      setIsLoadingQuestions(false);
+      await navigator.clipboard.writeText(lines.join("\n\n"));
+      setNotice("질문 분석 결과를 복사했습니다.");
+    } catch {
+      setNotice("복사에 실패했습니다. 내용을 직접 선택해 복사해 주세요.");
     }
   }
 
@@ -2379,17 +2367,32 @@ export function QuestioningChatbotBoard() {
                   <ClipboardList className="size-5 text-primary" aria-hidden="true" />
                   <h2 className="text-base font-semibold">교사용 평가 기록</h2>
                 </div>
-                <Button type="button" size="sm" variant="outline" onClick={handleDownloadEvaluationWorkbook}>
-                  <Download className="size-4" aria-hidden="true" />
-                  엑셀 다운로드
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleAnalyzeQuestions}
+                    disabled={isAnalyzingQuestions}
+                  >
+                    {isAnalyzingQuestions ? (
+                      <RefreshCw className="size-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Wand2 className="size-4" aria-hidden="true" />
+                    )}
+                    질문 분석
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" onClick={handleDownloadEvaluationWorkbook}>
+                    <Download className="size-4" aria-hidden="true" />
+                    엑셀 다운로드
+                  </Button>
+                </div>
               </div>
 
               <div className="mt-4 space-y-3 rounded-md border border-border bg-background p-3">
                 <div>
                   <h3 className="text-sm font-semibold">참여 현황 — 아직 질문하지 않은 학생 찾기</h3>
                   <p className="text-xs leading-5 text-muted-foreground">
-                    노션 결과 DB의 <code>학교_반_번호</code> 목록을 붙여넣으면 기록이 없는 번호를 찾아 줍니다.
+                    수업 코드가 연결되어 있으면 질문 기록이 자동으로 채워집니다. 노션 결과 DB의 <code>학교_반_번호</code>를 직접 붙여넣어도 됩니다.
                     번호만 쉼표로 나열해도 됩니다. 참여 여부만 보며, 질문 개수를 세지 않습니다.
                   </p>
                 </div>
@@ -2449,62 +2452,36 @@ export function QuestioningChatbotBoard() {
                 )}
               </div>
 
-              <div className="mt-4 space-y-3 rounded-md border border-border bg-background p-3">
-                <div>
-                  <h3 className="text-sm font-semibold">아이들이 물었는데 카드에 없던 질문</h3>
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    챗봇이 지문과 카드로 답하지 못한 질문입니다. 여기에 답을 적으면 카드가 되어,
-                    <b> 다음 질문부터 챗봇이 그 답을 씁니다.</b> 답을 적지 않은 질문은 학생과 함께 확인할 몫으로 남습니다.
-                  </p>
-                </div>
-
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={handleLoadUnansweredQuestions}
-                  disabled={isLoadingQuestions}
-                >
-                  {isLoadingQuestions ? (
-                    <RefreshCw className="size-4 animate-spin" aria-hidden="true" />
-                  ) : null}
-                  새로 고침
-                </Button>
-                {unansweredQuestions.length === 0 && !isLoadingQuestions ? (
-                  <p className="text-xs text-muted-foreground">
-                    {connectionLessonCode.trim()
-                      ? "카드로 답하지 못한 질문이 아직 없습니다."
-                      : "④에서 수업 연결을 저장하면 여기 자동으로 표시됩니다."}
-                  </p>
-                ) : null}
-
-                {unansweredQuestions.length > 0 ? (
-                  <div className="space-y-3">
-                    {unansweredQuestions.map((item) => (
-                      <div key={item.question} className="space-y-2 rounded-md border border-border p-3">
-                        <p className="text-sm leading-6">
-                          <b>{item.question}</b>
-                          <span className="ml-2 text-xs text-muted-foreground">
-                            {item.askedCount > 1 ? `${item.askedCount}명이 물었어요` : "1명"}
-                            {item.questionIntent ? ` · ${item.questionIntent}` : ""}
-                          </span>
-                        </p>
-                        <Textarea
-                          value={teacherAnswers[item.question] ?? ""}
-                          placeholder="아이 눈높이로 답을 적어 주세요. 비워 두면 카드로 만들지 않습니다."
-                          className="min-h-[64px] text-sm"
-                          onChange={(event) =>
-                            setTeacherAnswers((current) => ({ ...current, [item.question]: event.target.value }))
-                          }
-                        />
-                      </div>
-                    ))}
-                    <Button type="button" size="sm" onClick={handleSaveTeacherAnswers} disabled={isLoadingQuestions}>
-                      답을 카드로 만들기
+              {questionAnalysis.length > 0 ? (
+                <div className="mt-4 space-y-3 rounded-md border border-border bg-background p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold">질문 분석 — 학생별 평가 초안</h3>
+                    <Button type="button" size="sm" variant="outline" onClick={handleCopyQuestionAnalysis}>
+                      <Copy className="size-4" aria-hidden="true" />
+                      전체 복사
                     </Button>
                   </div>
-                ) : null}
-              </div>
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    실제로 한 질문만 근거로 만든 초안입니다. 최종 평가는 선생님이 판단해 주세요.
+                  </p>
+                  {questionAnalysis.map((entry) => (
+                    <div key={entry.studentKey} className="rounded-md border border-border p-3 text-sm leading-6">
+                      <p>
+                        <b>{entry.studentKey}</b>
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          질문 {entry.questionCount}개 · {entry.intents.join("·") || "유형 없음"}
+                        </span>
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {entry.sampleQuestions.map((question) => `"${question}"`).join(" / ")}
+                      </p>
+                      {entry.comment ? <p className="mt-1">{entry.comment}</p> : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1360px] text-left text-sm">
