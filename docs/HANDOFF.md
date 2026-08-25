@@ -268,3 +268,34 @@ typecheck·lint·build 통과.
 키만 거부) 요청 본문도 스키마 검증을 통과했지만, `tools: [{google_search: {}}]`가
 돌려주는 `groundingChunks`가 내가 파싱하는 모양과 같은지는 실키 응답을 봐야 안다.
 3단계(저장 계층)를 붙이고 보드에서 실제 키로 한 번 돌려 확인해야 한다.
+
+## 2026-08-25 (이어서) 3단계 — 카드 저장·조회 계층
+
+`lib/questioning-card-store.ts` 신설 + `lib/db/types.ts`에 004의 표 4개 타입 추가.
+
+- `saveDocumentWithCards` — 지문 + 카드 + 연결을 한 번에 저장
+- `replaceCards` / `loadCards({ enabledOnly })` / `loadLatestDocumentId`
+- `updateCardEnabled` / `updateDialogueCard` — 확인 화면 결과 반영
+
+### 임시 id → uuid 두 단계 저장
+카드끼리의 연결은 저장 전 임시 id(`fact-0`)로 되어 있다. 카드를 먼저 넣어 uuid를 받고,
+임시 id → uuid 표로 바꿔 `related_card_ids`와 관계 표를 다시 기록한다. 순서를 지키지
+않으면 없는 카드를 가리키는 연결이 남는다. 저장되지 않은 카드를 가리키거나 자기
+자신으로 도는 연결은 버린다.
+
+`toCard`는 `localId`에 uuid를 넣는다. 저장 전 임시 id는 문서마다 겹쳐서 다시 쓰면 안 된다.
+
+### ⑧을 두 번 누르면
+새 지문 행이 생긴다(덮어쓰지 않음). 교사가 자료를 고쳐 가며 여러 번 저장하는데
+이전 판을 지우면 되돌릴 수 없기 때문이다. 챗봇은 `loadLatestDocumentId`로 가장 최근
+것만 보므로 카드가 두 벌 쓰이지는 않는다.
+
+`updateDialogueCard`는 교사가 발문을 확인·수정하면 needs_review → verified로 올린다.
+그 시점부터는 우리 해석이 아니라 교사가 쓴 문장이다.
+
+### 검증
+컬럼 이름을 마이그레이션 004와 기계적으로 대조 — SELECT/INSERT가 참조하는 컬럼이
+전부 실제 표에 있음(오타 0). 빠뜨린 컬럼은 모두 의도된 것(기본값·임베딩·2차 기록).
+typecheck·lint·build 통과.
+
+**실제 Supabase에 붙여 보지 못했다** — 004·005 마이그레이션이 아직 적용되지 않았다.
