@@ -79,7 +79,17 @@ function firstLineTitle(text: string): string {
     .map((line) => line.trim())
     .find((line) => line.length > 0);
   if (!firstLine) return "";
-  return firstLine.length <= 60 ? firstLine : "";
+  if (firstLine.length <= 60) return firstLine;
+
+  // 제목 줄 없이 본문부터 시작하는 자료다. 여기서 포기하면 "교사 입력 질문 자료"가
+  // 학생 화면에 뜬다 — 무엇에 관한 글인지 알려 주지 못한다. 첫 문장을 이름으로 삼고,
+  // 그것도 길면 끊는다.
+  const firstSentence = firstLine.split(/(?<=[.!?。])\s/)[0].trim();
+  if (firstSentence.length <= 60) return firstSentence;
+
+  const cut = firstSentence.slice(0, 40);
+  const lastSpace = cut.lastIndexOf(" ");
+  return `${(lastSpace > 20 ? cut.slice(0, lastSpace) : cut).trim()}…`;
 }
 
 const defaultChatbotBehavior = createDefaultQuestioningChatbotBehavior();
@@ -2143,6 +2153,17 @@ export function QuestioningChatbotBoard() {
                     <span className="ml-2 text-xs">체크하면 학생 화면에는 원문 대신 확인 안내만 표시</span>
                   </span>
                 </label>
+
+                {/* 자동 전환은 조용히 일어나면 안 된다. 교사는 체크를 안 했는데 학생
+                    화면에서 지문이 사라지면 무엇이 잘못됐는지 알 길이 없다. */}
+                {!isReferenceOnlyMaterial &&
+                configuredMaterial.visibleText === REFERENCE_ONLY_QUESTION_MATERIAL_TEXT ? (
+                  <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+                    <b>지금 학생 화면에는 지문이 보이지 않습니다.</b> 자료가 길거나 제목에 &lsquo;교과서·저작권&rsquo;
+                    같은 말이 있어 종이 자료로 보는 방식이 자동으로 켜졌습니다. 학생이 화면에서 읽게 하려면
+                    자료를 줄이거나 제목을 바꿔 주세요.
+                  </p>
+                ) : null}
                 <div className="space-y-2">
                   <Label htmlFor="teacher-notes">질문 자료 전체 내용</Label>
                   <Textarea
