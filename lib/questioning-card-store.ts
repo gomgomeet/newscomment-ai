@@ -382,3 +382,153 @@ export async function updateDialogueCard(cardId: string, dialoguePrompt: string)
     throw new Error(`발문 저장 실패: ${error.message}`);
   }
 }
+
+// ---------------------------------------------------------------------------
+// 학생 질문 기록
+// ---------------------------------------------------------------------------
+
+/**
+ * 학생이 물은 것과 챗봇이 답한 것을 남긴다.
+ *
+ * 목적은 평가가 아니라 **카드를 고치는 것**이다. 지문과 카드로 답하지 못한 질문이
+ * 모이면, 교사는 다음 수업에 그 부분을 카드로 채울 수 있다. 실시간 검색이 매번
+ * 도박인 것과 달리 이건 쌓인다.
+ *
+ * 실명은 저장하지 않는다. `학교_반_번호` 형태의 식별값만 쓴다.
+ */
+export async function recordStudentQuestion(input: {
+  lessonCode?: string;
+  studentKey?: string;
+  rawQuestion: string;
+  questionIntent?: string;
+  answerText?: string;
+  answerable: boolean;
+  missingInformation?: string;
+  usedCardIds?: string[];
+}) {
+  if (!isCardStorageConfigured()) return;
+  if (!input.rawQuestion.trim()) return;
+
+  const supabase = createAdminClient();
+  const lessonCode = input.lessonCode?.trim() || null;
+  const documentId = lessonCode ? await loadLatestDocumentId(lessonCode).catch(() => null) : null;
+
+  const { error } = await supabase.from("questioning_student_questions").insert({
+    document_id: documentId,
+    lesson_code: lessonCode,
+    student_key: input.studentKey?.trim() || null,
+    raw_question: input.rawQuestion.trim().slice(0, 800),
+    normalized_question: input.rawQuestion.trim().replace(/\s+/g, " ").slice(0, 800),
+    question_intent: input.questionIntent ?? null,
+    used_card_ids: input.usedCardIds ?? [],
+    answer_text: (input.answerText ?? "").slice(0, 2000),
+    answerable: input.answerable,
+    missing_information: input.missingInformation ?? null,
+  });
+
+  if (error) {
+    throw new Error(`학생 질문 기록 실패: ${error.message}`);
+  }
+}
+
+export type UnansweredQuestion = {
+  question: string;
+  askedCount: number;
+  questionIntent: string;
+  lastAskedAt: string;
+};
+
+/**
+ * 카드로 답하지 못한 질문을 모아 준다. 같은 뜻의 질문은 하나로 묶어 몇 명이
+ * 물었는지 센다 — 한 아이가 궁금한 것과 반 전체가 궁금한 것은 무게가 다르다.
+ */
+export async function loadUnansweredQuestions(
+  lessonCode: string,
+  limit = 20,
+): Promise<UnansweredQuestion[]> {
+  if (!isCardStorageConfigured()) return [];
+
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("questioning_student_questions")
+    .select("normalized_question, raw_question, question_intent, created_at")
+    .eq("lesson_code", lessonCode)
+    .eq("answerable", false)
+    .order("created_at", { ascending: false })
+    .limit(400);
+
+  if (error) {
+    throw new Error(`학생 질문 조회 실패: ${error.message}`);
+  }
+
+  const grouped = new Map<string, UnansweredQuestion>();
+  (data ?? []).forEach((row) => {
+    // 문장부호와 띄어쓰기만 다른 질문은 같은 질문으로 본다.
+    const key = (row.normalized_question || row.raw_question)
+      .replace(/[\s?？!.,]/g, "")
+      .toLowerCase();
+    if (!key) return;
+
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.askedCount += 1;
+      return;
+    }
+    grouped.set(key, {
+      question: row.raw_question,
+      askedCount: 1,
+      questionIntent: row.question_intent ?? "",
+      lastAskedAt: row.created_at,
+    });
+  });
+
+  return Array.from(grouped.values())
+    .sort((left, right) => right.askedCount - left.askedCount)
+    .slice(0, limit);
+}
+
+/**
+ * 교사가 직접 적어 준 답을 카드로 만든다.
+ *
+ * 이 카드가 가장 확실하다. 지문에서 뽑은 것도, AI가 찾은 것도 아니고 교사가 아이를
+ * 보며 쓴 답이기 때문이다. 그래서 `verified` · confidence 1.0으로 둔다.
+ *
+ * 실시간으로 학생 화면에 밀어 넣지 않는다. 대신 카드로 남으므로 **그다음 질문부터**
+ * 바로 쓰인다 — 같은 수업 중 다른 아이가 같은 것을 물으면 이미 답이 있다.
+ */
+export async function addTeacherAnswerCard(input: {
+  documentId: string;
+  question: string;
+  answer: string;
+}): Promise<SavedCard | null> {
+  const question = input.question.trim();
+  const answer = input.answer.trim();
+  if (!question || !answer) {
+    throw new Error("질문과 답을 모두 적어 주세요.");
+  }
+
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("questioning_thinking_cards")
+    .insert({
+      document_id: input.documentId,
+      card_type: "background",
+      title: question.slice(0, 80),
+      summary: "선생님이 직접 답해 준 내용",
+      content: answer.slice(0, 2000),
+      source_type: "teacher",
+      source_text: question,
+      source_location: "선생님 답변",
+      confidence: 1,
+      knowledge_status: "verified",
+      related_questions: [question],
+      is_enabled: true,
+    })
+    .select(CARD_COLUMNS)
+    .single();
+
+  if (error || !data) {
+    throw new Error(`선생님 답변 저장 실패: ${error?.message ?? "알 수 없는 오류"}`);
+  }
+  return toCard(data as CardRow);
+}

@@ -211,6 +211,14 @@ type CardBuildResult = {
   needsConfirmation: CardConfirmationItem[];
 };
 
+/** 카드로 답하지 못해 교사에게 돌아온 학생 질문. */
+type UnansweredQuestion = {
+  question: string;
+  askedCount: number;
+  questionIntent: string;
+  lastAskedAt: string;
+};
+
 const CARD_CHOICE_MEMORY_KEY = "questioning-card-choices-v1";
 
 /**
@@ -668,6 +676,11 @@ export function QuestioningChatbotBoard() {
   const [cardSelections, setCardSelections] = useState<Record<string, boolean>>({});
   const [cardPrompts, setCardPrompts] = useState<Record<string, string>>({});
   const [isBuildingCards, setIsBuildingCards] = useState(false);
+  // 카드로 답하지 못한 질문. 교사가 답을 적으면 그것이 다시 카드가 된다.
+  const [unansweredQuestions, setUnansweredQuestions] = useState<UnansweredQuestion[]>([]);
+  const [unansweredDocumentId, setUnansweredDocumentId] = useState("");
+  const [teacherAnswers, setTeacherAnswers] = useState<Record<string, string>>({});
+  const [isLoadingQuestions, setIsLoadingQuestions] = useState(false);
   const [teacherVocabulary, setTeacherVocabulary] = useState<MaterialVocabularyEntry[]>(
     defaultLessonMaterial.vocabulary?.map((entry) => ({ ...entry })) ?? [],
   );
@@ -1001,6 +1014,79 @@ export function QuestioningChatbotBoard() {
     };
     setBehavior(nextBehavior);
     return { applied: answerable.length, behavior: nextBehavior };
+  }
+
+  /** 수업 코드로 아이들이 물었는데 카드에 없던 질문을 불러온다. */
+  async function handleLoadUnansweredQuestions() {
+    if (!connectionLessonCode.trim()) {
+      setNotice("먼저 수업 코드를 입력하거나 ④에서 수업 연결을 저장해 주세요.");
+      return;
+    }
+
+    setIsLoadingQuestions(true);
+    try {
+      const response = await fetch(
+        `/api/questioning-board/cards?lessonCode=${encodeURIComponent(connectionLessonCode.trim())}`,
+      );
+      const payload = (await response.json()) as {
+        questions?: UnansweredQuestion[];
+        documentId?: string;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(payload.error || "학생 질문을 불러오지 못했습니다.");
+
+      setUnansweredQuestions(payload.questions ?? []);
+      setUnansweredDocumentId(payload.documentId ?? "");
+      setNotice(
+        payload.questions?.length
+          ? `카드로 답하지 못한 질문 ${payload.questions.length}가지를 찾았습니다.`
+          : "카드로 답하지 못한 질문이 없습니다.",
+      );
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "학생 질문을 불러오지 못했습니다.");
+    } finally {
+      setIsLoadingQuestions(false);
+    }
+  }
+
+  /** 교사가 적은 답을 카드로 만든다. 그다음 질문부터 챗봇이 이 답을 쓴다. */
+  async function handleSaveTeacherAnswers() {
+    const answers = Object.entries(teacherAnswers)
+      .map(([question, answer]) => ({ question, answer: answer.trim() }))
+      .filter((entry) => entry.answer.length > 0);
+
+    if (answers.length === 0) {
+      setNotice("답을 적은 질문이 없습니다.");
+      return;
+    }
+    if (!unansweredDocumentId) {
+      setNotice("먼저 ⑧을 눌러 이 수업의 생각 카드를 만들어 주세요.");
+      return;
+    }
+
+    setIsLoadingQuestions(true);
+    try {
+      const response = await fetch("/api/questioning-board/cards", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          documentId: unansweredDocumentId,
+          setupToken: connectionSetupToken,
+          teacherAnswers: answers,
+        }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "답변을 저장하지 못했습니다.");
+
+      setTeacherAnswers({});
+      setNotice(
+        `답 ${answers.length}개를 카드로 만들었습니다. 다음 질문부터 챗봇이 이 답을 씁니다.`,
+      );
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "답변을 저장하지 못했습니다.");
+    } finally {
+      setIsLoadingQuestions(false);
+    }
   }
 
   async function handleCopyAttendanceSummary() {
@@ -2266,6 +2352,56 @@ export function QuestioningChatbotBoard() {
                 ) : (
                   <p className="text-xs text-muted-foreground">학급 인원을 입력하면 미제출 학생을 찾아 드립니다.</p>
                 )}
+              </div>
+
+              <div className="mt-4 space-y-3 rounded-md border border-border bg-background p-3">
+                <div>
+                  <h3 className="text-sm font-semibold">아이들이 물었는데 카드에 없던 질문</h3>
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    챗봇이 지문과 카드로 답하지 못한 질문입니다. 여기에 답을 적으면 카드가 되어,
+                    <b> 다음 질문부터 챗봇이 그 답을 씁니다.</b> 답을 적지 않은 질문은 학생과 함께 확인할 몫으로 남습니다.
+                  </p>
+                </div>
+
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleLoadUnansweredQuestions}
+                  disabled={isLoadingQuestions}
+                >
+                  {isLoadingQuestions ? (
+                    <RefreshCw className="size-4 animate-spin" aria-hidden="true" />
+                  ) : null}
+                  질문 불러오기
+                </Button>
+
+                {unansweredQuestions.length > 0 ? (
+                  <div className="space-y-3">
+                    {unansweredQuestions.map((item) => (
+                      <div key={item.question} className="space-y-2 rounded-md border border-border p-3">
+                        <p className="text-sm leading-6">
+                          <b>{item.question}</b>
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {item.askedCount > 1 ? `${item.askedCount}명이 물었어요` : "1명"}
+                            {item.questionIntent ? ` · ${item.questionIntent}` : ""}
+                          </span>
+                        </p>
+                        <Textarea
+                          value={teacherAnswers[item.question] ?? ""}
+                          placeholder="아이 눈높이로 답을 적어 주세요. 비워 두면 카드로 만들지 않습니다."
+                          className="min-h-[64px] text-sm"
+                          onChange={(event) =>
+                            setTeacherAnswers((current) => ({ ...current, [item.question]: event.target.value }))
+                          }
+                        />
+                      </div>
+                    ))}
+                    <Button type="button" size="sm" onClick={handleSaveTeacherAnswers} disabled={isLoadingQuestions}>
+                      답을 카드로 만들기
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             </div>
             <div className="overflow-x-auto">

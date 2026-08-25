@@ -15,8 +15,11 @@ import {
 } from "@/lib/questioning-cards";
 import { generateKnowledgeCardsWithGemini } from "@/lib/gemini/questioning-cards";
 import {
+  addTeacherAnswerCard,
   isCardStorageConfigured,
   loadCards,
+  loadLatestDocumentId,
+  loadUnansweredQuestions,
   saveDocumentWithCards,
   updateCardEnabled,
   updateDialogueCard,
@@ -44,6 +47,8 @@ type CardsPatchRequest = {
   disabledCardIds?: unknown;
   /** 교사가 고친 발문 */
   dialogueEdits?: unknown;
+  /** 교사가 학생 질문에 직접 답해 준 것 */
+  teacherAnswers?: unknown;
 };
 
 function optionalText(value: unknown) {
@@ -211,15 +216,55 @@ export async function PATCH(request: Request) {
       await updateDialogueCard(edit.id, edit.dialoguePrompt);
     }
 
+    // 교사가 학생 질문에 직접 답해 준 것은 카드로 남긴다.
+    const teacherAnswers = Array.isArray(body.teacherAnswers)
+      ? body.teacherAnswers
+          .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+          .map((item) => ({ question: optionalText(item.question), answer: optionalText(item.answer) }))
+          .filter((item) => item.question && item.answer)
+      : [];
+    for (const entry of teacherAnswers) {
+      await addTeacherAnswerCard({ documentId, question: entry.question, answer: entry.answer });
+    }
+
     const cards = await loadCards(documentId, { enabledOnly: true });
     return Response.json({
       documentId,
       enabledCount: cards.length,
-      updated: enabledCardIds.length + disabledCardIds.length + dialogueEdits.length,
+      updated: enabledCardIds.length + disabledCardIds.length + dialogueEdits.length + teacherAnswers.length,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "확인 결과를 저장하지 못했습니다.";
     const status = message.includes("암호") ? 403 : 500;
     return Response.json({ error: message }, { status });
+  }
+}
+
+
+/**
+ * 카드로 답하지 못한 학생 질문을 교사에게 돌려준다.
+ *
+ * 실시간 검색 대신 이 길을 택했다. 검색은 매번 도박이지만 이건 쌓인다 —
+ * 수업을 거칠수록 카드가 아이들이 실제로 궁금해하는 쪽으로 자란다.
+ */
+export async function GET(request: Request) {
+  try {
+    const url = new URL(request.url);
+    const lessonCode = optionalText(url.searchParams.get("lessonCode"));
+    if (!lessonCode) {
+      return Response.json({ error: "수업 코드를 입력해 주세요." }, { status: 400 });
+    }
+    if (!isCardStorageConfigured()) {
+      return Response.json({ error: "Supabase 저장소가 설정되어 있지 않습니다." }, { status: 400 });
+    }
+
+    const [questions, documentId] = await Promise.all([
+      loadUnansweredQuestions(lessonCode),
+      loadLatestDocumentId(lessonCode),
+    ]);
+    return Response.json({ lessonCode, documentId, questions });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "학생 질문을 불러오지 못했습니다.";
+    return Response.json({ error: message }, { status: 500 });
   }
 }

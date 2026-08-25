@@ -1,4 +1,5 @@
 import { answerQuestionWithGemini } from "@/lib/gemini/questioning-board";
+import { recordStudentQuestion } from "@/lib/questioning-card-store";
 import {
   loadQuestioningLessonConnection,
   normalizeLessonCode,
@@ -295,6 +296,24 @@ export async function POST(request: Request) {
           warning: "학생의 학교·반·번호가 없어 Notion 결과 DB 저장을 건너뛰었습니다.",
         };
     const recordUnavailable = !notionSave.ok && !("skipped" in notionSave && notionSave.skipped);
+
+    // 카드로 답하지 못한 질문을 남겨 교사가 다음 수업에 채울 수 있게 한다.
+    // 기록에 실패해도 아이와의 대화는 이어져야 하므로 오류를 삼킨다.
+    const answeredFromSource =
+      result.sourceStatus === "supported" || result.sourceStatus === "reasonable_inference";
+    await recordStudentQuestion({
+      lessonCode,
+      studentKey: studentProfile
+        ? `${studentProfile.school}_${studentProfile.classroom}_${studentProfile.number}`
+        : undefined,
+      rawQuestion: question,
+      questionIntent: result.typeLabel,
+      answerText: result.studentReply,
+      answerable: answeredFromSource,
+      missingInformation: answeredFromSource ? undefined : result.sourceStatus,
+    }).catch(() => {
+      // 저장소가 준비되지 않았거나 잠시 끊긴 경우. 수업을 멈출 이유는 아니다.
+    });
 
     return Response.json(
       toStudentChatResponse(result, {

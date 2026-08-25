@@ -473,3 +473,35 @@ typecheck·lint·build 통과.
 결과 DB에 이미 학교_반_번호 · 질문모음 · 챗봇 답변모음 · 루브릭 점수가 쌓이고 있다.
 
 typecheck·lint·build 통과.
+
+## 2026-08-25 6단계 — 학생 질문 기록과 교사 답변 카드
+
+선생님이 "카드에 없는 것은 생성형 AI가 답하면 어떠냐"고 물었고, 실시간 검색 대신
+**기록해서 교사에게 돌려주는 길**을 택했다. 검색은 매번 도박이지만 이건 쌓인다.
+
+### 기록
+`recordStudentQuestion()` — 챗봇 응답 뒤에 매 발화를 남긴다. `sourceStatus`가
+`supported`/`reasonable_inference`면 answerable=true, 아니면 false + 무엇이 모자랐는지.
+실명은 저장하지 않고 `학교_반_번호`만. **기록 실패가 대화를 멈추지 않게** 오류를 삼킨다.
+
+`loadUnansweredQuestions()` — answerable=false만 모아 문장부호·띄어쓰기를 지운 값으로
+같은 질문을 묶고 몇 명이 물었는지 센다. 한 아이가 궁금한 것과 반 전체가 궁금한 것은
+무게가 다르다.
+
+### 교사 답변이 곧 카드
+`addTeacherAnswerCard()` — 교사가 적은 답을 `background` 카드로 저장한다.
+`source_type: "teacher"` · `knowledge_status: "verified"` · confidence 1.0.
+**이 카드가 가장 확실하다** — 지문에서 뽑은 것도 AI가 찾은 것도 아니고 교사가 아이를
+보며 쓴 답이기 때문이다.
+
+실시간으로 학생 화면에 밀어 넣지 않는다. 카드로 남으므로 **그다음 질문부터** 쓰인다 —
+같은 수업 중 다른 아이가 같은 것을 물으면 이미 답이 있다. 수업 중 교사가 답을 타이핑할
+시간이 없다는 현실도 고려했다.
+
+### 화면
+교사용 평가 기록 안에 "아이들이 물었는데 카드에 없던 질문" 패널.
+[질문 불러오기] → 질문마다 답 칸 → [답을 카드로 만들기].
+`GET /api/questioning-board/cards?lessonCode=` / `PATCH`에 `teacherAnswers` 추가.
+
+typecheck·lint·build 통과. **아직 실기로 돌려 보지 못했다** — 카드 저장이 실제로
+되는지 확인한 뒤에 이 경로도 확인해야 한다.
