@@ -881,11 +881,12 @@ export function QuestioningChatbotBoard() {
           // 교사가 이어서 고칠 수 있다.
           const storedMaterial = parsedConfig.material;
           if (storedMaterial && typeof storedMaterial.materialTitle === "string") {
-            if (storedMaterial.materialTitle.trim()) setMaterialTitle(storedMaterial.materialTitle);
+            // 제목은 되살리지 않는다. 옛 제목이 남은 채 새 지문을 붙여넣으면
+            // 새 글에 옛 제목이 붙어 나간다. 비워 두면 ⑧이 본문 첫 줄로 채운다.
             if (typeof storedMaterial.visibleText === "string" && storedMaterial.visibleText.trim()) {
               setTeacherNotes(storedMaterial.visibleText);
             }
-            setMaterial((current) => ({ ...current, ...storedMaterial } as MaterialAnalysis));
+            setMaterial((current) => ({ ...current, ...storedMaterial, materialTitle: "" } as MaterialAnalysis));
           }
           if (typeof parsedConfig.material?.questionFocusMemo === "string") {
             setQuestionFocusMemo(parsedConfig.material.questionFocusMemo);
@@ -2050,7 +2051,7 @@ export function QuestioningChatbotBoard() {
                   id="material-title"
                   value={materialTitle}
                   onChange={(event) => setMaterialTitle(event.target.value)}
-                  placeholder="예: 신문기사 사진, 교과서 지문"
+                  placeholder="제목을 입력해 주세요 (비워 두면 본문 첫 줄로 채워집니다)"
                 />
                 <label className="flex items-start gap-3 rounded-md border border-border bg-background px-3 py-2 text-sm leading-6 text-muted-foreground">
                   <input
