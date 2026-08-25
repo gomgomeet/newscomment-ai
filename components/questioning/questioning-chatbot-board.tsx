@@ -1661,7 +1661,7 @@ export function QuestioningChatbotBoard() {
                   Supabase에 수업 코드를 만들고, 가능하면 Notion 준비 DB에도 기록합니다.
                 </p>
               </div>
-              <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_220px_minmax(240px,auto)]">
+              <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-[minmax(150px,1.1fr)_minmax(130px,1fr)_88px_88px_minmax(110px,0.9fr)_minmax(100px,0.8fr)_auto]">
                 <div className="space-y-2">
                   <Label htmlFor="connection-teacher-label">③ 교사/수업 표시명</Label>
                   <Input
@@ -1684,7 +1684,7 @@ export function QuestioningChatbotBoard() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="connection-classroom">③-2 학년반</Label>
+                  <Label htmlFor="connection-classroom" className="whitespace-nowrap">③-2 학년반</Label>
                   <Input
                     id="connection-classroom"
                     value={classroomName}
@@ -1692,11 +1692,11 @@ export function QuestioningChatbotBoard() {
                       setClassroomName(event.target.value);
                       rememberClassInfo(schoolName, event.target.value, classSize);
                     }}
-                    placeholder="예: 4-2"
+                    placeholder="4-2"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="connection-class-size">③-3 학급 인원</Label>
+                  <Label htmlFor="connection-class-size" className="whitespace-nowrap">③-3 인원</Label>
                   <Input
                     id="connection-class-size"
                     type="number"
@@ -1707,16 +1707,16 @@ export function QuestioningChatbotBoard() {
                       setClassSize(event.target.value);
                       rememberClassInfo(schoolName, classroomName, event.target.value);
                     }}
-                    placeholder="예: 24"
+                    placeholder="24"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="connection-lesson-code">수업 코드</Label>
+                  <Label htmlFor="connection-lesson-code" className="whitespace-nowrap">수업 코드</Label>
                   <Input
                     id="connection-lesson-code"
                     value={connectionLessonCode}
                     onChange={(event) => setConnectionLessonCode(event.target.value)}
-                    placeholder="비워 두면 자동 생성"
+                    placeholder="비우면 자동 생성"
                     autoComplete="off"
                   />
                 </div>
@@ -1734,7 +1734,7 @@ export function QuestioningChatbotBoard() {
                 <div className="flex items-end gap-2">
                   <Button
                     type="button"
-                    className="flex-1"
+                    className="flex-1 whitespace-nowrap"
                     onClick={handleSaveLessonConnection}
                     disabled={isSavingLessonConnection}
                   >
@@ -1745,7 +1745,7 @@ export function QuestioningChatbotBoard() {
                     )}
                     ④ 수업 연결 저장
                   </Button>
-                  <Button type="button" variant="outline" onClick={handleCopyStudentUrl}>
+                  <Button type="button" variant="outline" className="whitespace-nowrap" onClick={handleCopyStudentUrl}>
                     <Copy className="size-4" aria-hidden="true" />
                     링크 복사
                   </Button>
