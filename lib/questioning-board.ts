@@ -2380,7 +2380,17 @@ function quoteSourceSentence(sentence: string) {
   if (/(요|니다)[.!?]?$/.test(trimmed)) return trimmed;
 
   const withoutTrailingPeriod = trimmed.replace(/[.\s]+$/, "");
-  return `자료에는 “${withoutTrailingPeriod}”라고 나와 있어요.`;
+  // 같은 틀이 매 턴 반복되면 기계처럼 들린다. 문장 내용에 따라 표현을 돌려 가며 쓴다.
+  const phrasings = [
+    (sentence: string) => `자료에는 “${sentence}”라고 나와 있어요.`,
+    (sentence: string) => `글에서 “${sentence}”라는 문장을 찾을 수 있어요.`,
+    (sentence: string) => `“${sentence}” — 자료가 이렇게 말하고 있어요.`,
+  ];
+  let hash = 0;
+  for (let index = 0; index < withoutTrailingPeriod.length; index += 1) {
+    hash = (hash * 31 + withoutTrailingPeriod.charCodeAt(index)) % 997;
+  }
+  return phrasings[hash % phrasings.length](withoutTrailingPeriod);
 }
 
 function isUncertainStudentTurn(value: string) {

@@ -232,8 +232,10 @@ export async function POST(request: Request) {
     let result: ChatResult & { model?: string };
 
     if (useApprovedExternalProvider && lessonConnection) {
-      try {
-        result = await answerQuestionWithGemini({
+      // 무료 키는 분당 요청 제한에 자주 걸린다. 한 번 실패했다고 바로 규칙 엔진으로
+      // 떨어지면 대화가 "좋았다 나빴다"를 오간다 — 잠깐 기다렸다 한 번 더 부른다.
+      const callGemini = () =>
+        answerQuestionWithGemini({
           standard: config.standard,
           targetGrade: config.targetGrade,
           subjectUnit: config.subjectUnit,
@@ -246,6 +248,13 @@ export async function POST(request: Request) {
           apiKey: lessonConnection.geminiApiKey,
           model: lessonConnection.geminiModel,
         });
+      try {
+        try {
+          result = await callGemini();
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          result = await callGemini();
+        }
       } catch {
         localFallback = true;
         providerUnavailable = true;
