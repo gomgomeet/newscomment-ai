@@ -38,17 +38,18 @@ QUESTIONING_STUDENT_PROVIDER=approved_gemini
 
 ## 회귀평가
 
-`npm run eval:questioning`은 가상 기사 6개와 합성 학습자 10회기를 사용해 실제 로컬 API 40턴을 재생한다.
+평가 하네스는 가상 기사 15개를 사용한다. 개선에 사용하는 개발 세트 30회기 120턴과, 새 기사·학생 반응으로 구성한 홀드아웃 10회기 40턴을 분리해 실제 로컬 API에 재생한다.
 
 최종 결과:
 
 ```text
-10 sessions
-40 turns
+40 sessions
+160 turns
 0 failures
+0 review flags
 ```
 
-검사 항목은 V2 응답, 빈 응답, 한 턴 최대 한 질문, 내부 정보 비노출, 종료 일관성, 관계 회복, 반복 문장이다.
+검사 항목은 V2 응답, 빈 응답, 한 턴 최대 한 질문, 내부 정보 비노출, 종료 일관성, 관계 회복, 복사 요구, 인과 과장, 반복 문장, 기계적 문구다. 최초 확장 실행의 실패 19건과 검토 플래그 95건을 오류 유형별로 수정한 결과다.
 
 ## 브라우저 확인
 
@@ -60,6 +61,8 @@ QUESTIONING_STUDENT_PROVIDER=approved_gemini
 ## 검증 완료
 
 ```powershell
+npm run eval:questioning:development
+npm run eval:questioning:holdout
 npm run eval:questioning
 npm run lint
 npm run typecheck
@@ -74,6 +77,7 @@ npm run build
 - `docs/QUESTIONING_CHATBOT_10_SESSION_SYNTHETIC_DIALOGUE_EVALUATION.md`
 - `docs/QUESTIONING_CHATBOT_RESEARCH_APPLICATION_PLAN.md`
 - `docs/QUESTIONING_CHATBOT_RESEARCH_APPLICATION_RESULT.md`
+- `docs/QUESTIONING_CHATBOT_30_SESSION_ITERATIVE_LEARNING.md`
 - `docs/QUESTIONING_CHATBOT_PR_SUMMARY.md`
 - `docs/GENERAL_TEACHER_STANDALONE_HTML_CHATBOT_PROMPT.md`
 - `docs/GPT_5_3_CODEX_SPARK_USAGE_GUIDE.md`
@@ -94,13 +98,14 @@ npm run dev
 ## 다음 단계
 
 1. 교사 2명 이상의 블라인드 비교로 자연스러움, 질문 소유권, 적응적 발판, 자료 근거, 종료를 채점한다.
-2. 현재 fixture에 없는 새 기사·교과·학생 유형으로 홀드아웃 평가를 추가한다.
+2. 이번 홀드아웃은 수정 근거로 사용됐으므로 현재 fixture에 없는 새 기사·교과·학생 유형으로 다음 홀드아웃을 만든다.
 3. 제공자 약관, 개인정보, 학교·기관 승인을 확인한 뒤에만 제한적 학생 파일럿을 설계한다.
 4. Notion·Supabase 운영 연결과 수업 코드 만료를 실제 배포 환경에서 통합 시험한다.
 5. 다중 인스턴스 운영 전 메모리 요청 제한을 공유 저장소 기반으로 교체한다.
 
 ## 현재 한계
 
-- 10회기 결과는 시나리오 기반 합성 학습자 다중 턴 형성평가이며 실제 학습 효과 연구가 아니다.
-- 로컬 응답은 평가 기사 6개에 대해 세밀하게 조정되어 새로운 자료의 일반화 확인이 필요하다.
+- 40회기 결과는 시나리오 기반 합성 학습자 다중 턴 형성평가이며 실제 학습 효과 연구가 아니다.
+- 홀드아웃도 한 차례 수정에 사용됐으므로 일반화 성능의 확정치로 해석할 수 없다.
+- 자동평가 질문 턴 비율은 5%다. 교사 평가에서 질문 기회를 지나치게 줄였는지 확인해야 한다.
 - 학생용 외부 LLM은 현재 기본 차단 상태다.

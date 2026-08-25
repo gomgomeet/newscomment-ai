@@ -34,12 +34,15 @@
 
 ## 평가 하네스
 
-- `evals/questioning-chatbot/fixtures/articles.json`: 가상 기사 6개
-- `evals/questioning-chatbot/fixtures/sessions.json`: 합성 학습자 10회기, 40턴
+- `evals/questioning-chatbot/fixtures/articles.json`: 가상 기사 15개
+- `evals/questioning-chatbot/fixtures/sessions.json`: 개선에 사용하는 개발 세트 30회기, 120턴
+- `evals/questioning-chatbot/fixtures/holdout-sessions.json`: 새 기사와 반응으로 구성한 홀드아웃 10회기, 40턴
 - `scripts/run-questioning-dialogue-eval.mjs`: 실제 로컬 API 재생과 구조 검사
-- `npm run eval:questioning`: 대화 회귀평가 명령
+- `npm run eval:questioning:development`: 개발 세트 반복 평가
+- `npm run eval:questioning:holdout`: 홀드아웃 평가
+- `npm run eval:questioning`: 두 세트 전체 평가
 
-최종 자동 평가 결과는 **10회기, 40턴, 실패 0건**이다. 한 응답 최대 한 질문, 내부 정보 비노출, 종료 일관성, 관계 회복 턴의 무질문, 반복 응답 방지를 검사했다.
+최초 확장 실행은 개발 세트에서 실패 19건과 검토 플래그 95건을 발견했다. 오류 유형을 프롬프트와 일반 대화정책에 반영한 뒤 최종 자동 평가 결과는 **전체 40회기, 160턴, 실패 0건, 검토 플래그 0건**이다. 한 응답 최대 한 질문, 내부 정보 비노출, 종료 일관성, 관계 회복, 복사 요구, 인과 과장, 반복 응답, 기계적 문구를 검사했다.
 
 ## 브라우저 검증
 
@@ -50,7 +53,8 @@
 
 ## 명령 검증
 
-- `npm run eval:questioning`: 통과, 10회기 40턴 0 failures
+- `npm run eval:questioning`: 통과, 40회기 160턴 0 failures, 0 review flags
+- `npm run eval:questioning:holdout`: 통과, 10회기 40턴 0 failures, 0 review flags
 - `npm run lint`: 통과
 - `npm run typecheck`: 통과
 - `npm run build`: 통과
@@ -64,6 +68,7 @@
 - `docs/QUESTIONING_CHATBOT_10_SESSION_SYNTHETIC_DIALOGUE_EVALUATION.md`: 초기 10회기 형성평가와 발견점
 - `docs/QUESTIONING_CHATBOT_RESEARCH_APPLICATION_PLAN.md`: 파일별 적용 설계와 출시 기준
 - `docs/QUESTIONING_CHATBOT_RESEARCH_APPLICATION_RESULT.md`: 실제 구현, 40턴 결과, 브라우저 검증, 한계
+- `docs/QUESTIONING_CHATBOT_30_SESSION_ITERATIVE_LEARNING.md`: 합성 학생 30회기 반복 개선, 홀드아웃 10회기, 지속 학습 운영 원칙
 - `docs/GPT_5_3_CODEX_SPARK_USAGE_GUIDE.md`: Codex Spark를 개발 반복 도구로 사용하는 방법
 - `docs/QUESTIONING_CHATBOT_PRD.md`: 현재 V2 대화정책과 학생용 제공자 경계
 - `docs/GENERAL_TEACHER_STANDALONE_HTML_CHATBOT_PROMPT.md`: 일반 교사가 수업 정보만 바꿔 단일 HTML 질문 챗봇을 만드는 복사형 프롬프트
@@ -71,7 +76,8 @@
 ## 남은 위험과 후속 작업
 
 - 합성 학습자 평가는 실제 학생 사용성이나 학습 효과 검증을 대신하지 않는다.
-- 새 기사와 새 교과를 사용하는 홀드아웃 평가가 필요하다.
+- 이번 홀드아웃은 오류 수정에 한 번 사용됐으므로 다음 개선 주기에는 완전히 새로운 홀드아웃이 필요하다.
+- 자동평가의 질문 턴 비율은 5%로 낮다. 질문을 억지로 늘리기보다 교사 블라인드 채점으로 필요한 질문까지 줄었는지 확인해야 한다.
 - 교사 2명 이상의 블라인드 비교로 자연스러움, 질문 소유권, 적응적 발판, 자료 근거, 종료를 채점해야 한다.
 - 학생용 외부 LLM은 제공자 약관, 개인정보, 학교·기관 승인을 완료하기 전까지 기본 차단 상태를 유지한다.
 - 현재 요청 제한은 단일 인스턴스 메모리 기반이므로 실제 다중 인스턴스 운영 전 공유 저장소 기반으로 교체한다.

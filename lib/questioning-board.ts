@@ -1114,7 +1114,10 @@ export function classifyQuestionLocally(
 
   const unsafeAnswerRequest =
     /(답안|수행평가|숙제|정답|답을다|전체답|그대로).*(써|작성|만들|대신|해줘)/.test(compact) ||
-    /(써줘|작성해줘|만들어줘|대신해줘)/.test(compact) && /(답|문장|수행평가|숙제)/.test(compact);
+    /(소개문|문단|예시|완성본).*(다|전체|그대로|완성|대신).*(써|작성|만들|보여|줘)/.test(compact) ||
+    /(번역앱처럼|복사안할).*(문단|전체|완성|만들|보여)/.test(compact) ||
+    (/(써줘|작성해줘|만들어줘|대신해줘|보여줘)/.test(compact) &&
+      /(답|문장|문단|소개문|수행평가|숙제|예시)/.test(compact));
 
   if (unsafeAnswerRequest || keywords.safety.some((signal) => normalized.includes(signal.toLowerCase()))) {
     return "safety";
@@ -1601,15 +1604,95 @@ function keepAtMostOneQuestion(value: string) {
   });
 }
 
-function recentTurnsMatch(
-  conversation: QuestioningConversationEntry[],
-  role: QuestioningConversationEntry["role"],
-  pattern: RegExp,
-) {
-  return conversation
-    .filter((entry) => entry.role === role)
-    .slice(-4)
-    .filter((entry) => pattern.test(entry.content)).length;
+function isClosingStudentTurn(value: string) {
+  const compact = value.toLowerCase().replace(/\s+/g, "");
+  return /(네|응|아|오케이|ㅇㅋ)?(이제)?(됐어요|됐어|알겠어요|알겠어|알겠음그만|알겠음|그만할래|그만할게요|그만할게|끝낼래|끝낼게요|끝낼게|여기까지만할게요|여기까지만할게|여기까지만|안할래|쉬고싶|ㅇㅋ이제끝|ㅇㅋ끝|그만)([.!?？]|$)/.test(
+    compact,
+  );
+}
+
+function isRepairStudentTurn(value: string) {
+  const compact = value.toLowerCase().replace(/\s+/g, "");
+  return /(왜자꾸|자꾸물어|그만물어|질문이너무|부담스러|부담돼|재촉|싫다고|안된다고|계속틀렸|또근거|제가다찾|내가다찾|설명만|양쪽다맞다고만)/.test(
+    compact,
+  );
+}
+
+function firstSourceSentence(value: string, maxLength = 150) {
+  const protectedValue = value.replace(/(\d)\.(\d)/g, "$1<decimal>$2");
+  const first = (protectedValue.match(/[^.!?]+[.!?]?/)?.[0] || protectedValue)
+    .replace(/<decimal>/g, ".")
+    .trim();
+  return first.length > maxLength ? `${first.slice(0, maxLength - 3).trim()}...` : first;
+}
+
+function bestSourceSentence(value: string, studentTurn: string, maxLength = 165) {
+  const sentences = value
+    .replace(/(\d)\.(\d)/g, "$1<decimal>$2")
+    .match(/[^.!?]+[.!?]?/g)
+    ?.map((sentence) => sentence.replace(/<decimal>/g, ".").trim())
+    .filter(Boolean);
+  if (!sentences?.length) return firstSourceSentence(value, maxLength);
+
+  const terms = (studentTurn.match(/[가-힣A-Za-z0-9]+/g) || [])
+    .map(normalizeSearchToken)
+    .filter((term) => term.length >= 2 && !questionSearchStopwords.has(term));
+  const scored = sentences.map((sentence, index) => {
+    const compactSentence = sentence.toLowerCase().replace(/\s+/g, "");
+    const score = terms.reduce(
+      (total, term) => total + (compactSentence.includes(term.replace(/\s+/g, "")) ? Math.min(term.length, 6) : 0),
+      0,
+    );
+    return { sentence, index, score };
+  });
+  const best = scored.reduce((current, candidate) => (candidate.score > current.score ? candidate : current));
+  const selected = best.score > 0 ? best.sentence : sentences[0];
+  return selected.length > maxLength ? `${selected.slice(0, maxLength - 3).trim()}...` : selected;
+}
+
+function isUncertainStudentTurn(value: string) {
+  const normalized = value.trim();
+  return (
+    /^(그래도\s*)?(잘\s*)?(모르겠는데요|모르겠어|모르겠어요|모르겠|몰라요|몰라)([.!?？]|$)/.test(normalized) ||
+    /(글쎄|그냥\s*그런|생각\s*안\s*나|어려워|뭘\s*보|무슨\s*말)/.test(normalized)
+  );
+}
+
+function sourceLimitationCue(material: MaterialAnalysis) {
+  const source = `${material.summary}\n${material.visibleText}`;
+  const sentences = source
+    .replace(/(\d)\.(\d)/g, "$1<decimal>$2")
+    .match(/[^.!?]+[.!?]?/g)
+    ?.map((sentence) => sentence.replace(/<decimal>/g, ".").trim())
+    .filter(Boolean);
+  const limitation = sentences?.find((sentence) =>
+    /(다만|하지만|그러나|반면|달랐|같지|확인하지|확인하지 못|알 수 없|하나뿐|하나씩|따로 조사|아직 조사|전문가.*없|비교하지)/.test(
+      sentence,
+    ),
+  );
+  return firstSourceSentence(limitation || material.summary, 170);
+}
+
+function sourceActionCue(material: MaterialAnalysis) {
+  const source = `${material.visibleText}\n${material.summary}`;
+  const sentences = source
+    .replace(/(\d)\.(\d)/g, "$1<decimal>$2")
+    .match(/[^.!?]+[.!?]?/g)
+    ?.map((sentence) => sentence.replace(/<decimal>/g, ".").trim())
+    .filter(Boolean);
+  const action = sentences?.find((sentence) =>
+    /(제안|방법|하기로|할 수 있|교사에게 말|알리|조절|운영|반복|같게 해야)/.test(sentence),
+  );
+  return action ? firstSourceSentence(action, 180) : "";
+}
+
+function compactStudentIdea(value: string) {
+  return value
+    .replace(/[?？.!]/g, "")
+    .replace(/^(근데|그런데|그러면|그럼|그래도)(?:\s+|[,，]\s*)?/g, "")
+    .replace(/^아(?:\s+|[,，]\s*)/g, "")
+    .trim()
+    .slice(0, 42);
 }
 
 function avoidRepeatedStudentReply(
@@ -1626,9 +1709,22 @@ function avoidRepeatedStudentReply(
     return reply;
   }
 
-  return sourceCue
-    ? `같은 말을 되풀이하지 않을게요. 이번에는 ${sourceCue} 이 부분만 천천히 살펴봐도 충분해요.`
-    : "같은 말을 되풀이하지 않을게요. 방금 떠올린 생각을 그대로 두고 잠시 쉬어도 괜찮아요.";
+  const conciseCue = firstSourceSentence(sourceCue, 120);
+  const alternatives = conciseCue
+    ? [
+        `앞에서 한 말을 반복하지 않을게요. 핵심은 ${conciseCue}`,
+        `이번에는 한 가지만 짚을게요. ${conciseCue}`,
+        `네가 방금 말한 내용을 이어 보면 ${conciseCue}`,
+      ]
+    : [
+        "앞에서 한 말을 반복하지 않을게요. 방금 떠올린 생각을 그대로 두어도 괜찮아요.",
+        "이번에는 설명을 더 붙이지 않을게요. 네 생각을 잠시 그대로 두어도 돼요.",
+      ];
+
+  return (
+    alternatives.find((candidate) => !recentAssistantTurns.includes(candidate)) ||
+    "앞에서 한 말을 되풀이하지 않고 여기서 잠시 멈출게요."
+  );
 }
 
 type NaturalLocalTurn = {
@@ -1639,6 +1735,289 @@ type NaturalLocalTurn = {
   sourceStatus: SourceStatus;
   supportLevel: 0 | 1 | 2 | 3 | 4;
 };
+
+function withoutLeadingConnector(value: string) {
+  return value.replace(/^(다만|하지만|그러나|반면)\s*/g, "").trim();
+}
+
+function createGeneralNaturalTurn({
+  studentTurn,
+  material,
+  sourceCue,
+  questionType,
+  conversation,
+}: {
+  studentTurn: string;
+  material: MaterialAnalysis;
+  sourceCue: string;
+  questionType: QuestionType;
+  conversation: QuestioningConversationEntry[];
+}): NaturalLocalTurn {
+  const compactTurn = studentTurn.toLowerCase().replace(/\s+/g, "");
+  const source = `${material.materialTitle}\n${material.summary}\n${material.visibleText}`;
+  const compactSource = source.toLowerCase().replace(/\s+/g, "");
+  const cue = bestSourceSentence(sourceCue || material.summary, studentTurn, 165);
+  const limitation = withoutLeadingConnector(sourceLimitationCue(material));
+  const studentIdea = compactStudentIdea(studentTurn);
+  const recentStudentTurns = conversation
+    .filter((entry) => entry.role === "student")
+    .slice(-3)
+    .map((entry) => entry.content);
+  const recentAssistantText = conversation
+    .filter((entry) => entry.role === "assistant")
+    .slice(-2)
+    .map((entry) => entry.content)
+    .join(" ");
+  const followsCopyingRequest = recentStudentTurns.some((entry) =>
+    /(답|숙제|수행평가|소개문|문단|예시).*(다써|전체|완성|그대로|대신|만들어|보여)/.test(
+      entry.replace(/\s+/g, ""),
+    ),
+  );
+  const asksForMethod = /(어떻게).*(조사|실험|확인|비교)|다시.*(재|실험|조사)|같은조건/.test(
+    compactTurn,
+  );
+  const asksForPracticalAction = /(어떻게해야|어떻게하면|무슨방법|방법이있|할수있겠|하면되겠|바꾸면되겠)/.test(
+    compactTurn,
+  );
+  const asksIfNoEffect = /(아무효과|효과도없|소용없|아무소용|다거짓|전부거짓|아무의미)/.test(
+    compactTurn,
+  );
+  const falseDilemma = /(그럼|그러면).*(아예|다시|안|어둡|없애|금지).*(해야|돼|나아)/.test(compactTurn);
+  const causalOverclaim = /(때문|덕분|원인이맞|무조건|정확히|최고|best|둘다.*(줄|늘)|(줄|늘).*(줄|늘).*(잖|니까|뜻)|(신고|수치|값).*(뜻|원인)|줄어서|늘어서|(해서|어서|아서).*(줄|늘|좋아))/.test(
+    compactTurn,
+  );
+  const noticesCompetingFactor = /(도같이|도함께|도영향|도달랐|도다르|다르게|뿐이었|하나뿐|였네요|이었네요|있었네요|구나|군요)/.test(
+    compactTurn,
+  );
+  const asksAboutSmallSample = /(하나면왜|하나뿐|한개면왜|왜부족|몇개|여러개|세개씩|여러번씩)/.test(compactTurn);
+  const selfRevision = /(생각.*달라|생각.*바뀌|수있다고만|확정.*못|기준이네요|제생각이|였네요|이었네요|아그건|지도몰라|수도있|보면괜찮)/.test(
+    compactTurn,
+  );
+  const moralJudgment = /(나쁜사람|잘못한사람|나쁜건가|잘못인가)/.test(compactTurn);
+  const emotionalOrPosition = /(불쌍|무서|아프|싫|걱정|불편|반대|중요|좋을것|좋다고|예쁠|화내|편리|돈이들|떨어뜨)/.test(
+    compactTurn,
+  );
+  const asksWhetherSourceSays = /(기사|자료).*(나와|있어|말해|써있)/.test(compactTurn);
+  const givesOwnStartingIdea =
+    followsCopyingRequest && /(저는|나는|제가|내가).*(쓰고싶|말하고싶|좋아|했어요|할머니|축구)/.test(studentTurn);
+  const asksForFirstSentence = followsCopyingRequest && /(첫문장|시작문장|한문장만)/.test(compactTurn);
+
+  if (givesOwnStartingIdea) {
+    return {
+      reply: `“${studentIdea}”라는 네 생각이 이미 글의 시작점이에요. 먼저 그 뜻을 네가 아는 말로 짧게 적고, 막히는 낱말만 도구로 확인하면 네 글을 지킬 수 있어요.`,
+      primaryMove: "follow_student_lead",
+      engagementState: "personally_connecting",
+      curriculumRelation: "productive_extension",
+      sourceStatus: "reasonable_inference",
+      supportLevel: 1,
+    };
+  }
+
+  if (asksForFirstSentence) {
+    return {
+      reply:
+        "첫 문장을 대신 완성하기보다 네가 소개하고 싶은 내용을 한국어로 한 줄 먼저 적어 보세요. 그다음 아는 영어 낱말을 붙이면 필요한 표현만 골라 도울 수 있어요.",
+      primaryMove: "offer_clue",
+      engagementState: "revising_thought",
+      curriculumRelation: "productive_extension",
+      sourceStatus: "reasonable_inference",
+      supportLevel: 2,
+    };
+  }
+
+  if (moralJudgment) {
+    return {
+      reply: `사람 전체를 나쁘다고 정할 필요는 없어요. ${cue} 행동이 미치는 영향과 그때의 사정을 나누어 보고, 가능한 선택을 차분히 이야기하는 편이 더 좋아요.`,
+      primaryMove: "receive",
+      engagementState: "personally_connecting",
+      curriculumRelation: "productive_extension",
+      sourceStatus: "reasonable_inference",
+      supportLevel: 1,
+    };
+  }
+
+  if (asksForMethod) {
+    return {
+      reply: `${limitation} 더 분명히 알려면 비교하려는 한 조건만 바꾸고 나머지 조건을 같게 하거나, 같은 조사를 여러 번 반복해 결과를 비교하면 좋아요.`,
+      primaryMove: "offer_clue",
+      engagementState: "seeking_evidence",
+      curriculumRelation: "direct",
+      sourceStatus: "reasonable_inference",
+      supportLevel: 2,
+    };
+  }
+
+  if (asksForPracticalAction) {
+    const actionCue = sourceActionCue(material);
+    return {
+      reply: actionCue
+        ? `${actionCue} 이 제안처럼 자료에 나온 불편을 줄이는 절차를 먼저 정해 두면 돼요.`
+        : `${cue} 이 조건을 바꾸지 않으면서 불편을 줄일 수 있는 작은 방법부터 시험해 보면 좋아요.`,
+      primaryMove: "offer_clue",
+      engagementState: "exploring_possibilities",
+      curriculumRelation: "productive_extension",
+      sourceStatus: actionCue ? "supported" : "reasonable_inference",
+      supportLevel: 1,
+    };
+  }
+
+  if (asksAboutSmallSample) {
+    const followsSampleExplanation = recentAssistantText.includes("같은 조건의 대상을 여러 개");
+    return {
+      reply: followsSampleExplanation
+        ? "네, 조건마다 화분을 세 개씩 두는 것은 좋은 다음 단계예요. 빛의 색만 다르게 하고 물의 양과 온도 같은 나머지 조건은 같게 해야 공정하게 비교할 수 있어요."
+        : "하나의 결과에는 그 대상만의 차이나 우연이 섞일 수 있어요. 같은 조건의 대상을 여러 개 두고 비슷한 결과가 반복되는지 보면 원인을 더 조심스럽게 판단할 수 있어요.",
+      primaryMove: "clarify",
+      engagementState: "seeking_evidence",
+      curriculumRelation: "direct",
+      sourceStatus: "reasonable_inference",
+      supportLevel: 2,
+    };
+  }
+
+  if (asksIfNoEffect) {
+    return {
+      reply: `효과가 전혀 없었다는 뜻도 아니에요. ${cue} 다만 ${limitation} 가능성은 남겨 두되 한 가지 원인으로 확정하지 않는 것이 정확해요.`,
+      primaryMove: "compare_possibilities",
+      engagementState: "exploring_possibilities",
+      curriculumRelation: "direct",
+      sourceStatus: "reasonable_inference",
+      supportLevel: 1,
+    };
+  }
+
+  if (falseDilemma) {
+    const actionCue = sourceActionCue(material);
+    return {
+      reply: `꼭 지금 방법을 그대로 두거나 완전히 없애는 두 가지 중에서만 고를 필요는 없어요. ${actionCue || limitation} 좋은 점은 남기고 불편을 줄이는 조정안을 생각할 수 있어요.`,
+      primaryMove: "compare_possibilities",
+      engagementState: "exploring_possibilities",
+      curriculumRelation: "productive_extension",
+      sourceStatus: actionCue ? "supported" : "reasonable_inference",
+      supportLevel: 1,
+    };
+  }
+
+  if (causalOverclaim) {
+    const repeatedCausalFrame = recentAssistantText.includes("두 변화가 함께 나타난 것은");
+    return {
+      reply: repeatedCausalFrame
+        ? `함께 줄거나 늘었다는 사실만으로 원인까지 정해지지는 않아요. ${limitation} 그래서 다른 조건을 함께 남겨 두어야 해요.`
+        : `두 변화가 함께 나타난 것은 자료에서 확인돼요. ${limitation} 그래서 “${studentIdea}”라고 한 가지 원인으로 단정할 수는 없어요.`,
+      primaryMove: "compare_possibilities",
+      engagementState: "exploring_possibilities",
+      curriculumRelation: "direct",
+      sourceStatus: "reasonable_inference",
+      supportLevel: 1,
+    };
+  }
+
+  if (asksWhetherSourceSays) {
+    const queryTerms = (studentTurn.match(/[가-힣A-Za-z0-9]+/g) || [])
+      .map(normalizeSearchToken)
+      .filter(
+        (term) =>
+          term.length >= 2 &&
+          !questionSearchStopwords.has(term) &&
+          !["기사", "자료", "나와", "있어", "말해", "써있"].includes(term),
+      );
+    const missingTerm = queryTerms.find((term) => !compactSource.includes(term.replace(/\s+/g, "")));
+    return {
+      reply: missingTerm
+        ? `${cue} 이 내용까지는 확인되지만 '${missingTerm}'에 해당하는 일은 자료에 직접 나오지 않아요. 그 부분은 네가 떠올린 가능성으로 구분하면 돼요.`
+        : `${cue} 이 내용은 자료에서 확인할 수 있어요. 자료가 말한 범위보다 더 넓게 단정하지 않으면 돼요.`,
+      primaryMove: "clarify",
+      engagementState: "seeking_evidence",
+      curriculumRelation: "direct",
+      sourceStatus: missingTerm ? "source_insufficient" : "supported",
+      supportLevel: 1,
+    };
+  }
+
+  if (selfRevision || noticesCompetingFactor) {
+    const proposesCompromise = /(멀리서|조금만|필요할때|나누어|번갈아|방향을|아래쪽)/.test(compactTurn);
+    return {
+      reply: proposesCompromise
+        ? `“${studentIdea}”는 네가 스스로 찾은 조정안이네요. 한쪽의 좋은 점을 남기면서 걱정되는 점을 줄이는 방법이에요.`
+        : `“${studentIdea}”라는 점을 새로 함께 봤군요. ${limitation} 처음 생각을 버린 것이 아니라, 근거를 더 보고 단정을 줄인 거예요.`,
+      primaryMove: "receive",
+      engagementState: "revising_thought",
+      curriculumRelation: "direct",
+      sourceStatus: "reasonable_inference",
+      supportLevel: 0,
+    };
+  }
+
+  if (emotionalOrPosition) {
+    const repeatedEmotionFrame = recentAssistantText.includes("생각이나 느낌이 분명하네요");
+    const seesPositiveSide = /(예쁘|좋을|좋아|기대)/.test(compactTurn);
+    return {
+      reply: repeatedEmotionFrame
+        ? seesPositiveSide
+          ? `걱정되는 마음과 “${studentIdea}”라는 기대가 함께 있군요. 둘 중 하나를 지우지 않고 두 마음을 모두 고려해도 돼요.`
+          : `“${studentIdea}”라고 느끼는 데에는 이유가 있네요. 자료의 장점을 이야기할 때도 네 걱정을 없는 것처럼 다루지는 않을게요.`
+        : `“${studentIdea}”라는 네 생각이나 느낌이 분명하네요. ${cue} 자료의 다른 조건을 인정하더라도 네가 중요하게 본 기준은 그대로 말할 수 있어요.`,
+      primaryMove: "follow_student_lead",
+      engagementState: "personally_connecting",
+      curriculumRelation: "productive_extension",
+      sourceStatus: "reasonable_inference",
+      supportLevel: 0,
+    };
+  }
+
+  if (questionType === "extension") {
+    return {
+      reply: `“${studentIdea}”라는 궁금증은 자료에서 한 걸음 더 나아간 생각이에요. ${cue} 이 연결은 남겨 두되, 자료 밖의 사실은 추가 출처를 확인하기 전까지 단정하지 않을게요.`,
+      primaryMove: "productive_extension",
+      engagementState: "curious",
+      curriculumRelation: "productive_extension",
+      sourceStatus: "source_insufficient",
+      supportLevel: 1,
+    };
+  }
+
+  if (questionType === "inference") {
+    return {
+      reply: `${cue} 이 근거로 한 가지 가능성은 설명할 수 있어요. 다만 ${limitation} 자료가 확인한 범위와 우리가 추론한 부분은 나누어 말하는 게 좋아요.`,
+      primaryMove: "compare_possibilities",
+      engagementState: "exploring_possibilities",
+      curriculumRelation: "direct",
+      sourceStatus: "reasonable_inference",
+      supportLevel: 1,
+    };
+  }
+
+  if (questionType === "application") {
+    return {
+      reply: `“${studentIdea}”처럼 네 상황에 연결한 점이 중요해요. ${cue} 자료의 방법을 그대로 복사하기보다 네 상황에서 달라지는 조건을 함께 보면 돼요.`,
+      primaryMove: "follow_student_lead",
+      engagementState: "personally_connecting",
+      curriculumRelation: "productive_extension",
+      sourceStatus: "reasonable_inference",
+      supportLevel: 1,
+    };
+  }
+
+  if (questionType === "reflection") {
+    return {
+      reply: `“${studentIdea}”라고 생각이 달라진 데에는 자료를 다시 본 근거가 있네요. 지금처럼 처음 판단과 새로 발견한 조건을 함께 남기면 생각의 변화가 잘 보여요.`,
+      primaryMove: "receive",
+      engagementState: "revising_thought",
+      curriculumRelation: "direct",
+      sourceStatus: "reasonable_inference",
+      supportLevel: 0,
+    };
+  }
+
+  return {
+    reply: `“${studentIdea}”라고 짚었군요. ${cue}`,
+    primaryMove: "receive",
+    engagementState: "noticing",
+    curriculumRelation: "direct",
+    sourceStatus: "supported",
+    supportLevel: 0,
+  };
+}
 
 function createNaturalLocalTurn(studentTurn: string, material: MaterialAnalysis): NaturalLocalTurn | null {
   const compactTurn = studentTurn.replace(/\s+/g, "");
@@ -2055,19 +2434,26 @@ export function createLocalQuestionResult({
   });
   const compactTurn = turn.replace(/\s+/g, "");
   const sourceCue = findRelevantSourceExcerpt(turn, material, /[?？]/.test(turn));
-  const shortSourceCue = sourceCue.length > 120 ? `${sourceCue.slice(0, 117).trim()}...` : sourceCue;
-  const closingPattern = /(이제)?(됐어요|됐어|알겠어요|알겠어|그만할래|그만할게|끝낼래|끝낼게|종료|안\s*할래|쉬고\s*싶)/;
-  const repairPattern = /(왜자꾸|자꾸물어|그만물어|질문이너무|부담스러|부담돼|재촉|싫다고|안된다고)/;
-  const uncertainPattern = /(잘모르|모르겠|몰라|글쎄|그냥그런|생각안|어려워)/;
-  const isClosing = closingPattern.test(compactTurn);
-  const needsRepair = repairPattern.test(compactTurn);
-  const isUncertain = uncertainPattern.test(compactTurn) || compactTurn.length <= 3;
+  const shortSourceCue = firstSourceSentence(sourceCue, 115);
+  const isClosing = isClosingStudentTurn(turn);
+  const recentStudentNeedsRepair = conversation
+    .filter((entry) => entry.role === "student")
+    .slice(-2)
+    .some((entry) => isRepairStudentTurn(entry.content));
+  const needsRepair =
+    isRepairStudentTurn(turn) || (recentStudentNeedsRepair && /(설명|제가\s*다|내가\s*다)/.test(turn));
+  const isUncertain = isUncertainStudentTurn(turn) || compactTurn.length <= 3;
   const repeatedUncertainty =
-    isUncertain && recentTurnsMatch(conversation, "student", uncertainPattern) >= 1;
+    isUncertain &&
+    conversation
+      .filter((entry) => entry.role === "student")
+      .slice(-4)
+      .some((entry) => isUncertainStudentTurn(entry.content));
   const recentAssistantTurns = conversation.filter((entry) => entry.role === "assistant").slice(-2);
   const allowQuestion =
     !isClosing &&
     !needsRepair &&
+    !repeatedUncertainty &&
     recentAssistantTurns.filter((entry) => hasQuestionEnding(entry.content)).length < 2;
   const asksBoardCaution =
     legacy.questionType === "application" &&
@@ -2075,6 +2461,14 @@ export function createLocalQuestionResult({
     /(조심|주의|문제|부담|비교|순위|창피)/.test(compactTurn);
   const asksTitlePrediction = isTitlePredictionQuestion(turn);
   const naturalTurn = createNaturalLocalTurn(turn, material);
+  const generalTurn = createGeneralNaturalTurn({
+    studentTurn: turn,
+    material,
+    sourceCue,
+    questionType: legacy.questionType,
+    conversation,
+  });
+  const hasPrivateInformation = /(전화번호|주소|비밀번호|주민번호|이름은|이름이|사진)/.test(turn);
 
   let primaryMove: PrimaryMove;
   let engagementState: EngagementState;
@@ -2089,8 +2483,9 @@ export function createLocalQuestionResult({
     curriculumRelation = "disconnected";
     sourceStatus = "out_of_scope";
     supportLevel = 2;
-    studentReply =
-      "그 내용에는 개인정보나 대신 써 달라는 요청이 섞일 수 있어요. 이름과 연락처 같은 정보는 빼고, 자료에서 확인하고 싶은 내용만 말해 줄래요?";
+    studentReply = hasPrivateInformation
+      ? "이름과 전화번호 같은 개인정보는 대화에 남기지 않는 게 좋아요. 그 정보는 빼고 '급한 연락이 필요한 학생'처럼 상황만 말하면 충분해요."
+      : "완성된 답이나 문단을 대신 써 주지는 않을게요. 네가 말하고 싶은 내용 한 가지를 먼저 정하면, 시작할 수 있는 작은 단계나 필요한 표현을 도울 수 있어요.";
   } else if (isClosing) {
     primaryMove = "close";
     engagementState = "ready_to_close";
@@ -2105,8 +2500,12 @@ export function createLocalQuestionResult({
     curriculumRelation = "direct";
     sourceStatus = "supported";
     supportLevel = 0;
-    studentReply =
-      "맞아요. 제가 계속 확인하라고 해서 부담스러웠겠어요. 이번에는 질문하지 않을게요. 방금 말한 생각은 그대로 두어도 괜찮아요.";
+    const repeatedRepair = recentAssistantTurns.some((entry) => /제가 계속 확인|양쪽 이야기/.test(entry.content));
+    studentReply = /설명/.test(compactTurn)
+      ? `알겠어요. 이번에는 질문 없이 핵심만 설명할게요. ${shortSourceCue}`
+      : repeatedRepair
+        ? "네가 혼자 다 찾아야 하는 것처럼 느껴졌겠어요. 이번에는 제가 먼저 핵심을 설명하고 질문은 멈출게요."
+        : "맞아요. 제가 계속 확인하거나 양쪽 이야기만 되풀이해서 답답했겠어요. 이번에는 질문하지 않고 네가 말한 생각을 그대로 받아 둘게요.";
   } else if (legacy.questionType === "off_topic") {
     primaryMove = "clarify";
     engagementState = "noticing";
@@ -2122,9 +2521,11 @@ export function createLocalQuestionResult({
     curriculumRelation = "adjacent";
     sourceStatus = sourceCue ? "supported" : "source_insufficient";
     supportLevel = repeatedUncertainty ? 3 : 2;
-    studentReply = allowQuestion
-      ? `괜찮아요. 바로 답을 정하지 않아도 돼요. 자료에는 ${shortSourceCue} 이 부분이 보여요. 여기서는 '방법'과 '결과' 중 어느 쪽이 더 눈에 들어와요?`
-      : `괜찮아요. 바로 답을 정하지 않아도 돼요. 이번에는 ${shortSourceCue} 이 부분만 천천히 읽어도 충분해요.`;
+    studentReply = repeatedUncertainty
+      ? `질문을 더 보태지 않을게요. 이번에는 ${shortSourceCue} 이 한 가지 단서만 보면 돼요.`
+      : allowQuestion
+        ? `바로 답을 정하지 않아도 돼요. ${shortSourceCue} 여기서는 변화한 결과와 그 까닭 중 어느 쪽이 먼저 보여요?`
+        : `바로 답을 정하지 않아도 돼요. 이번에는 ${shortSourceCue} 이 한 가지 단서만 보면 충분해요.`;
   } else if (naturalTurn) {
     primaryMove = naturalTurn.primaryMove;
     engagementState = naturalTurn.engagementState;
@@ -2132,15 +2533,6 @@ export function createLocalQuestionResult({
     sourceStatus = naturalTurn.sourceStatus;
     supportLevel = naturalTurn.supportLevel;
     studentReply = naturalTurn.reply;
-  } else if (legacy.questionType === "extension") {
-    primaryMove = "productive_extension";
-    engagementState = "curious";
-    curriculumRelation = "productive_extension";
-    sourceStatus = "source_insufficient";
-    supportLevel = 1;
-    studentReply = allowQuestion
-      ? `그 궁금증은 자료에서 한 걸음 더 나아간 생각이에요. 자료만으로 단정할 수는 없지만, ${sourceCue} 이 부분과 이어서 살펴볼 수 있어요. 자료와 가장 닿아 있다고 느낀 부분은 어디예요?`
-      : `그 궁금증은 자료에서 한 걸음 더 나아간 생각이에요. 자료만으로 단정하지 않고, ${sourceCue} 이 부분과 이어서 두면 좋아요.`;
   } else if (asksBoardCaution) {
     primaryMove = "follow_student_lead";
     engagementState = "personally_connecting";
@@ -2160,35 +2552,12 @@ export function createLocalQuestionResult({
       ? `${createTitlePredictionAnswer(turn, material)} 처음 예상과 실제 내용에서 달랐던 점이 있었나요?`
       : createTitlePredictionAnswer(turn, material);
   } else {
-    curriculumRelation = "direct";
-    sourceStatus = legacy.questionType === "inference" ? "reasonable_inference" : "supported";
-    supportLevel = compactTurn.length > 28 ? 0 : 1;
-
-    if (legacy.questionType === "application") {
-      primaryMove = "follow_student_lead";
-      engagementState = "personally_connecting";
-      studentReply = allowQuestion
-        ? `${legacy.answer} 네가 떠올린 상황에서는 무엇을 조금 바꾸면 잘 맞을까요?`
-        : `${legacy.answer} 네가 떠올린 상황과 연결한 점이 좋아요.`;
-    } else if (legacy.questionType === "reflection") {
-      primaryMove = "receive";
-      engagementState = "revising_thought";
-      studentReply = allowQuestion
-        ? `${legacy.answer} 처음 생각과 지금 생각 사이에서 달라진 점이 있나요?`
-        : `${legacy.answer} 지금 달라진 생각을 그대로 남겨 두어도 좋아요.`;
-    } else if (legacy.questionType === "inference") {
-      primaryMove = "check_evidence";
-      engagementState = "exploring_possibilities";
-      studentReply = allowQuestion
-        ? `${legacy.answer} 어느 표현이 그 생각을 가장 잘 뒷받침하나요?`
-        : `${legacy.answer} 그 생각을 뒷받침하는 표현을 하나만 붙잡아 두면 좋아요.`;
-    } else {
-      primaryMove = "check_evidence";
-      engagementState = "seeking_evidence";
-      studentReply = allowQuestion
-        ? `${legacy.answer} 그 내용이 나온 부분을 자료에서 같이 찾아볼까요?`
-        : `${legacy.answer} 그 내용이 나온 부분을 천천히 확인해 두면 좋아요.`;
-    }
+    primaryMove = generalTurn.primaryMove;
+    engagementState = generalTurn.engagementState;
+    curriculumRelation = generalTurn.curriculumRelation;
+    sourceStatus = generalTurn.sourceStatus;
+    supportLevel = generalTurn.supportLevel;
+    studentReply = generalTurn.reply;
   }
 
   const normalizedReply = keepAtMostOneQuestion(
