@@ -224,6 +224,9 @@ const CARD_CHOICE_MEMORY_KEY = "questioning-card-choices-v1";
 const NOTION_TOKEN_STORAGE_KEY = "questioning-notion-token-v1";
 // 매번 다시 적기 귀찮은 학급 정보도 브라우저에 기억해 둔다.
 const CLASS_INFO_STORAGE_KEY = "questioning-class-info-v1";
+// 수업 코드와 학생용 주소도 기억한다. 새로고침 뒤 ⑧이 "갱신할 연결이 없다"고
+// 착각해 학생이 옛 자료를 계속 보는 일을 막는다.
+const CONNECTION_STORAGE_KEY = "questioning-connection-v1";
 
 /**
  * 같은 카드를 두 번 묻지 않기 위한 열쇠. id는 저장할 때마다 새로 생기므로 쓸 수 없고,
@@ -808,6 +811,21 @@ export function QuestioningChatbotBoard() {
       if (storedNotionToken) {
         setNotionApiKey(storedNotionToken);
         setIsNotionTokenSaved(true);
+      }
+
+      const storedConnection = window.localStorage.getItem(CONNECTION_STORAGE_KEY);
+      if (storedConnection) {
+        try {
+          const parsed = JSON.parse(storedConnection) as { lessonCode?: string; studentUrl?: string };
+          if (typeof parsed.lessonCode === "string" && parsed.lessonCode) {
+            setConnectionLessonCode(parsed.lessonCode);
+          }
+          if (typeof parsed.studentUrl === "string" && parsed.studentUrl) {
+            setSavedStudentChatbotUrl(parsed.studentUrl);
+          }
+        } catch {
+          window.localStorage.removeItem(CONNECTION_STORAGE_KEY);
+        }
       }
 
       const storedClassInfo = window.localStorage.getItem(CLASS_INFO_STORAGE_KEY);
@@ -1396,8 +1414,9 @@ export function QuestioningChatbotBoard() {
    * 갱신에 실패해도 ⑧의 나머지(챗봇 적용·노션 저장)는 그대로 진행한다.
    */
   async function refreshLessonConnection(behaviorOverride?: QuestioningChatbotBehavior): Promise<string> {
-    // ④를 눌러 학생용 주소를 만든 적이 있을 때만 갱신할 연결이 있다.
-    if (!savedStudentChatbotUrl || !connectionLessonCode.trim()) return "";
+    // 수업 코드만 있으면 갱신을 시도한다. 학생용 주소 상태는 새로고침으로 비었을 수
+    // 있고, 같은 코드로 upsert하는 것이라 이미 있는 연결이면 새 설정으로 덮인다.
+    if (!connectionLessonCode.trim()) return "";
 
     const config = buildCurrentChatbotConfig(behaviorOverride);
     if (!config) return "";
@@ -1536,6 +1555,14 @@ export function QuestioningChatbotBoard() {
       const absoluteStudentUrl = `${window.location.origin}${payload.studentChatbotUrl}`;
       setConnectionLessonCode(payload.lessonCode);
       setSavedStudentChatbotUrl(absoluteStudentUrl);
+      try {
+        window.localStorage.setItem(
+          CONNECTION_STORAGE_KEY,
+          JSON.stringify({ lessonCode: payload.lessonCode, studentUrl: absoluteStudentUrl }),
+        );
+      } catch {
+        // 기억 실패는 무시한다.
+      }
       setNotionPrepDatabaseId(payload.notionPrepDatabaseId || notionPrepDatabaseId);
       setNotionResultDatabaseId(payload.notionResultDatabaseId || notionResultDatabaseId);
       setMaterial(config.material);
@@ -1772,10 +1799,6 @@ export function QuestioningChatbotBoard() {
                 질문 챗봇 제작보드(교사용)
               </h1>
             </div>
-            <Button type="button" className="w-full sm:w-auto" onClick={handleOpenStudentChatbot}>
-              <ExternalLink className="size-4" aria-hidden="true" />
-              학생용 챗봇 열기
-            </Button>
           </div>
           {notice ? (
             <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
