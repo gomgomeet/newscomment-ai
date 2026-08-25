@@ -264,6 +264,33 @@ function sanitizeStudentReply(
   return allowQuestion ? sanitized : removeDisallowedQuestionSentences(sanitized);
 }
 
+function compactKoreanTurn(value: string) {
+  return value.toLowerCase().replace(/\s+/g, "");
+}
+
+function asksToAvoidPersonalInformation(value: string) {
+  const compact = compactKoreanTurn(value);
+  const personalInfo = "(이름|실명|전화번호|주소|개인정보|사진|얼굴)";
+  const avoidAction = "(말하지않아도|안말해도|빼도|가려도|숨겨도|익명|안써도|쓰지않아도|넣지않아도)";
+  return (
+    new RegExp(`${personalInfo}.*${avoidAction}`).test(compact) ||
+    new RegExp(`${avoidAction}.*${personalInfo}`).test(compact)
+  );
+}
+
+function isClosingStudentTurn(value: string) {
+  const compact = compactKoreanTurn(value).replace(/[.!?？~]+$/g, "");
+  return /^(네|응|ㅇㅋ|오케이)?(이제)?(알겠어|알겠어요|알았습니다|됐어|됐어요|괜찮아|괜찮아요|그만할래|그만할게|끝낼래|끝낼게|여기까지할게|여기까지만할게|고마워|감사합니다)$/.test(compact);
+}
+
+function privacyAnonymizationReply() {
+  return "네, 이름은 말하지 않아도 돼요. 사람을 구분해야 할 때는 '한 친구', '어떤 학생'처럼 바꾸고, 수업 자료와 연결되는 내용만 이야기하면 됩니다.";
+}
+
+function closingReply() {
+  return "좋아요. 여기까지 정리해도 충분해요. 더 이야기하고 싶은 내용이 생기면 다시 이어가면 됩니다.";
+}
+
 type MaterialReasoningPassage = {
   text: string;
   paragraphIndex: number;
@@ -927,17 +954,30 @@ export async function answerQuestionWithGemini({
         .filter((item) => item.criterionKey)
     : [];
 
-  const questionType = isChatQuestionType(parsed.questionType) ? parsed.questionType : "fact";
+  const privacyQuestion = asksToAvoidPersonalInformation(question);
+  const closingTurn = isClosingStudentTurn(question);
+  const questionType = privacyQuestion
+    ? "safety"
+    : isChatQuestionType(parsed.questionType) ? parsed.questionType : "fact";
   const parsedMove = isPrimaryMove(parsed.primaryMove) ? parsed.primaryMove : policyDecision.allowedMoves[0];
-  const primaryMove = policyDecision.allowedMoves.includes(parsedMove)
-    ? parsedMove
-    : policyDecision.allowedMoves[0];
+  const primaryMove = privacyQuestion
+    ? "safety_redirect"
+    : closingTurn
+      ? "close"
+      : policyDecision.allowedMoves.includes(parsedMove)
+        ? parsedMove
+        : policyDecision.allowedMoves[0];
   const parsedSupportLevel = normalizeSupportLevel(parsed.supportLevel);
   const supportLevel = Math.min(parsedSupportLevel, policyDecision.maxSupportLevel) as 0 | 1 | 2 | 3 | 4;
-  const studentReply = sanitizeStudentReply(parsed.studentReply, question, {
-    allowQuestion: policyDecision.allowQuestion,
-  });
+  const studentReply = privacyQuestion
+    ? privacyAnonymizationReply()
+    : closingTurn
+      ? closingReply()
+      : sanitizeStudentReply(parsed.studentReply, question, {
+          allowQuestion: policyDecision.allowQuestion,
+        });
   const isClosing =
+    closingTurn ||
     policyDecision.shouldClose ||
     primaryMove === "close" ||
     (typeof parsed.isClosing === "boolean" && parsed.isClosing);
@@ -961,7 +1001,7 @@ export async function answerQuestionWithGemini({
       ? parsed.curriculumRelation
       : policyDecision.curriculumRelation,
     supportLevel,
-    sourceStatus: isSourceStatus(parsed.sourceStatus) ? parsed.sourceStatus : "source_insufficient",
+    sourceStatus: privacyQuestion ? "out_of_scope" : isSourceStatus(parsed.sourceStatus) ? parsed.sourceStatus : "source_insufficient",
     sourceCue: typeof parsed.sourceCue === "string" ? parsed.sourceCue.trim().slice(0, 500) : "",
     promptVersion: "questioning-dialogue-v2",
     provider: "approved_external",
@@ -975,7 +1015,7 @@ export async function answerQuestionWithGemini({
     evaluationSignals: ensureStringArray(parsed.evaluationSignals),
     teacherFeedback: typeof parsed.teacherFeedback === "string" ? parsed.teacherFeedback : "",
     rubricScores,
-    safetyFlag: typeof parsed.safetyFlag === "boolean" ? parsed.safetyFlag : false,
+    safetyFlag: privacyQuestion || (typeof parsed.safetyFlag === "boolean" ? parsed.safetyFlag : false),
     model,
   };
 }

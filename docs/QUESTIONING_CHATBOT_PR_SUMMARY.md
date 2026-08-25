@@ -107,3 +107,9 @@
 - 로컬 fallback의 일반 질문 분기는 두 질문을 한꺼번에 묻지 않고 한 문장에 한 질문만 남기도록 줄였다.
 
 검증은 `npm run typecheck`, `npm run eval:questioning`, `npm run lint`, `npm run build`, 라이브 시뮬레이션으로 재확인했다. 라이브 시뮬레이션은 서버 설정상 여전히 `localFallback: true`였으므로, Gemini 경로의 실제 학생 답변 품질은 Vercel 환경변수와 수업 코드 연결을 켠 뒤 다시 확인해야 한다.
+
+## 2026-08-26 Gemini 실제 경로 재점검
+
+Vercel Production/Preview의 학생 LLM 스위치가 켜져 있음을 확인했고, Production 환경변수를 주입한 라이브 시뮬레이션에서 `localFallback: false`로 실제 Gemini 학생 응답을 확인했다.
+
+실제 Gemini 응답에서 발견된 개인정보 비식별 질문 오분류와 종료 발화 복창은 `lib/gemini/questioning-board.ts`의 서버 정규화 단계에서 보완했다. 수정 후 재실행에서도 `localFallback: false`가 유지됐고, 개인정보 질문은 안전한 비식별 안내로, 종료 발화는 질문 없는 마무리로 처리됐다.
