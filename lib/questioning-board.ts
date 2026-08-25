@@ -1,5 +1,6 @@
 export type QuestionType =
   | "fact"
+  | "vocabulary"
   | "inference"
   | "application"
   | "extension"
@@ -29,7 +30,10 @@ export type StandardAssessmentElement = {
 };
 
 export type QuestionTypeAssessmentLink = {
-  questionType: Extract<QuestionType, "fact" | "inference" | "application" | "extension" | "reflection">;
+  questionType: Extract<
+    QuestionType,
+    "fact" | "vocabulary" | "inference" | "application" | "extension" | "reflection"
+  >;
   label: string;
   assessmentRole: string;
   evidenceToCollect: string;
@@ -60,15 +64,24 @@ export type MaterialAnalysis = {
   visibleText: string;
   questionFocusMemo?: string;
   keyConcepts: string[];
+  vocabulary?: MaterialVocabularyEntry[];
   possibleMisconceptions: string[];
   questionSeeds: string[];
   sourceLimit: string;
   safetyNotice: string;
 };
 
+export type MaterialVocabularyEntry = {
+  term: string;
+  dictionaryMeaning: string;
+  contextualMeaning: string;
+  contextSentence: string;
+};
+
 export type QuestionClassifierKeywords = {
   safety: string[];
   off_topic: string[];
+  vocabulary: string[];
   reflection: string[];
   extension: string[];
   application: string[];
@@ -188,9 +201,9 @@ export const QUESTIONING_AI_SETTINGS_KEY = "questioning-ai-settings";
 export const REFERENCE_ONLY_QUESTION_MATERIAL_TEXT = "교과서를 살펴보세요.";
 export const A4_PAGE_QUESTION_MATERIAL_CHAR_THRESHOLD = 1800;
 export const DEFAULT_QUESTION_FOCUS_MEMO = "제목을 보고 내용에 대해서 예측할 수 있도록 안내합니다.";
-export const QUESTIONING_CHATBOT_CREATION_PROFILE_VERSION = "30-session-dialogue-v1";
+export const QUESTIONING_CHATBOT_CREATION_PROFILE_VERSION = "30-session-dialogue-v2";
 export const DEFAULT_QUESTIONING_CHATBOT_ADDITIONAL_INSTRUCTIONS =
-  "학생이 실제로 말한 흥미, 놀람, 경험, 질문을 먼저 이어 받는다. 한 턴에는 중심 교수 동작을 하나만 사용하고 질문은 생각을 실제로 열 때만 최대 하나 제시한다. 성취기준은 대화 전체의 보이지 않는 방향으로만 사용한다. 함께 변한 결과와 인과관계를 구분하고, 학생이 생각을 스스로 고쳤으면 다시 시험하지 않고 수정 근거를 인정한다. 반복해서 막힌 학생에게는 질문보다 설명·선택지·예시를 먼저 제공한다. 개인정보와 대필을 구분하며, 대필 거절 뒤 학생이 자기 생각을 제시하면 그 생각을 글의 출발점으로 받아 준다. 짜증에는 관계 회복을, 구어체 종료에는 질문 없는 마무리를 우선한다.";
+  "학생이 실제로 말한 흥미, 놀람, 경험, 질문을 먼저 이어 받는다. 한 턴에는 중심 교수 동작을 하나만 사용하고 질문은 생각을 실제로 열 때만 최대 하나 제시한다. 성취기준은 대화 전체의 보이지 않는 방향으로만 사용한다. 단어·용어의 뜻을 물으면 사전적 기본 의미를 먼저 짧게 설명하고, 지문 속 문장을 근거로 그 문맥에서의 뜻을 구분해 알려 준다. 함께 변한 결과와 인과관계를 구분하고, 학생이 생각을 스스로 고쳤으면 다시 시험하지 않고 수정 근거를 인정한다. 반복해서 막힌 학생에게는 질문보다 설명·선택지·예시를 먼저 제공한다. 개인정보와 대필을 구분하며, 대필 거절 뒤 학생이 자기 생각을 제시하면 그 생각을 글의 출발점으로 받아 준다. 짜증에는 관계 회복을, 구어체 종료에는 질문 없는 마무리를 우선한다.";
 
 const referenceOnlySourcePattern = /교과서|A4\s*1\s*장|A4용지\s*1\s*장|저작권|본문\s*전체/;
 const legacyDefaultQuestionFocusMemo =
@@ -201,6 +214,7 @@ const legacyDefaultAdditionalInstructions = new Set([
   "학생의 질문이나 응답을 먼저 구체적으로 받아 주고 자료와 연결해 대화한다. 질문 종류를 설명하지 말고, 자연스러운 후속 질문 하나로 학생이 스스로 더 분명하고 깊은 질문을 만들도록 돕는다.",
   "학생의 질문이나 응답을 먼저 구체적으로 받아 주고 자료와 연결해 대화한다. 질문 종류를 설명하지 말고, 완성된 다음 질문이나 직접적인 후속 질문을 대신 써 주지 않으며 학생의 질문 시도를 짧게 격려한다.",
   "학생이 실제로 말한 흥미, 놀람, 경험, 질문을 먼저 이어 받는다. 한 턴에는 중심 교수 동작을 하나만 사용하고, 질문은 생각을 실제로 열 때만 최대 하나 제시한다. 성취기준은 대화 전체의 보이지 않는 방향으로만 사용한다.",
+  "학생이 실제로 말한 흥미, 놀람, 경험, 질문을 먼저 이어 받는다. 한 턴에는 중심 교수 동작을 하나만 사용하고 질문은 생각을 실제로 열 때만 최대 하나 제시한다. 성취기준은 대화 전체의 보이지 않는 방향으로만 사용한다. 함께 변한 결과와 인과관계를 구분하고, 학생이 생각을 스스로 고쳤으면 다시 시험하지 않고 수정 근거를 인정한다. 반복해서 막힌 학생에게는 질문보다 설명·선택지·예시를 먼저 제공한다. 개인정보와 대필을 구분하며, 대필 거절 뒤 학생이 자기 생각을 제시하면 그 생각을 글의 출발점으로 받아 준다. 짜증에는 관계 회복을, 구어체 종료에는 질문 없는 마무리를 우선한다.",
 ]);
 
 export type QuestioningAiSettings = {
@@ -272,6 +286,19 @@ export const defaultQuestioningChatbotBehavior: QuestioningChatbotBehavior = {
       "예시 전부",
     ],
     off_topic: ["게임", "연예인", "날씨", "주식"],
+    vocabulary: [
+      "뜻",
+      "무슨 말",
+      "의미",
+      "낱말",
+      "단어",
+      "용어",
+      "문맥",
+      "여기서",
+      "뭐예요",
+      "뭔가요",
+      "무엇인가요",
+    ],
     reflection: ["내 질문", "내 생각", "고칠", "좋은 질문", "배운 점", "성찰"],
     extension: ["더 알아", "추가", "관련", "다른 예", "비슷한 사례", "배경", "확장", "조사"],
     application: ["우리", "나라면", "실천", "해결", "적용", "다른 상황"],
@@ -290,6 +317,7 @@ export function createDefaultQuestioningChatbotBehavior(): QuestioningChatbotBeh
     classifierKeywords: {
       safety: [...defaultQuestioningChatbotBehavior.classifierKeywords.safety],
       off_topic: [...defaultQuestioningChatbotBehavior.classifierKeywords.off_topic],
+      vocabulary: [...defaultQuestioningChatbotBehavior.classifierKeywords.vocabulary],
       reflection: [...defaultQuestioningChatbotBehavior.classifierKeywords.reflection],
       extension: [...defaultQuestioningChatbotBehavior.classifierKeywords.extension],
       application: [...defaultQuestioningChatbotBehavior.classifierKeywords.application],
@@ -351,6 +379,7 @@ export function normalizeQuestioningChatbotBehavior(value: unknown): Questioning
     classifierKeywords: {
       safety: normalizeSafetyKeywordList(keywords.safety, fallback.classifierKeywords.safety),
       off_topic: normalizeKeywordList(keywords.off_topic, fallback.classifierKeywords.off_topic),
+      vocabulary: normalizeKeywordList(keywords.vocabulary, fallback.classifierKeywords.vocabulary),
       reflection: normalizeKeywordList(keywords.reflection, fallback.classifierKeywords.reflection),
       extension: normalizeKeywordList(keywords.extension, fallback.classifierKeywords.extension),
       application: normalizeKeywordList(keywords.application, fallback.classifierKeywords.application),
@@ -404,6 +433,20 @@ export const defaultQuestioningLessonMaterial: MaterialAnalysis = {
     "음식물 쓰레기",
     "자원 절약과 환경 보호",
   ],
+  vocabulary: [
+    {
+      term: "잔반",
+      dictionaryMeaning: "먹고 남긴 밥이나 음식",
+      contextualMeaning: "학생들이 급식에서 먹지 않고 남겨 버리게 된 음식",
+      contextSentence: "'잔반'은 학생들이 먹지 않고 남긴 음식을 말한다.",
+    },
+    {
+      term: "선택 배식",
+      dictionaryMeaning: "먹을 사람이 음식의 종류나 양을 골라 받는 배식 방식",
+      contextualMeaning: "학생이 반찬을 조금, 보통, 많이 가운데 직접 골라 받는 방법",
+      contextSentence: "반찬을 받을 때 '조금·보통·많이' 가운데 자기가 먹을 양을 직접 고르게 했다.",
+    },
+  ],
   possibleMisconceptions: [
     "잔반 줄이기를 학생 개인의 책임으로만 생각할 수 있음",
     "무조건 적게 먹는 것이 좋은 식습관이라고 오해할 수 있음",
@@ -428,14 +471,36 @@ export function createDefaultQuestioningLessonMaterial(): MaterialAnalysis {
   return {
     ...defaultQuestioningLessonMaterial,
     keyConcepts: [...defaultQuestioningLessonMaterial.keyConcepts],
+    vocabulary: defaultQuestioningLessonMaterial.vocabulary?.map((entry) => ({ ...entry })) ?? [],
     possibleMisconceptions: [...defaultQuestioningLessonMaterial.possibleMisconceptions],
     questionSeeds: [...defaultQuestioningLessonMaterial.questionSeeds],
   };
 }
 
+function normalizeMaterialVocabulary(value: unknown): MaterialVocabularyEntry[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((entry): entry is Record<string, unknown> => typeof entry === "object" && entry !== null)
+    .map((entry) => ({
+      term: typeof entry.term === "string" ? entry.term.trim().slice(0, 40) : "",
+      dictionaryMeaning:
+        typeof entry.dictionaryMeaning === "string" ? entry.dictionaryMeaning.trim().slice(0, 240) : "",
+      contextualMeaning:
+        typeof entry.contextualMeaning === "string" ? entry.contextualMeaning.trim().slice(0, 280) : "",
+      contextSentence:
+        typeof entry.contextSentence === "string" ? entry.contextSentence.trim().slice(0, 360) : "",
+    }))
+    .filter((entry) => entry.term && entry.dictionaryMeaning && entry.contextualMeaning)
+    .slice(0, 20);
+}
+
 export function normalizeQuestionMaterialForStudentDisplay(material: MaterialAnalysis): MaterialAnalysis {
   const normalizedMaterial = {
     ...material,
+    vocabulary: normalizeMaterialVocabulary(material.vocabulary),
     questionFocusMemo:
       typeof material.questionFocusMemo === "string" && material.questionFocusMemo.trim() !== legacyDefaultQuestionFocusMemo
         ? material.questionFocusMemo
@@ -461,6 +526,10 @@ export function normalizeQuestionMaterialForStudentDisplay(material: MaterialAna
         material.keyConcepts.length > 2
           ? material.keyConcepts
           : [...defaultMaterial.keyConcepts],
+      vocabulary:
+        normalizedMaterial.vocabulary.length > 0
+          ? normalizedMaterial.vocabulary
+          : defaultMaterial.vocabulary?.map((entry) => ({ ...entry })) ?? [],
       possibleMisconceptions: material.possibleMisconceptions.length
         ? material.possibleMisconceptions
         : [...defaultMaterial.possibleMisconceptions],
@@ -813,6 +882,7 @@ export const standardOptions: StandardOption[] = [
 
 export const questionTypeLabels: Record<QuestionType, string> = {
   fact: "사실 질문",
+  vocabulary: "어휘·문맥 질문",
   inference: "추론 질문",
   application: "적용 질문",
   extension: "확장 질문",
@@ -920,6 +990,12 @@ export function buildStandardAssessmentAnalysis(standard: string): StandardAsses
         evidenceToCollect: "자료의 어느 부분에서 답을 찾았는지",
       },
       {
+        questionType: "vocabulary",
+        label: "어휘·문맥 질문",
+        assessmentRole: "낱말의 기본 뜻과 글에서 선택된 뜻을 문장 단서로 구분하는 과정",
+        evidenceToCollect: "질문한 낱말, 사전적 의미, 문장 속 의미, 뜻을 판단한 앞뒤 단서",
+      },
+      {
         questionType: "inference",
         label: "추론 질문",
         assessmentRole: "자료의 단서로 이유, 관계, 원인을 설명하는 과정",
@@ -957,7 +1033,7 @@ export function buildCurriculumCompass(
   assessmentAnalysis = buildStandardAssessmentAnalysis(standard),
 ): CurriculumCompass {
   const fertileQuestionAreas = assessmentAnalysis.questionTypeLinks
-    .filter((link) => link.questionType !== "fact")
+    .filter((link) => link.questionType !== "fact" && link.questionType !== "vocabulary")
     .map((link) => link.assessmentRole);
 
   return {
@@ -1109,11 +1185,53 @@ export function emptyMaterialAnalysis(): MaterialAnalysis {
     visibleText: "",
     questionFocusMemo: "",
     keyConcepts: [],
+    vocabulary: [],
     possibleMisconceptions: [],
     questionSeeds: [],
     sourceLimit: "교사가 입력하거나 AI가 분석한 수업 자료 범위 안에서만 답합니다.",
     safetyNotice: "학생 이름, 연락처, 사진 속 식별 정보 등 개인정보는 입력하지 않습니다.",
   };
+}
+
+export function isVocabularyQuestion(value: string, vocabularySignals: string[] = []) {
+  const normalized = value.trim().toLowerCase();
+  const compact = normalized.replace(/\s+/g, "");
+  const semanticCompact = compact.replace(/["'“”‘’]/g, "");
+
+  if (/(다는|라는|했다는|였다는|없다는|있다는|줄었다는|늘었다는)뜻/.test(semanticCompact)) {
+    return false;
+  }
+
+  const quotedCandidate = /["'“‘]([^"'”’]{1,30})["'”’]/.exec(normalized)?.[1]?.trim();
+  const quotedVocabularyQuestion = Boolean(
+    quotedCandidate &&
+      quotedCandidate.split(/\s+/).length <= 3 &&
+      !/[.!?。？！]/.test(quotedCandidate) &&
+      /(뜻|의미|뭐예요|뭔가요|무엇인가요)/.test(normalized),
+  );
+  const configuredVocabularyQuestion =
+    vocabularySignals.some((signal) => {
+      const normalizedSignal = signal.trim().toLowerCase();
+      return normalizedSignal.length >= 2 && normalized.includes(normalizedSignal);
+    }) &&
+    Boolean(
+      quotedCandidate ||
+        /(?:뭐|무엇|무슨|어떤|알려|모르|궁금|풀이|설명|쉽게|해\s*줘)/.test(normalized),
+    );
+
+  return (
+    quotedVocabularyQuestion ||
+    configuredVocabularyQuestion ||
+    /(낱말|단어|용어|표현).{0,16}(뜻|의미).{0,12}(뭐|무엇|알려|모르|궁금)/.test(normalized) ||
+    /(뜻|의미).{0,12}(뭐|무엇|알려|모르|궁금)/.test(normalized) ||
+    /(?:^|\s)[가-힣a-z][가-힣a-z0-9·\-]{1,24}(?:이|가|은|는)?\s*(무슨\s*뜻|무슨\s*말|뭐예요|뭔가요|무엇인가요)/.test(
+      normalized,
+    ) ||
+    /[가-힣a-z][가-힣a-z0-9·\-]{1,24}(?:이라는|라는)\s*말(?:은|이)?\s*(뭐|무엇|무슨)/.test(
+      normalized,
+    ) ||
+    /(여기서|이\s*문장에서).{0,30}(뜻|의미|뭐예요|뭔가요)/.test(normalized)
+  );
 }
 
 export function classifyQuestionLocally(
@@ -1138,6 +1256,10 @@ export function classifyQuestionLocally(
 
   if (keywords.off_topic.some((signal) => normalized.includes(signal.toLowerCase()))) {
     return "off_topic";
+  }
+
+  if (isVocabularyQuestion(question, keywords.vocabulary)) {
+    return "vocabulary";
   }
 
   if (keywords.reflection.some((signal) => normalized.includes(signal.toLowerCase()))) {
@@ -1386,6 +1508,181 @@ function createTitlePredictionAnswer(question: string, material: MaterialAnalysi
   return "제목이나 첫 부분을 보면 자료가 무엇을 다룰지 먼저 예상해 볼 수 있어요. 그 예상이 맞는지는 자료 속 표현과 근거를 보며 차분히 확인해 보면 좋아요.";
 }
 
+const localVocabularyMeanings: Record<string, string> = {
+  잔반: "먹고 남긴 밥이나 음식",
+  배식: "여러 사람에게 음식을 나누어 줌",
+  "선택 배식": "먹을 사람이 음식의 종류나 양을 골라 받는 배식 방식",
+  출처: "말이나 자료가 나온 곳",
+  집중력: "한 가지 일에 마음과 주의를 모으는 힘",
+  보관함: "물건을 넣어 간직하는 함이나 공간",
+  공회전: "차량이 움직이지 않는 상태에서 엔진만 돌아가는 일",
+  미세먼지: "눈에 잘 보이지 않을 만큼 매우 작은 먼지",
+  리필: "다 쓴 용기에 내용물을 다시 채우는 일",
+  다회용: "한 번 버리지 않고 여러 차례 사용할 수 있음",
+  흡음판: "소리를 흡수하여 울림이나 소음을 줄이는 판",
+  데시벨: "소리의 크기를 나타내는 단위",
+  누수: "물이 새어 나옴",
+  변인: "실험 결과에 영향을 줄 수 있어 살펴보거나 통제하는 조건",
+  상관관계: "한 현상이 변할 때 다른 현상도 함께 변하는 관계",
+  인과관계: "어떤 일이 원인이 되어 다른 결과가 생기는 관계",
+  지속가능성: "현재의 필요를 채우면서도 미래 세대가 살아갈 조건을 해치지 않고 이어 갈 수 있는 성질",
+  토종: "어떤 지역에서 본래부터 자라거나 살아온 종류",
+};
+
+const vocabularyTermStopwords = new Set([
+  "뜻",
+  "의미",
+  "무슨",
+  "말",
+  "단어",
+  "낱말",
+  "용어",
+  "여기서",
+  "문장",
+  "기사",
+  "자료",
+  "이게",
+  "이건",
+  "그게",
+  "그건",
+]);
+
+function sourceSentences(material: MaterialAnalysis) {
+  const source = `${material.visibleText}\n${material.summary}`.trim();
+  return (
+    source
+      .replace(/(\d)\.(\d)/g, "$1<decimal>$2")
+      .match(/[^.!?。？！\n]+[.!?。？！]?/g)
+      ?.map((sentence) => sentence.replace(/<decimal>/g, ".").trim())
+      .filter(Boolean) ?? []
+  );
+}
+
+function findVocabularyContextSentence(term: string, material: MaterialAnalysis) {
+  const normalizedTerm = term.replace(/\s+/g, "");
+  const sentence = sourceSentences(material).find((candidate) =>
+    candidate.replace(/\s+/g, "").includes(normalizedTerm),
+  );
+  return sentence ? firstSourceSentence(sentence, 105) : "";
+}
+
+function extractInlineVocabularyMeaning(term: string, contextSentence: string) {
+  if (!term || !contextSentence) return "";
+  const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const definitionPattern = new RegExp(
+    `["'“”‘’]?${escapedTerm}["'“”‘’]?(?:은|는|이란|란)\\s*(.+?)(?:을|를)?\\s*(?:말한다|뜻한다|가리킨다)(?:[.!?。？！]|$)`,
+  );
+  return definitionPattern.exec(contextSentence)?.[1]?.trim().replace(/(?:을|를)$/, "") ?? "";
+}
+
+function hasKoreanFinalConsonant(value: string) {
+  const lastCharacter = Array.from(value.trim()).reverse().find((character) => /[가-힣]/.test(character));
+  if (!lastCharacter) return false;
+  return (lastCharacter.charCodeAt(0) - 0xac00) % 28 !== 0;
+}
+
+function topicParticle(value: string) {
+  return hasKoreanFinalConsonant(value) ? "은" : "는";
+}
+
+function quotedModifier(value: string) {
+  return hasKoreanFinalConsonant(value) ? "이라는" : "라는";
+}
+
+function normalizeRequestedVocabularyTerm(value: string, material: MaterialAnalysis) {
+  const trimmed = value.trim().replace(/^["'“”‘’]|["'“”‘’]$/g, "");
+  if (!trimmed || vocabularyTermStopwords.has(trimmed)) return "";
+
+  const source = `${material.materialTitle}\n${material.visibleText}\n${material.summary}`.replace(/\s+/g, "");
+  if (source.includes(trimmed.replace(/\s+/g, ""))) return trimmed;
+
+  const withoutParticle = trimmed.replace(/(이|가|은|는|을|를)$/, "");
+  return source.includes(withoutParticle.replace(/\s+/g, "")) ? withoutParticle : trimmed;
+}
+
+function extractRequestedVocabularyTerm(studentTurn: string, material: MaterialAnalysis) {
+  const configuredTerms = normalizeMaterialVocabulary(material.vocabulary)
+    .map((entry) => entry.term)
+    .sort((left, right) => right.length - left.length);
+  const configuredMatch = configuredTerms.find((term) =>
+    studentTurn.replace(/\s+/g, "").includes(term.replace(/\s+/g, "")),
+  );
+  if (configuredMatch) return configuredMatch;
+
+  const quoted = /["'“‘]([^"'”’]{1,30})["'”’]/.exec(studentTurn)?.[1];
+  if (quoted) return normalizeRequestedVocabularyTerm(quoted, material);
+
+  const beforeMeaning = /([가-힣A-Za-z][가-힣A-Za-z0-9·\- ]{0,24}?)(?:이|가|은|는)?\s*(?:무슨\s*)?(?:뜻|의미|말)(?:이|인|이에|인가|일)?/.exec(
+    studentTurn,
+  )?.[1];
+  if (beforeMeaning) {
+    const tokens = beforeMeaning.trim().split(/\s+/);
+    return normalizeRequestedVocabularyTerm(tokens.at(-1) || "", material);
+  }
+
+  const beforeDefinition = /([가-힣A-Za-z][가-힣A-Za-z0-9·\-]{1,24})(?:이|가|은|는)?\s*(?:뭐예요|뭔가요|무엇인가요)/.exec(
+    studentTurn,
+  )?.[1];
+  return beforeDefinition ? normalizeRequestedVocabularyTerm(beforeDefinition, material) : "";
+}
+
+function createVocabularyLocalTurn(studentTurn: string, material: MaterialAnalysis): NaturalLocalTurn {
+  const term = extractRequestedVocabularyTerm(studentTurn, material);
+  if (!term) {
+    return {
+      reply: "뜻을 알고 싶은 낱말을 따옴표로 표시해 주세요. 예를 들면 ‘공회전’이 무슨 뜻이에요처럼 쓰면 그 문장에 맞춰 설명할게요.",
+      primaryMove: "clarify",
+      engagementState: "curious",
+      curriculumRelation: "direct",
+      sourceStatus: "source_insufficient",
+      supportLevel: 1,
+    };
+  }
+
+  const configured = normalizeMaterialVocabulary(material.vocabulary).find(
+    (entry) => entry.term.replace(/\s+/g, "") === term.replace(/\s+/g, ""),
+  );
+  const contextSentence = configured?.contextSentence
+    ? firstSourceSentence(configured.contextSentence, 105)
+    : findVocabularyContextSentence(term, material);
+  const inlineMeaning = extractInlineVocabularyMeaning(term, contextSentence);
+  const dictionaryMeaning = (
+    configured?.dictionaryMeaning ||
+    inlineMeaning ||
+    localVocabularyMeanings[term] ||
+    ""
+  ).slice(0, 95);
+  const contextualMeaning =
+    configured?.contextualMeaning ||
+    inlineMeaning ||
+    (dictionaryMeaning && contextSentence ? dictionaryMeaning : "");
+
+  if (!dictionaryMeaning) {
+    return {
+      reply: contextSentence
+        ? `‘${term}’이 쓰인 부분은 “${contextSentence}”예요. 이 자료만으로 정확한 사전 뜻까지 단정하면 지어낼 수 있어서, 국어사전에서 ‘${term}’을 찾은 뒤 이 문장과 맞는 뜻을 골라야 해요.`
+        : `자료에서 ‘${term}’이 쓰인 문장을 찾지 못했어요. 뜻을 지어내지 않고, 국어사전에서 기본 뜻을 확인한 뒤 앞뒤 문장과 맞는 뜻을 골라야 해요.`,
+      primaryMove: "check_evidence",
+      engagementState: "seeking_evidence",
+      curriculumRelation: "direct",
+      sourceStatus: "source_insufficient",
+      supportLevel: 2,
+    };
+  }
+
+  const contextExplanation = (contextualMeaning || dictionaryMeaning).slice(0, 110);
+  return {
+    reply: contextSentence
+      ? `‘${term}’${topicParticle(term)} 사전적으로 “${dictionaryMeaning}”${quotedModifier(dictionaryMeaning)} 뜻이에요. 이 글의 “${contextSentence}”에서는 “${contextExplanation}”${quotedModifier(contextExplanation)} 뜻으로 쓰였어요.`
+      : `‘${term}’${topicParticle(term)} 사전적으로 “${dictionaryMeaning}”${quotedModifier(dictionaryMeaning)} 뜻이에요. 이 자료에서는 “${contextExplanation}”${quotedModifier(contextExplanation)} 뜻으로 이해하면 돼요.`,
+    primaryMove: "clarify",
+    engagementState: "seeking_evidence",
+    curriculumRelation: "direct",
+    sourceStatus: contextSentence ? "supported" : "reasonable_inference",
+    supportLevel: 1,
+  };
+}
+
 type LegacyChatResult = Pick<
   ChatResult,
   | "answer"
@@ -1463,6 +1760,30 @@ function createLegacyLocalQuestionResult({
     };
   }
 
+  if (questionType === "vocabulary") {
+    const vocabularyTurn = createVocabularyLocalTurn(question, material);
+    return {
+      answer: vocabularyTurn.reply,
+      followUpQuestion: "사전의 기본 뜻과 이 문장에서 고른 뜻을 나누어 확인해 보세요.",
+      questionType,
+      typeLabel,
+      typeReason: "낱말이나 용어의 기본 뜻과 문맥 속 의미를 묻는 질문입니다.",
+      evidencePrompt: "그 낱말이 쓰인 문장과 앞뒤 문장에서 뜻을 좁혀 주는 단서를 표시해 보세요.",
+      revisionSuggestion: "‘이 낱말의 사전적 뜻은 무엇이고, 이 문장에서는 어떤 뜻으로 쓰였나요?’로 나누어 물어보세요.",
+      evaluationSignals: ["어휘 의미 확인", "문장 맥락 확인", "사전적 의미와 문맥적 의미 구분"],
+      teacherFeedback: "학생이 낱말의 기본 뜻을 확인한 뒤 문장 단서로 알맞은 뜻을 선택하는지 살펴보세요.",
+      rubricScores: rubric.map((criterion) => ({
+        criterionKey: criterion.key,
+        score:
+          criterion.key === "standard_material_alignment" || criterion.key === "evidence_check"
+            ? 4
+            : 3,
+        rationale: "낱말의 뜻을 지문 속 문장과 연결해 확인하는 질문입니다.",
+      })),
+      safetyFlag: false,
+    };
+  }
+
   if (questionType === "extension") {
     return {
       answer:
@@ -1486,6 +1807,7 @@ function createLegacyLocalQuestionResult({
 
   const revisionByType: Record<QuestionType, string> = {
     fact: "자료 속 특정 문장이나 장면을 넣어 '무엇을 확인할 수 있나요?'로 더 분명하게 다시 써 보세요.",
+    vocabulary: "낱말의 사전적 뜻과 이 문장에서의 뜻을 나누고, 뜻을 판단한 앞뒤 단서도 함께 물어보세요.",
     inference: "왜 그렇게 생각하는지 묻고, 근거가 될 단서를 함께 찾는 질문으로 바꿔 보세요.",
     application: "우리 반, 우리 학교, 다른 상황처럼 적용할 조건을 구체적으로 넣어 보세요.",
     extension: "수업 자료와 어떤 부분이 연결되는지 먼저 쓰고, 추가로 확인할 출처나 자료를 함께 적어 보세요.",
@@ -1549,14 +1871,22 @@ function createLegacyLocalQuestionResult({
     };
   }
 
-  const answerByType: Record<Extract<QuestionType, "fact" | "inference" | "application" | "reflection">, string> = {
+  const answerByType: Record<
+    Extract<QuestionType, "fact" | "vocabulary" | "inference" | "application" | "reflection">,
+    string
+  > = {
     fact: `이 부분은 자료에서 확인할 수 있어요. ${sourceExcerpt}`,
+    vocabulary: createVocabularyLocalTurn(question, material).reply,
     inference: `그렇게 생각해 볼 수 있어요. 자료 속 단서는 이 부분과 연결됩니다. ${sourceExcerpt}`,
     application: `우리 상황에 연결해 보려면 이 부분을 먼저 보면 좋아요. ${sourceExcerpt}`,
     reflection: `좋은 점검이에요. 내 생각과 자료가 어떻게 이어지는지 이 부분을 보며 확인해 봐요. ${sourceExcerpt}`,
   };
-  const followUpByType: Record<Extract<QuestionType, "fact" | "inference" | "application" | "reflection">, string> = {
+  const followUpByType: Record<
+    Extract<QuestionType, "fact" | "vocabulary" | "inference" | "application" | "reflection">,
+    string
+  > = {
     fact: "좋아요. 확인한 사실을 붙잡고 자료를 한 번 더 살펴봐요.",
+    vocabulary: "사전의 기본 뜻과 이 문장에서 고른 뜻을 나누어 확인해 봐요.",
     inference: "좋은 생각이에요. 근거가 되는 단서를 자료에서 한 번 더 찾아봐요.",
     application: "좋아요. 우리 반이나 학교 상황과 천천히 연결해 봐요.",
     reflection: "좋은 출발이에요. 지금 떠오른 생각을 자료와 연결해 다시 정리해 봐요.",
@@ -1814,6 +2144,12 @@ function createGeneralNaturalTurn({
   const givesOwnStartingIdea =
     followsCopyingRequest && /(저는|나는|제가|내가).*(쓰고싶|말하고싶|좋아|했어요|할머니|축구)/.test(studentTurn);
   const asksForFirstSentence = followsCopyingRequest && /(첫문장|시작문장|한문장만)/.test(compactTurn);
+  const followsVocabularyExplanation =
+    recentStudentTurns.some((entry) =>
+      /(뜻|무슨\s*말|의미|낱말|단어|용어|뭐예요|뭔가요|무엇인가요)/.test(entry),
+    ) &&
+    /(사전적으로|사전적 뜻|이 글의 .+에서는|이 자료에서는)/.test(recentAssistantText) &&
+    !/(뜻|무슨\s*말|의미|낱말|단어|용어)/.test(studentTurn);
 
   if (givesOwnStartingIdea) {
     return {
@@ -1835,6 +2171,23 @@ function createGeneralNaturalTurn({
       curriculumRelation: "productive_extension",
       sourceStatus: "reasonable_inference",
       supportLevel: 2,
+    };
+  }
+
+  if (followsVocabularyExplanation) {
+    const connectsOppositeMeaning = /(일회용|반대|반대말)/.test(compactTurn);
+    const connectsMeasuredNumber = /(숫자|측정|데시벨|이해돼|이해했)/.test(compactTurn) && /데시벨/.test(source);
+    return {
+      reply: connectsOppositeMeaning
+        ? "맞아요. 이 글에서는 한 번 쓰고 버리는 ‘일회용’과 달리, 씻어서 여러 번 다시 쓰는 뜻으로 보면 돼요."
+        : connectsMeasuredNumber
+          ? "데시벨이 소리 크기를 나타내는 단위라는 걸 알고 나니, 78에서 72로 바뀐 숫자도 소음이 낮아졌다는 뜻으로 읽히네요."
+          : "네, 방금 네 말처럼 이해하면 돼요. 사전에 있는 넓은 뜻 가운데 이 글의 앞뒤 문장에 맞는 뜻을 골라 읽은 거예요.",
+      primaryMove: "receive",
+      engagementState: "revising_thought",
+      curriculumRelation: "direct",
+      sourceStatus: "reasonable_inference",
+      supportLevel: 0,
     };
   }
 
@@ -2473,6 +2826,8 @@ export function createLocalQuestionResult({
     /잔반게시판/.test(compactTurn) &&
     /(조심|주의|문제|부담|비교|순위|창피)/.test(compactTurn);
   const asksTitlePrediction = isTitlePredictionQuestion(turn);
+  const vocabularyTurn =
+    legacy.questionType === "vocabulary" ? createVocabularyLocalTurn(turn, material) : null;
   const naturalTurn = createNaturalLocalTurn(turn, material);
   const generalTurn = createGeneralNaturalTurn({
     studentTurn: turn,
@@ -2528,6 +2883,13 @@ export function createLocalQuestionResult({
     studentReply = allowQuestion
       ? `${behavior.offTopicResponse} 지금 자료에서 가장 눈에 띄는 말은 무엇인가요?`
       : `${behavior.offTopicResponse} 지금은 자료에서 눈에 띄는 말 하나만 찾아도 충분해요.`;
+  } else if (vocabularyTurn) {
+    primaryMove = vocabularyTurn.primaryMove;
+    engagementState = vocabularyTurn.engagementState;
+    curriculumRelation = vocabularyTurn.curriculumRelation;
+    sourceStatus = vocabularyTurn.sourceStatus;
+    supportLevel = vocabularyTurn.supportLevel;
+    studentReply = vocabularyTurn.reply;
   } else if (isUncertain) {
     primaryMove = repeatedUncertainty ? "repair" : "offer_clue";
     engagementState = "disengaged";

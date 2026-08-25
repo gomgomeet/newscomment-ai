@@ -15,8 +15,12 @@
 - 최근 질문 반복, 학생의 짜증·거부, 불확실성, 종료 신호를 서버 정책에서 판단한다.
 - `curriculumCompass`를 추가해 성취기준이 학생에게 노출되거나 대화를 억지로 수렴시키지 않게 했다.
 - 제목 예측, 숫자 인과, 공감·권리, 해결 방안, 도덕화 위험을 포함한 로컬 응답을 다중 턴 맥락에 맞게 보완했다.
-- 교사용 제작보드의 새 챗봇 기본값과 자동 생성 PRD에 `30-session-dialogue-v1` 프로파일을 적용했다.
+- 교사용 제작보드의 새 챗봇 기본값과 자동 생성 PRD에 `30-session-dialogue-v2` 프로파일을 적용했다.
 - 이전 기본 지시는 최신 정책으로 자동 마이그레이션하되 교사가 직접 작성한 추가 지시는 보존한다.
+- `vocabulary` 질문 유형과 `{ term, dictionaryMeaning, contextualMeaning, contextSentence }` 자료 구조를 추가했다.
+- 낱말 질문에는 사전적 의미, 실제 지문 문장, 문맥적 의미 순으로 답하고 근거 없는 뜻은 만들지 않는다.
+- 학생이 낱말 뜻을 자기 말로 확인하거나 반대말·기사 수치 이해로 이어 갈 때 정의를 기계적으로 반복하지 않는다.
+- 이미지 자료 분석과 학생용 LLM 프롬프트에도 같은 어휘·문맥 규칙을 적용했다.
 
 ### 학생 데이터 경계
 
@@ -37,16 +41,16 @@
 ## 평가 하네스
 
 - `evals/questioning-chatbot/fixtures/articles.json`: 가상 기사 15개
-- `evals/questioning-chatbot/fixtures/sessions.json`: 개선에 사용하는 개발 세트 30회기, 120턴
+- `evals/questioning-chatbot/fixtures/sessions.json`: 개선에 사용하는 개발 세트 34회기, 136턴
 - `evals/questioning-chatbot/fixtures/holdout-sessions.json`: 새 기사와 반응으로 구성한 홀드아웃 10회기, 40턴
 - `scripts/run-questioning-dialogue-eval.mjs`: 실제 로컬 API 재생과 구조 검사
 - `npm run eval:questioning:development`: 개발 세트 반복 평가
 - `npm run eval:questioning:holdout`: 홀드아웃 평가
 - `npm run eval:questioning`: 두 세트 전체 평가
 
-최초 확장 실행은 개발 세트에서 실패 19건과 검토 플래그 95건을 발견했다. 오류 유형을 프롬프트와 일반 대화정책에 반영한 뒤 최종 자동 평가 결과는 **전체 40회기, 160턴, 실패 0건, 검토 플래그 0건**이다. 한 응답 최대 한 질문, 내부 정보 비노출, 종료 일관성, 관계 회복, 복사 요구, 인과 과장, 반복 응답, 기계적 문구를 검사했다.
+최초 확장 실행은 개발 세트에서 실패 19건과 검토 플래그 95건을 발견했다. 오류 유형을 프롬프트와 일반 대화정책에 반영한 뒤 어휘 대화 4회기 16턴을 추가했다. 최종 자동 평가 결과는 **전체 44회기, 176턴, 실패 0건, 검토 플래그 0건**이다. 한 응답 최대 한 질문, 내부 정보 비노출, 종료 일관성, 관계 회복, 복사 요구, 인과 과장, 반복 응답, 기계적 문구와 어휘 답변의 사전적·문맥적 근거를 검사했다.
 
-평가 요청에서 별도 축약 동작 설정을 제거해, 교사용 제작보드가 실제 생성하는 최신 기본 설정 자체를 160턴에 사용한다.
+평가 요청에서 별도 축약 동작 설정을 제거해, 교사용 제작보드가 실제 생성하는 최신 기본 설정 자체를 176턴에 사용한다.
 
 ## 브라우저 검증
 
@@ -57,7 +61,7 @@
 
 ## 명령 검증
 
-- `npm run eval:questioning`: 통과, 40회기 160턴 0 failures, 0 review flags
+- `npm run eval:questioning`: 통과, 44회기 176턴 0 failures, 0 review flags
 - `npm run eval:questioning:holdout`: 통과, 10회기 40턴 0 failures, 0 review flags
 - `npm run lint`: 통과
 - `npm run typecheck`: 통과
@@ -73,18 +77,19 @@
 - `docs/QUESTIONING_CHATBOT_RESEARCH_APPLICATION_PLAN.md`: 파일별 적용 설계와 출시 기준
 - `docs/QUESTIONING_CHATBOT_RESEARCH_APPLICATION_RESULT.md`: 실제 구현, 40턴 결과, 브라우저 검증, 한계
 - `docs/QUESTIONING_CHATBOT_30_SESSION_ITERATIVE_LEARNING.md`: 합성 학생 30회기 반복 개선, 홀드아웃 10회기, 지속 학습 운영 원칙
+- `docs/QUESTIONING_CHATBOT_VOCABULARY_CONTEXT_UPDATE.md`: 사전적 의미와 문맥적 의미를 구분하는 어휘 지원 구조와 4회기 평가
 - `docs/GPT_5_3_CODEX_SPARK_USAGE_GUIDE.md`: Codex Spark를 개발 반복 도구로 사용하는 방법
 - `docs/QUESTIONING_CHATBOT_PRD.md`: 현재 V2 대화정책과 학생용 제공자 경계
 - `docs/GENERAL_TEACHER_STANDALONE_HTML_CHATBOT_PROMPT.md`: 일반 교사가 수업 정보만 바꿔 단일 HTML 질문 챗봇을 만드는 복사형 프롬프트
 - `docs/GENERAL_TEACHER_READY_TO_COPY_CHATBOT_PROMPT.md`: 성취기준과 지문 입력란만 바꿔 바로 사용하는 최종 통합 프롬프트
 
-단일 HTML 제작 프롬프트에도 30회기에서 발견한 인과 과장, 자기 수정, 반복 막힘, 감정·입장, 개인정보와 대필 분리, 대필 후 복귀, 구어체 종료 규칙을 반영했다. 생성 단계에서 개발 30회기와 새 자료 홀드아웃 10회기를 함께 검사하도록 했다.
+단일 HTML 제작 프롬프트에도 34회기에서 발견한 어휘·문맥 구분, 인과 과장, 자기 수정, 반복 막힘, 감정·입장, 개인정보와 대필 분리, 대필 후 복귀, 구어체 종료 규칙을 반영했다. 생성 단계에서 개발 34회기와 새 자료 홀드아웃 10회기를 함께 검사하도록 했다.
 
 ## 남은 위험과 후속 작업
 
 - 합성 학습자 평가는 실제 학생 사용성이나 학습 효과 검증을 대신하지 않는다.
 - 이번 홀드아웃은 오류 수정에 한 번 사용됐으므로 다음 개선 주기에는 완전히 새로운 홀드아웃이 필요하다.
-- 자동평가의 질문 턴 비율은 5%로 낮다. 질문을 억지로 늘리기보다 교사 블라인드 채점으로 필요한 질문까지 줄었는지 확인해야 한다.
+- 자동평가의 질문 턴 비율은 4.5%로 낮다. 질문을 억지로 늘리기보다 교사 블라인드 채점으로 필요한 질문까지 줄었는지 확인해야 한다.
 - 교사 2명 이상의 블라인드 비교로 자연스러움, 질문 소유권, 적응적 발판, 자료 근거, 종료를 채점해야 한다.
 - 학생용 외부 LLM은 제공자 약관, 개인정보, 학교·기관 승인을 완료하기 전까지 기본 차단 상태를 유지한다.
 - 현재 요청 제한은 단일 인스턴스 메모리 기반이므로 실제 다중 인스턴스 운영 전 공유 저장소 기반으로 교체한다.

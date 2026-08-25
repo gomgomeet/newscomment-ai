@@ -381,5 +381,82 @@
     "expectNoQuestionTurns": [4],
     "expectClosingTurns": [4],
     "expectReplyIncludesAny": { "4": ["여기", "충분", "이어"] }
+  },
+  {
+    "id": "session-31-vocabulary-school-lunch",
+    "articleId": "article-a",
+    "targetGrade": "초등 4학년",
+    "standard": "[4국02-01] 문맥을 고려하여 낱말의 의미를 파악하며 글을 읽는다.",
+    "persona": { "participation": "high", "confidence": "medium", "reading": "asks_word_meanings" },
+    "turns": [
+      "‘잔반’이 무슨 뜻이에요?",
+      "그러니까 급식에서 먹다 남긴 음식이죠?",
+      "그럼 ‘선택 배식’은 무슨 뜻이에요?",
+      "네, 이제 알겠어요."
+    ],
+    "expectReplyIncludesAny": {
+      "1": ["사전적으로", "남긴"],
+      "2": ["앞뒤 문장", "이 글"],
+      "3": ["사전적으로", "직접 골라"]
+    },
+    "expectNoQuestionTurns": [1, 2, 3]
+  },
+  {
+    "id": "session-32-vocabulary-idling",
+    "articleId": "article-h",
+    "targetGrade": "초등 5학년",
+    "standard": "[6국02-02] 글의 문맥과 표현을 고려하여 내용을 이해한다.",
+    "persona": { "participation": "medium", "confidence": "low", "reading": "asks_word_meanings" },
+    "turns": [
+      "공회전이 뭐예요?",
+      "차는 안 가는데 시동만 켜 둔 거죠?",
+      "미세먼지는 무슨 뜻이에요?",
+      "알겠어요. 여기까지만 할게요."
+    ],
+    "expectReplyIncludesAny": {
+      "1": ["사전적으로", "엔진"],
+      "2": ["앞뒤 문장", "이 글"],
+      "3": ["사전적으로", "작은 먼지"]
+    },
+    "expectNoQuestionTurns": [1, 2, 3, 4],
+    "expectClosingTurns": [4]
+  },
+  {
+    "id": "session-33-vocabulary-sound",
+    "articleId": "article-m",
+    "targetGrade": "초등 5학년",
+    "standard": "[6국02-02] 글의 문맥과 표현을 고려하여 내용을 이해한다.",
+    "persona": { "participation": "medium", "confidence": "medium", "reading": "asks_word_meanings" },
+    "turns": [
+      "여기서 흡음판은 무슨 뜻이에요?",
+      "소리를 흡수해서 줄이는 판이죠?",
+      "데시벨은 뭔가요?",
+      "이제 기사 숫자도 이해돼요."
+    ],
+    "expectReplyIncludesAny": {
+      "1": ["사전적으로", "소리", "판"],
+      "2": ["앞뒤 문장", "이 글"],
+      "3": ["사전적으로", "소리의 크기", "단위"]
+    },
+    "expectNoQuestionTurns": [1, 2, 3]
+  },
+  {
+    "id": "session-34-vocabulary-reusable",
+    "articleId": "article-i",
+    "targetGrade": "초등 4학년",
+    "standard": "[4국02-01] 문맥을 고려하여 낱말의 의미를 파악하며 글을 읽는다.",
+    "persona": { "participation": "high", "confidence": "medium", "reading": "asks_word_meanings" },
+    "turns": [
+      "‘다회용’이라는 말이 뭔가요?",
+      "컵을 씻어서 여러 번 쓴다는 말이군요.",
+      "일회용이랑 반대라고 보면 돼요?",
+      "네 됐어요."
+    ],
+    "expectReplyIncludesAny": {
+      "1": ["사전적으로", "여러", "사용"],
+      "2": ["앞뒤 문장", "이 글"]
+    },
+    "expectNoQuestionTurns": [1, 2, 4],
+    "expectClosingTurns": [4]
   }
 ]
