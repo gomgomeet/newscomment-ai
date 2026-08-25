@@ -1367,17 +1367,60 @@ export function QuestioningChatbotBoard() {
     );
     if (!saved) return;
 
+    // 수업 코드로 들어오는 학생은 서버에 저장된 연결을 읽는다. 그걸 갱신하지 않으면
+    // 교사가 자료를 바꿔도 학생은 ④를 눌렀을 때의 옛 자료를 계속 본다.
+    const connectionNote = await refreshLessonConnection(nextBehavior);
+
     if (!notionApiKey.trim()) {
       setNotice(
-        `학생용 챗봇에 적용했습니다.${cardNote}${storedNote} 노션에도 저장하려면 위 ②에 Notion API 토큰을 입력해 주세요.`,
+        `학생용 챗봇에 적용했습니다.${cardNote}${storedNote}${connectionNote} 노션에도 저장하려면 위 ②에 Notion API 토큰을 입력해 주세요.`,
       );
       return;
     }
 
     await handleSavePreparationToNotion(
-      `학생용 챗봇에 적용하고 노션 준비 DB에도 저장했습니다.${cardNote}${storedNote}`,
+      `학생용 챗봇에 적용하고 노션 준비 DB에도 저장했습니다.${cardNote}${storedNote}${connectionNote}`,
       nextBehavior,
     );
+  }
+
+  /**
+   * 저장된 수업 연결을 새 설정으로 갱신한다. 연결을 만든 적이 없으면 조용히 건너뛴다.
+   * 갱신에 실패해도 ⑧의 나머지(챗봇 적용·노션 저장)는 그대로 진행한다.
+   */
+  async function refreshLessonConnection(behaviorOverride?: QuestioningChatbotBehavior): Promise<string> {
+    // ④를 눌러 학생용 주소를 만든 적이 있을 때만 갱신할 연결이 있다.
+    if (!savedStudentChatbotUrl || !connectionLessonCode.trim()) return "";
+
+    const config = buildCurrentChatbotConfig(behaviorOverride);
+    if (!config) return "";
+
+    try {
+      const response = await fetch("/api/questioning-board/connections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config,
+          lessonCode: connectionLessonCode,
+          teacherLabel: connectionTeacherLabel,
+          setupToken: connectionSetupToken,
+          geminiApiKey: aiApiKey,
+          geminiModel: aiModel,
+          notionApiKey,
+          notionPrepDatabaseId,
+          notionResultDatabaseId,
+          studentChatbotPath,
+        }),
+      });
+      const payload = (await response.json()) as { ok?: boolean; error?: string };
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || "수업 연결 갱신에 실패했습니다.");
+      }
+      return " 학생용 수업 연결도 새 자료로 갱신했습니다.";
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "수업 연결 갱신에 실패했습니다.";
+      return ` ⚠ 학생용 수업 연결 갱신은 실패했습니다(${message}). ④를 다시 눌러 주세요.`;
+    }
   }
 
   async function handleSavePreparationToNotion(
