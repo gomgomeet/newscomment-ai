@@ -76,6 +76,7 @@
 - `docs/GPT_5_3_CODEX_SPARK_USAGE_GUIDE.md`: Codex Spark를 개발 반복 도구로 사용하는 방법
 - `docs/QUESTIONING_CHATBOT_PRD.md`: 현재 V2 대화정책과 학생용 제공자 경계
 - `docs/GENERAL_TEACHER_STANDALONE_HTML_CHATBOT_PROMPT.md`: 일반 교사가 수업 정보만 바꿔 단일 HTML 질문 챗봇을 만드는 복사형 프롬프트
+- `docs/GENERAL_TEACHER_READY_TO_COPY_CHATBOT_PROMPT.md`: 성취기준과 지문 입력란만 바꿔 바로 사용하는 최종 통합 프롬프트
 
 단일 HTML 제작 프롬프트에도 30회기에서 발견한 인과 과장, 자기 수정, 반복 막힘, 감정·입장, 개인정보와 대필 분리, 대필 후 복귀, 구어체 종료 규칙을 반영했다. 생성 단계에서 개발 30회기와 새 자료 홀드아웃 10회기를 함께 검사하도록 했다.
 
