@@ -1489,6 +1489,8 @@ function findRelevantSourceExcerpt(question: string, material: MaterialAnalysis,
 
   // 까닭을 묻는 질문에는 낱말이 겹치는 문장보다 원인을 밝힌 문장이 답이다.
   const asksWhy = /(왜|이유|까닭|때문)/.test(compactQuestion);
+  // "우리가 뭘 할 수 있어요?"에는 실제 행동을 적은 문장이 답이다.
+  const asksAction = /(할수있|어떻게해|어떡|방법|하면돼|하면좋)/.test(compactQuestion);
   const scored = segments.map((segment, index) => {
     const nextSegment = segments[index + 1];
     const scoringText =
@@ -1499,9 +1501,13 @@ function findRelevantSourceExcerpt(question: string, material: MaterialAnalysis,
         ? `${segment.text} ${nextSegment.text}`
         : segment.text;
     const normalizedSegment = scoringText.toLowerCase().replace(/\s+/g, "");
+    // 가산은 이웃 문장을 합친 텍스트가 아니라 그 문장 자체에만 준다. 합친 텍스트에
+    // 주면 원인 문장 앞의 엉뚱한 문장이 덤으로 점수를 받는다.
     const causalBonus =
-      asksWhy && /(때문|덕분|탓|(으로|로)\s*인해|원인|설명한다|설명했다|져서|아져|어져)/.test(scoringText) ? 5 : 0;
-    const score = causalBonus + terms.reduce(
+      asksWhy && /(때문|덕분|탓|(으로|로)\s*인해|원인|설명한다|설명했다|져서|아져|어져)/.test(segment.text) ? 5 : 0;
+    const actionBonus =
+      asksAction && /(늘리|줄이|바꾸|정했|하기로|방안|대책|마련|설치|실천|시작했)/.test(segment.text) ? 5 : 0;
+    const score = causalBonus + actionBonus + terms.reduce(
       (total, term) =>
         total +
         (normalizedSegment.includes(term.replace(/\s+/g, ""))
@@ -1934,7 +1940,7 @@ function createVocabularyLocalTurn(
   if (!dictionaryMeaning) {
     return {
       reply: contextSentence
-        ? `‘${term}’의 사전에 실린 뜻은 내가 가진 자료에 없어서 지어내지 않을게요. 대신 이 글에서는 “${contextSentence}”처럼 쓰였어요. 이 문장 앞뒤에서 ‘${term}’이 무엇을 가리키는지 먼저 짐작해 보고, 국어사전에서 기본 뜻을 확인해 맞는지 견주어 보면 돼요.`
+        ? `‘${term}’의 사전에 실린 뜻은 내가 가진 자료에 없어서 지어내지 않을게요. 대신 이 글에서는 “${contextSentence}”처럼 쓰였어요. 이 문장 앞뒤에서 ${withSubjectJosa(term)} 무엇을 가리키는지 먼저 짐작해 보고, 국어사전에서 기본 뜻을 확인해 맞는지 견주어 보면 돼요.`
         : `‘${term}’의 뜻은 지어내지 않을게요. 자료에서 그 낱말이 쓰인 문장을 찾지 못했거든요. 낱말이 나온 부분을 알려 주거나, 국어사전에서 기본 뜻을 확인한 뒤 이 글의 내용과 맞는 뜻을 골라 보세요.`,
       primaryMove: "check_evidence",
       engagementState: "seeking_evidence",
@@ -2249,9 +2255,18 @@ function keepAtMostOneQuestion(value: string) {
   });
 }
 
+/** 받침 유무로 조사를 고른다. '쉼터'+가, '잔반'+이. */
+function withSubjectJosa(word: string): string {
+  const last = word.trim().charAt(word.trim().length - 1);
+  const code = last.charCodeAt(0);
+  const hasBatchim = code >= 0xac00 && code <= 0xd7a3 && (code - 0xac00) % 28 !== 0;
+  return `‘${word}’${hasBatchim ? "이" : "가"}`;
+}
+
 function isClosingStudentTurn(value: string) {
   const compact = value.toLowerCase().replace(/\s+/g, "");
-  return /(네|응|아|오케이|ㅇㅋ)?(이제)?(됐어요|됐어|알겠어요|알겠어|알겠음그만|알겠음|그만할래|그만할게요|그만할게|끝낼래|끝낼게요|끝낼게|여기까지만할게요|여기까지만할게|여기까지만|안할래|쉬고싶|ㅇㅋ이제끝|ㅇㅋ끝|그만)([.!?？]|$)/.test(
+  // "네 알겠어요 이제 그만할래요"처럼 인사말이 앞에 붙고 '-요'로 끝나도 종결이다.
+  return /(네|응|아|오케이|ㅇㅋ)?(알겠어요|알겠어)?(이제)?(됐어요|됐어|알겠어요|알겠어|알겠음그만|알겠음|그만할래|그만할게요|그만할게|끝낼래|끝낼게요|끝낼게|여기까지만할게요|여기까지만할게|여기까지만|안할래|쉬고싶|ㅇㅋ이제끝|ㅇㅋ끝|그만)(요)?([.!?？]|$)/.test(
     compact,
   );
 }
@@ -2318,6 +2333,7 @@ function bestSourceSentence(value: string, studentTurn: string, maxLength = 165)
   // "이번 여름은 왜 더웠어?"에 "39도까지 올랐다"(여름 일치)가 아니라
   // "온실가스 배출로 기온이 올라"(원인)를 집어야 한다.
   const asksWhy = /(왜|이유|까닭|때문)/.test(studentTurn);
+  const asksAction = /(할\s*수\s*있|어떻게\s*해|어떡|방법|하면\s*돼|하면\s*좋)/.test(studentTurn);
   const scored = sentences.map((sentence, index) => {
     const compactSentence = sentence.toLowerCase().replace(/\s+/g, "");
     let score = terms.reduce(
@@ -2325,6 +2341,9 @@ function bestSourceSentence(value: string, studentTurn: string, maxLength = 165)
       0,
     );
     if (asksWhy && /(때문|덕분|탓|(으로|로)\s*인해|원인|설명한다|설명했다|져서|아져|어져)/.test(sentence)) {
+      score += 5;
+    }
+    if (asksAction && /(늘리|줄이|바꾸|정했|하기로|방안|대책|마련|설치|실천|시작했)/.test(sentence)) {
       score += 5;
     }
     return { sentence, index, score };
@@ -2390,7 +2409,8 @@ function sourceLimitationCue(material: MaterialAnalysis) {
   // 한계를 밝힌 문장이 없으면 요약을 억지로 끼워 넣지 않는다. 요약은 한계가
   // 아니라서 "다만 …" 뒤에 붙으면 말이 어긋난다.
   if (!limitation) return "자료가 모든 조건을 다 보여 주지는 않아요.";
-  return firstSourceSentence(limitation, 170);
+  // 기사 원문(평서형)이 챗봇 존댓말에 섞이지 않게 인용으로 감싼다.
+  return quoteSourceSentence(firstSourceSentence(limitation, 170));
 }
 
 function sourceActionCue(material: MaterialAnalysis) {
@@ -2710,7 +2730,10 @@ function createGeneralNaturalTurn({
 
   if (questionType === "extension") {
     return {
-      reply: `“${studentIdea}”라는 궁금증은 자료에서 한 걸음 더 나아간 생각이에요. ${cue} 이 연결은 남겨 두되, 자료 밖의 사실은 추가 출처를 확인하기 전까지 단정하지 않을게요.`,
+      // 질문이면 되받아 읊지 않는다. 근거를 보여 주고 자료 밖임을 정직하게 말한다.
+      reply: asksRatherThanStates(studentIdea)
+        ? `${cue} 여기까지가 자료가 알려 주는 부분이에요. 그 다음은 글이 직접 답해 주지 않으니, 함께 확인할 질문으로 남겨 두면 좋아요.`
+        : `“${studentIdea}”라는 궁금증은 자료에서 한 걸음 더 나아간 생각이에요. ${cue} 이 연결은 남겨 두되, 자료 밖의 사실은 추가 출처를 확인하기 전까지 단정하지 않을게요.`,
       primaryMove: "productive_extension",
       engagementState: "curious",
       curriculumRelation: "productive_extension",
@@ -2732,7 +2755,10 @@ function createGeneralNaturalTurn({
 
   if (questionType === "application") {
     return {
-      reply: `“${studentIdea}”처럼 네 상황에 연결한 점이 중요해요. ${cue} 자료의 방법을 그대로 복사하기보다 네 상황에서 달라지는 조건을 함께 보면 돼요.`,
+      // "우리가 뭘 할 수 있어요?"는 생각이 아니라 물음이다. 자료 속 실천 사례를 보여 준다.
+      reply: asksRatherThanStates(studentIdea)
+        ? `${cue} 자료 속 사람들이 한 방법이에요. 우리 상황에서는 무엇을 바꿔야 할지 하나만 골라 볼까요?`
+        : `“${studentIdea}”처럼 네 상황에 연결한 점이 중요해요. ${cue} 자료의 방법을 그대로 복사하기보다 네 상황에서 달라지는 조건을 함께 보면 돼요.`,
       primaryMove: "follow_student_lead",
       engagementState: "personally_connecting",
       curriculumRelation: "productive_extension",
@@ -2748,6 +2774,18 @@ function createGeneralNaturalTurn({
       engagementState: "revising_thought",
       curriculumRelation: "direct",
       sourceStatus: "reasonable_inference",
+      supportLevel: 0,
+    };
+  }
+
+  // 인사는 인사로 받는다. "안녕하세요"를 "라고 짚었군요"로 받으면 첫마디부터 이상하다.
+  if (/^(안녕하세요|안녕하십니까|안녕|하이|헬로|방가|반가워요?|반갑습니다)[!~.?\s]*$/.test(studentIdea.trim())) {
+    return {
+      reply: `안녕하세요! 만나서 반가워요. 오늘은 「${material.materialTitle || "질문 자료"}」로 이야기해요. 자료를 읽고 궁금한 점이 생기면 편하게 물어봐 주세요.`,
+      primaryMove: "receive",
+      engagementState: "curious",
+      curriculumRelation: "direct",
+      sourceStatus: "supported",
       supportLevel: 0,
     };
   }
@@ -2806,9 +2844,20 @@ function asksRatherThanStates(value: string) {
   if (/[?？]\s*$/.test(trimmed)) return true;
   // 물음표가 떨어져 나간 뒤에도 물음인 줄 알아야 한다. 학생 말은 화면에 옮겨질 때
   // 문장부호가 지워지는 일이 잦다.
-  return /(설명해|알려\s*줘|알려\s*주세요|가르쳐|말해\s*줘|말해\s*주세요|궁금해요?|뭐예요|뭔가요|무엇인가요|뭐야|나요|까요|가요|은가요|ㄴ가요|는지|일까|을까|ㄹ까)\s*[.!]?$/.test(
-    trimmed,
-  );
+  if (
+    /(설명해|알려\s*줘|알려\s*주세요|가르쳐|말해\s*줘|말해\s*주세요|궁금해요?|뭐예요|뭔가요|무엇인가요|뭐야|나요|까요|가요|은가요|ㄴ가요|는지|일까|을까|ㄹ까|거예요|건가요)\s*[.!]?$/.test(
+      trimmed,
+    )
+  ) {
+    return true;
+  }
+
+  // "온실가스는 어디서 나오는 거예요" — 의문사가 있고 자기 생각을 밝히는 말로 끝나지
+  // 않으면 물음이다. "왜냐하면 ~라고 생각해요"는 의문사가 있어도 생각을 밝힌 것이다.
+  const statesOwnThought = /(생각해요|생각이에요|생각합니다|같아요|느꼈어요|느껴요|좋아요|싫어요)\s*[.!]?$/.test(trimmed);
+  // '뭘'은 '무엇을'의 준말이라 '뭐'로는 걸리지 않는다.
+  const hasInterrogative = /(어디|언제|누가|누구|어떻게|무엇|뭐|뭘|무얼|몇|얼마나|어느)/.test(trimmed);
+  return hasInterrogative && !statesOwnThought;
 }
 
 function createNaturalLocalTurn(studentTurn: string, material: MaterialAnalysis): NaturalLocalTurn | null {
@@ -3336,8 +3385,8 @@ export function createLocalQuestionResult({
     studentReply = repeatedUncertainty
       ? `질문을 더 보태지 않을게요. 이번에는 ${shortSourceCue} 이 한 가지 단서만 보면 돼요.`
       : allowQuestion
-        ? `바로 답을 정하지 않아도 돼요. ${shortSourceCue} 여기서는 변화한 결과와 그 까닭 중 어느 쪽이 먼저 보여요?`
-        : `바로 답을 정하지 않아도 돼요. 이번에는 ${shortSourceCue} 이 한 가지 단서만 보면 충분해요.`;
+        ? `바로 답을 정하지 않아도 돼요. ${quoteSourceSentence(shortSourceCue)} 여기서는 변화한 결과와 그 까닭 중 어느 쪽이 먼저 보여요?`
+        : `바로 답을 정하지 않아도 돼요. ${quoteSourceSentence(shortSourceCue)} 이 한 가지 단서만 보면 충분해요.`;
   } else if (naturalTurn) {
     primaryMove = naturalTurn.primaryMove;
     engagementState = naturalTurn.engagementState;
