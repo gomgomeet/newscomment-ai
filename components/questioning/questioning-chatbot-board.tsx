@@ -182,6 +182,63 @@ function createReferenceOnlySummary(title: string, notes: string) {
   return summary.length > 700 ? `${summary.slice(0, 697)}...` : summary;
 }
 
+/**
+ * 교사에게 한 번 물어야 하는 카드. 서버가 만든 카드 중 **메모 해석과 웹 리서치**만
+ * 여기 담긴다. 낱말·사실·추론·예상 질문은 지문에서 기계적으로 나오므로 묻지 않는다.
+ */
+type CardConfirmationItem = {
+  id: string;
+  cardType: string;
+  title: string;
+  content: string;
+  dialoguePrompt: string | null;
+  dialogueTrigger: string | null;
+  dialogueGoal: string | null;
+  externalSourceUrl: string | null;
+  externalSourceTitle: string | null;
+  externalSourceOrganization: string | null;
+  sourceReliability: string | null;
+  defaultEnabled: boolean;
+};
+
+type CardBuildResult = {
+  documentId: string;
+  total: number;
+  usable: number;
+  weakCardCount: number;
+  warning: string;
+  needsConfirmation: CardConfirmationItem[];
+};
+
+const CARD_CHOICE_MEMORY_KEY = "questioning-card-choices-v1";
+
+/**
+ * 같은 카드를 두 번 묻지 않기 위한 열쇠. id는 저장할 때마다 새로 생기므로 쓸 수 없고,
+ * 종류와 제목으로 짝짓는다.
+ */
+function cardChoiceKey(item: CardConfirmationItem) {
+  return `${item.cardType}|${item.title}`;
+}
+
+function readCardChoiceMemory(): Record<string, boolean> {
+  try {
+    const raw = window.localStorage.getItem(CARD_CHOICE_MEMORY_KEY);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return parsed as Record<string, boolean>;
+  } catch {
+    return {};
+  }
+}
+
+function writeCardChoiceMemory(memory: Record<string, boolean>) {
+  try {
+    window.localStorage.setItem(CARD_CHOICE_MEMORY_KEY, JSON.stringify(memory));
+  } catch {
+    // 저장에 실패해도 이번 확인은 그대로 진행한다.
+  }
+}
+
 function createManualMaterial({
   title,
   notes,
@@ -605,6 +662,11 @@ export function QuestioningChatbotBoard() {
   const [materialTitle, setMaterialTitle] = useState(defaultLessonMaterial.materialTitle);
   const [teacherNotes, setTeacherNotes] = useState(defaultLessonMaterial.visibleText);
   const [questionFocusMemo, setQuestionFocusMemo] = useState(defaultLessonMaterial.questionFocusMemo || "");
+  // ⑧에서 만든 카드 중 교사에게 물을 것이 있으면 여기 담기고 확인 창이 열린다.
+  const [cardConfirmation, setCardConfirmation] = useState<CardBuildResult | null>(null);
+  const [cardSelections, setCardSelections] = useState<Record<string, boolean>>({});
+  const [cardPrompts, setCardPrompts] = useState<Record<string, string>>({});
+  const [isBuildingCards, setIsBuildingCards] = useState(false);
   const [teacherVocabulary, setTeacherVocabulary] = useState<MaterialVocabularyEntry[]>(
     defaultLessonMaterial.vocabulary?.map((entry) => ({ ...entry })) ?? [],
   );
@@ -1025,29 +1087,142 @@ export function QuestioningChatbotBoard() {
   }
 
   /**
+   * 생각 카드를 서버에 만들어 저장한다.
+   *
+   * 카드 저장소가 아직 준비되지 않았거나 서버가 실패해도 수업 준비를 막지 않는다.
+   * 그때는 null을 돌려주고, ⑧은 지금까지처럼 프롬프트에 카드를 넣어 진행한다.
+   */
+  async function requestThinkingCards(): Promise<CardBuildResult | null> {
+    try {
+      const response = await fetch("/api/questioning-board/cards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          material: configuredMaterialWithVocabulary,
+          lessonCode: connectionLessonCode,
+          standard: standardText,
+          targetGrade,
+          subjectUnit,
+          setupToken: connectionSetupToken,
+          geminiApiKey: aiApiKey,
+          geminiModel: aiModel,
+        }),
+      });
+      if (!response.ok) return null;
+      return (await response.json()) as CardBuildResult;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * ⑧ 한 번에 마무리: 학생용 챗봇에 설정을 적용하고, 노션 준비 DB에도 저장한다.
    * 노션 토큰이 없으면 챗봇 적용까지만 하고 그 사실을 알려 준다.
+   *
+   * 카드에 교사가 확인할 것(메모 해석·웹 리서치)이 있으면 여기서 한 번 멈춘다.
+   * 확인할 것이 없으면 멈추지 않고 그대로 끝낸다 — 버튼을 하나로 합친 뜻이 이것이다.
    */
   async function handleApplyAndSave() {
-    // 생각 카드를 먼저 만들어 챗봇 지시에 넣은 뒤 저장한다.
+    setIsBuildingCards(true);
+    const cardResult = await requestThinkingCards();
+    setIsBuildingCards(false);
+
+    if (cardResult && cardResult.needsConfirmation.length > 0) {
+      const memory = readCardChoiceMemory();
+      const selections: Record<string, boolean> = {};
+      const prompts: Record<string, string> = {};
+      cardResult.needsConfirmation.forEach((item) => {
+        const remembered = memory[cardChoiceKey(item)];
+        selections[item.id] = typeof remembered === "boolean" ? remembered : item.defaultEnabled;
+        prompts[item.id] = item.dialoguePrompt ?? "";
+      });
+      setCardSelections(selections);
+      setCardPrompts(prompts);
+      setCardConfirmation(cardResult);
+      setNotice("확인할 내용이 있습니다. 아래 창에서 한 번만 확인해 주세요.");
+      return;
+    }
+
+    await finishApplyAndSave(cardResult);
+  }
+
+  /** 확인 창에서 고른 결과를 서버에 반영하고, 이어서 저장을 마친다. */
+  async function handleConfirmCards() {
+    const pending = cardConfirmation;
+    if (!pending) return;
+
+    const enabledCardIds: string[] = [];
+    const disabledCardIds: string[] = [];
+    const dialogueEdits: Array<{ id: string; dialoguePrompt: string }> = [];
+    const memory = readCardChoiceMemory();
+
+    pending.needsConfirmation.forEach((item) => {
+      const enabled = cardSelections[item.id] ?? item.defaultEnabled;
+      (enabled ? enabledCardIds : disabledCardIds).push(item.id);
+      memory[cardChoiceKey(item)] = enabled;
+
+      const prompt = (cardPrompts[item.id] ?? "").trim();
+      if (enabled && item.cardType === "dialogue_design" && prompt) {
+        dialogueEdits.push({ id: item.id, dialoguePrompt: prompt });
+      }
+    });
+    writeCardChoiceMemory(memory);
+
+    setIsBuildingCards(true);
+    try {
+      await fetch("/api/questioning-board/cards", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          documentId: pending.documentId,
+          setupToken: connectionSetupToken,
+          enabledCardIds,
+          disabledCardIds,
+          dialogueEdits,
+        }),
+      });
+    } catch {
+      // 반영에 실패해도 챗봇 적용과 노션 저장은 이어서 진행한다.
+    }
+    setIsBuildingCards(false);
+
+    setCardConfirmation(null);
+    await finishApplyAndSave(pending);
+  }
+
+  /** 확인 창을 닫고 이번에는 카드 없이 진행한다. */
+  async function handleSkipCardConfirmation() {
+    const pending = cardConfirmation;
+    setCardConfirmation(null);
+    await finishApplyAndSave(pending);
+  }
+
+  /** ⑧의 나머지 — 챗봇 적용과 노션 저장. 확인 창이 있든 없든 여기로 모인다. */
+  async function finishApplyAndSave(cardResult: CardBuildResult | null) {
+    // 카드 검색이 학생 응답에 붙기 전까지는 프롬프트에도 넣어 둔다.
+    // 지금 빼면 챗봇이 카드를 전혀 쓰지 못한다.
     const { card, applied: questionCount, nextBehavior } = buildAndApplyThinkingCard();
     const cardNote =
       card.openQuestions.length > 0
         ? ` 예상 질문 ${questionCount}개를 반영했고, 지문으로 답할 수 없는 질문 ${card.openQuestions.length}개는 학생과 함께 확인하도록 두었습니다.`
         : ` 예상 질문 ${questionCount}개를 반영했습니다.`;
+    const storedNote = cardResult ? ` 생각 카드 ${cardResult.total}장을 저장했습니다.` : "";
 
-    const saved = saveStudentChatbotConfig(`학생용 챗봇에 적용했습니다.${cardNote}`, nextBehavior);
+    const saved = saveStudentChatbotConfig(
+      `학생용 챗봇에 적용했습니다.${cardNote}${storedNote}`,
+      nextBehavior,
+    );
     if (!saved) return;
 
     if (!notionApiKey.trim()) {
       setNotice(
-        `학생용 챗봇에 적용했습니다.${cardNote} 노션에도 저장하려면 위 ②에 Notion API 토큰을 입력해 주세요.`,
+        `학생용 챗봇에 적용했습니다.${cardNote}${storedNote} 노션에도 저장하려면 위 ②에 Notion API 토큰을 입력해 주세요.`,
       );
       return;
     }
 
     await handleSavePreparationToNotion(
-      `학생용 챗봇에 적용하고 노션 준비 DB에도 저장했습니다.${cardNote}`,
+      `학생용 챗봇에 적용하고 노션 준비 DB에도 저장했습니다.${cardNote}${storedNote}`,
       nextBehavior,
     );
   }
@@ -1845,15 +2020,110 @@ export function QuestioningChatbotBoard() {
                 type="button"
                 className="w-full"
                 onClick={handleApplyAndSave}
-                disabled={isSavingPreparationToNotion}
+                disabled={isSavingPreparationToNotion || isBuildingCards}
               >
-                {isSavingPreparationToNotion ? (
+                {isSavingPreparationToNotion || isBuildingCards ? (
                   <RefreshCw className="size-4 animate-spin" aria-hidden="true" />
                 ) : (
                   <Database className="size-4" aria-hidden="true" />
                 )}
-                ⑧ 챗봇에 적용하고 노션에 저장
+                {isBuildingCards ? "생각 카드를 만드는 중..." : "⑧ 챗봇에 적용하고 노션에 저장"}
               </Button>
+
+              {cardConfirmation ? (
+                <div className="mt-3 space-y-3 rounded-md border border-primary/40 bg-primary/5 p-3">
+                  <div>
+                    <h3 className="text-sm font-semibold">확인하시겠습니까?</h3>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      생각 카드 {cardConfirmation.total}장을 만들었습니다. 지문에서 뽑은 낱말·사실·추론 카드는
+                      확인 없이 그대로 씁니다. 아래 두 가지만 한 번 봐 주세요.
+                      {cardConfirmation.weakCardCount > 0
+                        ? ` 근거가 모자라 답변에 쓰지 않는 카드가 ${cardConfirmation.weakCardCount}장 있습니다.`
+                        : ""}
+                    </p>
+                    {cardConfirmation.warning ? (
+                      <p className="mt-1 text-xs leading-5 text-amber-800">{cardConfirmation.warning}</p>
+                    ) : null}
+                  </div>
+
+                  {cardConfirmation.needsConfirmation.map((item) => (
+                    <div key={item.id} className="rounded-md border border-border bg-background p-3">
+                      <label className="flex items-start gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          className="mt-1"
+                          checked={cardSelections[item.id] ?? item.defaultEnabled}
+                          onChange={(event) =>
+                            setCardSelections((current) => ({ ...current, [item.id]: event.target.checked }))
+                          }
+                        />
+                        <span className="flex-1">
+                          <b className="font-semibold">
+                            {item.cardType === "dialogue_design" ? "교사 메모" : "웹에서 찾은 내용"}
+                          </b>
+                          <span className="ml-2 text-muted-foreground">{item.title}</span>
+                        </span>
+                      </label>
+
+                      {item.cardType === "dialogue_design" ? (
+                        <div className="mt-2 space-y-1 pl-6">
+                          <p className="text-xs text-muted-foreground">
+                            {item.dialogueTrigger} — {item.dialogueGoal}
+                          </p>
+                          <Input
+                            value={cardPrompts[item.id] ?? ""}
+                            placeholder="학생에게 이렇게 물어봅니다"
+                            onChange={(event) =>
+                              setCardPrompts((current) => ({ ...current, [item.id]: event.target.value }))
+                            }
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            메모를 발문으로 옮긴 것입니다. 어색하면 문장을 고쳐 주세요.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="mt-2 space-y-1 pl-6 text-xs leading-5">
+                          <p>{item.content}</p>
+                          <p className="text-muted-foreground">
+                            출처 {item.sourceReliability}등급 · {item.externalSourceOrganization}
+                            {item.externalSourceUrl ? (
+                              <>
+                                {" · "}
+                                <a
+                                  href={item.externalSourceUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="underline"
+                                >
+                                  원문 보기
+                                </a>
+                              </>
+                            ) : null}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" size="sm" onClick={handleConfirmCards} disabled={isBuildingCards}>
+                      확인하고 저장
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={handleSkipCardConfirmation}
+                      disabled={isBuildingCards}
+                    >
+                      이번에는 넘어가기
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    고르신 내용은 기억해 두었다가 다음에 다시 묻지 않습니다.
+                  </p>
+                </div>
+              ) : null}
             </div>
           </div>
           <div className="rounded-md border border-border bg-card sm:col-span-2 xl:col-span-4">
