@@ -674,9 +674,12 @@ export function QuestioningChatbotBoard() {
   const [customStandard, setCustomStandard] = useState("");
   const [targetGrade, setTargetGrade] = useState(standardOptions[0].gradeBand);
   const [subjectUnit, setSubjectUnit] = useState(`${standardOptions[0].subject} / 질문하기 수업`);
-  const [materialTitle, setMaterialTitle] = useState(defaultLessonMaterial.materialTitle);
-  const [teacherNotes, setTeacherNotes] = useState(defaultLessonMaterial.visibleText);
-  const [questionFocusMemo, setQuestionFocusMemo] = useState(defaultLessonMaterial.questionFocusMemo || "");
+  // 처음 열면 빈칸으로 시작한다. 예시 자료를 미리 채워 두면 교사가 자기 자료를
+  // 적기 전에 ⑧을 눌렀을 때 예시가 학생에게 그대로 나간다 — 실제로 벌어졌던 일이다.
+  // 같은 브라우저라면 아래 복원 로직이 마지막으로 적용한 자료를 되살린다.
+  const [materialTitle, setMaterialTitle] = useState("");
+  const [teacherNotes, setTeacherNotes] = useState("");
+  const [questionFocusMemo, setQuestionFocusMemo] = useState("");
   // ⑧에서 만든 카드 중 교사에게 물을 것이 있으면 여기 담기고 확인 창이 열린다.
   const [cardConfirmation, setCardConfirmation] = useState<CardBuildResult | null>(null);
   const [cardSelections, setCardSelections] = useState<Record<string, boolean>>({});
@@ -688,12 +691,19 @@ export function QuestioningChatbotBoard() {
   const [teacherAnswers, setTeacherAnswers] = useState<Record<string, string>>({});
   const [isLoadingQuestions, setIsLoadingQuestions] = useState(false);
   // 어휘표 직접 입력 화면은 걷어냈다. 낱말은 이미지 분석과 AI 리서치가 채운다.
-  const [teacherVocabulary] = useState<MaterialVocabularyEntry[]>(
-    defaultLessonMaterial.vocabulary?.map((entry) => ({ ...entry })) ?? [],
-  );
+  const [teacherVocabulary] = useState<MaterialVocabularyEntry[]>([]);
   const [imageDataUrl, setImageDataUrl] = useState("");
   const [imageName, setImageName] = useState("");
-  const [material, setMaterial] = useState<MaterialAnalysis>(defaultLessonMaterial);
+  const [material, setMaterial] = useState<MaterialAnalysis>(() => ({
+    ...defaultLessonMaterial,
+    materialTitle: "",
+    summary: "",
+    visibleText: "",
+    keyConcepts: [],
+    vocabulary: [],
+    possibleMisconceptions: [],
+    questionSeeds: [],
+  }));
   const [isReferenceOnlyMaterial, setIsReferenceOnlyMaterial] = useState(false);
   const [behavior, setBehavior] = useState<QuestioningChatbotBehavior>(defaultChatbotBehavior);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -844,6 +854,16 @@ export function QuestioningChatbotBoard() {
         try {
           const parsedConfig = JSON.parse(storedConfig) as { behavior?: unknown; material?: Partial<MaterialAnalysis> };
           setBehavior(normalizeQuestioningChatbotBehavior(parsedConfig.behavior));
+          // 마지막으로 적용한 자료를 통째로 되살린다. 제목·본문·메모가 함께 돌아와야
+          // 교사가 이어서 고칠 수 있다.
+          const storedMaterial = parsedConfig.material;
+          if (storedMaterial && typeof storedMaterial.materialTitle === "string") {
+            if (storedMaterial.materialTitle.trim()) setMaterialTitle(storedMaterial.materialTitle);
+            if (typeof storedMaterial.visibleText === "string" && storedMaterial.visibleText.trim()) {
+              setTeacherNotes(storedMaterial.visibleText);
+            }
+            setMaterial((current) => ({ ...current, ...storedMaterial } as MaterialAnalysis));
+          }
           if (typeof parsedConfig.material?.questionFocusMemo === "string") {
             setQuestionFocusMemo(parsedConfig.material.questionFocusMemo);
           }
