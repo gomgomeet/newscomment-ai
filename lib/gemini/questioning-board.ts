@@ -264,6 +264,291 @@ function sanitizeStudentReply(
   return allowQuestion ? sanitized : removeDisallowedQuestionSentences(sanitized);
 }
 
+type MaterialReasoningPassage = {
+  text: string;
+  paragraphIndex: number;
+  sentenceIndex: number;
+};
+
+type MaterialReasoningContext = {
+  globalFrame: string;
+  keywordHints: string[];
+  supportingPassages: string[];
+};
+
+const MATERIAL_CONTEXT_MAX_KEYWORDS = 20;
+const MATERIAL_CONTEXT_PASSAGE_LIMIT = 3;
+const MATERIAL_CONTEXT_PASSAGE_MAX_CHARS = 240;
+const MATERIAL_CONTEXT_QUESTION_TOKEN_MIN_LENGTH = 2;
+const MATERIAL_REASONING_STOPWORDS = new Set([
+  "이",
+  "그",
+  "저",
+  "이런",
+  "그런",
+  "그것",
+  "저게",
+  "저를",
+  "내",
+  "너",
+  "당신",
+  "우리",
+  "제가",
+  "내가",
+  "너는",
+  "너무",
+  "정말",
+  "진짜",
+  "그래서",
+  "그러면",
+  "그럼",
+  "하면",
+  "할때",
+  "하면",
+  "하면은",
+  "있을까",
+  "있어요",
+  "있을",
+  "했어요",
+  "했을까",
+  "될까요",
+  "있겠",
+  "없겠",
+  "않을",
+  "않으면",
+  "그리고",
+  "하지만",
+  "또한",
+  "그래서",
+  "부터",
+  "위해",
+  "때문에",
+  "내용",
+  "생각",
+  "질문",
+  "답",
+  "말",
+  "어떻게",
+  "무엇",
+  "어떤",
+  "무슨",
+  "뭐",
+  "뭔가",
+  "이거",
+  "저거",
+]);
+
+function normalizeContextText(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function tokenizeForMatching(value: string) {
+  return (value.toLowerCase().match(/[가-힣]{2,}|[a-z]{2,}|[0-9]+/g) ?? [])
+    .map((token) => token.trim())
+    .filter((token) => token.length >= MATERIAL_CONTEXT_QUESTION_TOKEN_MIN_LENGTH && !MATERIAL_REASONING_STOPWORDS.has(token));
+}
+
+function normalizeTokenForMatch(value: string) {
+  return value.trim().replace(/[^\p{L}\p{N}]+/gu, "").toLowerCase();
+}
+
+function summarizeTextForContext(value: string, maxChars = 230) {
+  const normalized = normalizeContextText(value);
+  if (normalized.length <= maxChars) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxChars - 3).trim()}...`;
+}
+
+function extractFrequentTerms(sourceText: string) {
+  const frequent = tokenizeForMatching(sourceText)
+    .reduce((acc, token) => {
+      const normalized = normalizeTokenForMatch(token);
+      if (!normalized) {
+        return acc;
+      }
+      acc.set(normalized, (acc.get(normalized) ?? 0) + 1);
+      return acc;
+    }, new Map<string, number>());
+
+  return Array.from(frequent.entries())
+    .sort((a, b) => b[1] - a[1] || b[0].length - a[0].length)
+    .map(([term]) => term)
+    .filter((term) => !/^\d+$/.test(term))
+    .slice(0, 12);
+}
+
+function buildMaterialKeywordHints(material: MaterialAnalysis) {
+  const sourceText = `${material.materialTitle}\n${material.summary}\n${material.visibleText}`;
+  const fromVocabulary = (material.vocabulary ?? []).map((entry) => entry.term.trim()).filter(Boolean);
+  const fromConcepts = material.keyConcepts.map((item) => item.trim()).filter(Boolean);
+  const frequent = extractFrequentTerms(sourceText);
+  const merged = [...fromVocabulary, ...fromConcepts, ...frequent];
+  const deduped: string[] = [];
+  const seen = new Set<string>();
+  for (const term of merged) {
+    const normalized = normalizeTokenForMatch(term);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    deduped.push(term);
+    seen.add(normalized);
+    if (deduped.length >= MATERIAL_CONTEXT_MAX_KEYWORDS) {
+      break;
+    }
+  }
+
+  return deduped;
+}
+
+function splitMaterialSentences(source: string) {
+  return source
+    .split(/\r?\n+/)
+    .flatMap((paragraph, paragraphIndex) => {
+      const normalizedParagraph = paragraph.trim();
+      if (!normalizedParagraph) {
+        return [];
+      }
+      const matches = normalizedParagraph
+        .replace(/(\d)\.(\d)/g, "$1<decimal>$2")
+        .match(/[^.!?？]+[.!?？]?/g);
+      const sentences = (matches ?? [normalizedParagraph]).map((sentence) => sentence.replace(/<decimal>/g, ".").trim());
+      return sentences
+        .map((sentence, sentenceIndex) => ({
+          text: sentence,
+          compact: normalizeContextText(sentence).toLowerCase().replace(/\s+/g, ""),
+          paragraphIndex,
+          sentenceIndex,
+        }))
+        .filter((sentence) => sentence.text.length >= 10);
+    });
+}
+
+function scoreMaterialSentence(
+  sentenceCompact: string,
+  questionTokens: string[],
+  keywordHints: string[],
+  paragraphIndex: number,
+) {
+  const normalizedQuestionTokens = new Set(questionTokens.map((token) => normalizeTokenForMatch(token)));
+  const normalizedKeywordHints = new Set(keywordHints.map((token) => normalizeTokenForMatch(token)));
+  let score = 0;
+  if (sentenceCompact.length < 12) {
+    return 0;
+  }
+
+  for (const token of normalizedQuestionTokens) {
+    if (token && sentenceCompact.includes(token)) {
+      score += 16;
+    }
+  }
+
+  for (const hint of normalizedKeywordHints) {
+    if (hint && sentenceCompact.includes(hint)) {
+      score += 6;
+    }
+  }
+
+  score -= Math.min(Math.floor(paragraphIndex / 2), 6);
+  return score;
+}
+
+function buildMaterialReasoningContext(material: MaterialAnalysis, studentQuestion: string): MaterialReasoningContext {
+  const globalSource = material.visibleText.trim() || material.summary.trim();
+  const sentenceList = splitMaterialSentences(globalSource);
+  const questionTokens = tokenizeForMatching(studentQuestion);
+  const keywordHints = buildMaterialKeywordHints(material);
+
+  const scoredSentences = sentenceList
+    .map((sentence, index) => ({
+      index,
+      score: scoreMaterialSentence(sentence.compact, questionTokens, keywordHints, sentence.paragraphIndex),
+      compact: sentence.compact,
+      sentence,
+    }))
+    .sort((a, b) => {
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
+      return a.index - b.index;
+    });
+
+  const hasStrongSignal = scoredSentences.some((item) => item.score >= 10);
+  const candidate = hasStrongSignal ? scoredSentences.slice(0, 8) : scoredSentences.slice(0, 3);
+  const selectedIndexes = new Set<number>();
+
+  for (const item of candidate) {
+    if (selectedIndexes.size >= MATERIAL_CONTEXT_PASSAGE_LIMIT) {
+      break;
+    }
+    const addIfValid = (segmentIndex: number) => {
+      if (segmentIndex < 0 || segmentIndex >= sentenceList.length) {
+        return;
+      }
+      const segment = sentenceList[segmentIndex];
+      const selected = [segment.sentenceIndex > 0 ? segmentIndex - 1 : null, segmentIndex, segmentIndex + 1]
+        .filter((value): value is number => value !== null);
+      for (const selectedIndex of selected) {
+        if (selectedIndexes.size < MATERIAL_CONTEXT_PASSAGE_LIMIT * 2 && selectedIndex >= 0 && selectedIndex < sentenceList.length) {
+          if (sentenceList[selectedIndex].text.length > 12) {
+            selectedIndexes.add(selectedIndex);
+          }
+        }
+      }
+    };
+    addIfValid(item.index);
+  }
+
+  const passages = Array.from(selectedIndexes)
+    .sort((a, b) => a - b)
+    .map((index) => sentenceList[index])
+    .filter((sentence) => sentence.compact.length > 0)
+    .reduce((acc: MaterialReasoningPassage[], sentence) => {
+      const previous = acc[acc.length - 1];
+      if (previous && previous.paragraphIndex === sentence.paragraphIndex && previous.sentenceIndex + 1 === sentence.sentenceIndex) {
+        const joined = `${previous.text} ${sentence.text}`;
+        acc[acc.length - 1] = {
+          text: joined.length > MATERIAL_CONTEXT_PASSAGE_MAX_CHARS
+            ? `${joined.slice(0, MATERIAL_CONTEXT_PASSAGE_MAX_CHARS - 3)}...`
+            : joined,
+          paragraphIndex: previous.paragraphIndex,
+          sentenceIndex: previous.sentenceIndex,
+        };
+        return acc;
+      }
+      acc.push({
+        text: sentence.text.length > MATERIAL_CONTEXT_PASSAGE_MAX_CHARS
+          ? `${sentence.text.slice(0, MATERIAL_CONTEXT_PASSAGE_MAX_CHARS - 3)}...`
+          : sentence.text,
+        paragraphIndex: sentence.paragraphIndex,
+        sentenceIndex: sentence.sentenceIndex,
+      });
+      return acc;
+    }, []);
+
+  const globalFrameBase = summarizeTextForContext(material.summary, 190);
+  const keyFrame =
+    questionTokens.length > 0
+      ? summarizeTextForContext(material.keyConcepts.join(" / "), 80)
+      : summarizeTextForContext(material.keyConcepts.join(" / "), 140);
+
+  const globalFrame = [material.materialTitle, keyFrame, globalFrameBase].filter(Boolean).join(" — ");
+  const finalPassages =
+    passages.length > 0
+      ? passages
+          .slice(0, MATERIAL_CONTEXT_PASSAGE_LIMIT)
+          .map((entry) => `${entry.text}`)
+          .filter(Boolean)
+      : [];
+  const safeKeywordHints = keywordHints.slice(0, MATERIAL_CONTEXT_MAX_KEYWORDS);
+
+  return {
+    globalFrame: globalFrame || "자료의 중심 생각과 사실을 학생 질문의 근거로 함께 확인합니다.",
+    keywordHints: safeKeywordHints,
+    supportingPassages: finalPassages,
+  };
+}
+
 const materialAnalysisSchema: JsonSchema = {
   type: "object",
   additionalProperties: false,
@@ -522,12 +807,14 @@ export async function answerQuestionWithGemini({
     curriculumCompass,
     material,
   });
+  const materialReasoningContext = buildMaterialReasoningContext(material, question);
+  const answerMaxOutputTokens = model.includes("pro") ? 3600 : 2800;
   const parsed = await requestGeminiJson({
     apiKey,
     model,
-    maxOutputTokens: 2400,
+    maxOutputTokens: answerMaxOutputTokens,
     systemInstruction:
-      "You are a warm Korean classroom dialogue partner grounded in the teacher-provided lesson material. The curriculum standard is a quiet compass for the whole conversation, not a target to force on every turn. Infer the student's current state from the full trajectory, then choose exactly one useful instructional move. Answer explicit questions before asking anything. Vocabulary questions are a first-class reading need: briefly give the general dictionary sense, identify the exact source sentence or nearby clue, and explain which contextual sense is selected in this passage. Do not merely repeat the sentence or list every dictionary sense. Treat causal overclaims, self-corrections, frustration, privacy, answer-copying, and closing as different states. Use at most one genuine question only when it opens the student's thinking; explanation, acknowledgment, repair, or silence may be better. Do not expose classifications, rubrics, policy fields, teacher notes, or curriculum metadata in studentReply. Return Korean JSON only.",
+      "You are a warm Korean classroom dialogue partner grounded in the teacher-provided lesson material. The curriculum standard is a quiet compass for the whole conversation, not a target to force on every turn. Before answering, silently read the material in three passes: whole-message frame, question-relevant passages, and vocabulary/context clues. Infer the student's current state from the full trajectory, then choose exactly one useful instructional move. Answer explicit questions before asking anything. Vocabulary questions are a first-class reading need: briefly give the general dictionary sense, identify the exact source sentence or nearby clue, and explain which contextual sense is selected in this passage. Do not merely repeat the sentence or list every dictionary sense. Treat causal overclaims, self-corrections, frustration, privacy, answer-copying, and closing as different states. Use at most one genuine question only when it opens the student's thinking; explanation, acknowledgment, repair, or silence may be better. Do not expose classifications, rubrics, policy fields, teacher notes, or curriculum metadata in studentReply. Return Korean JSON only.",
     parts: [
       {
         text: JSON.stringify({
@@ -538,6 +825,7 @@ export async function answerQuestionWithGemini({
           standard,
           curriculumCompass,
           material,
+          materialReasoningContext,
           dialoguePolicy: policyDecision,
           studentStateDimensions: {
             participation: ["짧게 답함", "자발적으로 확장함", "대화를 끝내려 함"],
@@ -563,6 +851,10 @@ export async function answerQuestionWithGemini({
               ? "teacherKnowledgeCards에 학생 질문과 이어지는 내용이 있으면 그것을 우선 사용해 답하기. source가 '선생님'인 카드는 선생님이 알려 준 내용임을 자연스럽게 밝히고, 출처 기관이 있는 카드는 출처를 짧게 함께 말하기. 카드에 없는 내용을 카드가 말한 것처럼 지어내지 않기"
               : "저장된 지식 카드가 없으므로 지문과 일반 지식 범위에서 답하기",
             "학생 발화가 질문이면 자료에 근거해 답하고, 대답·감정·경험·생각이면 그 구체적인 내용을 먼저 받아 주기",
+            "답하기 전에 내부적으로 1차로 글의 중심 생각과 목적, 2차로 학생 질문과 관련된 문장·부분 내용, 3차로 핵심어와 문맥 단서를 확인하기",
+            "materialReasoningContext.globalFrame은 전체 글의 중심 생각을 놓치지 않기 위한 기준으로 사용하고 학생에게 그대로 노출하지 않기",
+            "materialReasoningContext.keywordHints는 질문 속 단어와 지문 속 핵심어를 빠르게 맞춰 보는 내부 힌트로 사용하기",
+            "materialReasoningContext.supportingPassages가 있으면 먼저 그 문장 후보를 확인하되, 전체 material과 모순되면 전체 자료를 우선하기",
             "학생이 낱말·단어·용어·표현의 뜻을 물으면 questionType을 vocabulary로 분류하고 질문에 먼저 직접 답하기",
             "어휘 답변은 2단계로 나누기: 낱말 뜻을 처음 물으면 ① 짧은 사전적 기본 뜻만 알려 주고 답을 마치기(이어서 물어보라는 안내 문장은 붙이지 않기), 학생이 이 글에서의 뜻을 이어서 물으면 ② 낱말이 쓰인 지문 문장을 근거로 이 글에서 선택된 문맥적 뜻을 설명하기",
             "다의어는 가능한 뜻을 모두 나열하지 말고 이 문장의 주어·서술어·함께 쓰인 말로 알맞은 뜻을 고른 이유를 설명하기",

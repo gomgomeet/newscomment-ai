@@ -3381,7 +3381,12 @@ export function createLocalQuestionResult({
     questionType: legacy.questionType,
     conversation,
   });
-  const hasPrivateInformation = /(전화번호|주소|비밀번호|주민번호|이름은|이름이|사진)/.test(turn);
+  const asksToAvoidPersonalInformation =
+    /(이름|실명|전화번호|주소|개인정보).*(말하지\s*않아도|안\s*말|빼도|가려도|숨겨도|익명|안\s*써도|쓰지\s*않아도|넣지\s*않아도)/.test(
+      turn,
+    );
+  const hasPrivateInformation =
+    asksToAvoidPersonalInformation || /(전화번호|주소|비밀번호|주민번호|이름은|이름이|이름을|실명|사진)/.test(turn);
 
   let primaryMove: PrimaryMove;
   let engagementState: EngagementState;
@@ -3396,8 +3401,10 @@ export function createLocalQuestionResult({
     curriculumRelation = "disconnected";
     sourceStatus = "out_of_scope";
     supportLevel = 2;
-    studentReply = hasPrivateInformation
-      ? "이름과 전화번호 같은 개인정보는 대화에 남기지 않는 게 좋아요. 그 정보는 빼고 '급한 연락이 필요한 학생'처럼 상황만 말하면 충분해요."
+    studentReply = asksToAvoidPersonalInformation
+      ? "네, 이름은 말하지 않아도 돼요. 친구를 구분해야 할 때도 실명 대신 '어떤 학생', '한 친구'처럼 바꾸어 말하면 충분해요."
+      : hasPrivateInformation
+        ? "이름과 전화번호 같은 개인정보는 대화에 남기지 않는 게 좋아요. 그 정보는 빼고 '급한 연락이 필요한 학생'처럼 상황만 말하면 충분해요."
       : "완성된 답이나 문단을 대신 써 주지는 않을게요. 네가 말하고 싶은 내용 한 가지를 먼저 정하면, 시작할 수 있는 작은 단계나 필요한 표현을 도울 수 있어요.";
   } else if (isClosing) {
     primaryMove = "close";
