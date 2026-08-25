@@ -593,6 +593,81 @@ export function buildLocalCardSet(material: MaterialAnalysis): CardSet {
 }
 
 // ---------------------------------------------------------------------------
+// AI 카드 붙이기
+// ---------------------------------------------------------------------------
+
+/**
+ * 질문과 카드가 실제로 맞닿는지 본다.
+ *
+ * 카드가 "이 질문에 답해 준다"고 스스로 밝힌 것이 가장 확실한 신호다. 그것이 없으면
+ * 핵심어가 **둘 이상** 겹칠 때만 인정한다. 하나만 겹쳐도 잇게 하면, 지문 주제어
+ * 하나 때문에 아무 배경 카드나 아무 질문에 붙는다.
+ */
+function answersQuestion(card: ThinkingCardDraft, question: string): boolean {
+  const compactQuestion = compact(question);
+
+  const declared = card.relatedQuestions.some((candidate) => {
+    const compactCandidate = compact(candidate);
+    return (
+      compactCandidate.length >= 6 &&
+      (compactQuestion.includes(compactCandidate) || compactCandidate.includes(compactQuestion))
+    );
+  });
+  if (declared) return true;
+
+  const asked = new Set(extractKeywords(question));
+  return card.keywords.filter((keyword) => asked.has(keyword)).length >= 2;
+}
+
+/**
+ * Teacher AI가 만든 배경·리서치·심화 카드를 카드 묶음에 합친다.
+ *
+ * 합치기만 하는 것이 아니라, **지문으로 답할 수 없어 꺼 두었던 예상 질문**을 다시
+ * 살펴본다. "우리 반에서도 해 보면?" 같은 질문은 지문이 답하지 못하지만 배경 카드는
+ * 답할 수 있다. 그 카드를 찾으면 질문을 켠다 — 배경 지식을 붙이는 이유가 이것이다.
+ *
+ * 꺼진 채로 남은 질문은 여전히 아무도 답할 수 없는 질문이고, 교사가 학생과 함께
+ * 확인할 몫으로 남는다.
+ */
+export function attachAiCards(cardSet: CardSet, aiCards: ThinkingCardDraft[]): CardSet {
+  if (aiCards.length === 0) return cardSet;
+
+  // 답변에 쓸 수 있는 AI 카드만 후보로 본다. 등급이 낮아 꺼 둔 리서치 카드로
+  // 질문을 되살리면, 교사가 확인 화면에서 끄기도 전에 이미 쓰이게 된다.
+  const usableAiCards = aiCards.filter((card) => card.isEnabled);
+  const relations: CardRelationDraft[] = [];
+
+  const cards = cardSet.cards.map((card) => {
+    if (card.cardType !== "expected_question" || card.isEnabled) return card;
+
+    const answer = usableAiCards.find((candidate) => answersQuestion(candidate, card.title));
+    if (!answer) return card;
+
+    relations.push({
+      fromLocalId: answer.localId,
+      toLocalId: card.localId,
+      relationType: "answers",
+      note: answer.cardType === "research" ? "웹에서 확인한 내용" : "배경 지식",
+    });
+
+    return {
+      ...card,
+      isEnabled: true,
+      // 지문 밖 지식으로 답하는 질문이다. 지문 근거로 답하는 질문(0.8)보다 낮춰
+      // 답변에서 지문 근거가 먼저 쓰이게 한다.
+      confidence: 0.6,
+      knowledgeStatus: answer.knowledgeStatus,
+      relatedLocalIds: [...card.relatedLocalIds, answer.localId],
+    };
+  });
+
+  return {
+    cards: [...cards, ...aiCards],
+    relations: [...cardSet.relations, ...relations],
+  };
+}
+
+// ---------------------------------------------------------------------------
 // 요약
 // ---------------------------------------------------------------------------
 
