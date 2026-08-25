@@ -4,7 +4,12 @@ import {
   loadQuestioningLessonConnection,
   normalizeLessonCode,
   saveQuestioningLessonConnection,
+  updateQuestioningLessonConfig,
 } from "@/lib/questioning-lesson-connections";
+import {
+  createQuestioningPreviewToken,
+  verifyQuestioningPreviewToken,
+} from "@/lib/questioning-preview-token";
 import {
   discoverQuestioningDatabasesFromNotion,
   NotionQuestioningError,
@@ -32,6 +37,7 @@ type ConnectionRequest = {
   notionPrepDatabaseId?: unknown;
   notionResultDatabaseId?: unknown;
   studentChatbotPath?: unknown;
+  previewToken?: unknown;
 };
 
 function isMaterialAnalysis(value: unknown): value is MaterialAnalysis {
@@ -227,6 +233,7 @@ export async function POST(request: Request) {
     return Response.json({
       ok: true,
       ...saved,
+      previewToken: createQuestioningPreviewToken(saved.lessonCode),
       studentChatbotUrl,
       notionPreparationPageUrl,
       notionPreparationWarning,
@@ -240,5 +247,31 @@ export async function POST(request: Request) {
         : "수업 연결 정보를 저장하지 못했습니다.";
     const status = message.includes("암호") ? 401 : error instanceof NotionQuestioningError ? 400 : 500;
     return Response.json({ error: message }, { status });
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const body = (await request.json()) as ConnectionRequest;
+    const lessonCode = normalizeLessonCode(optionalText(body.lessonCode));
+
+    if (!lessonCode || !verifyQuestioningPreviewToken(body.previewToken, lessonCode)) {
+      return Response.json({ error: "교사 미리보기 권한이 만료되었거나 올바르지 않습니다." }, { status: 403 });
+    }
+    if (!isQuestioningConfig(body.config)) {
+      return Response.json({ error: "게시할 챗봇 설정이 올바르지 않습니다." }, { status: 400 });
+    }
+
+    const config = normalizeQuestioningConnectionConfig(body.config);
+    const updated = await updateQuestioningLessonConfig(lessonCode, config);
+
+    return Response.json({
+      ok: true,
+      ...updated,
+      previewToken: createQuestioningPreviewToken(lessonCode),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "수정한 챗봇 설정을 게시하지 못했습니다.";
+    return Response.json({ error: message }, { status: 500 });
   }
 }

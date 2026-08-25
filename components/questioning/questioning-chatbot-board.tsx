@@ -15,7 +15,11 @@ import {
   Download,
   FileImage,
   KeyRound,
+  MessageSquareText,
+  RotateCcw,
+  Send,
   RefreshCw,
+  Save,
   SlidersHorizontal,
   ShieldCheck,
   Upload,
@@ -58,6 +62,8 @@ import {
   type QuestioningChatbotBehavior,
   type RubricCriterion,
   type StandardAssessmentAnalysis,
+  type StudentChatResponse,
+  type TeacherResponseIssue,
 } from "@/lib/questioning-board";
 
 const studentChatbotPath = "/questioning-chatbot";
@@ -229,6 +235,26 @@ const CLASS_INFO_STORAGE_KEY = "questioning-class-info-v1";
 // 수업 코드와 학생용 주소도 기억한다. 새로고침 뒤 ⑧이 "갱신할 연결이 없다"고
 // 착각해 학생이 옛 자료를 계속 보는 일을 막는다.
 const CONNECTION_STORAGE_KEY = "questioning-connection-v1";
+
+type TeacherPreviewMessage = {
+  id: string;
+  role: "student" | "assistant";
+  content: string;
+  studentTurn?: string;
+  result?: StudentChatResponse;
+};
+
+const teacherResponseIssueOptions: Array<{ value: TeacherResponseIssue; label: string }> = [
+  { value: "incorrect_fact", label: "사실이 정확하지 않음" },
+  { value: "missed_context", label: "지문 문맥을 놓침" },
+  { value: "repeated_student", label: "학생 말을 불필요하게 반복함" },
+  { value: "too_long", label: "답변이 너무 김" },
+  { value: "too_many_questions", label: "질문을 너무 많이 함" },
+  { value: "unnatural_tone", label: "말투가 자연스럽지 않음" },
+  { value: "misread_intent", label: "학생 의도를 잘못 이해함" },
+  { value: "source_overreach", label: "자료 밖 내용을 단정함" },
+  { value: "other", label: "그 밖의 문제" },
+];
 
 /**
  * 같은 카드를 두 번 묻지 않기 위한 열쇠. id는 저장할 때마다 새로 생기므로 쓸 수 없고,
@@ -765,6 +791,16 @@ export function QuestioningChatbotBoard() {
   const [notionPrepDatabaseId, setNotionPrepDatabaseId] = useState("");
   const [notionResultDatabaseId, setNotionResultDatabaseId] = useState("");
   const [savedStudentChatbotUrl, setSavedStudentChatbotUrl] = useState("");
+  const [previewToken, setPreviewToken] = useState("");
+  const [isTeacherPreviewOpen, setIsTeacherPreviewOpen] = useState(false);
+  const [previewSessionId, setPreviewSessionId] = useState("");
+  const [previewMessages, setPreviewMessages] = useState<TeacherPreviewMessage[]>([]);
+  const [previewQuestion, setPreviewQuestion] = useState("");
+  const [isPreviewSending, setIsPreviewSending] = useState(false);
+  const [previewEditingMessageId, setPreviewEditingMessageId] = useState("");
+  const [previewIssueType, setPreviewIssueType] = useState<TeacherResponseIssue>("repeated_student");
+  const [previewPreferredReply, setPreviewPreferredReply] = useState("");
+  const [isPublishingPreview, setIsPublishingPreview] = useState(false);
   const [isSavingLessonConnection, setIsSavingLessonConnection] = useState(false);
   const [notice, setNotice] = useState("");
   // 학생 화면에서 대신 채워 줄 학급 정보. 아이가 학교 이름을 타이핑하다 오타를 내면
@@ -871,13 +907,20 @@ export function QuestioningChatbotBoard() {
       let restoredLessonCode = "";
       if (storedConnection) {
         try {
-          const parsed = JSON.parse(storedConnection) as { lessonCode?: string; studentUrl?: string };
+          const parsed = JSON.parse(storedConnection) as {
+            lessonCode?: string;
+            studentUrl?: string;
+            previewToken?: string;
+          };
           if (typeof parsed.lessonCode === "string" && parsed.lessonCode) {
             restoredLessonCode = parsed.lessonCode;
             setConnectionLessonCode(parsed.lessonCode);
           }
           if (typeof parsed.studentUrl === "string" && parsed.studentUrl) {
             setSavedStudentChatbotUrl(parsed.studentUrl);
+          }
+          if (typeof parsed.previewToken === "string" && parsed.previewToken) {
+            setPreviewToken(parsed.previewToken);
           }
         } catch {
           window.localStorage.removeItem(CONNECTION_STORAGE_KEY);
@@ -1338,6 +1381,160 @@ export function QuestioningChatbotBoard() {
     }
   }
 
+  function createPreviewSessionId() {
+    return typeof window.crypto?.randomUUID === "function"
+      ? `teacher-preview-${window.crypto.randomUUID()}`
+      : `teacher-preview-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  function handleOpenTeacherPreview() {
+    if (!connectionLessonCode.trim() || !previewToken) {
+      setNotice("먼저 ④ 수업 연결 저장을 다시 눌러 교사 미리보기 권한을 발급해 주세요.");
+      return;
+    }
+    if (!previewSessionId) setPreviewSessionId(createPreviewSessionId());
+    setIsTeacherPreviewOpen(true);
+    setNotice("");
+  }
+
+  async function sendTeacherPreviewTurn(
+    rawQuestion: string,
+    behaviorOverride?: QuestioningChatbotBehavior,
+    conversationOverride?: TeacherPreviewMessage[],
+  ) {
+    const question = rawQuestion.trim();
+    if (!question || isPreviewSending) return;
+    const lessonCode = connectionLessonCode.trim();
+    if (!lessonCode || !previewToken) {
+      setNotice("교사 미리보기 권한이 없습니다. ④ 수업 연결 저장을 다시 눌러 주세요.");
+      return;
+    }
+    const config = buildCurrentChatbotConfig(behaviorOverride);
+    if (!config) return;
+
+    const sessionId = previewSessionId || createPreviewSessionId();
+    if (!previewSessionId) setPreviewSessionId(sessionId);
+    const conversation = conversationOverride ?? previewMessages;
+    const studentMessage: TeacherPreviewMessage = {
+      id: `${sessionId}-student-${Date.now()}`,
+      role: "student",
+      content: question,
+    };
+    setPreviewMessages((current) => [...current, studentMessage]);
+    setPreviewQuestion("");
+    setIsPreviewSending(true);
+    setNotice("");
+
+    try {
+      const response = await fetch("/api/questioning-board/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "teacher_preview",
+          lessonCode,
+          previewToken,
+          previewNumber: "P01",
+          sessionId,
+          question,
+          conversation: conversation.slice(-10).map((message) => ({
+            role: message.role,
+            content: message.content,
+          })),
+          draftConfig: config,
+        }),
+      });
+      const payload = (await response.json()) as StudentChatResponse & { error?: string };
+      if (!response.ok || !payload.studentReply) {
+        throw new Error(payload.error || "교사 미리보기 응답을 만들지 못했습니다.");
+      }
+      setPreviewMessages((current) => [
+        ...current,
+        {
+          id: `${sessionId}-assistant-${Date.now()}`,
+          role: "assistant",
+          content: payload.studentReply,
+          studentTurn: question,
+          result: payload,
+        },
+      ]);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "교사 미리보기 응답을 만들지 못했습니다.");
+    } finally {
+      setIsPreviewSending(false);
+    }
+  }
+
+  function handleStartPreviewCorrection(message: TeacherPreviewMessage) {
+    setPreviewEditingMessageId(message.id);
+    setPreviewIssueType("repeated_student");
+    setPreviewPreferredReply(message.content);
+  }
+
+  async function handleReplayWithCorrection(message: TeacherPreviewMessage) {
+    const studentTurn = message.studentTurn?.trim();
+    const preferredReply = previewPreferredReply.trim();
+    if (!studentTurn || !preferredReply) {
+      setNotice("고치고 싶은 답변을 입력해 주세요.");
+      return;
+    }
+
+    const nextExample = { issueType: previewIssueType, studentTurn, preferredReply };
+    const nextBehavior = normalizeQuestioningChatbotBehavior({
+      ...behavior,
+      teacherResponseExamples: [
+        ...behavior.teacherResponseExamples.filter(
+          (example) => example.studentTurn !== studentTurn || example.issueType !== previewIssueType,
+        ),
+        nextExample,
+      ].slice(-12),
+    });
+    const assistantIndex = previewMessages.findIndex((entry) => entry.id === message.id);
+    const replayConversation = assistantIndex > 0 ? previewMessages.slice(0, assistantIndex - 1) : [];
+    setBehavior(nextBehavior);
+    setPreviewEditingMessageId("");
+    setPreviewPreferredReply("");
+    await sendTeacherPreviewTurn(studentTurn, nextBehavior, replayConversation);
+  }
+
+  function handleResetTeacherPreview() {
+    setPreviewMessages([]);
+    setPreviewSessionId(createPreviewSessionId());
+    setPreviewEditingMessageId("");
+    setPreviewPreferredReply("");
+    setNotice("");
+  }
+
+  async function handlePublishTeacherPreview() {
+    const lessonCode = connectionLessonCode.trim();
+    const config = buildCurrentChatbotConfig();
+    if (!lessonCode || !previewToken || !config) {
+      setNotice("수업 연결과 미리보기 권한을 먼저 확인해 주세요.");
+      return;
+    }
+
+    setIsPublishingPreview(true);
+    setNotice("");
+    try {
+      const response = await fetch("/api/questioning-board/connections", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lessonCode, previewToken, config }),
+      });
+      const payload = (await response.json()) as { ok?: boolean; error?: string; previewToken?: string };
+      if (!response.ok || !payload.ok || !payload.previewToken) {
+        throw new Error(payload.error || "수정한 챗봇 설정을 게시하지 못했습니다.");
+      }
+      const studentUrl =
+        savedStudentChatbotUrl || `${window.location.origin}${studentChatbotUrlForLesson(lessonCode)}`;
+      rememberLessonConnection(lessonCode, studentUrl, payload.previewToken);
+      saveStudentChatbotConfig("교사 미리보기에서 검토한 수정본을 학생용 챗봇에 게시했습니다.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "수정한 챗봇 설정을 게시하지 못했습니다.");
+    } finally {
+      setIsPublishingPreview(false);
+    }
+  }
+
   /**
    * 생각 카드를 서버에 만들어 저장한다.
    *
@@ -1513,6 +1710,20 @@ export function QuestioningChatbotBoard() {
    * 저장된 수업 연결을 새 설정으로 갱신한다. 연결을 만든 적이 없으면 조용히 건너뛴다.
    * 갱신에 실패해도 ⑧의 나머지(챗봇 적용·노션 저장)는 그대로 진행한다.
    */
+  function rememberLessonConnection(lessonCode: string, studentUrl: string, token: string) {
+    setConnectionLessonCode(lessonCode);
+    setSavedStudentChatbotUrl(studentUrl);
+    setPreviewToken(token);
+    try {
+      window.localStorage.setItem(
+        CONNECTION_STORAGE_KEY,
+        JSON.stringify({ lessonCode, studentUrl, previewToken: token }),
+      );
+    } catch {
+      // 브라우저 저장 실패는 현재 화면의 연결에는 영향을 주지 않는다.
+    }
+  }
+
   async function refreshLessonConnection(behaviorOverride?: QuestioningChatbotBehavior): Promise<string> {
     // 수업 코드만 있으면 갱신을 시도한다. 학생용 주소 상태는 새로고침으로 비었을 수
     // 있고, 같은 코드로 upsert하는 것이라 이미 있는 연결이면 새 설정으로 덮인다.
@@ -1541,9 +1752,22 @@ export function QuestioningChatbotBoard() {
           studentChatbotPath,
         }),
       });
-      const payload = (await response.json()) as { ok?: boolean; error?: string };
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        lessonCode?: string;
+        studentChatbotUrl?: string;
+        previewToken?: string;
+      };
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || "수업 연결 갱신에 실패했습니다.");
+      }
+      const refreshedLessonCode = payload.lessonCode || connectionLessonCode.trim();
+      const refreshedStudentUrl = payload.studentChatbotUrl
+        ? `${window.location.origin}${payload.studentChatbotUrl}`
+        : studentChatbotUrlForLesson(refreshedLessonCode);
+      if (payload.previewToken) {
+        rememberLessonConnection(refreshedLessonCode, refreshedStudentUrl, payload.previewToken);
       }
       return " 학생용 수업 연결도 새 자료로 갱신했습니다.";
     } catch (error) {
@@ -1645,27 +1869,25 @@ export function QuestioningChatbotBoard() {
         error?: string;
         lessonCode?: string;
         studentChatbotUrl?: string;
+        previewToken?: string;
         notionPreparationPageUrl?: string;
         notionPreparationWarning?: string;
         notionPrepDatabaseId?: string;
         notionResultDatabaseId?: string;
       };
 
-      if (!response.ok || !payload.ok || !payload.lessonCode || !payload.studentChatbotUrl) {
+      if (
+        !response.ok ||
+        !payload.ok ||
+        !payload.lessonCode ||
+        !payload.studentChatbotUrl ||
+        !payload.previewToken
+      ) {
         throw new Error(payload.error || "수업 연결 저장에 실패했습니다.");
       }
 
       const absoluteStudentUrl = `${window.location.origin}${payload.studentChatbotUrl}`;
-      setConnectionLessonCode(payload.lessonCode);
-      setSavedStudentChatbotUrl(absoluteStudentUrl);
-      try {
-        window.localStorage.setItem(
-          CONNECTION_STORAGE_KEY,
-          JSON.stringify({ lessonCode: payload.lessonCode, studentUrl: absoluteStudentUrl }),
-        );
-      } catch {
-        // 기억 실패는 무시한다.
-      }
+      rememberLessonConnection(payload.lessonCode, absoluteStudentUrl, payload.previewToken);
       setNotionPrepDatabaseId(payload.notionPrepDatabaseId || notionPrepDatabaseId);
       setNotionResultDatabaseId(payload.notionResultDatabaseId || notionResultDatabaseId);
       setMaterial(config.material);
@@ -2333,6 +2555,201 @@ export function QuestioningChatbotBoard() {
                 )}
                 {isBuildingCards ? "생각 카드를 만드는 중..." : "⑧ 모두 적용 및 노션 저장"}
               </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="mt-2 w-full"
+                onClick={handleOpenTeacherPreview}
+                disabled={!connectionLessonCode.trim() || !previewToken}
+              >
+                <MessageSquareText className="size-4" aria-hidden="true" />
+                ⑨ 교사 미리보기
+              </Button>
+              {!previewToken ? (
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  실제 Gemini 미리보기는 ④에서 수업 연결을 저장한 뒤 사용할 수 있습니다.
+                </p>
+              ) : null}
+
+              {isTeacherPreviewOpen ? (
+                <section className="mt-3 border-y border-border py-4" aria-label="교사 미리보기 대화">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm font-semibold">학생에게 게시하기 전 대화 점검</h3>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        시험 번호 P01 · 학생·Notion·평가 기록에서 제외
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="size-9 p-0"
+                      title="미리보기 대화 새로 시작"
+                      aria-label="미리보기 대화 새로 시작"
+                      onClick={handleResetTeacherPreview}
+                      disabled={isPreviewSending}
+                    >
+                      <RotateCcw className="size-4" aria-hidden="true" />
+                    </Button>
+                  </div>
+
+                  <div className="mt-3 max-h-[560px] min-h-36 space-y-3 overflow-y-auto bg-muted/25 p-3">
+                    {previewMessages.length === 0 ? (
+                      <p className="py-8 text-center text-sm text-muted-foreground">
+                        학생이 할 법한 질문이나 대답을 입력해 보세요.
+                      </p>
+                    ) : null}
+                    {previewMessages.map((message) => {
+                      const diagnostics = message.result?.teacherPreview;
+                      return (
+                        <div
+                          key={message.id}
+                          className={message.role === "student" ? "ml-auto max-w-[88%]" : "mr-auto max-w-[94%]"}
+                        >
+                          <div
+                            className={
+                              message.role === "student"
+                                ? "rounded-md bg-primary px-3 py-2 text-sm leading-6 text-primary-foreground"
+                                : "rounded-md border border-border bg-background px-3 py-2 text-sm leading-6"
+                            }
+                          >
+                            <p className="whitespace-pre-wrap">{message.content}</p>
+                          </div>
+                          {message.role === "assistant" ? (
+                            <div className="mt-1 space-y-2">
+                              {diagnostics ? (
+                                <p className="text-xs leading-5 text-muted-foreground">
+                                  {diagnostics.provider === "gemini_teacher_preview" ? "Gemini 실응답" : "로컬 대체 응답"}
+                                  {` · localFallback: ${message.result?.localFallback ? "true" : "false"}`}
+                                  {` · ${diagnostics.model} · ${diagnostics.previewNumber} · ${diagnostics.sourceStatus}`}
+                                  {` · ${diagnostics.questionType} · ${diagnostics.primaryMove}`}
+                                  {` · 카드 ${diagnostics.usedCardCount}개${diagnostics.answeredByResearch ? " · 리서치 결합" : ""}`}
+                                  {diagnostics.recordsExcluded ? " · 기록 제외" : ""}
+                                </p>
+                              ) : null}
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 px-2 text-xs"
+                                onClick={() => handleStartPreviewCorrection(message)}
+                              >
+                                <SlidersHorizontal className="size-3.5" aria-hidden="true" />
+                                이 답변 수정
+                              </Button>
+                            </div>
+                          ) : null}
+
+                          {previewEditingMessageId === message.id ? (
+                            <div className="mt-2 space-y-2 border-l-2 border-primary pl-3">
+                              <div className="space-y-1">
+                                <Label htmlFor={`preview-issue-${message.id}`} className="text-xs">
+                                  부족한 점
+                                </Label>
+                                <Select
+                                  id={`preview-issue-${message.id}`}
+                                  value={previewIssueType}
+                                  onChange={(event) => setPreviewIssueType(event.target.value as TeacherResponseIssue)}
+                                >
+                                  {teacherResponseIssueOptions.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </Select>
+                              </div>
+                              <div className="space-y-1">
+                                <Label htmlFor={`preview-reply-${message.id}`} className="text-xs">
+                                  학생에게 들려주고 싶은 답변
+                                </Label>
+                                <Textarea
+                                  id={`preview-reply-${message.id}`}
+                                  value={previewPreferredReply}
+                                  onChange={(event) => setPreviewPreferredReply(event.target.value)}
+                                  className="min-h-28"
+                                />
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  onClick={() => void handleReplayWithCorrection(message)}
+                                  disabled={isPreviewSending || !previewPreferredReply.trim()}
+                                >
+                                  <RotateCcw className="size-4" aria-hidden="true" />
+                                  수정 예시로 다시 시험
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setPreviewEditingMessageId("")}
+                                >
+                                  취소
+                                </Button>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                    {isPreviewSending ? (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <RefreshCw className="size-4 animate-spin" aria-hidden="true" />
+                        Gemini가 답변을 만들고 있습니다.
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-3 flex items-end gap-2">
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <Label htmlFor="teacher-preview-question" className="sr-only">
+                        미리보기 학생 발화
+                      </Label>
+                      <Textarea
+                        id="teacher-preview-question"
+                        value={previewQuestion}
+                        onChange={(event) => setPreviewQuestion(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                            event.preventDefault();
+                            void sendTeacherPreviewTurn(previewQuestion);
+                          }
+                        }}
+                        placeholder="학생이 할 법한 질문이나 대답"
+                        className="min-h-20"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="size-10 shrink-0 p-0"
+                      title="미리보기 발화 보내기"
+                      aria-label="미리보기 발화 보내기"
+                      onClick={() => void sendTeacherPreviewTurn(previewQuestion)}
+                      disabled={isPreviewSending || !previewQuestion.trim()}
+                    >
+                      <Send className="size-4" aria-hidden="true" />
+                    </Button>
+                  </div>
+
+                  <Button
+                    type="button"
+                    className="mt-3 w-full"
+                    onClick={() => void handlePublishTeacherPreview()}
+                    disabled={isPublishingPreview || isPreviewSending}
+                  >
+                    {isPublishingPreview ? (
+                      <RefreshCw className="size-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Save className="size-4" aria-hidden="true" />
+                    )}
+                    검토한 수정본 학생용으로 게시
+                  </Button>
+                </section>
+              ) : null}
 
               <Button
                 type="button"

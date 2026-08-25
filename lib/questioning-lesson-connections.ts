@@ -160,6 +160,38 @@ export async function saveQuestioningLessonConnection(input: SaveQuestioningLess
   };
 }
 
+export async function updateQuestioningLessonConfig(
+  lessonCodeInput: string,
+  chatbotConfig: QuestioningChatbotConfig,
+) {
+  if (!isQuestioningConnectionStorageConfigured()) {
+    throw new Error("Supabase 연결정보 저장소가 설정되어 있지 않습니다.");
+  }
+
+  const lessonCode = normalizeLessonCode(lessonCodeInput);
+  if (!lessonCode) {
+    throw new Error("수업 코드 형식이 올바르지 않습니다.");
+  }
+
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("questioning_lesson_connections")
+    .update({ chatbot_config: chatbotConfig as unknown as Json })
+    .eq("lesson_code", lessonCode)
+    .eq("status", "active")
+    .select("lesson_code, updated_at")
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`수업 설정 게시 실패: ${error.message}`);
+  }
+  if (!data) {
+    throw new Error("게시할 수업 연결을 찾을 수 없습니다.");
+  }
+
+  return { lessonCode: data.lesson_code, updatedAt: data.updated_at };
+}
+
 export async function loadQuestioningLessonConnection(lessonCodeInput: string) {
   if (!isQuestioningConnectionStorageConfigured()) {
     throw new Error("Supabase 연결정보 저장소가 설정되어 있지 않습니다.");

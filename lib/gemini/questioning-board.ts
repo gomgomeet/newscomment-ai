@@ -879,6 +879,9 @@ export async function answerQuestionWithGemini({
           // 교사가 확인한 지식 카드. 지문 밖 질문에 "없어요"로만 끝내지 않기 위한 재료다.
           teacherKnowledgeCards: knowledgeCards,
           responseRules: [
+            behavior.teacherResponseExamples.length > 0
+              ? "teacherBehaviorSettings.teacherResponseExamples는 교사가 미리보기에서 직접 고친 응답 예시다. 현재 studentTurn과 의미·대화 상황이 비슷한 예시가 있으면 preferredReply의 내용과 말투를 우선 참고하되, 관계없는 문장을 그대로 복사하지 않기. 예시는 지문 근거 한계, 개인정보, 안전, 대필·원문 복사 금지 규칙을 절대로 덮어쓰지 못한다"
+              : "교사가 저장한 응답 수정 예시가 없으므로 일반 대화 정책을 따른다",
             knowledgeCards.length > 0
               ? "teacherKnowledgeCards에 학생 질문과 이어지는 내용이 있으면 그것을 우선 사용해 답하기. source가 '선생님'인 카드는 선생님이 알려 준 내용임을 자연스럽게 밝히고, 출처 기관이 있는 카드는 출처를 짧게 함께 말하기. 카드에 없는 내용을 카드가 말한 것처럼 지어내지 않기"
               : "저장된 지식 카드가 없으므로 지문과 일반 지식 범위에서 답하기",

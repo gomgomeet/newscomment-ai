@@ -7,6 +7,7 @@ import {
 } from "@/lib/questioning-lesson-connections";
 import { saveQuestioningResultToNotion } from "@/lib/notion/questioning-chatbot";
 import { checkQuestioningChatRateLimit } from "@/lib/questioning-chat-rate-limit";
+import { verifyQuestioningPreviewToken } from "@/lib/questioning-preview-token";
 import {
   createLocalQuestionResult,
   normalizeQuestioningChatbotConfig,
@@ -30,6 +31,10 @@ type ChatRequest = {
   studentProfile?: unknown;
   sessionId?: unknown;
   lessonCode?: unknown;
+  mode?: unknown;
+  previewToken?: unknown;
+  previewNumber?: unknown;
+  draftConfig?: unknown;
 };
 
 type StudentProfile = {
@@ -71,6 +76,21 @@ function isRubric(value: unknown): value is RubricCriterion[] {
     const criterion = item as Partial<RubricCriterion>;
     return typeof criterion.key === "string" && typeof criterion.label === "string";
   });
+}
+
+function isQuestioningConfig(value: unknown): value is QuestioningChatbotConfig {
+  if (typeof value !== "object" || value === null) return false;
+  const config = value as Partial<QuestioningChatbotConfig>;
+  return (
+    typeof config.standard === "string" &&
+    typeof config.targetGrade === "string" &&
+    typeof config.subjectUnit === "string" &&
+    isMaterialAnalysis(config.material) &&
+    isRubric(config.rubric) &&
+    typeof config.behavior === "object" &&
+    config.behavior !== null &&
+    typeof config.prdText === "string"
+  );
 }
 
 function normalizeConversation(value: unknown) {
@@ -189,6 +209,18 @@ export async function POST(request: Request) {
       return Response.json({ error: "수업 코드 형식이 올바르지 않습니다." }, { status: 400 });
     }
 
+    const isTeacherPreview = body.mode === "teacher_preview";
+    if (isTeacherPreview && (!lessonCode || !verifyQuestioningPreviewToken(body.previewToken, lessonCode))) {
+      return Response.json(
+        { error: "교사 미리보기 권한이 만료되었습니다. 교사용 보드에서 수업 연결을 다시 저장해 주세요." },
+        { status: 403 },
+      );
+    }
+    const previewNumber =
+      typeof body.previewNumber === "string" && /^P\d{2}$/.test(body.previewNumber.trim().toUpperCase())
+        ? body.previewNumber.trim().toUpperCase()
+        : "P01";
+
     const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
     const rateLimit = checkQuestioningChatRateLimit(request, lessonCode, sessionId);
     if (!rateLimit.allowed) {
@@ -216,8 +248,12 @@ export async function POST(request: Request) {
       }
     }
 
-    const requestMaterial = lessonConnection?.chatbotConfig.material ?? body.material;
-    const requestRubric = lessonConnection?.chatbotConfig.rubric ?? body.rubric;
+    const previewDraftConfig =
+      isTeacherPreview && isQuestioningConfig(body.draftConfig)
+        ? normalizeQuestioningChatbotConfig(body.draftConfig)
+        : null;
+    const requestMaterial = previewDraftConfig?.material ?? lessonConnection?.chatbotConfig.material ?? body.material;
+    const requestRubric = previewDraftConfig?.rubric ?? lessonConnection?.chatbotConfig.rubric ?? body.rubric;
 
     if (!isMaterialAnalysis(requestMaterial)) {
       return Response.json({ error: "질문 자료를 먼저 준비해 주세요." }, { status: 400 });
@@ -227,7 +263,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "평가 루브릭을 먼저 준비해 주세요." }, { status: 400 });
     }
 
-    const rawConfig: QuestioningChatbotConfig = {
+    const rawConfig: QuestioningChatbotConfig = previewDraftConfig ?? {
       standard:
         lessonConnection?.chatbotConfig.standard ?? (typeof body.standard === "string" ? body.standard : ""),
       targetGrade:
@@ -242,12 +278,13 @@ export async function POST(request: Request) {
       assessmentAnalysis: lessonConnection?.chatbotConfig.assessmentAnalysis,
       curriculumCompass: lessonConnection?.chatbotConfig.curriculumCompass,
       prdText: lessonConnection?.chatbotConfig.prdText ?? "",
+      classInfo: lessonConnection?.chatbotConfig.classInfo,
       updatedAt: new Date().toISOString(),
     };
     const config = normalizeQuestioningChatbotConfig(rawConfig);
     const behavior = config.behavior;
     const useApprovedExternalProvider = Boolean(
-      lessonConnection && isApprovedStudentExternalProviderEnabled(),
+      lessonConnection && (isTeacherPreview || isApprovedStudentExternalProviderEnabled()),
     );
     let localFallback = !useApprovedExternalProvider;
     let providerUnavailable = false;
@@ -294,6 +331,7 @@ export async function POST(request: Request) {
           await new Promise((resolve) => setTimeout(resolve, 1500));
           result = await callGemini();
         }
+        if (isTeacherPreview) result.provider = "gemini_teacher_preview";
       } catch {
         localFallback = true;
         providerUnavailable = true;
@@ -351,22 +389,26 @@ export async function POST(request: Request) {
           );
           answeredByResearch = true;
           // 다음 학생부터 재사용되도록 리서치 카드로도 남긴다. 실패는 무시한다.
-          void addLiveResearchCard({
-            lessonCode,
-            question,
-            answer: researched.answer,
-            sourceOrganization: researched.sourceOrganization,
-            sourceUrl: researched.sourceUrl,
-            reliability: researched.reliability,
-          }).catch(() => {});
+          if (!isTeacherPreview) {
+            void addLiveResearchCard({
+              lessonCode,
+              question,
+              answer: researched.answer,
+              sourceOrganization: researched.sourceOrganization,
+              sourceUrl: researched.sourceUrl,
+              reliability: researched.reliability,
+            }).catch(() => {});
+          }
         }
       } catch {
         // 리서치 실패는 기존의 정직한 "자료에 없어요" 답으로 충분하다.
       }
     }
 
-    const studentProfile = normalizeStudentProfile(body.studentProfile);
-    const notionSave = studentProfile
+    const studentProfile = isTeacherPreview ? null : normalizeStudentProfile(body.studentProfile);
+    const notionSave = isTeacherPreview
+      ? { ok: false, skipped: true, warning: "교사 미리보기 기록은 Notion에 저장하지 않습니다." }
+      : studentProfile
       ? await saveQuestioningResultToNotion({
           config,
           studentProfile,
@@ -395,29 +437,47 @@ export async function POST(request: Request) {
     // 기록에 실패해도 아이와의 대화는 이어져야 하므로 오류를 삼킨다.
     const answeredFromSource =
       result.sourceStatus === "supported" || result.sourceStatus === "reasonable_inference";
-    await recordStudentQuestion({
-      lessonCode,
-      studentKey: studentProfile
-        ? `${studentProfile.school}_${studentProfile.classroom}_${studentProfile.number}`
-        : undefined,
-      rawQuestion: question,
-      questionIntent: result.typeLabel,
-      answerText: result.studentReply,
-      answerable: answeredFromSource || answeredByResearch,
-      missingInformation: answeredFromSource || answeredByResearch ? undefined : result.sourceStatus,
-      usedCardIds: relevantCards.map((card) => card.id),
-    }).catch(() => {
-      // 저장소가 준비되지 않았거나 잠시 끊긴 경우. 수업을 멈출 이유는 아니다.
-    });
+    if (!isTeacherPreview) {
+      await recordStudentQuestion({
+        lessonCode,
+        studentKey: studentProfile
+          ? `${studentProfile.school}_${studentProfile.classroom}_${studentProfile.number}`
+          : undefined,
+        rawQuestion: question,
+        questionIntent: result.typeLabel,
+        answerText: result.studentReply,
+        answerable: answeredFromSource || answeredByResearch,
+        missingInformation: answeredFromSource || answeredByResearch ? undefined : result.sourceStatus,
+        usedCardIds: relevantCards.map((card) => card.id),
+      }).catch(() => {
+        // 저장소가 준비되지 않았거나 잠시 끊긴 경우. 수업을 멈출 이유는 아니다.
+      });
+    }
 
-    return Response.json(
-      toStudentChatResponse(result, {
-        localFallback,
-        providerUnavailable,
-        recordUnavailable,
+    const response = toStudentChatResponse(result, {
+      localFallback,
+      providerUnavailable,
+      recordUnavailable,
+      answeredByResearch,
+    });
+    if (isTeacherPreview) {
+      response.teacherPreview = {
+        previewNumber,
+        provider: result.provider,
+        model:
+          result.provider === "gemini_teacher_preview"
+            ? result.model || lessonConnection?.geminiModel || "gemini"
+            : "local",
+        sourceStatus: result.sourceStatus,
+        primaryMove: result.primaryMove,
+        questionType: result.questionType,
+        usedCardCount: relevantCards.length,
         answeredByResearch,
-      }),
-    );
+        recordsExcluded: true,
+      };
+    }
+
+    return Response.json(response);
   } catch (error) {
     const message = error instanceof Error ? error.message : "챗봇 응답 생성에 실패했습니다.";
     return Response.json({ error: message }, { status: 500 });

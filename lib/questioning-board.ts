@@ -88,11 +88,29 @@ export type QuestionClassifierKeywords = {
   inference: string[];
 };
 
+export type TeacherResponseIssue =
+  | "incorrect_fact"
+  | "missed_context"
+  | "repeated_student"
+  | "too_long"
+  | "too_many_questions"
+  | "unnatural_tone"
+  | "misread_intent"
+  | "source_overreach"
+  | "other";
+
+export type TeacherResponseExample = {
+  issueType: TeacherResponseIssue;
+  studentTurn: string;
+  preferredReply: string;
+};
+
 export type QuestioningChatbotBehavior = {
   classifierKeywords: QuestionClassifierKeywords;
   offTopicResponse: string;
   insufficientQuestionResponse: string;
   additionalInstructions: string;
+  teacherResponseExamples: TeacherResponseExample[];
 };
 
 export type ChatEvaluation = {
@@ -144,6 +162,17 @@ export type StudentChatResponse = {
   isClosing: boolean;
   localFallback: boolean;
   noticeCode?: "source_limited" | "safety_redirect" | "provider_unavailable" | "record_unavailable";
+  teacherPreview?: {
+    previewNumber: string;
+    provider: ChatResult["provider"];
+    model: string;
+    sourceStatus: SourceStatus;
+    primaryMove: PrimaryMove;
+    questionType: QuestionType;
+    usedCardCount: number;
+    answeredByResearch: boolean;
+    recordsExcluded: true;
+  };
 };
 
 export type ChatResult = {
@@ -339,11 +368,15 @@ export const defaultQuestioningChatbotBehavior: QuestioningChatbotBehavior = {
   insufficientQuestionResponse:
     "바로 답을 정하지 않아도 괜찮아요. 이번에는 자료에서 가장 관련 있는 단서 하나부터 살펴볼게요.",
   additionalInstructions: DEFAULT_QUESTIONING_CHATBOT_ADDITIONAL_INSTRUCTIONS,
+  teacherResponseExamples: [],
 };
 
 export function createDefaultQuestioningChatbotBehavior(): QuestioningChatbotBehavior {
   return {
     ...defaultQuestioningChatbotBehavior,
+    teacherResponseExamples: defaultQuestioningChatbotBehavior.teacherResponseExamples.map((example) => ({
+      ...example,
+    })),
     classifierKeywords: {
       safety: [...defaultQuestioningChatbotBehavior.classifierKeywords.safety],
       off_topic: [...defaultQuestioningChatbotBehavior.classifierKeywords.off_topic],
@@ -379,6 +412,36 @@ function normalizeBehaviorText(value: unknown, fallback: string, maxLength: numb
   }
 
   return value.trim().slice(0, maxLength) || fallback;
+}
+
+const teacherResponseIssueTypes = new Set<TeacherResponseIssue>([
+  "incorrect_fact",
+  "missed_context",
+  "repeated_student",
+  "too_long",
+  "too_many_questions",
+  "unnatural_tone",
+  "misread_intent",
+  "source_overreach",
+  "other",
+]);
+
+function normalizeTeacherResponseExamples(value: unknown): TeacherResponseExample[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+    .map((item) => ({
+      issueType:
+        typeof item.issueType === "string" && teacherResponseIssueTypes.has(item.issueType as TeacherResponseIssue)
+          ? (item.issueType as TeacherResponseIssue)
+          : "other",
+      studentTurn: typeof item.studentTurn === "string" ? item.studentTurn.trim().slice(0, 800) : "",
+      preferredReply:
+        typeof item.preferredReply === "string" ? item.preferredReply.trim().slice(0, 1200) : "",
+    }))
+    .filter((item) => item.studentTurn && item.preferredReply)
+    .slice(-12);
 }
 
 export function normalizeQuestioningChatbotBehavior(value: unknown): QuestioningChatbotBehavior {
@@ -432,6 +495,7 @@ export function normalizeQuestioningChatbotBehavior(value: unknown): Questioning
     additionalInstructions: legacyDefaultAdditionalInstructions.has(additionalInstructions)
       ? fallback.additionalInstructions
       : additionalInstructions,
+    teacherResponseExamples: normalizeTeacherResponseExamples(behavior.teacherResponseExamples),
   };
 }
 
