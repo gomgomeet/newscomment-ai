@@ -685,7 +685,8 @@ export function QuestioningChatbotBoard() {
   const [unansweredDocumentId, setUnansweredDocumentId] = useState("");
   const [teacherAnswers, setTeacherAnswers] = useState<Record<string, string>>({});
   const [isLoadingQuestions, setIsLoadingQuestions] = useState(false);
-  const [teacherVocabulary, setTeacherVocabulary] = useState<MaterialVocabularyEntry[]>(
+  // 어휘표 직접 입력 화면은 걷어냈다. 낱말은 이미지 분석과 AI 리서치가 채운다.
+  const [teacherVocabulary] = useState<MaterialVocabularyEntry[]>(
     defaultLessonMaterial.vocabulary?.map((entry) => ({ ...entry })) ?? [],
   );
   const [imageDataUrl, setImageDataUrl] = useState("");
@@ -711,16 +712,13 @@ export function QuestioningChatbotBoard() {
   const [savedStudentChatbotUrl, setSavedStudentChatbotUrl] = useState("");
   const [isSavingLessonConnection, setIsSavingLessonConnection] = useState(false);
   const [notice, setNotice] = useState("");
-  const [classLabel, setClassLabel] = useState("");
   // 학생 화면에서 대신 채워 줄 학급 정보. 아이가 학교 이름을 타이핑하다 오타를 내면
   // 결과 DB에 다른 학생으로 쌓이고 참여 현황에서 미제출로 뜬다.
   const [schoolName, setSchoolName] = useState("");
   const [classroomName, setClassroomName] = useState("");
   const [classSize, setClassSize] = useState("");
-  const [classTotal, setClassTotal] = useState("");
   const [participationInput, setParticipationInput] = useState("");
   const [isPrdOpen, setIsPrdOpen] = useState(false);
-  const [isVocabularyOpen, setIsVocabularyOpen] = useState(false);
 
   const selectedStandard = standardOptions.find((option) => option.id === selectedStandardId) || standardOptions[0];
   const standardText = selectedStandardId === "custom" ? customStandard : selectedStandard.standard;
@@ -770,9 +768,11 @@ export function QuestioningChatbotBoard() {
     );
     return { ...configuredMaterial, vocabulary: [...curated, ...analyzed] };
   }, [configuredMaterial, teacherVocabulary]);
+  // 반 이름과 인원은 ③에서 받아 쓴다. 같은 것을 두 번 적게 하지 않는다.
+  const attendanceClassLabel = [schoolName.trim(), classroomName.trim()].filter(Boolean).join(" ");
   const attendanceSummary = useMemo(
-    () => summarizeAttendance(Number.parseInt(classTotal, 10), parseParticipatedNumbers(participationInput)),
-    [classTotal, participationInput],
+    () => summarizeAttendance(Number.parseInt(classSize, 10), parseParticipatedNumbers(participationInput)),
+    [classSize, participationInput],
   );
   const prdText = useMemo(
     () =>
@@ -1013,23 +1013,6 @@ export function QuestioningChatbotBoard() {
     }
   }
 
-  function handleUseManualMaterial() {
-    const appliedQuestionFocusMemo = questionFocusMemo.trim();
-    const nextMaterial = createManualMaterial({
-      title: materialTitle,
-      notes: teacherNotes,
-      questionFocusMemo: appliedQuestionFocusMemo,
-      referenceOnly: isReferenceOnlyMaterial,
-    });
-    setMaterial(nextMaterial);
-    setQuestionFocusMemo(appliedQuestionFocusMemo);
-    setIsReferenceOnlyMaterial(nextMaterial.visibleText === REFERENCE_ONLY_QUESTION_MATERIAL_TEXT);
-    setNotice(
-      nextMaterial.visibleText === REFERENCE_ONLY_QUESTION_MATERIAL_TEXT
-        ? "긴 지문 또는 교과서 자료는 학생 화면에 교과서 확인 안내만 반영했고, 질문 성격 메모도 PRD에 함께 반영했습니다."
-        : "교사가 입력한 질문 자료 전체 내용과 질문 성격 메모를 학생용 챗봇 PRD에 함께 반영했습니다.",
-    );
-  }
 
   /**
    * 생각 카드를 만들어 챗봇 지시에 반영하고, 만든 카드를 돌려준다.
@@ -1071,6 +1054,30 @@ export function QuestioningChatbotBoard() {
     setBehavior(nextBehavior);
     return { applied: answerable.length, behavior: nextBehavior };
   }
+
+  // 수업 코드가 있으면 묻지 않아도 자동으로 불러와 패널에 보여 준다.
+  useEffect(() => {
+    const lessonCode = connectionLessonCode.trim();
+    if (!lessonCode) return;
+
+    let cancelled = false;
+    fetch(`/api/questioning-board/cards?lessonCode=${encodeURIComponent(lessonCode)}`)
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return (await response.json()) as { questions?: UnansweredQuestion[]; documentId?: string };
+      })
+      .then((payload) => {
+        if (cancelled || !payload) return;
+        setUnansweredQuestions(payload.questions ?? []);
+        setUnansweredDocumentId(payload.documentId ?? "");
+      })
+      .catch(() => {
+        // 자동 조회 실패는 조용히 넘어간다. [새로 고침]으로 다시 시도할 수 있다.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [connectionLessonCode]);
 
   /** 수업 코드로 아이들이 물었는데 카드에 없던 질문을 불러온다. */
   async function handleLoadUnansweredQuestions() {
@@ -1147,7 +1154,7 @@ export function QuestioningChatbotBoard() {
 
   async function handleCopyAttendanceSummary() {
     try {
-      await navigator.clipboard.writeText(formatAttendanceSummary(attendanceSummary, classLabel));
+      await navigator.clipboard.writeText(formatAttendanceSummary(attendanceSummary, attendanceClassLabel));
       setNotice("참여 현황을 복사했습니다.");
     } catch {
       setNotice("복사에 실패했습니다. 내용을 직접 선택해 복사해 주세요.");
@@ -2009,14 +2016,32 @@ export function QuestioningChatbotBoard() {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background px-3 py-2 text-xs text-muted-foreground hover:bg-muted">
-                    <Upload className="size-4 shrink-0 text-primary" aria-hidden="true" />
-                    <span className="flex flex-col leading-5">
-                      <span className="font-medium text-foreground">이미지로 넣기 (선택)</span>
-                      <span>JPG, PNG — 올린 뒤 아래 [AI 전체 텍스트 추출]</span>
-                    </span>
-                    <input type="file" accept="image/*" className="sr-only" onChange={handleImageChange} />
-                  </label>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <label className="flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background px-3 py-2 text-xs text-muted-foreground hover:bg-muted">
+                      <Upload className="size-4 shrink-0 text-primary" aria-hidden="true" />
+                      <span className="flex flex-col leading-5">
+                        <span className="font-medium text-foreground">이미지로 넣기 (선택)</span>
+                        <span>JPG, PNG</span>
+                      </span>
+                      <input type="file" accept="image/*" className="sr-only" onChange={handleImageChange} />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleAnalyzeImage}
+                      disabled={isAnalyzing || !imageDataUrl}
+                      className="flex min-h-12 items-center justify-center gap-2 rounded-md border border-dashed border-primary/50 bg-primary/5 px-3 py-2 text-xs hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isAnalyzing ? (
+                        <RefreshCw className="size-4 shrink-0 animate-spin text-primary" aria-hidden="true" />
+                      ) : (
+                        <Wand2 className="size-4 shrink-0 text-primary" aria-hidden="true" />
+                      )}
+                      <span className="flex flex-col leading-5 text-left">
+                        <span className="font-medium text-foreground">AI 추출기</span>
+                        <span className="text-muted-foreground">올린 이미지에서 전체 텍스트 추출</span>
+                      </span>
+                    </button>
+                  </div>
                   {imageDataUrl ? (
                     <div className="overflow-hidden rounded-md border border-border bg-background">
                       <Image
@@ -2032,7 +2057,7 @@ export function QuestioningChatbotBoard() {
                   ) : null}
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="question-focus-memo">챗봇 질문 성격 메모</Label>
+                  <Label htmlFor="question-focus-memo">⑦ 챗봇 수업 메모</Label>
                   <Textarea
                     id="question-focus-memo"
                     value={questionFocusMemo}
@@ -2045,120 +2070,8 @@ export function QuestioningChatbotBoard() {
                   </p>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" onClick={handleAnalyzeImage} disabled={isAnalyzing || !imageDataUrl}>
-                  {isAnalyzing ? <RefreshCw className="size-4 animate-spin" aria-hidden="true" /> : <Wand2 className="size-4" aria-hidden="true" />}
-                  AI 전체 텍스트 추출
-                </Button>
-                <Button type="button" variant="outline" onClick={handleUseManualMaterial}>
-                  ⑦ 전체 내용·메모 반영
-                </Button>
-              </div>
 
-                <div className="space-y-2 rounded-md border border-border bg-background p-3">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="px-0 text-xs"
-                    onClick={() => setIsVocabularyOpen((current) => !current)}
-                  >
-                    {isVocabularyOpen ? "낱말 뜻 직접 넣기 접기" : "낱말 뜻 직접 넣기 (선택)"}
-                  </Button>
-                  {isVocabularyOpen ? (
-                  <>
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <Label className="text-sm font-semibold">낱말 뜻 알려 주기</Label>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        setTeacherVocabulary((current) => [
-                          ...current,
-                          { term: "", dictionaryMeaning: "", contextualMeaning: "", contextSentence: "" },
-                        ])
-                      }
-                    >
-                      낱말 추가
-                    </Button>
-                  </div>
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    학생이 뜻을 물어볼 만한 낱말을 미리 등록하면 챗봇이 <b>사전적 뜻 → 지문 문장 → 이 글에서의 뜻</b> 순서로
-                    답합니다. 등록하지 않은 낱말은 챗봇이 아는 기본 어휘로 답하고, 근거가 없으면 뜻을 지어내지 않습니다.
-                  </p>
-                  {teacherVocabulary.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">
-                      등록한 낱말이 없습니다. 지문에서 어려운 낱말 2~5개를 넣어 두면 수업 중 질문에 바로 답할 수 있습니다.
-                    </p>
-                  ) : null}
-                  {teacherVocabulary.map((entry, index) => (
-                    <div key={index} className="space-y-2 rounded-md border border-dashed border-border p-2">
-                      <div className="flex items-center gap-2">
-                        <Input
-                          value={entry.term}
-                          onChange={(event) =>
-                            setTeacherVocabulary((current) =>
-                              current.map((item, itemIndex) =>
-                                itemIndex === index ? { ...item, term: event.target.value } : item,
-                              ),
-                            )
-                          }
-                          placeholder="낱말 (예: 공회전)"
-                          className="h-9"
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            setTeacherVocabulary((current) => current.filter((_, itemIndex) => itemIndex !== index))
-                          }
-                        >
-                          삭제
-                        </Button>
-                      </div>
-                      <Input
-                        value={entry.dictionaryMeaning}
-                        onChange={(event) =>
-                          setTeacherVocabulary((current) =>
-                            current.map((item, itemIndex) =>
-                              itemIndex === index ? { ...item, dictionaryMeaning: event.target.value } : item,
-                            ),
-                          )
-                        }
-                        placeholder="사전적 뜻 (예: 차량이 멈춘 채 엔진만 돌아가는 일)"
-                        className="h-9"
-                      />
-                      <Input
-                        value={entry.contextualMeaning}
-                        onChange={(event) =>
-                          setTeacherVocabulary((current) =>
-                            current.map((item, itemIndex) =>
-                              itemIndex === index ? { ...item, contextualMeaning: event.target.value } : item,
-                            ),
-                          )
-                        }
-                        placeholder="이 글에서의 뜻 (비우면 사전적 뜻으로 안내)"
-                        className="h-9"
-                      />
-                      <Input
-                        value={entry.contextSentence || ""}
-                        onChange={(event) =>
-                          setTeacherVocabulary((current) =>
-                            current.map((item, itemIndex) =>
-                              itemIndex === index ? { ...item, contextSentence: event.target.value } : item,
-                            ),
-                          )
-                        }
-                        placeholder="근거 문장 (비우면 지문에서 자동으로 찾음)"
-                        className="h-9"
-                      />
-                    </div>
-                  ))}
-                  </>
-                  ) : null}
-                </div>
+
 
             </div>
           </div>
@@ -2276,7 +2189,16 @@ export function QuestioningChatbotBoard() {
                 ) : (
                   <Database className="size-4" aria-hidden="true" />
                 )}
-                {isBuildingCards ? "생각 카드를 만드는 중..." : "⑧ 챗봇에 적용하고 노션에 저장"}
+                {isBuildingCards ? "생각 카드를 만드는 중..." : "⑧ 모두 적용 및 노션 저장"}
+              </Button>
+
+              <Button
+                type="button"
+                className="mt-2 w-full bg-primary/90 py-6 text-base font-bold hover:bg-primary"
+                onClick={handleOpenStudentChatbot}
+              >
+                <Bot className="size-5" aria-hidden="true" />
+                학생 챗봇 시작
               </Button>
 
               {cardConfirmation ? (
@@ -2397,30 +2319,6 @@ export function QuestioningChatbotBoard() {
                   </p>
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="space-y-1">
-                    <Label htmlFor="attendance-class">반 이름 (선택)</Label>
-                    <Input
-                      id="attendance-class"
-                      value={classLabel}
-                      onChange={(event) => setClassLabel(event.target.value)}
-                      placeholder="예: 4학년 2반"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="attendance-total">학급 인원</Label>
-                    <Input
-                      id="attendance-total"
-                      type="number"
-                      min={1}
-                      max={60}
-                      value={classTotal}
-                      onChange={(event) => setClassTotal(event.target.value)}
-                      placeholder="예: 24"
-                    />
-                  </div>
-                </div>
-
                 <div className="space-y-1">
                   <Label htmlFor="attendance-records">질문 기록 목록</Label>
                   <Textarea
@@ -2472,7 +2370,7 @@ export function QuestioningChatbotBoard() {
                     </Button>
                   </div>
                 ) : (
-                  <p className="text-xs text-muted-foreground">학급 인원을 입력하면 미제출 학생을 찾아 드립니다.</p>
+                  <p className="text-xs text-muted-foreground">위 ③-3에 학급 인원을 입력하면 미제출 학생을 찾아 드립니다.</p>
                 )}
               </div>
 
@@ -2495,8 +2393,15 @@ export function QuestioningChatbotBoard() {
                   {isLoadingQuestions ? (
                     <RefreshCw className="size-4 animate-spin" aria-hidden="true" />
                   ) : null}
-                  질문 불러오기
+                  새로 고침
                 </Button>
+                {unansweredQuestions.length === 0 && !isLoadingQuestions ? (
+                  <p className="text-xs text-muted-foreground">
+                    {connectionLessonCode.trim()
+                      ? "카드로 답하지 못한 질문이 아직 없습니다."
+                      : "④에서 수업 연결을 저장하면 여기 자동으로 표시됩니다."}
+                  </p>
+                ) : null}
 
                 {unansweredQuestions.length > 0 ? (
                   <div className="space-y-3">
