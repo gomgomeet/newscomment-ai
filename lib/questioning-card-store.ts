@@ -600,9 +600,76 @@ function simpleKeywords(value: string, limit = 8): string[] {
   return Array.from(new Set(found)).slice(0, limit);
 }
 
+function inferQuestionIntent(question: string): SavedCard["cardType"] | "unknown" {
+  const compact = compactText(question);
+  if (/(뜻|의미|낱말|단어|용어|무슨말|뭐예요|뭔가요)/.test(compact)) return "vocabulary";
+  if (/(왜|이유|까닭|원인|때문|어떻게된)/.test(compact)) return "inference";
+  if (/(우리|나라면|실천|적용|해결|방법|하면되|할수있)/.test(compact)) return "extension";
+  if (/(내질문|내생각|고칠|성찰|배운점)/.test(compact)) return "dialogue_design";
+  if (/(누가|언제|어디|무엇|뭐|얼마|몇)/.test(compact)) return "fact";
+  return "unknown";
+}
+
+function sourceReliabilityBonus(card: SavedCard) {
+  if (card.sourceReliability === "A") return 1.5;
+  if (card.sourceReliability === "B") return 1;
+  if (card.sourceReliability === "C") return -1;
+  if (card.sourceReliability === "D") return -3;
+  return 0;
+}
+
+function knowledgeStatusBonus(card: SavedCard) {
+  if (card.knowledgeStatus === "verified") return 3;
+  if (card.knowledgeStatus === "researched") return 2;
+  if (card.knowledgeStatus === "inferred") return 1;
+  if (card.knowledgeStatus === "outdated") return -5;
+  return -6;
+}
+
+function cardTypeIntentBonus(card: SavedCard, questionIntent: ReturnType<typeof inferQuestionIntent>) {
+  if (questionIntent === "unknown") return 0;
+  if (card.cardType === questionIntent) return 2.5;
+  if (questionIntent === "inference" && card.cardType === "fact") return 1.5;
+  if (questionIntent === "extension" && (card.cardType === "background" || card.cardType === "research")) return 2;
+  if (questionIntent === "fact" && card.cardType === "inference") return -1;
+  if (questionIntent === "vocabulary" && card.cardType !== "vocabulary") return -2;
+  return 0;
+}
+
+function targetGradeBonus(card: SavedCard, targetGrade?: string) {
+  if (!targetGrade?.trim() || !card.studentLevel?.trim()) return 0;
+  const targetDigits = targetGrade.match(/\d+/g)?.join("") ?? "";
+  const cardDigits = card.studentLevel.match(/\d+/g)?.join("") ?? "";
+  if (targetDigits && cardDigits && targetDigits === cardDigits) return 1;
+  if (targetDigits && cardDigits && targetDigits !== cardDigits) return -0.75;
+  return card.studentLevel.includes(targetGrade.trim()) ? 1 : 0;
+}
+
+function difficultyBonus(card: SavedCard) {
+  if (typeof card.difficulty !== "number") return 0;
+  if (card.difficulty <= 2) return 0.5;
+  if (card.difficulty >= 5) return -1;
+  return 0;
+}
+
+function freshnessBonus(card: SavedCard) {
+  if (card.cardType !== "research") return 0;
+  if (!card.externalSourceDate) return -0.25;
+
+  const sourceTime = Date.parse(card.externalSourceDate);
+  if (!Number.isFinite(sourceTime)) return 0;
+
+  const ageInYears = (Date.now() - sourceTime) / (1000 * 60 * 60 * 24 * 365);
+  if (ageInYears > 6) return -2;
+  if (ageInYears > 3) return -1;
+  if (ageInYears >= 0 && ageInYears < 1) return 0.75;
+  return 0;
+}
+
 /** 질문과 카드가 맞닿는 정도. 문장 단위 일치가 낱말 겹침보다 훨씬 확실하다. */
-function scoreCardForQuestion(card: SavedCard, question: string): number {
+function scoreCardForQuestion(card: SavedCard, question: string, targetGrade?: string): number {
   const compactQuestion = compactText(question);
+  const questionIntent = inferQuestionIntent(question);
   let score = 0;
 
   const declared = card.relatedQuestions.some((candidate) => {
@@ -618,9 +685,15 @@ function scoreCardForQuestion(card: SavedCard, question: string): number {
   score += card.keywords.filter((keyword) => asked.has(keyword)).length * 2;
   if (compactText(card.title).length >= 4 && compactQuestion.includes(compactText(card.title))) score += 4;
 
-  // 교사가 직접 쓴 답이 가장 확실하고, 그다음이 출처 있는 리서치다.
+  score += knowledgeStatusBonus(card);
+  score += sourceReliabilityBonus(card);
+  score += cardTypeIntentBonus(card, questionIntent);
+  score += targetGradeBonus(card, targetGrade);
+  score += difficultyBonus(card);
+  score += freshnessBonus(card);
+
+  // 교사가 직접 쓴 답은 수업 의도와 가장 가깝다.
   if (card.sourceType === "teacher") score += 3;
-  else if (card.cardType === "research") score += 2;
 
   return score;
 }
@@ -635,6 +708,7 @@ export async function findRelevantCards(
   lessonCode: string,
   question: string,
   limit = 4,
+  targetGrade?: string,
 ): Promise<SavedCard[]> {
   if (!isCardStorageConfigured() || !lessonCode.trim() || !question.trim()) return [];
 
@@ -643,7 +717,8 @@ export async function findRelevantCards(
 
   const cards = await loadCards(documentId, { enabledOnly: true }).catch(() => []);
   return cards
-    .map((card) => ({ card, score: scoreCardForQuestion(card, question) }))
+    .filter((card) => card.knowledgeStatus !== "needs_review" && card.knowledgeStatus !== "outdated")
+    .map((card) => ({ card, score: scoreCardForQuestion(card, question, targetGrade) }))
     .filter((entry) => entry.score >= 4)
     .sort((left, right) => right.score - left.score)
     .slice(0, limit)

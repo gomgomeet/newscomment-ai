@@ -2265,7 +2265,7 @@ function createLegacyLocalQuestionResult({
 }
 
 function hasQuestionEnding(value: string) {
-  return /[?？]\s*$/.test(value.trim());
+  return /[?？]/.test(value.trim());
 }
 
 function keepAtMostOneQuestion(value: string) {
@@ -2870,7 +2870,7 @@ function createGeneralNaturalTurn({
   if (asksRatherThanStates(studentIdea)) {
     return {
       reply: cue
-        ? `${cue} 이 부분부터 같이 보면 어떨까요? 무엇이 가장 궁금한지 한 가지만 말해 주면 거기서부터 짚어 볼게요.`
+        ? `${cue} 이 문장에서 가장 궁금한 말이나 기준은 무엇인가요?`
         : "자료에서 그 내용을 찾지 못했어요. 어느 문장이 궁금한지 알려 주면 같이 살펴볼게요.",
       primaryMove: "clarify",
       engagementState: "curious",

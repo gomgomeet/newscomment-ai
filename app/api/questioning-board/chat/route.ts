@@ -152,6 +152,24 @@ function toStudentChatResponse(
   };
 }
 
+function combineReplyWithResearch(baseReply: string, researchedAnswer: string, sourceOrganization: string) {
+  const trimmedBase = baseReply.trim();
+  const trimmedResearch = researchedAnswer.trim().replace(/[?？]/g, ".");
+  const source = sourceOrganization.trim() || "확인한 출처";
+
+  if (!trimmedBase) {
+    return `자료 밖에서 더 확인해 보면 ${trimmedResearch} 출처는 ${source}입니다.`;
+  }
+
+  const sourceLimitedBase = trimmedBase.replace(
+    /(자료(?:만)?으로(?:는)?|질문 자료(?:만)?으로(?:는)?).{0,45}(알기 어렵|확인하기 어렵|단정하기 어렵|나오지 않)[^.!?？]*[.!?？]?/g,
+    "자료에는 직접 나오지 않지만,",
+  );
+  const normalizedBase = sourceLimitedBase === trimmedBase ? `${trimmedBase} 더 확인해 보면` : sourceLimitedBase;
+
+  return `${normalizedBase} ${trimmedResearch} 출처는 ${source}입니다.`;
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as ChatRequest;
@@ -239,7 +257,7 @@ export async function POST(request: Request) {
     // 답변 프롬프트에 싣는다. "답을 적으면 다음 질문부터 챗봇이 씁니다"가
     // 여기서 비로소 사실이 된다.
     const relevantCards = lessonCode
-      ? await findRelevantCards(lessonCode, question).catch(() => [])
+      ? await findRelevantCards(lessonCode, question, 4, config.targetGrade).catch(() => [])
       : [];
     const knowledgeCards = relevantCards.map((card) => ({
       kind: card.cardType,
@@ -326,7 +344,11 @@ export async function POST(request: Request) {
           model: lessonConnection.geminiModel,
         });
         if (researched) {
-          result.studentReply = `${result.studentReply}\n\n자료 밖에서 찾아봤어요. ${researched.answer} (출처: ${researched.sourceOrganization})`;
+          result.studentReply = combineReplyWithResearch(
+            result.studentReply,
+            researched.answer,
+            researched.sourceOrganization,
+          );
           answeredByResearch = true;
           // 다음 학생부터 재사용되도록 리서치 카드로도 남긴다. 실패는 무시한다.
           void addLiveResearchCard({

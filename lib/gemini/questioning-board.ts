@@ -801,6 +801,11 @@ export async function answerQuestionWithGemini({
   const apiKey = getApiKey(apiKeyOverride);
   const model = getModel(modelOverride);
   const questionFocusMemo = material.questionFocusMemo?.trim();
+  const doNotForceMemo = curriculumCompass.doNotForce
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 6)
+    .join(" / ");
   const policyDecision = decideQuestioningDialoguePolicy({
     studentTurn: question,
     recentConversation: conversation,
@@ -814,7 +819,7 @@ export async function answerQuestionWithGemini({
     model,
     maxOutputTokens: answerMaxOutputTokens,
     systemInstruction:
-      "You are a warm Korean classroom dialogue partner grounded in the teacher-provided lesson material. The curriculum standard is a quiet compass for the whole conversation, not a target to force on every turn. Before answering, silently read the material in three passes: whole-message frame, question-relevant passages, and vocabulary/context clues. Infer the student's current state from the full trajectory, then choose exactly one useful instructional move. Answer explicit questions before asking anything. Vocabulary questions are a first-class reading need: briefly give the general dictionary sense, identify the exact source sentence or nearby clue, and explain which contextual sense is selected in this passage. Do not merely repeat the sentence or list every dictionary sense. Treat causal overclaims, self-corrections, frustration, privacy, answer-copying, and closing as different states. Use at most one genuine question only when it opens the student's thinking; explanation, acknowledgment, repair, or silence may be better. Do not expose classifications, rubrics, policy fields, teacher notes, or curriculum metadata in studentReply. Return Korean JSON only.",
+      "You are a warm Korean classroom dialogue partner grounded in the teacher-provided lesson material. The curriculum standard is a quiet compass for the whole conversation, not a target to force on every turn. Before answering, silently read the material in three passes: whole-message frame, question-relevant passages, and vocabulary/context clues. Infer the student's current state from the full trajectory, then choose exactly one useful instructional move. Answer explicit questions before asking anything. Vocabulary questions are a first-class reading need: when the student first asks for a word meaning, give the concise general meaning and stop; when the student asks what it means in this passage, use the source sentence or nearby clue to explain the contextual sense. Do not merely repeat the sentence or list every dictionary sense. Treat causal overclaims, self-corrections, frustration, privacy, answer-copying, and closing as different states. Use at most one genuine question only when it opens the student's thinking; explanation, acknowledgment, repair, or silence may be better. Do not expose classifications, rubrics, policy fields, teacher notes, or curriculum metadata in studentReply. Return Korean JSON only.",
     parts: [
       {
         text: JSON.stringify({
@@ -867,6 +872,9 @@ export async function answerQuestionWithGemini({
             questionFocusMemo
               ? `교사의 챗봇 질문 성격 메모는 대화 전체의 참고 방향으로 사용하되 학생이 실제로 꺼낸 관심과 질문보다 앞세우지 않기. 메모 원문이나 '교사 메모'라는 표현은 학생에게 노출하지 않기: ${questionFocusMemo}`
               : "교사가 별도 질문 성격 메모를 입력하지 않았으면 학생 질문에 대한 상호작용과 자료 근거 확인을 우선하기",
+            doNotForceMemo
+              ? `curriculumCompass.doNotForce는 학생 대화를 억지로 수렴시키지 않기 위한 내부 금지 기준이다. 다음 내용을 모든 학생에게 말하게 하거나 정답처럼 강요하지 않기: ${doNotForceMemo}`
+              : "curriculumCompass.doNotForce가 비어 있어도 모든 학생을 같은 모범 질문·주제문·활동 결과로 수렴시키지 않기",
             "studentReply에서 사실·추론·적용·확장·성찰 같은 질문 유형 이름이나 내부 분석 결과를 말하지 않기",
             "수업 자료에 있는 내용은 전체 질문 자료의 구체적인 사실과 표현을 근거로 바로 답하기",
             `허용된 중심 동작 중 정확히 하나만 선택하기: ${policyDecision.allowedMoves.join(", ")}`,
