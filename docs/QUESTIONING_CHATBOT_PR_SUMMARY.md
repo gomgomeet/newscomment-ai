@@ -66,6 +66,7 @@
 - `docs/QUESTIONING_CHATBOT_RESEARCH_APPLICATION_RESULT.md`: 실제 구현, 40턴 결과, 브라우저 검증, 한계
 - `docs/GPT_5_3_CODEX_SPARK_USAGE_GUIDE.md`: Codex Spark를 개발 반복 도구로 사용하는 방법
 - `docs/QUESTIONING_CHATBOT_PRD.md`: 현재 V2 대화정책과 학생용 제공자 경계
+- `docs/GENERAL_TEACHER_STANDALONE_HTML_CHATBOT_PROMPT.md`: 일반 교사가 수업 정보만 바꿔 단일 HTML 질문 챗봇을 만드는 복사형 프롬프트
 
 ## 남은 위험과 후속 작업
 
