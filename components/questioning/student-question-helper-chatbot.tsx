@@ -418,9 +418,26 @@ export function StudentQuestionHelperChatbot() {
     };
   }, []);
 
+  // 교사가 수업 연결에 학교·학년반을 적어 두었으면 아이는 번호만 고르면 된다.
+  const classInfo = config.classInfo;
+  const numberChoices = useMemo(() => {
+    const size = classInfo?.classSize ?? 0;
+    return size > 0 ? Array.from({ length: size }, (_, index) => String(index + 1)) : [];
+  }, [classInfo?.classSize]);
+
+  // 교사가 정한 값을 상태에 밀어 넣지 않고 화면에서 덮어쓴다. 아이가 예전에 다른
+  // 학교를 저장해 두었더라도 이번 수업 기록은 이 학급 이름으로 남아야 한다.
+  const shownDraft = classInfo
+    ? { ...profileDraft, school: classInfo.school, classroom: classInfo.classroom }
+    : profileDraft;
+
   function handleSaveStudentProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const normalizedProfile = normalizeStudentProfile(profileDraft);
+    const normalizedProfile = normalizeStudentProfile(
+      classInfo
+        ? { ...profileDraft, school: classInfo.school, classroom: classInfo.classroom }
+        : profileDraft,
+    );
 
     if (!normalizedProfile.school || !normalizedProfile.classroom || !normalizedProfile.number) {
       setNotice("학교, 반, 번호를 모두 입력해 주세요. 이름은 입력하지 않아도 됩니다.");
@@ -650,10 +667,11 @@ export function StudentQuestionHelperChatbot() {
                   </Label>
                   <Input
                     id="student-school"
-                    value={profileDraft.school}
+                    value={shownDraft.school}
                     onChange={(event) => setProfileDraft((current) => ({ ...current, school: event.target.value }))}
                     placeholder="예: 푸른초등학교"
-                    className="rounded-2xl border-rose-100 bg-white px-4 py-3 text-slate-800 shadow-sm placeholder:text-slate-400"
+                    readOnly={Boolean(classInfo)}
+                    className="rounded-2xl border-rose-100 bg-white px-4 py-3 text-slate-800 shadow-sm placeholder:text-slate-400 read-only:bg-slate-100 read-only:text-slate-500"
                   />
                 </div>
                 <div className="space-y-2">
@@ -662,23 +680,40 @@ export function StudentQuestionHelperChatbot() {
                   </Label>
                   <Input
                     id="student-classroom"
-                    value={profileDraft.classroom}
+                    value={shownDraft.classroom}
                     onChange={(event) => setProfileDraft((current) => ({ ...current, classroom: event.target.value }))}
                     placeholder="예: 4-2"
-                    className="rounded-2xl border-rose-100 bg-white px-4 py-3 text-slate-800 shadow-sm placeholder:text-slate-400"
+                    readOnly={Boolean(classInfo)}
+                    className="rounded-2xl border-rose-100 bg-white px-4 py-3 text-slate-800 shadow-sm placeholder:text-slate-400 read-only:bg-slate-100 read-only:text-slate-500"
                   />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="student-number" className="font-bold text-slate-700">
                     번호
                   </Label>
-                  <Input
-                    id="student-number"
-                    value={profileDraft.number}
-                    onChange={(event) => setProfileDraft((current) => ({ ...current, number: event.target.value }))}
-                    placeholder="예: 15"
-                    className="rounded-2xl border-rose-100 bg-white px-4 py-3 text-slate-800 shadow-sm placeholder:text-slate-400"
-                  />
+                  {numberChoices.length > 0 ? (
+                    <select
+                      id="student-number"
+                      value={shownDraft.number}
+                      onChange={(event) => setProfileDraft((current) => ({ ...current, number: event.target.value }))}
+                      className="w-full rounded-2xl border border-rose-100 bg-white px-4 py-3 text-slate-800 shadow-sm"
+                    >
+                      <option value="">번호 고르기</option>
+                      {numberChoices.map((choice) => (
+                        <option key={choice} value={choice}>
+                          {choice}번
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Input
+                      id="student-number"
+                      value={shownDraft.number}
+                      onChange={(event) => setProfileDraft((current) => ({ ...current, number: event.target.value }))}
+                      placeholder="예: 15"
+                      className="rounded-2xl border-rose-100 bg-white px-4 py-3 text-slate-800 shadow-sm placeholder:text-slate-400"
+                    />
+                  )}
                 </div>
                 <div className="flex items-end">
                   <Button type="submit" className="w-full rounded-full bg-rose-500 font-bold text-white hover:bg-rose-600 sm:w-auto">

@@ -46,6 +46,7 @@ import {
   createDefaultQuestioningLessonMaterial,
   isQuestioningAiSettings,
   normalizeQuestioningChatbotBehavior,
+  normalizeQuestioningClassInfo,
   questioningAiModelOptions,
   shouldUseReferenceOnlyQuestionMaterial,
   standardOptions,
@@ -693,6 +694,11 @@ export function QuestioningChatbotBoard() {
   const [isSavingLessonConnection, setIsSavingLessonConnection] = useState(false);
   const [notice, setNotice] = useState("");
   const [classLabel, setClassLabel] = useState("");
+  // 학생 화면에서 대신 채워 줄 학급 정보. 아이가 학교 이름을 타이핑하다 오타를 내면
+  // 결과 DB에 다른 학생으로 쌓이고 참여 현황에서 미제출로 뜬다.
+  const [schoolName, setSchoolName] = useState("");
+  const [classroomName, setClassroomName] = useState("");
+  const [classSize, setClassSize] = useState("");
   const [classTotal, setClassTotal] = useState("");
   const [participationInput, setParticipationInput] = useState("");
   const [isPrdOpen, setIsPrdOpen] = useState(false);
@@ -1053,6 +1059,11 @@ export function QuestioningChatbotBoard() {
       rubric,
       behavior: normalizedBehavior,
       prdText: normalizedPrdText,
+      classInfo: normalizeQuestioningClassInfo({
+        school: schoolName,
+        classroom: classroomName,
+        classSize: Number(classSize),
+      }),
       updatedAt: new Date().toISOString(),
     };
 
@@ -1459,6 +1470,36 @@ export function QuestioningChatbotBoard() {
                     value={connectionTeacherLabel}
                     onChange={(event) => setConnectionTeacherLabel(event.target.value)}
                     placeholder="예: 4학년 질문 수업"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="connection-school">학교</Label>
+                  <Input
+                    id="connection-school"
+                    value={schoolName}
+                    onChange={(event) => setSchoolName(event.target.value)}
+                    placeholder="예: 푸른초등학교"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="connection-classroom">학년반</Label>
+                  <Input
+                    id="connection-classroom"
+                    value={classroomName}
+                    onChange={(event) => setClassroomName(event.target.value)}
+                    placeholder="예: 4-2"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="connection-class-size">학급 인원</Label>
+                  <Input
+                    id="connection-class-size"
+                    type="number"
+                    min={1}
+                    max={60}
+                    value={classSize}
+                    onChange={(event) => setClassSize(event.target.value)}
+                    placeholder="예: 24"
                   />
                 </div>
                 <div className="space-y-2">

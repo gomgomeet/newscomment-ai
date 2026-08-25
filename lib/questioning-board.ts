@@ -183,6 +183,20 @@ export type ChatMessage = {
 
 export type QuestioningConversationEntry = Pick<ChatMessage, "role" | "content">;
 
+/**
+ * 교사가 미리 정해 두는 학급 정보.
+ *
+ * 학생이 학교 이름을 직접 타이핑하면 오타가 난다. `푸른초등학교`와 `푸른초`가
+ * 결과 DB에 서로 다른 학생으로 쌓이고, 참여 현황에서는 그 아이가 미제출로 뜬다.
+ * 교사가 한 번 적어 두면 아이는 번호만 고르면 된다.
+ */
+export type QuestioningClassInfo = {
+  school: string;
+  classroom: string;
+  /** 번호 고르는 목록을 만들 때 쓴다. 0이면 목록 대신 직접 입력. */
+  classSize: number;
+};
+
 export type QuestioningChatbotConfig = {
   targetGrade: string;
   subjectUnit: string;
@@ -193,8 +207,24 @@ export type QuestioningChatbotConfig = {
   rubric: RubricCriterion[];
   behavior: QuestioningChatbotBehavior;
   prdText: string;
+  classInfo?: QuestioningClassInfo;
   updatedAt: string;
 };
+
+/** 교사가 적은 학급 정보를 다듬는다. 학생 화면과 기록 식별값에 그대로 쓰인다. */
+export function normalizeQuestioningClassInfo(value: unknown): QuestioningClassInfo | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const raw = value as Partial<QuestioningClassInfo>;
+
+  const school = typeof raw.school === "string" ? raw.school.trim().slice(0, 40) : "";
+  const classroom = typeof raw.classroom === "string" ? raw.classroom.trim().slice(0, 20) : "";
+  const size = Number(raw.classSize);
+  const classSize = Number.isFinite(size) && size > 0 ? Math.min(Math.floor(size), 60) : 0;
+
+  // 학교와 학년반이 둘 다 있어야 학생 화면을 대신 채울 수 있다.
+  if (!school || !classroom) return undefined;
+  return { school, classroom, classSize };
+}
 
 export const QUESTIONING_CHATBOT_CONFIG_KEY = "questioning-chatbot-config";
 export const QUESTIONING_AI_SETTINGS_KEY = "questioning-ai-settings";
@@ -1077,6 +1107,7 @@ export function normalizeQuestioningChatbotConfig(config: QuestioningChatbotConf
 
   return {
     ...config,
+    classInfo: normalizeQuestioningClassInfo(config.classInfo),
     assessmentAnalysis,
     curriculumCompass: {
       rawStandard:
