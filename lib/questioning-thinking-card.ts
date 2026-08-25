@@ -155,8 +155,17 @@ function findNumericSentences(sentences: string[]): string[] {
   return sentences.filter((sentence) => /\d/.test(sentence));
 }
 
+/**
+ * 배열 필드가 아예 없는 자료가 들어올 수 있다. 이미지 분석을 거치지 않고 손으로
+ * 만든 자료나 예전에 저장된 설정이 그렇다. 없는 배열에 손대면 그 자리에서 터지므로
+ * 읽기 전에 한 번 감싼다.
+ */
+function safeArray(value: string[] | undefined): string[] {
+  return Array.isArray(value) ? value : [];
+}
+
 function firstKeyConcept(material: MaterialAnalysis, fallback: string) {
-  const concept = material.keyConcepts.find((item) => item.trim().length >= 2);
+  const concept = safeArray(material.keyConcepts).find((item) => item.trim().length >= 2);
   return concept ? concept.trim() : fallback;
 }
 
@@ -170,8 +179,8 @@ export function simulateStudentQuestions(material: MaterialAnalysis): SimulatedQ
   const sentences = sentencesOf(material);
   const numericSentences = findNumericSentences(sentences);
   const topic = firstKeyConcept(material, material.materialTitle || "이 글의 주제");
-  const firstVocabulary = material.vocabulary?.[0]?.term || "";
-  const seeds = material.questionSeeds.filter((seed) => seed.trim().length > 0);
+  const firstVocabulary = material.vocabulary?.[0]?.term ?? "";
+  const seeds = safeArray(material.questionSeeds).filter((seed) => seed.trim().length > 0);
 
   const drafts: Array<Omit<SimulatedQuestion, "lensLabel" | "answerableFromText" | "evidenceSentence">> = [
     {
@@ -234,7 +243,7 @@ export function simulateStudentQuestions(material: MaterialAnalysis): SimulatedQ
 
 /** 지문에서 관찰되는 오개념 위험을 모은다. 지문에 없는 위험은 만들지 않는다. */
 export function collectMisconceptionWatch(material: MaterialAnalysis): string[] {
-  const watch = material.possibleMisconceptions
+  const watch = safeArray(material.possibleMisconceptions)
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
 

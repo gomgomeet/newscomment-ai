@@ -189,7 +189,7 @@ function extractKeywords(value: string, limit = 6): string[] {
  * 않은 뜻이 학생에게 그대로 전달되는 것을 막기 위해서다.
  */
 export function buildVocabularyCards(material: MaterialAnalysis): ThinkingCardDraft[] {
-  const body = compact(material.visibleText);
+  const body = compact(material.visibleText ?? "");
   const entries = material.vocabulary ?? [];
 
   return entries
@@ -246,8 +246,10 @@ export function buildPassageCards(material: MaterialAnalysis, limit = 8): {
   facts: ThinkingCardDraft[];
   inferences: ThinkingCardDraft[];
 } {
-  const sentences = splitSentences(material.visibleText);
-  const concepts = material.keyConcepts.map((item) => compact(item)).filter((item) => item.length >= 2);
+  const sentences = splitSentences(material.visibleText ?? "");
+  const concepts = (Array.isArray(material.keyConcepts) ? material.keyConcepts : [])
+    .map((item) => compact(item))
+    .filter((item) => item.length >= 2);
 
   const facts: ThinkingCardDraft[] = [];
   const inferences: ThinkingCardDraft[] = [];
@@ -571,8 +573,8 @@ export function buildLocalCardSet(material: MaterialAnalysis): CardSet {
   // 자료가 아직 비어 있으면 카드를 만들지 않는다. 근거 없는 예상 질문만 잔뜩
   // 저장해 두면 확인할 것만 늘고 답변에는 쓰이지 못한다.
   const hasMaterial =
-    material.visibleText.trim().length > 0 ||
-    material.summary.trim().length > 0 ||
+    (material.visibleText ?? "").trim().length > 0 ||
+    (material.summary ?? "").trim().length > 0 ||
     (material.questionFocusMemo ?? "").trim().length > 0;
   if (!hasMaterial) return { cards: [], relations: [] };
 

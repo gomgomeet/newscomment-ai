@@ -299,3 +299,39 @@ typecheck·lint·build 통과.
 typecheck·lint·build 통과.
 
 **실제 Supabase에 붙여 보지 못했다** — 004·005 마이그레이션이 아직 적용되지 않았다.
+
+## 2026-08-25 (이어서) 4단계 — 카드 API 라우트
+
+`app/api/questioning-board/cards/route.ts` 신설.
+
+- `POST` — 지역 카드 생성 → (키가 있으면) AI 카드 붙이기 → 저장 → 확인할 것 반환
+- `PATCH` — 확인 화면 결과(켠 카드/끈 카드/고친 발문) 반영
+- 인증은 기존 connections와 같은 `QUESTIONING_CONNECTION_SETUP_TOKEN`
+
+### AI 실패가 저장을 막지 않는다
+배경·리서치 카드는 있으면 좋은 것이지 없으면 안 되는 것이 아니다. Gemini 호출이
+실패하거나 키가 없으면 지역 카드만으로 저장을 마치고 `warning`으로 알린다.
+수업 준비가 AI 때문에 멈추면 안 된다.
+
+응답의 `needsConfirmation`이 비어 있으면 보드는 확인 창을 띄우지 않는다. 저장된
+카드(uuid)로 다시 요약하므로 확인 화면이 실제 저장된 카드를 다룬다.
+
+### 실기에서 잡은 것
+1. **빈 지문일 때 엉뚱한 안내** — 저장소 점검이 먼저라 "Supabase 저장소가 설정되어
+   있지 않습니다"가 나왔다. 지문이 비었을 때 교사가 할 일은 지문을 채우는 것이지
+   서버 설정을 보는 게 아니다. 검사 순서를 바꿨다.
+2. **배열 필드가 없는 자료에서 500** — `questionSeeds`/`possibleMisconceptions`가
+   undefined면 `.filter`에서 그대로 터졌다. 이미지 분석을 거치지 않고 손으로 만든
+   자료나 예전에 저장된 설정이 그렇다. `safeArray`로 감싸
+   `questioning-thinking-card.ts`와 `questioning-cards.ts` 양쪽을 방어.
+   **이건 보드에서도 재현되던 버그다.**
+
+### 검증
+dev 서버 실기 — 빈 요청/형식 오류/빈 지문/메모만/배열 없는 정상 지문/PATCH 인자 누락
+모두 의도한 응답. 저장 단계는 Supabase가 없어 400에서 멈춘다(정상).
+회귀평가 48세션 192턴 **실패 0 · 검토 0**. typecheck·lint·build 통과.
+
+**아직 실제 저장은 확인 못 했다** — 004 마이그레이션 미적용.
+
+> 작업 메모: `pkill -f "next dev"`를 다른 명령과 한 줄에 쓰면 셸까지 죽는다(exit 144).
+> 두 번째 겪었다. dev 서버는 반드시 별도 명령으로 정리할 것.
