@@ -27,11 +27,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  buildThinkingCard,
-  formatThinkingCard,
-  type ThinkingCard,
-} from "@/lib/questioning-thinking-card";
+import { buildThinkingCard, type ThinkingCard } from "@/lib/questioning-thinking-card";
 import {
   formatAttendanceSummary,
   parseParticipatedNumbers,
@@ -634,12 +630,11 @@ export function QuestioningChatbotBoard() {
   const [savedStudentChatbotUrl, setSavedStudentChatbotUrl] = useState("");
   const [isSavingLessonConnection, setIsSavingLessonConnection] = useState(false);
   const [notice, setNotice] = useState("");
-  const [thinkingCard, setThinkingCard] = useState<ThinkingCard | null>(null);
   const [classLabel, setClassLabel] = useState("");
   const [classTotal, setClassTotal] = useState("");
   const [participationInput, setParticipationInput] = useState("");
-  const [isThinkingCardOpen, setIsThinkingCardOpen] = useState(false);
   const [isPrdOpen, setIsPrdOpen] = useState(false);
+  const [isVocabularyOpen, setIsVocabularyOpen] = useState(false);
 
   const selectedStandard = standardOptions.find((option) => option.id === selectedStandardId) || standardOptions[0];
   const standardText = selectedStandardId === "custom" ? customStandard : selectedStandard.standard;
@@ -899,28 +894,14 @@ export function QuestioningChatbotBoard() {
     );
   }
 
-  /** 생각 카드를 만들고, 지문 근거가 있는 내용만 곧바로 챗봇 지시에 반영한다. */
-  function handleBuildThinkingCard() {
+  /**
+   * 생각 카드를 만들어 챗봇 지시에 반영하고, 만든 카드를 돌려준다.
+   * 교사가 따로 누르지 않아도 ⑧에서 자동으로 실행된다.
+   */
+  function buildAndApplyThinkingCard() {
     const card = buildThinkingCard(configuredMaterialWithVocabulary);
-    setThinkingCard(card);
-    setIsThinkingCardOpen(false);
-    const applied = applyThinkingCardToBehavior(card);
-    const openCount = card.openQuestions.length;
-    setNotice(
-      openCount > 0
-        ? `생각 카드를 만들어 예상 질문 ${applied}개를 챗봇에 반영했습니다. 지문으로 답할 수 없는 질문 ${openCount}개는 학생과 함께 확인하도록 두었습니다.`
-        : `생각 카드를 만들어 예상 질문 ${applied}개를 챗봇에 반영했습니다.`,
-    );
-  }
-
-  async function handleCopyThinkingCard() {
-    if (!thinkingCard) return;
-    try {
-      await navigator.clipboard.writeText(formatThinkingCard(thinkingCard));
-      setNotice("생각 카드를 복사했습니다.");
-    } catch {
-      setNotice("복사에 실패했습니다. 카드 내용을 직접 선택해 복사해 주세요.");
-    }
+    const { applied, behavior: nextBehavior } = applyThinkingCardToBehavior(card);
+    return { card, applied, nextBehavior };
   }
 
   /**
@@ -929,7 +910,7 @@ export function QuestioningChatbotBoard() {
    */
   function applyThinkingCardToBehavior(card: ThinkingCard) {
     const answerable = card.simulatedQuestions.filter((item) => item.answerableFromText);
-    if (answerable.length === 0) return 0;
+    if (answerable.length === 0) return { applied: 0, behavior };
     const lines = [
       "[예상 질문과 지문 근거]",
       ...answerable.map((item) => `- ${item.question} → 근거: "${item.evidenceSentence}"`),
@@ -939,17 +920,19 @@ export function QuestioningChatbotBoard() {
       card.misconceptionWatch.forEach((item) => lines.push(`- ${item}`));
     }
     const addition = lines.join("\n");
-    setBehavior((current) => {
-      const existing = current.additionalInstructions.trim();
-      if (existing.includes("[예상 질문과 지문 근거]")) {
-        return { ...current, additionalInstructions: addition };
-      }
-      return {
-        ...current,
-        additionalInstructions: existing ? `${existing}\n\n${addition}` : addition,
-      };
-    });
-    return answerable.length;
+    const existing = behavior.additionalInstructions.trim();
+    // 이미 반영한 블록이 있으면 갈아끼워 중복 누적을 막는다.
+    const nextInstructions = existing.includes("[예상 질문과 지문 근거]")
+      ? addition
+      : existing
+        ? `${existing}\n\n${addition}`
+        : addition;
+    const nextBehavior: QuestioningChatbotBehavior = {
+      ...behavior,
+      additionalInstructions: nextInstructions,
+    };
+    setBehavior(nextBehavior);
+    return { applied: answerable.length, behavior: nextBehavior };
   }
 
   async function handleCopyAttendanceSummary() {
@@ -978,13 +961,17 @@ export function QuestioningChatbotBoard() {
     setBehavior((current) => ({ ...current, [key]: value }));
   }
 
-  function buildCurrentChatbotConfig() {
+  /**
+   * 저장할 챗봇 설정을 만든다.
+   * 방금 계산한 동작 설정을 넘기면 그것을 쓴다 — React 상태 반영을 기다리지 않기 위해서다.
+   */
+  function buildCurrentChatbotConfig(behaviorOverride?: QuestioningChatbotBehavior) {
     if (!configuredMaterialWithVocabulary.visibleText.trim() && !configuredMaterialWithVocabulary.summary.trim()) {
       setNotice("학생용 챗봇을 열기 전에 질문 자료 전체 내용을 입력해 주세요.");
       return null;
     }
 
-    const normalizedBehavior = normalizeQuestioningChatbotBehavior(behavior);
+    const normalizedBehavior = normalizeQuestioningChatbotBehavior(behaviorOverride ?? behavior);
     const normalizedPrdText = buildPrdText({
       targetGrade,
       subjectUnit,
@@ -1010,8 +997,11 @@ export function QuestioningChatbotBoard() {
     return config;
   }
 
-  function saveStudentChatbotConfig(successNotice = "현재 설정을 학생용 질문 도우미 챗봇에 연결했습니다.") {
-    const config = buildCurrentChatbotConfig();
+  function saveStudentChatbotConfig(
+    successNotice = "현재 설정을 학생용 질문 도우미 챗봇에 연결했습니다.",
+    behaviorOverride?: QuestioningChatbotBehavior,
+  ) {
+    const config = buildCurrentChatbotConfig(behaviorOverride);
     if (!config) {
       return false;
     }
@@ -1039,19 +1029,34 @@ export function QuestioningChatbotBoard() {
    * 노션 토큰이 없으면 챗봇 적용까지만 하고 그 사실을 알려 준다.
    */
   async function handleApplyAndSave() {
-    const applied = saveStudentChatbotConfig("현재 설정을 학생용 챗봇에 적용했습니다.");
-    if (!applied) return;
+    // 생각 카드를 먼저 만들어 챗봇 지시에 넣은 뒤 저장한다.
+    const { card, applied: questionCount, nextBehavior } = buildAndApplyThinkingCard();
+    const cardNote =
+      card.openQuestions.length > 0
+        ? ` 예상 질문 ${questionCount}개를 반영했고, 지문으로 답할 수 없는 질문 ${card.openQuestions.length}개는 학생과 함께 확인하도록 두었습니다.`
+        : ` 예상 질문 ${questionCount}개를 반영했습니다.`;
+
+    const saved = saveStudentChatbotConfig(`학생용 챗봇에 적용했습니다.${cardNote}`, nextBehavior);
+    if (!saved) return;
 
     if (!notionApiKey.trim()) {
-      setNotice("학생용 챗봇에 적용했습니다. 노션에도 저장하려면 위 ②에 Notion API 토큰을 입력해 주세요.");
+      setNotice(
+        `학생용 챗봇에 적용했습니다.${cardNote} 노션에도 저장하려면 위 ②에 Notion API 토큰을 입력해 주세요.`,
+      );
       return;
     }
 
-    await handleSavePreparationToNotion("학생용 챗봇에 적용하고 노션 준비 DB에도 저장했습니다.");
+    await handleSavePreparationToNotion(
+      `학생용 챗봇에 적용하고 노션 준비 DB에도 저장했습니다.${cardNote}`,
+      nextBehavior,
+    );
   }
 
-  async function handleSavePreparationToNotion(successNotice?: string) {
-    const config = buildCurrentChatbotConfig();
+  async function handleSavePreparationToNotion(
+    successNotice?: string,
+    behaviorOverride?: QuestioningChatbotBehavior,
+  ) {
+    const config = buildCurrentChatbotConfig(behaviorOverride);
     if (!config) {
       return;
     }
@@ -1602,9 +1607,44 @@ export function QuestioningChatbotBoard() {
                     </div>
                   ) : null}
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="question-focus-memo">챗봇 질문 성격 메모</Label>
+                  <Textarea
+                    id="question-focus-memo"
+                    value={questionFocusMemo}
+                    onChange={(event) => setQuestionFocusMemo(event.target.value)}
+                    className="min-h-24"
+                    placeholder="예: 학생 질문에 먼저 답하고, 자료 속 원인-결과와 우리 학교에서 실천할 방법으로 질문을 넓히게 돕습니다."
+                  />
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    챗봇이 학생 질문에 응답할 때 우선 살릴 관점, 질문 방향, 피드백 톤을 적어 둡니다.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" onClick={handleAnalyzeImage} disabled={isAnalyzing || !imageDataUrl}>
+                  {isAnalyzing ? <RefreshCw className="size-4 animate-spin" aria-hidden="true" /> : <Wand2 className="size-4" aria-hidden="true" />}
+                  AI 전체 텍스트 추출
+                </Button>
+                <Button type="button" variant="outline" onClick={handleUseManualMaterial}>
+                  ⑦ 전체 내용·메모 반영
+                </Button>
+              </div>
+
                 <div className="space-y-2 rounded-md border border-border bg-background p-3">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="px-0 text-xs"
+                    onClick={() => setIsVocabularyOpen((current) => !current)}
+                  >
+                    {isVocabularyOpen ? "낱말 뜻 직접 넣기 접기" : "낱말 뜻 직접 넣기 (선택)"}
+                  </Button>
+                  {isVocabularyOpen ? (
+                  <>
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <Label className="text-sm font-semibold">낱말 뜻 알려 주기 (선택)</Label>
+                    <Label className="text-sm font-semibold">낱말 뜻 알려 주기</Label>
                     <Button
                       type="button"
                       variant="outline"
@@ -1692,128 +1732,10 @@ export function QuestioningChatbotBoard() {
                       />
                     </div>
                   ))}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="question-focus-memo">챗봇 질문 성격 메모</Label>
-                  <Textarea
-                    id="question-focus-memo"
-                    value={questionFocusMemo}
-                    onChange={(event) => setQuestionFocusMemo(event.target.value)}
-                    className="min-h-24"
-                    placeholder="예: 학생 질문에 먼저 답하고, 자료 속 원인-결과와 우리 학교에서 실천할 방법으로 질문을 넓히게 돕습니다."
-                  />
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    챗봇이 학생 질문에 응답할 때 우선 살릴 관점, 질문 방향, 피드백 톤을 적어 둡니다.
-                  </p>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" onClick={handleAnalyzeImage} disabled={isAnalyzing || !imageDataUrl}>
-                  {isAnalyzing ? <RefreshCw className="size-4 animate-spin" aria-hidden="true" /> : <Wand2 className="size-4" aria-hidden="true" />}
-                  AI 전체 텍스트 추출
-                </Button>
-                <Button type="button" variant="outline" onClick={handleUseManualMaterial}>
-                  ⑦ 전체 내용·메모 반영
-                </Button>
-              </div>
-
-              <div className="space-y-3 rounded-md border border-border bg-background p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <h3 className="text-sm font-semibold">생각 카드 — 학생이 물어볼 것 미리 준비</h3>
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      여섯 가지 학생 관점으로 질문을 시뮬레이션해 지문 근거·어휘·오개념을 정리한 뒤 챗봇에 반영합니다.
-                    </p>
-                  </div>
-                  <Button type="button" size="sm" onClick={handleBuildThinkingCard}>
-                    생각 카드 만들어 반영
-                  </Button>
+                  </>
+                  ) : null}
                 </div>
 
-                {thinkingCard ? (
-                  <div className="space-y-2 rounded-md border border-dashed border-border p-3">
-                    <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <span className="rounded-full bg-emerald-100 px-2 py-1 font-medium text-emerald-900">
-                        챗봇에 반영됨 · 예상 질문 {thinkingCard.answerableCount}개
-                      </span>
-                      {thinkingCard.vocabulary.length > 0 ? (
-                        <span className="rounded-full bg-muted px-2 py-1 font-medium">
-                          어휘 {thinkingCard.vocabulary.length}
-                        </span>
-                      ) : null}
-                      {thinkingCard.misconceptionWatch.length > 0 ? (
-                        <span className="rounded-full bg-muted px-2 py-1 font-medium">
-                          오개념 {thinkingCard.misconceptionWatch.length}
-                        </span>
-                      ) : null}
-                      {thinkingCard.openQuestions.length > 0 ? (
-                        <span className="rounded-full bg-amber-100 px-2 py-1 font-medium text-amber-900">
-                          교사 확인 {thinkingCard.openQuestions.length}
-                        </span>
-                      ) : null}
-                    </div>
-
-                    {thinkingCard.openQuestions.length > 0 ? (
-                      <p className="text-xs leading-5 text-amber-800">
-                        지문으로 답할 수 없는 질문이 {thinkingCard.openQuestions.length}개 있습니다. 학생이 물으면 챗봇은
-                        지어내지 않고 함께 확인하자고 답합니다.
-                      </p>
-                    ) : null}
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setIsThinkingCardOpen((current) => !current)}
-                      >
-                        {isThinkingCardOpen ? "자세히 접기" : "자세히 보기"}
-                      </Button>
-                      <Button type="button" size="sm" variant="ghost" onClick={handleCopyThinkingCard}>
-                        카드 복사
-                      </Button>
-                    </div>
-
-                    {isThinkingCardOpen ? (
-                      <div className="space-y-3 border-t border-border pt-3 text-sm">
-                        <ul className="space-y-2">
-                          {thinkingCard.simulatedQuestions.map((item, index) => (
-                            <li key={index} className="rounded-md border border-border p-2">
-                              <p className="font-medium">
-                                <span className="mr-2 rounded bg-muted px-1.5 py-0.5 text-xs">{item.lensLabel}</span>
-                                {item.question}
-                              </p>
-                              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                                {item.answerableFromText
-                                  ? `지문 근거: "${item.evidenceSentence}"`
-                                  : "지문 안에서 답을 찾지 못했습니다. 학생과 함께 확인할 질문으로 둡니다."}
-                              </p>
-                            </li>
-                          ))}
-                        </ul>
-                        {thinkingCard.misconceptionWatch.length > 0 ? (
-                          <div>
-                            <h4 className="text-sm font-semibold">오개념 주의</h4>
-                            <ul className="mt-1 list-disc space-y-1 pl-5 text-xs leading-5 text-muted-foreground">
-                              {thinkingCard.misconceptionWatch.map((item, index) => (
-                                <li key={index}>{item}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        ) : null}
-                        <div>
-                          <h4 className="text-sm font-semibold">교사 확인 사항</h4>
-                          <ul className="mt-1 list-disc space-y-1 pl-5 text-xs leading-5 text-muted-foreground">
-                            {thinkingCard.teacherChecklist.map((item, index) => (
-                              <li key={index}>{item}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
             </div>
           </div>
 
@@ -1903,8 +1825,8 @@ export function QuestioningChatbotBoard() {
               <div className="rounded-md border border-border bg-background p-3">
                 <p className="text-sm font-medium">챗봇에 들어갈 설정이 준비되었습니다.</p>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  성취기준·루브릭·질문 자료·생각 카드·챗봇 동작을 모아 학생용 챗봇 지시문(PRD)을 자동으로 만듭니다.
-                  아래 버튼을 누르면 학생용 챗봇에 적용하고 노션 준비 DB에도 저장합니다.
+                  아래 버튼 하나로 끝납니다. 학생이 물어볼 질문·어휘·오개념을 자동으로 정리해 챗봇에 넣고,
+                  학생용 챗봇에 적용한 뒤 노션 준비 DB에도 저장합니다.
                 </p>
                 <Button
                   type="button"
