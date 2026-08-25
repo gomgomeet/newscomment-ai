@@ -13,7 +13,6 @@ import {
   Copy,
   Database,
   Download,
-  ExternalLink,
   FileImage,
   KeyRound,
   RefreshCw,
