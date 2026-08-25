@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>질문 도우미 챗봇</title>
+<style>
+  :root { --ink:#1f2937; --muted:#6b7280; --line:#e5e7eb; --bg:#f8fafc; --card:#fff; --accent:#0d9488; --accent-soft:#ccfbf1; --warn:#b45309; --warn-bg:#fffbeb; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif; line-height:1.7; word-break:keep-all; }
+  .wrap { max-width:860px; margin:0 auto; padding:20px 16px 60px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:14px; margin:0 0 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:14px; }
+  .card h2 { font-size:16px; margin:0 0 10px; }
+  label { display:block; font-weight:600; font-size:14px; margin:12px 0 4px; }
+  input[type=text], input[type=password], textarea, select { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font:inherit; background:#fff; }
+  textarea { min-height:120px; resize:vertical; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; }
+  .row > * { flex:1; min-width:140px; }
+  button { padding:10px 16px; border:0; border-radius:10px; background:var(--accent); color:#fff; font:inherit; font-weight:700; cursor:pointer; }
+  button.ghost { background:#fff; color:var(--ink); border:1px solid var(--line); font-weight:600; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .hint { color:var(--muted); font-size:13px; margin-top:6px; }
+  .warn { background:var(--warn-bg); border:1px solid #fde68a; color:var(--warn); border-radius:10px; padding:10px 12px; font-size:14px; margin-top:10px; }
+  .chat { min-height:280px; max-height:52vh; overflow-y:auto; padding:4px; }
+  .msg { display:flex; margin:10px 0; }
+  .msg.me { justify-content:flex-end; }
+  .bubble { max-width:78%; padding:11px 14px; border-radius:16px; white-space:pre-wrap; }
+  .bot .bubble { background:#fff; border:1px solid var(--line); border-top-left-radius:4px; }
+  .me .bubble { background:var(--accent-soft); border-top-right-radius:4px; }
+  .who { font-size:12px; color:var(--muted); margin-bottom:3px; }
+  .hidden { display:none !important; }
+  .pill { display:inline-block; background:var(--accent-soft); color:#0f766e; border-radius:999px; padding:3px 10px; font-size:12px; font-weight:700; }
+  .passage { background:#f1f5f9; border-radius:10px; padding:12px; font-size:14px; max-height:220px; overflow-y:auto; white-space:pre-wrap; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { border:1px solid var(--line); padding:6px 8px; text-align:left; vertical-align:top; }
+  th { background:#f1f5f9; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>질문 도우미 챗봇</h1>
+  <p class="sub">지문을 읽고 궁금한 점을 묻는 수업용 챗봇입니다. 선생님이 준비하면 학생이 바로 씁니다.</p>
+
+  <!-- ===================== 선생님 준비 ===================== -->
+  <div class="card" id="setupCard">
+    <h2>선생님 준비</h2>
+
+    <label for="fTitle">자료 이름</label>
+    <input type="text" id="fTitle" placeholder="비워 두면 지문 첫 줄로 채워집니다" />
+
+    <label for="fPassage">지문 전체 내용</label>
+    <textarea id="fPassage" placeholder="학생이 읽을 글을 그대로 붙여 넣으세요."></textarea>
+
+    <div class="row">
+      <div>
+        <label for="fGrade">학년</label>
+        <input type="text" id="fGrade" placeholder="예: 4학년" />
+      </div>
+      <div>
+        <label for="fCount">학급 인원</label>
+        <input type="text" id="fCount" placeholder="예: 24" inputmode="numeric" />
+      </div>
+    </div>
+
+    <label for="fStandard">성취기준 (선택)</label>
+    <input type="text" id="fStandard" placeholder="예: [4국02-02] 문단과 글에서 중심 생각을 파악한다" />
+
+    <label for="fWords">어려운 낱말 뜻 (선택, 한 줄에 하나 · <code>낱말: 뜻</code>)</label>
+    <textarea id="fWords" style="min-height:80px" placeholder="잔반: 먹고 남은 밥이나 반찬&#10;배식: 음식을 나누어 줌"></textarea>
+
+    <label for="fMemo">대화 방향 메모 (선택)</label>
+    <input type="text" id="fMemo" placeholder="예: 제목을 보고 예측하는 질문을 잘 하도록 도와주세요" />
+
+    <label for="fKey">Gemini API 키 (선택)</label>
+    <input type="password" id="fKey" placeholder="AIza... — 넣으면 답이 훨씬 자연스러워집니다" autocomplete="off" />
+    <p class="hint">
+      키는 <b>이 브라우저에만</b> 저장되고 어디로도 전송되지 않습니다(구글 외).
+      키가 없어도 챗봇은 동작하지만, 지문에서 문장을 찾아 주는 정도로 답합니다.<br />
+      ⚠ 무료 키는 입력 내용이 구글 모델 개선에 쓰일 수 있습니다. 학생 글이 오가는 실제 수업에서는 결제를 등록한 키를 쓰세요.
+    </p>
+
+    <div class="row" style="margin-top:16px">
+      <button id="btnStart">학생 화면 시작</button>
+      <button class="ghost" id="btnSave">이 브라우저에 저장</button>
+      <button class="ghost" id="btnRecords">기록 내려받기</button>
+    </div>
+    <div id="setupMsg" class="hint"></div>
+  </div>
+
+  <!-- ===================== 학생 화면 ===================== -->
+  <div class="card hidden" id="studentCard">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap">
+      <h2 style="margin:0" id="sTitle">질문 자료</h2>
+      <div>
+        <span class="pill" id="sEngine">지문 기반</span>
+        <button class="ghost" id="btnBack" style="margin-left:6px">선생님 화면</button>
+      </div>
+    </div>
+
+    <div class="passage" id="sPassage"></div>
+
+    <div id="idBox" style="margin-top:14px">
+      <label for="sNumber">번호를 고르세요 <span style="font-weight:400;color:var(--muted)">(이름은 쓰지 않아요)</span></label>
+      <div class="row">
+        <select id="sNumber"><option value="">번호 고르기</option></select>
+        <button id="btnEnter" style="flex:0 0 auto">시작하기</button>
+      </div>
+    </div>
+
+    <div id="chatBox" class="hidden">
+      <div class="chat" id="chat"></div>
+      <div class="row" style="margin-top:10px">
+        <textarea id="sInput" style="min-height:60px" placeholder="궁금한 점이나 내 생각을 적어 보세요. (엔터로 보내기)"></textarea>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button id="btnSend" style="flex:0 0 auto">보내기</button>
+        <span class="hint" id="chatHint" style="flex:1">지문에서 답을 찾아 함께 이야기해요.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 기록 ===================== -->
+  <div class="card hidden" id="recordCard">
+    <h2>질문 기록</h2>
+    <div id="recordTable"></div>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+/* ---------------------------------------------------------------------------
+   질문 도우미 챗봇 — 단일 HTML
+   설계 원칙
+   1) 지문에 없는 사실을 지어내지 않는다. 못 찾으면 못 찾았다고 말한다.
+   2) 학생이 물으면 먼저 답한다. 되묻기는 그다음, 한 턴에 물음표 하나까지.
+   3) 학생 이름을 묻지 않는다. 번호만으로 구분한다.
+   4) Gemini 키가 없어도 동작한다. 없으면 지문에서 문장을 찾아 답한다.
+--------------------------------------------------------------------------- */
+
+const KEY_CONFIG = "qbot-config-v1";
+const KEY_LOG = "qbot-log-v1";
+const $ = (id) => document.getElementById(id);
+
+let config = { title:"", passage:"", grade:"", count:"", standard:"", words:"", memo:"", key:"" };
+let chatLog = [];      // 이번 대화
+let studentNo = "";
+let sending = false;
+
+/* ---------------- 저장 ---------------- */
+function loadConfig() {
+  try {
+    const raw = localStorage.getItem(KEY_CONFIG);
+    if (raw) config = Object.assign(config, JSON.parse(raw));
+  } catch { /* 저장본이 깨졌으면 빈 설정으로 시작한다 */ }
+  $("fTitle").value = config.title; $("fPassage").value = config.passage;
+  $("fGrade").value = config.grade; $("fCount").value = config.count;
+  $("fStandard").value = config.standard; $("fWords").value = config.words;
+  $("fMemo").value = config.memo; $("fKey").value = config.key;
+}
+function readForm() {
+  config = {
+    title: $("fTitle").value.trim(), passage: $("fPassage").value.trim(),
+    grade: $("fGrade").value.trim(), count: $("fCount").value.trim(),
+    standard: $("fStandard").value.trim(), words: $("fWords").value.trim(),
+    memo: $("fMemo").value.trim(), key: $("fKey").value.trim(),
+  };
+  return config;
+}
+function saveConfig() {
+  readForm();
+  try { localStorage.setItem(KEY_CONFIG, JSON.stringify(config)); $("setupMsg").textContent = "이 브라우저에 저장했습니다."; }
+  catch { $("setupMsg").textContent = "저장하지 못했습니다. 그래도 지금 수업은 그대로 쓸 수 있습니다."; }
+}
+function appendRecord(row) {
+  try {
+    const all = JSON.parse(localStorage.getItem(KEY_LOG) || "[]");
+    all.push(row);
+    localStorage.setItem(KEY_LOG, JSON.stringify(all));
+  } catch { /* 기록 실패가 대화를 막지 않는다 */ }
+}
+
+/* ---------------- 지문 도구 ---------------- */
+function firstLineTitle(text) {
+  const line = text.split("\n").map(s => s.trim()).find(Boolean);
+  if (!line) return "질문 자료";
+  if (line.length <= 60) return line;
+  const sentence = line.split(/(?<=[.!?])\s/)[0].trim();
+  return sentence.length <= 60 ? sentence : sentence.slice(0, 40).trim() + "…";
+}
+function sentencesOf(text) {
+  return text.replace(/(\d)\.(\d)/g, "$1<d>$2")
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map(s => s.replace(/<d>/g, ".").trim())
+    .filter(s => s.length >= 8);
+}
+/* 마크다운 제목·항목 나열·스스로 묻는 줄은 근거가 아니다. */
+function looksLikeSentence(s) {
+  const t = s.trim();
+  if (t.length < 10) return false;
+  if (/^[#*>\-=]/.test(t)) return false;
+  if (/[?]$/.test(t)) return false;
+  return /(다|요|죠|네|군요|습니다|한다|이다|였다|된다)[.!?]?$/.test(t);
+}
+/* 받침 유무로 조사를 고른다. "잔반은 / 배식는"이 아니라 "잔반은 / 배식는"→"배식은"… */
+function josa(word, withBatchim, without) {
+  const hangul = word.replace(/[^가-힣0-9]/g, "");
+  if (!hangul) return word + without;
+  const code = hangul.slice(-1).charCodeAt(0);
+  const has = code >= 0xac00 ? (code - 0xac00) % 28 !== 0 : "013678".includes(String.fromCharCode(code));
+  return word + (has ? withBatchim : without);
+}
+const JOSA = /(이라는|라는|이라고|라고|이란|란|이라|에서는|에서|에게|으로|로|은|는|이|가|을|를|도|만|와|과|의)$/;
+function stripJosa(word) {
+  const cut = word.replace(JOSA, "");
+  return cut.length >= 2 ? cut : word;
+}
+function teacherWords() {
+  const map = new Map();
+  config.words.split("\n").forEach(line => {
+    const i = line.indexOf(":");
+    if (i > 0) {
+      const term = line.slice(0, i).trim();
+      const meaning = line.slice(i + 1).trim();
+      if (term && meaning) map.set(term, meaning);
+    }
+  });
+  return map;
+}
+/* 지문 문장을 챗봇 말투에 섞지 않고 인용으로 감싼다. 기사는 '~한다'로 끝나서
+   존댓말 사이에 그냥 넣으면 말투가 어긋난다. */
+function quote(sentence) {
+  const t = sentence.trim().replace(/[.\s]+$/, "");
+  if (!t) return "";
+  if (/(요|니다)[.!?]?$/.test(t)) return t;
+  const forms = [
+    s => `자료에는 “${s}”라고 나와 있어요.`,
+    s => `글에서 “${s}”라는 문장을 찾을 수 있어요.`,
+  ];
+  let h = 0; for (const ch of t) h = (h * 31 + ch.charCodeAt(0)) % 997;
+  return forms[h % forms.length](t);
+}
+/* 마무리 발문을 돌려 쓴다. 같은 문장이 반복되면 대화가 아니라 안내문이 된다. */
+let followUpAt = 0;
+function followUp() {
+  const list = [
+    "이 문장에서 어떤 점이 가장 눈에 들어오나요?",
+    "여기서 더 알고 싶은 게 있으면 이어서 말해 주세요.",
+    "왜 그렇게 되었을지 짐작해 볼까요?",
+    "이 내용을 우리 학교와 견주면 어떤가요?",
+  ];
+  return list[followUpAt++ % list.length];
+}
+/* 문장 한가운데 넣을 인용. quote()를 여기 쓰면 "…나와 있어요. 여기에 쓰였어요"처럼 겹친다. */
+function bare(sentence) { return `“${sentence.trim().replace(/[.\s]+$/, "")}”`; }
+const STOP = new Set(["무엇","어떤","어떻게","그것","이것","우리","자료","글에","질문","생각","내가","네가","때문","정말"]);
+function keywords(text) {
+  return Array.from(new Set(
+    text.split(/[^가-힣A-Za-z0-9]+/).map(w => w.trim()).filter(w => w.length >= 2)
+      .map(stripJosa).filter(w => w.length >= 2 && !STOP.has(w))
+  ));
+}
+/* 질문과 가장 맞닿는 지문 문장. 까닭을 물으면 원인을 밝힌 문장을 먼저 본다. */
+/* 방금 쓴 근거는 다시 쓰지 않는다. 같은 문장을 두 번 내밀면 대화가 멈춘 것처럼 보인다. */
+let lastEvidence = "";
+/* 방금 뜻을 물어본 낱말. "이 글에서는?"이라고 이어 물으면 이 낱말의 문맥 뜻을 준다. */
+let lastTerm = "";
+function findEvidence(question) {
+  const list = sentencesOf(config.passage).filter(looksLikeSentence).filter(s => s !== lastEvidence);
+  if (!list.length) return "";
+  const asked = keywords(question);
+  const why = /(왜|이유|까닭|때문)/.test(question);
+  const how = /(할\s*수\s*있|방법|어떻게\s*해|하면\s*돼|하면\s*좋|해야\s*해|실천)/.test(question);
+  let best = "", bestScore = 0;
+  list.forEach(s => {
+    let score = asked.filter(k => s.replace(/\s/g, "").includes(k)).length * 2;
+    if (why && /(때문|덕분|탓|(으로|로)\s*인해|원인|져서|아져|어져)/.test(s)) score += 5;
+    if (how && /(늘리|줄이|바꾸|정했|하기로|방안|대책|실천|시작했|이어\s*가|해 보|고르게)/.test(s)) score += 5;
+    if (score > bestScore) { best = s; bestScore = score; }
+  });
+  if (bestScore < 2) return "";
+  lastEvidence = best;
+  return best;
+}
+
+/* 수업과 상관없는 말인지 본다. 자료 밖 '질문'과 딴소리는 다르게 받아야 한다. */
+function isOffTopic(turn) {
+  const t = turn.replace(/\s/g, "");
+  if (isQuestion(turn)) return false;
+  return /(게임|유튜브|축구|아이돌|배고|졸려|심심|먹고싶|놀고싶)/.test(t);
+}
+
+/* ---------------- 학생 말 읽기 ---------------- */
+function isGreeting(t) { return /^(안녕하세요|안녕|하이|반가워요?|반갑습니다)[!~.?\s]*$/.test(t.trim()); }
+function isClosing(t) { return /(그만|됐어요|알겠어요|끝낼래|여기까지|안할래)/.test(t.replace(/\s/g, "")); }
+const NOT_A_WORD = /^(그래서|그러면|그럼|근데|그런데|이거|저거|그거|여기|거기|이건|그건)/;
+function looksLikeTerm(w) {
+  const t = w.trim();
+  if (!t || t.length > 14) return false;
+  if (NOT_A_WORD.test(t)) return false;
+  if (/^\d/.test(t)) return false;            // 숫자·수량은 낱말 뜻이 아니라 사실이다
+  if (t.split(/\s+/).length > 2) return false; // 세 어절 넘으면 낱말이 아니라 문장이다
+  return /[가-힣A-Za-z]/.test(t);
+}
+function askedWord(t) {
+  const q = t.trim();
+  let m = q.match(/[‘'"“]([^’'"”]{1,20})[’'"”]/);
+  if (m) return stripJosa(m[1].trim());
+  m = q.match(/^(.{1,20}?)\s*(?:이|가|은|는)?\s*(?:무슨\s*)?(?:뜻|의미)/);
+  if (m) return stripJosa(m[1].trim());
+  m = q.match(/^(.{1,20}?)\s*(?:이|가)?\s*(?:뭐예요|뭔가요|무엇인가요|뭐야|뭐에요)/);
+  if (m) return stripJosa(m[1].trim());
+  m = q.match(/^(.{2,20}?)\s*(?:에\s*대해서?|에\s*관해서?)\s*(?:설명|알려)/);
+  if (m) return stripJosa(m[1].trim());
+  if (/^[^\s?]{2,12}\s*\?$/.test(q)) return stripJosa(q.replace(/\?/g, "").trim());
+  return "";
+}
+function askedTerm(t) {
+  const w = askedWord(t);
+  return looksLikeTerm(w) ? w : "";
+}
+function isQuestion(t) {
+  const s = t.trim();
+  if (/[?？]$/.test(s)) return true;
+  if (/(설명해|알려\s*줘|알려\s*주세요|뭐예요|뭔가요|무엇인가요|뭐야|나요|까요|거예요|건가요|는지|을까|ㄹ까)\s*[.!]?$/.test(s)) return true;
+  const hasWh = /(어디|언제|누가|누구|어떻게|무엇|뭐|뭘|몇|얼마나|어느|왜)/.test(s);
+  const states = /(생각해요|같아요|느꼈어요|좋아요|싫어요)\s*[.!]?$/.test(s);
+  return hasWh && !states;
+}
+
+/* ---------------- 지문 기반 답 (키가 없을 때) ---------------- */
+function localReply(turn) {
+  const t = turn.trim();
+
+  if (isGreeting(t)) {
+    return `안녕하세요! 오늘은 「${config.title}」를 함께 읽어요. 먼저 제목과 첫 문장을 보고 궁금한 점을 말해 주세요.`;
+  }
+  if (isClosing(t)) {
+    return "알겠어요. 오늘 떠올린 생각만으로도 충분해요. 더 궁금한 게 생기면 언제든 이어서 물어봐요.";
+  }
+  if (/(네가|니가|먼저).{0,8}(질문|물어)|퀴즈|문제\s*(내|해)/.test(t.replace(/\s/g, " "))) {
+    return `좋아요, 내가 먼저 물어볼게요. 이 글에서 가장 크게 달라진 점은 무엇이었나요? 자료에서 그 부분을 찾아 말해 주세요.`;
+  }
+
+  if (/(대신\s*써|답\s*(좀\s*)?(알려|가르쳐|써)|숙제.*해\s*줘|정답\s*알려)/.test(t.replace(/\s+/g, " "))) {
+    return "답을 대신 써 주지는 않을게요. 대신 시작을 도와줄게요. 이 글에서 가장 놀랐던 문장 하나만 골라 말해 주면, 거기서 함께 생각을 넓혀 봐요.";
+  }
+  if (/(내\s*이름|제\s*이름|나는\s*\S+(이야|야|입니다)|전화번호|몇\s*반|어디\s*살)/.test(t)) {
+    return "이름이나 개인 정보는 알려 주지 않아도 돼요. 번호만으로 충분해요. 글에서 궁금한 점을 말해 줄래요?";
+  }
+  if (/^(몰라요?|모르겠어요?|모르겠다|글쎄요?|없어요?)[.!\s]*$/.test(t)) {
+    const first = sentencesOf(config.passage).filter(looksLikeSentence)[0] || "";
+    return first
+      ? `괜찮아요, 처음부터 떠오르지 않는 게 당연해요. 첫 문장이 ${bare(first)}인데, 여기서 가장 낯선 낱말 하나만 짚어 볼까요?`
+      : "괜찮아요. 글에서 눈에 걸리는 낱말 하나만 골라 말해 줄래요?";
+  }
+
+  // 앞 낱말을 이어 묻는 말인지 먼저 본다
+  if (lastTerm && /(이\s*글|여기|본문|자료)에서(는)?|문맥|어떤\s*뜻으로|어떻게\s*쓰/.test(t)) {
+    const where = sentencesOf(config.passage).filter(looksLikeSentence)
+      .find(x => x.replace(/\s/g, "").includes(lastTerm.replace(/\s/g, "")));
+    if (where) return `이 글에서는 ${bare(where)}라는 문장에 ${josa("‘" + lastTerm + "’", "이", "가")} 나와요. 이 문장에서는 어떤 뜻으로 읽히나요?`;
+    return `${josa("‘" + lastTerm + "’", "이", "가")} 쓰인 문장을 자료에서 찾지 못했어요. 낱말이 보이는 곳을 알려 주면 함께 살펴볼게요.`;
+  }
+
+  // 글 전체를 간추려 달라는 말은 낱말 질문이 아니다
+  if (/(결론|요약|간추|정리해|무슨\s*내용|중심\s*생각|핵심)/.test(t)) {
+    const list = sentencesOf(config.passage).filter(looksLikeSentence);
+    const last = list[list.length - 1] || "";
+    const first = list[0] || "";
+    if (first) return `이 글은 ${bare(first)}로 시작해서, ${bare(last)}로 맺어요. 두 문장을 이어 보면 글이 하고 싶은 말이 보일 거예요.`;
+  }
+
+  const word = askedTerm(t);
+  if (word) {
+    lastTerm = word;
+    const meaning = teacherWords().get(word);
+    if (meaning) {
+      const tidy = meaning.replace(/[.\s]+$/, "");
+      return `${josa("‘" + word + "’", "은", "는")} ${tidy}을 뜻해요. 이 글에서 어떤 뜻으로 쓰였는지 궁금하면 이어서 물어봐 주세요.`;
+    }
+    const where = sentencesOf(config.passage)
+      .filter(looksLikeSentence)
+      .find(s => s.replace(/\s/g, "").includes(word.replace(/\s/g, "")));
+    if (where) return `자료에서는 ${bare(where)}라는 문장에 ${josa("‘" + word + "’", "이", "가")} 나와요. 사전 뜻은 제가 가진 자료에 없어서 지어내지 않을게요. 앞뒤 문장을 보고 어떤 뜻일지 짐작해 볼까요?`;
+    return `${josa("‘" + word + "’", "은", "는")} 자료에서 찾지 못했어요. 낱말이 나온 부분을 알려 주거나, 국어사전에서 뜻을 확인한 뒤 이 글의 내용과 맞는지 견주어 보세요.`;
+  }
+
+  if (isOffTopic(t)) {
+    return "그 이야기도 재미있겠네요. 지금은 이 글을 함께 보는 시간이라, 글에서 눈에 들어온 말이나 궁금한 점을 하나만 말해 줄래요?";
+  }
+
+  const ev = findEvidence(t);
+  if (ev) {
+    return isQuestion(t)
+      ? `${quote(ev)} ${followUp()}`
+      : `그렇게 생각했군요. ${quote(ev)} 이 문장과 견주어 보면 어떤가요?`;
+  }
+  return isQuestion(t)
+    ? "그건 이 글에 나오지 않아요. 지어내서 말하고 싶지는 않으니, 함께 확인할 질문으로 남겨 두고 나중에 같이 찾아볼까요?"
+    : "말해 준 생각 잘 들었어요. 글에서 그렇게 생각한 부분을 찾아 함께 짚어 볼까요?";
+}
+
+/* ---------------- Gemini 답 ---------------- */
+function systemPrompt() {
+  const words = config.words ? `\n[선생님이 알려 준 낱말 뜻]\n${config.words}` : "";
+  const memo = config.memo ? `\n[선생님 메모] ${config.memo} — 대화 방향의 참고로만 쓰고, 학생에게 이 메모를 그대로 말하지 마세요.` : "";
+  const std = config.standard ? `\n[성취기준] ${config.standard} — 매 턴 억지로 끌어가지 말고 대화 전체의 나침반으로만 쓰세요.` : "";
+  return `당신은 ${config.grade || "초등학생"} 학생과 아래 지문을 함께 읽는 '질문 도우미'입니다.
+
+[지문: ${config.title}]
+${config.passage}${words}${memo}${std}
+
+지켜야 할 규칙
+1. 지문에 없는 사실을 지어내지 마세요. 모르면 "자료에서 찾지 못했어요"라고 정직하게 말하고, 함께 확인하자고 하세요.
+2. 학생이 물으면 먼저 답하세요. 되묻기는 그다음입니다.
+3. 한 번에 물음표는 하나까지. 질문 없이 설명만 하고 끝내도 좋습니다.
+4. 낱말 뜻을 처음 물으면 짧은 사전 뜻만 알려 주세요. 학생이 이어서 물을 때 이 글에서의 뜻을 지문 문장을 근거로 설명하세요.
+5. 지문 문장을 인용할 때는 "자료에는 …라고 나와 있어요"처럼 감싸세요. 기사 문체가 말투에 섞이지 않게 합니다.
+6. 학생이 한 말을 그대로 되풀이하지 마세요. 특히 질문을 "…라고 짚었군요"로 받지 마세요.
+7. 인사에는 인사로 답하세요.
+8. 까닭을 물으면 원인을 밝힌 문장을 근거로 드세요. 낱말만 겹치는 문장은 답이 아닙니다.
+9. 학생이 그만하고 싶어 하면 새 과제를 주지 말고 따뜻하게 마치세요.
+10. 이름·연락처 같은 개인정보를 묻지 마세요.
+11. ${config.grade || "초등"} 눈높이로 2~4문장. 어려운 말은 풀어 쓰세요.
+12. 숙제나 답을 대신 써 달라고 하면, 대신 써 주지 말고 학생이 자기 생각에서 시작할 작은 단계를 안내하세요.`;
+}
+async function geminiReply(turn) {
+  const history = chatLog.slice(-8).map(m => ({
+    role: m.who === "me" ? "user" : "model",
+    parts: [{ text: m.text }],
+  }));
+  const res = await fetch(
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": config.key },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt() }] },
+        contents: [...history, { role: "user", parts: [{ text: turn }] }],
+        generationConfig: { temperature: 0.4, maxOutputTokens: 500 },
+      }),
+    }
+  );
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error?.message || "Gemini 요청 실패");
+  const text = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text || "").join("").trim();
+  if (!text) throw new Error("빈 응답");
+  // 물음표가 여러 개면 첫 개만 남긴다. 아이가 한 번에 여러 질문을 받으면 막힌다.
+  let seen = false;
+  return text.replace(/[?？]/g, () => (seen ? "." : ((seen = true), "?")));
+}
+
+/* ---------------- 화면 ---------------- */
+function bubble(who, text) {
+  const wrap = document.createElement("div");
+  wrap.className = "msg " + (who === "me" ? "me" : "bot");
+  const b = document.createElement("div");
+  b.className = "bubble";
+  if (who !== "me") {
+    const n = document.createElement("div");
+    n.className = "who"; n.textContent = "질문 도우미";
+    b.appendChild(n);
+  }
+  b.appendChild(document.createTextNode(text));
+  wrap.appendChild(b);
+  $("chat").appendChild(wrap);
+  $("chat").scrollTop = $("chat").scrollHeight;
+}
+function startStudent() {
+  readForm();
+  if (!config.passage) { $("setupMsg").textContent = "지문을 먼저 입력해 주세요."; return; }
+  if (!config.title) { config.title = firstLineTitle(config.passage); $("fTitle").value = config.title; }
+  saveConfig();
+
+  $("sTitle").textContent = config.title;
+  $("sPassage").textContent = config.passage;
+  $("sEngine").textContent = config.key ? "Gemini 연결됨" : "지문 기반 (키 없음)";
+  const sel = $("sNumber");
+  sel.innerHTML = '<option value="">번호 고르기</option>';
+  const n = parseInt(config.count, 10);
+  if (n > 0) for (let i = 1; i <= Math.min(n, 60); i++) sel.insertAdjacentHTML("beforeend", `<option value="${i}">${i}번</option>`);
+  else sel.insertAdjacentHTML("beforeend", '<option value="0">번호 없음</option>');
+
+  $("setupCard").classList.add("hidden");
+  $("recordCard").classList.add("hidden");
+  $("studentCard").classList.remove("hidden");
+}
+async function send() {
+  const box = $("sInput");
+  const turn = box.value.trim();
+  if (!turn || sending) return;
+  box.value = "";
+  bubble("me", turn);
+  chatLog.push({ who: "me", text: turn });
+
+  sending = true; $("btnSend").disabled = true; $("chatHint").textContent = "생각하는 중…";
+  let reply, engine = "지문";
+  try {
+    if (config.key) { reply = await geminiReply(turn); engine = "Gemini"; }
+    else reply = localReply(turn);
+  } catch (e) {
+    reply = localReply(turn);
+    engine = "지문(대체)";
+    $("chatHint").textContent = "AI 연결이 잠시 막혀 지문에서 찾아 답했어요.";
+  }
+  bubble("bot", reply);
+  chatLog.push({ who: "bot", text: reply });
+  appendRecord({ no: studentNo, q: turn, a: reply, engine, at: new Date().toISOString() });
+
+  sending = false; $("btnSend").disabled = false;
+  if (!$("chatHint").textContent.includes("막혀")) $("chatHint").textContent = "지문에서 답을 찾아 함께 이야기해요.";
+}
+function showRecords() {
+  let rows = [];
+  try { rows = JSON.parse(localStorage.getItem(KEY_LOG) || "[]"); } catch { rows = []; }
+  if (!rows.length) { $("setupMsg").textContent = "아직 기록이 없습니다."; return; }
+
+  const head = "<table><tr><th>번호</th><th>학생 질문</th><th>챗봇 답변</th><th>시각</th></tr>";
+  const body = rows.map(r => `<tr><td>${r.no || "-"}</td><td>${esc(r.q)}</td><td>${esc(r.a)}</td><td>${r.at.slice(5, 16).replace("T", " ")}</td></tr>`).join("");
+  $("recordTable").innerHTML = head + body + "</table>";
+  $("recordCard").classList.remove("hidden");
+
+  const csv = "번호,질문,답변,시각\n" + rows.map(r =>
+    [r.no, r.q, r.a, r.at].map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")
+  ).join("\n");
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `질문기록_${config.title || "수업"}.csv`;
+  a.click();
+  $("setupMsg").textContent = `기록 ${rows.length}건을 CSV로 내려받았습니다.`;
+}
+function esc(s) { return String(s ?? "").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+
+/* ---------------- 연결 ---------------- */
+$("btnStart").addEventListener("click", startStudent);
+$("btnSave").addEventListener("click", saveConfig);
+$("btnRecords").addEventListener("click", showRecords);
+$("btnBack").addEventListener("click", () => {
+  $("studentCard").classList.add("hidden");
+  $("setupCard").classList.remove("hidden");
+});
+$("btnEnter").addEventListener("click", () => {
+  const v = $("sNumber").value;
+  if (!v) { alert("번호를 골라 주세요."); return; }
+  studentNo = v;
+  $("idBox").classList.add("hidden");
+  $("chatBox").classList.remove("hidden");
+  chatLog = [];
+  $("chat").innerHTML = "";
+  bubble("bot", `안녕하세요! 저는 질문 도우미예요. 위의 글을 읽고 궁금한 점이나 눈에 들어온 내용을 편하게 말해 주세요.`);
+  $("sInput").focus();
+});
+$("btnSend").addEventListener("click", send);
+$("sInput").addEventListener("keydown", (e) => {
+  // 엔터로 보내고 Shift+엔터는 줄바꿈. 한글 조합 중 엔터는 글자 확정이라 보내지 않는다.
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+});
+loadConfig();
+</script>
+</body>
+</html>
