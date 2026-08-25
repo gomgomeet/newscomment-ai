@@ -188,10 +188,20 @@ export const QUESTIONING_AI_SETTINGS_KEY = "questioning-ai-settings";
 export const REFERENCE_ONLY_QUESTION_MATERIAL_TEXT = "교과서를 살펴보세요.";
 export const A4_PAGE_QUESTION_MATERIAL_CHAR_THRESHOLD = 1800;
 export const DEFAULT_QUESTION_FOCUS_MEMO = "제목을 보고 내용에 대해서 예측할 수 있도록 안내합니다.";
+export const QUESTIONING_CHATBOT_CREATION_PROFILE_VERSION = "30-session-dialogue-v1";
+export const DEFAULT_QUESTIONING_CHATBOT_ADDITIONAL_INSTRUCTIONS =
+  "학생이 실제로 말한 흥미, 놀람, 경험, 질문을 먼저 이어 받는다. 한 턴에는 중심 교수 동작을 하나만 사용하고 질문은 생각을 실제로 열 때만 최대 하나 제시한다. 성취기준은 대화 전체의 보이지 않는 방향으로만 사용한다. 함께 변한 결과와 인과관계를 구분하고, 학생이 생각을 스스로 고쳤으면 다시 시험하지 않고 수정 근거를 인정한다. 반복해서 막힌 학생에게는 질문보다 설명·선택지·예시를 먼저 제공한다. 개인정보와 대필을 구분하며, 대필 거절 뒤 학생이 자기 생각을 제시하면 그 생각을 글의 출발점으로 받아 준다. 짜증에는 관계 회복을, 구어체 종료에는 질문 없는 마무리를 우선한다.";
 
 const referenceOnlySourcePattern = /교과서|A4\s*1\s*장|A4용지\s*1\s*장|저작권|본문\s*전체/;
 const legacyDefaultQuestionFocusMemo =
   "학생이 자료 속 사실을 먼저 확인하고, 잔반이 줄어든 까닭과 우리 학교에서 실천할 수 있는 방법으로 자연스럽게 질문을 넓히도록 돕습니다.";
+const legacyDefaultAdditionalInstructions = new Set([
+  "학생 질문을 비판하지 말고 응원과 힌트를 제공하며, 답을 자료에서 다시 확인하도록 안내한다.",
+  "학생 질문에 먼저 자료를 근거로 직접 답하고, 자연스러운 후속 질문 하나로 대화를 이어 간다. 질문 유형과 개선 제안은 답변 뒤에 보조 정보로 제공한다.",
+  "학생의 질문이나 응답을 먼저 구체적으로 받아 주고 자료와 연결해 대화한다. 질문 종류를 설명하지 말고, 자연스러운 후속 질문 하나로 학생이 스스로 더 분명하고 깊은 질문을 만들도록 돕는다.",
+  "학생의 질문이나 응답을 먼저 구체적으로 받아 주고 자료와 연결해 대화한다. 질문 종류를 설명하지 말고, 완성된 다음 질문이나 직접적인 후속 질문을 대신 써 주지 않으며 학생의 질문 시도를 짧게 격려한다.",
+  "학생이 실제로 말한 흥미, 놀람, 경험, 질문을 먼저 이어 받는다. 한 턴에는 중심 교수 동작을 하나만 사용하고, 질문은 생각을 실제로 열 때만 최대 하나 제시한다. 성취기준은 대화 전체의 보이지 않는 방향으로만 사용한다.",
+]);
 
 export type QuestioningAiSettings = {
   provider: "gemini";
@@ -255,6 +265,11 @@ export const defaultQuestioningChatbotBehavior: QuestioningChatbotBehavior = {
       "수행평가 답",
       "전체 정답",
       "숙제 해",
+      "소개문 전체",
+      "문단 완성",
+      "번역 앱처럼",
+      "번역앱처럼",
+      "예시 전부",
     ],
     off_topic: ["게임", "연예인", "날씨", "주식"],
     reflection: ["내 질문", "내 생각", "고칠", "좋은 질문", "배운 점", "성찰"],
@@ -265,9 +280,8 @@ export const defaultQuestioningChatbotBehavior: QuestioningChatbotBehavior = {
   offTopicResponse:
     "수업 내용과 관련된 질문에 대해서만 응답할 수 있어요. 자료 속 장면·문장·표현을 다시 살펴봐요.",
   insufficientQuestionResponse:
-    "말해 준 내용을 잘 들었어요. 자료에서 연결되는 대상이나 장면을 천천히 다시 살펴봐도 좋아요.",
-  additionalInstructions:
-    "학생이 실제로 말한 흥미, 놀람, 경험, 질문을 먼저 이어 받는다. 한 턴에는 중심 교수 동작을 하나만 사용하고, 질문은 생각을 실제로 열 때만 최대 하나 제시한다. 성취기준은 대화 전체의 보이지 않는 방향으로만 사용한다.",
+    "바로 답을 정하지 않아도 괜찮아요. 이번에는 자료에서 가장 관련 있는 단서 하나부터 살펴볼게요.",
+  additionalInstructions: DEFAULT_QUESTIONING_CHATBOT_ADDITIONAL_INSTRUCTIONS,
 };
 
 export function createDefaultQuestioningChatbotBehavior(): QuestioningChatbotBehavior {
@@ -294,6 +308,11 @@ function normalizeKeywordList(value: unknown, fallback: string[]) {
     .map((item) => item.trim())
     .filter(Boolean)
     .slice(0, 80);
+}
+
+function normalizeSafetyKeywordList(value: unknown, fallback: string[]) {
+  const normalized = normalizeKeywordList(value, fallback);
+  return Array.from(new Set([...fallback, ...normalized])).slice(0, 80);
 }
 
 function normalizeBehaviorText(value: unknown, fallback: string, maxLength: number) {
@@ -330,7 +349,7 @@ export function normalizeQuestioningChatbotBehavior(value: unknown): Questioning
 
   return {
     classifierKeywords: {
-      safety: normalizeKeywordList(keywords.safety, fallback.classifierKeywords.safety),
+      safety: normalizeSafetyKeywordList(keywords.safety, fallback.classifierKeywords.safety),
       off_topic: normalizeKeywordList(keywords.off_topic, fallback.classifierKeywords.off_topic),
       reflection: normalizeKeywordList(keywords.reflection, fallback.classifierKeywords.reflection),
       extension: normalizeKeywordList(keywords.extension, fallback.classifierKeywords.extension),
@@ -346,20 +365,14 @@ export function normalizeQuestioningChatbotBehavior(value: unknown): Questioning
       insufficientQuestionResponse ===
         "좋은 출발이에요. 자료의 어느 부분과 연결되는지 한 단어만 더 넣어 질문을 구체적으로 바꾸어 보세요." ||
       insufficientQuestionResponse ===
-        "말해 준 내용을 잘 들었어요. 자료에서 연결되는 대상이나 장면을 하나 골라 조금 더 자세히 이야기해 볼까요?"
+        "말해 준 내용을 잘 들었어요. 자료에서 연결되는 대상이나 장면을 하나 골라 조금 더 자세히 이야기해 볼까요?" ||
+      insufficientQuestionResponse ===
+        "말해 준 내용을 잘 들었어요. 자료에서 연결되는 대상이나 장면을 천천히 다시 살펴봐도 좋아요."
         ? fallback.insufficientQuestionResponse
         : insufficientQuestionResponse,
-    additionalInstructions:
-      additionalInstructions ===
-        "학생 질문을 비판하지 말고 응원과 힌트를 제공하며, 답을 자료에서 다시 확인하도록 안내한다." ||
-      additionalInstructions ===
-        "학생 질문에 먼저 자료를 근거로 직접 답하고, 자연스러운 후속 질문 하나로 대화를 이어 간다. 질문 유형과 개선 제안은 답변 뒤에 보조 정보로 제공한다." ||
-      additionalInstructions ===
-        "학생의 질문이나 응답을 먼저 구체적으로 받아 주고 자료와 연결해 대화한다. 질문 종류를 설명하지 말고, 자연스러운 후속 질문 하나로 학생이 스스로 더 분명하고 깊은 질문을 만들도록 돕는다." ||
-      additionalInstructions ===
-        "학생의 질문이나 응답을 먼저 구체적으로 받아 주고 자료와 연결해 대화한다. 질문 종류를 설명하지 말고, 완성된 다음 질문이나 직접적인 후속 질문을 대신 써 주지 않으며 학생의 질문 시도를 짧게 격려한다."
-        ? fallback.additionalInstructions
-        : additionalInstructions,
+    additionalInstructions: legacyDefaultAdditionalInstructions.has(additionalInstructions)
+      ? fallback.additionalInstructions
+      : additionalInstructions,
   };
 }
 

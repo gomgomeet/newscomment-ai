@@ -38,21 +38,6 @@ const rubric = [
   levels: [],
 }));
 
-const behavior = {
-  classifierKeywords: {
-    safety: ["전화번호", "주소", "비밀번호", "답 다 써", "대필"],
-    off_topic: ["게임", "연예인", "주식"],
-    reflection: ["내 생각", "달라진", "배운 점"],
-    extension: ["더 알아", "모든 학교", "다른 예"],
-    application: ["우리", "나라면", "실천", "해결"],
-    inference: ["왜", "어떻게", "까닭", "원인"],
-  },
-  offTopicResponse: "수업 내용과 관련된 질문에 대해서만 응답할 수 있어요.",
-  insufficientQuestionResponse: "바로 답을 정하지 않아도 괜찮아요.",
-  additionalInstructions:
-    "학생의 실제 관심을 먼저 이어 받고 질문은 생각을 열 때만 최대 하나 사용한다.",
-};
-
 const repairPattern = /(왜\s*자꾸|자꾸\s*물어|그만\s*물어|계속\s*틀렸|또\s*근거|제가\s*다\s*찾|설명만|부담|재촉)/;
 
 function hasClosingSignal(value) {
@@ -199,7 +184,6 @@ async function main() {
           subjectUnit: "질문 중심 기사 읽기",
           material: materialFromArticle(article),
           rubric,
-          behavior,
           sessionId: `eval-${suite}-${session.id}`,
           question: studentTurn,
           conversation,

@@ -473,6 +473,13 @@ export async function answerQuestionWithGemini({
           curriculumCompass,
           material,
           dialoguePolicy: policyDecision,
+          studentStateDimensions: {
+            participation: ["짧게 답함", "자발적으로 확장함", "대화를 끝내려 함"],
+            confidence: ["자신 없음", "조심스럽게 추론함", "근거 없이 확신함", "생각을 수정함"],
+            readingAndEvidence: ["핵심어를 찾음", "자료 문장을 연결함", "비교 조건을 놓침", "자료 밖으로 확장함"],
+            emotion: ["편안함", "걱정", "답답함", "반대", "개인 경험을 떠올림"],
+            helpNeeded: ["직접 답", "작은 단서", "예시", "관계 회복", "기다림", "종료"],
+          },
           teacherBehaviorSettings: behavior,
           rubric: rubric.map((criterion) => ({
             key: criterion.key,
@@ -513,7 +520,9 @@ export async function answerQuestionWithGemini({
             "실시간 리서치 출처가 제공되지 않았으면 출처를 지어내지 말고, 확인해야 할 검색어·출처 유형·점검 질문을 제안하기",
             "수업 내용과 상관없는 질문에는 '수업 내용과 관련된 질문에 대해서만 응답할 수 있어요.'라고 답하고 수업 자료로 돌아가도록 부드럽게 격려하기",
             "학생 발화가 짧거나 막연하면 가능한 의미를 먼저 받아 주고, 첫 막힘에는 구체적인 자료 단서 하나와 최대 두 선택지만 제공하기",
+            "학생의 막힘이 반복되면 질문을 더 붙이지 말고 설명, 선택지, 예시 중 하나를 먼저 제공하기",
             "학생이 대화 방식에 부담을 표현하면 변명하지 말고 사과한 뒤 질문 없이 방식을 고치기",
+            "'알겠음 그만', 'ㅇㅋ 이제 끝', '여기까지만 할게요' 같은 구어체도 종료 의미이면 질문 없이 마치기. 단어 일부만 보고 종료로 오판하지 않기",
             "studentReply는 보통 2-4문장으로 짧게 쓰기",
             "자료 속 근거 확인은 evidencePrompt에서 안내하되 직접 답변을 대신하지 않기",
             "개인정보, 정답 대필, 원문 전체 복사 요청은 거절하기",
