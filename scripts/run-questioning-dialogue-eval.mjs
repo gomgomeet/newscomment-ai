@@ -62,6 +62,7 @@ function materialFromArticle(article) {
     summary: article.summary,
     visibleText: article.text,
     keyConcepts: article.keyConcepts,
+    vocabulary: Array.isArray(article.vocabulary) ? article.vocabulary : [],
     possibleMisconceptions: [],
     questionSeeds: [],
     sourceLimit: "이 가상 기사에서 확인하거나 합리적으로 추론할 수 있는 범위",
@@ -93,6 +94,29 @@ function sentenceCount(value) {
   return matches.map((item) => item.trim()).filter(Boolean).length;
 }
 
+function isVocabularyQuestion(value) {
+  const normalized = value.trim().toLowerCase();
+  const compact = normalizeForMatch(normalized);
+  const semanticCompact = compact.replace(/["'“”‘’]/g, "");
+  if (/(다는|라는|했다는|였다는|없다는|있다는|줄었다는|늘었다는)뜻/.test(semanticCompact)) return false;
+  const quotedCandidate = /["'“‘]([^"'”’]{1,30})["'”’]/.exec(normalized)?.[1]?.trim();
+  const quotedVocabularyQuestion = Boolean(
+    quotedCandidate &&
+      quotedCandidate.split(/\s+/).length <= 3 &&
+      !/[.!?。？！]/.test(quotedCandidate) &&
+      /(뜻|의미|뭐예요|뭔가요|무엇인가요)/.test(normalized),
+  );
+  return (
+    quotedVocabularyQuestion ||
+    /(낱말|단어|용어|표현).{0,16}(뜻|의미).{0,12}(뭐|무엇|알려|모르|궁금)/.test(normalized) ||
+    /(뜻|의미).{0,12}(뭐|무엇|알려|모르|궁금)/.test(normalized) ||
+    /(?:^|\s)[가-힣a-z][가-힣a-z0-9·\-]{1,24}(?:이|가|은|는)?\s*(무슨\s*뜻|무슨\s*말|뭐예요|뭔가요|무엇인가요)/.test(
+      normalized,
+    ) ||
+    /(여기서|이\s*문장에서).{0,30}(뜻|의미|뭐예요|뭔가요)/.test(normalized)
+  );
+}
+
 function inspectTurn({ response, session, turnNumber, studentTurn, previousReplies }) {
   const failures = [];
   const reviewFlags = [];
@@ -100,6 +124,7 @@ function inspectTurn({ response, session, turnNumber, studentTurn, previousRepli
   const questionCount = questionMarkCount(reply);
   const includesAny = expectationForTurn(session.expectReplyIncludesAny, turnNumber);
   const excludes = expectationForTurn(session.expectReplyExcludes, turnNumber);
+  const vocabularyQuestion = isVocabularyQuestion(studentTurn);
 
   if (response.schemaVersion !== 2) failures.push("schemaVersion must be 2");
   if (!reply) failures.push("studentReply is empty");
@@ -123,6 +148,12 @@ function inspectTurn({ response, session, turnNumber, studentTurn, previousRepli
     failures.push("closing signal must close without a question");
   }
   if (previousReplies.includes(reply)) failures.push("assistant reply repeated exactly");
+  if (vocabularyQuestion && !/(사전적으로|사전적|기본 뜻|국어사전)/.test(reply)) {
+    failures.push("vocabulary response must distinguish the dictionary meaning");
+  }
+  if (vocabularyQuestion && !/(이 글|이 문장|이 자료|앞뒤 문장|쓰인 부분)/.test(reply)) {
+    failures.push("vocabulary response must connect the meaning to source context");
+  }
   if (includesAny.length > 0 && !matchesAny(reply, includesAny)) {
     failures.push(`reply must include one of: ${includesAny.join(" | ")}`);
   }

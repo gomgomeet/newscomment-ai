@@ -1,3 +1,4 @@
+import { isVocabularyQuestion } from "@/lib/questioning-board";
 import type {
   CurriculumCompass,
   CurriculumRelation,
@@ -124,6 +125,18 @@ export function decideQuestioningDialoguePolicy({
       allowQuestion: false,
       shouldClose: false,
       reason: "학생이 대화 방식에 부담을 표현해 새 학습 과제보다 관계 회복을 우선합니다.",
+    };
+  }
+
+  if (isVocabularyQuestion(studentTurn)) {
+    return {
+      likelyEngagementState: "seeking_evidence",
+      curriculumRelation: "direct",
+      allowedMoves: ["clarify", "check_evidence", "offer_clue"],
+      maxSupportLevel: 2,
+      allowQuestion: false,
+      shouldClose: false,
+      reason: "낱말의 기본 뜻을 먼저 설명하고 지문 속 문장 단서로 문맥적 의미를 구분합니다.",
     };
   }
 

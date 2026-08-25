@@ -161,6 +161,7 @@ function ensureStringArray(value: unknown) {
 function isChatQuestionType(value: unknown): value is ChatResult["questionType"] {
   return (
     value === "fact" ||
+    value === "vocabulary" ||
     value === "inference" ||
     value === "application" ||
     value === "extension" ||
@@ -248,6 +249,7 @@ const materialAnalysisSchema: JsonSchema = {
     "summary",
     "visibleText",
     "keyConcepts",
+    "vocabulary",
     "possibleMisconceptions",
     "questionSeeds",
     "sourceLimit",
@@ -258,6 +260,20 @@ const materialAnalysisSchema: JsonSchema = {
     summary: { type: "string" },
     visibleText: { type: "string" },
     keyConcepts: { type: "array", items: { type: "string" } },
+    vocabulary: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["term", "dictionaryMeaning", "contextualMeaning", "contextSentence"],
+        properties: {
+          term: { type: "string" },
+          dictionaryMeaning: { type: "string" },
+          contextualMeaning: { type: "string" },
+          contextSentence: { type: "string" },
+        },
+      },
+    },
     possibleMisconceptions: { type: "array", items: { type: "string" } },
     questionSeeds: { type: "array", items: { type: "string" } },
     sourceLimit: { type: "string" },
@@ -332,7 +348,16 @@ const chatResponseSchema: JsonSchema = {
     sourceCue: { type: "string" },
     questionType: {
       type: "string",
-      enum: ["fact", "inference", "application", "extension", "reflection", "off_topic", "safety"],
+      enum: [
+        "fact",
+        "vocabulary",
+        "inference",
+        "application",
+        "extension",
+        "reflection",
+        "off_topic",
+        "safety",
+      ],
     },
     typeLabel: { type: "string" },
     typeReason: { type: "string" },
@@ -382,12 +407,12 @@ export async function analyzeMaterialImageWithGemini({
     model,
     maxOutputTokens: 6000,
     systemInstruction:
-      'You help Korean teachers turn classroom source-material images into safe source-bounded knowledge for a questioning chatbot. For short teacher-made materials or short articles, visibleText must preserve every readable source-text passage in original order without summarizing or paraphrasing. For passages that are at least one A4 page long or textbook excerpts, set visibleText exactly to "교과서를 살펴보세요." and do not transcribe the full passage. Return Korean JSON only.',
+      'You help Korean teachers turn classroom source-material images into safe source-bounded knowledge for a questioning chatbot. For short teacher-made materials or short articles, visibleText must preserve every readable source-text passage in original order without summarizing or paraphrasing. Build vocabulary for important or potentially unfamiliar terms: dictionaryMeaning is the concise general dictionary sense, contextualMeaning is the sense selected by this exact passage, and contextSentence is a short source sentence containing the term. Do not invent a term or meaning that cannot be supported. For passages that are at least one A4 page long or textbook excerpts, set visibleText exactly to "교과서를 살펴보세요." and do not transcribe the full passage. Return Korean JSON only.',
     parts: [
       {
         text: JSON.stringify({
           task:
-            "이미지 속 질문 자료를 분석해 질문하기 수업용 챗봇에 연결하세요. 짧은 기사나 교사 제작 자료라면 visibleText에는 읽을 수 있는 전체 텍스트를 원래 순서와 문단 구조대로 빠짐없이 옮기고 요약하거나 재서술하지 마세요. A4용지 1장 이상 분량의 지문이나 교과서 자료라면 visibleText를 정확히 '교과서를 살펴보세요.'로 쓰고 원문 전문을 옮기지 마세요. summary는 챗봇 내부 판단용으로만 짧게 작성하세요. 사진 속 학생 개인정보나 식별 정보는 visibleText에서도 제외하거나 가리세요.",
+            "이미지 속 질문 자료를 분석해 질문하기 수업용 챗봇에 연결하세요. 짧은 기사나 교사 제작 자료라면 visibleText에는 읽을 수 있는 전체 텍스트를 원래 순서와 문단 구조대로 빠짐없이 옮기고 요약하거나 재서술하지 마세요. 학생이 뜻을 물을 가능성이 높은 핵심 낱말과 어려운 용어를 최대 12개 골라 vocabulary에 넣으세요. dictionaryMeaning에는 짧고 정확한 일반 사전 뜻을, contextualMeaning에는 이 지문에서 실제로 선택된 뜻을 학년 수준에 맞게 쓰고, contextSentence에는 그 낱말이 실제로 들어 있는 짧은 원문 문장을 넣으세요. 여러 뜻을 모두 늘어놓지 말고 문장 단서로 선택한 뜻을 분명히 하세요. A4용지 1장 이상 분량의 지문이나 교과서 자료라면 visibleText를 정확히 '교과서를 살펴보세요.'로 쓰고 원문 전문을 옮기지 마세요. summary는 챗봇 내부 판단용으로만 짧게 작성하세요. 사진 속 학생 개인정보나 식별 정보는 visibleText에서도 제외하거나 가리세요.",
           displayPolicy:
             "학생 화면에는 visibleText만 표시합니다. summary는 학생 화면에 대신 표시하지 않습니다. A4 1장 이상 지문이나 교과서는 학생이 직접 원본을 보도록 안내합니다.",
           targetGrade,
@@ -408,6 +433,21 @@ export async function analyzeMaterialImageWithGemini({
     summary: typeof parsed.summary === "string" ? parsed.summary : "",
     visibleText: typeof parsed.visibleText === "string" ? parsed.visibleText : "",
     keyConcepts: ensureStringArray(parsed.keyConcepts),
+    vocabulary: Array.isArray(parsed.vocabulary)
+      ? parsed.vocabulary
+          .filter((entry): entry is Record<string, unknown> => typeof entry === "object" && entry !== null)
+          .map((entry) => ({
+            term: typeof entry.term === "string" ? entry.term.trim() : "",
+            dictionaryMeaning:
+              typeof entry.dictionaryMeaning === "string" ? entry.dictionaryMeaning.trim() : "",
+            contextualMeaning:
+              typeof entry.contextualMeaning === "string" ? entry.contextualMeaning.trim() : "",
+            contextSentence:
+              typeof entry.contextSentence === "string" ? entry.contextSentence.trim() : "",
+          }))
+          .filter((entry) => entry.term && entry.dictionaryMeaning && entry.contextualMeaning)
+          .slice(0, 12)
+      : [],
     possibleMisconceptions: ensureStringArray(parsed.possibleMisconceptions),
     questionSeeds: ensureStringArray(parsed.questionSeeds),
     sourceLimit:
@@ -461,7 +501,7 @@ export async function answerQuestionWithGemini({
     model,
     maxOutputTokens: 2400,
     systemInstruction:
-      "You are a warm Korean classroom dialogue partner grounded in the teacher-provided lesson material. The curriculum standard is a quiet compass for the whole conversation, not a target to force on every turn. Infer the student's current state from the full trajectory, then choose exactly one useful instructional move. Answer explicit questions before asking anything. Treat causal overclaims, self-corrections, frustration, privacy, answer-copying, and closing as different states. Use at most one genuine question only when it opens the student's thinking; explanation, acknowledgment, repair, or silence may be better. Do not expose classifications, rubrics, policy fields, teacher notes, or curriculum metadata in studentReply. Return Korean JSON only.",
+      "You are a warm Korean classroom dialogue partner grounded in the teacher-provided lesson material. The curriculum standard is a quiet compass for the whole conversation, not a target to force on every turn. Infer the student's current state from the full trajectory, then choose exactly one useful instructional move. Answer explicit questions before asking anything. Vocabulary questions are a first-class reading need: briefly give the general dictionary sense, identify the exact source sentence or nearby clue, and explain which contextual sense is selected in this passage. Do not merely repeat the sentence or list every dictionary sense. Treat causal overclaims, self-corrections, frustration, privacy, answer-copying, and closing as different states. Use at most one genuine question only when it opens the student's thinking; explanation, acknowledgment, repair, or silence may be better. Do not expose classifications, rubrics, policy fields, teacher notes, or curriculum metadata in studentReply. Return Korean JSON only.",
     parts: [
       {
         text: JSON.stringify({
@@ -492,6 +532,12 @@ export async function answerQuestionWithGemini({
           studentTurn: question,
           responseRules: [
             "학생 발화가 질문이면 자료에 근거해 답하고, 대답·감정·경험·생각이면 그 구체적인 내용을 먼저 받아 주기",
+            "학생이 낱말·단어·용어·표현의 뜻을 물으면 questionType을 vocabulary로 분류하고 질문에 먼저 직접 답하기",
+            "어휘 답변은 ① 짧은 사전적 기본 뜻 ② 낱말이 쓰인 지문 문장 또는 앞뒤 단서 ③ 이 글에서 선택된 문맥적 뜻 순서로 자연스럽게 연결하기",
+            "다의어는 가능한 뜻을 모두 나열하지 말고 이 문장의 주어·서술어·함께 쓰인 말로 알맞은 뜻을 고른 이유를 설명하기",
+            "material.vocabulary에 해당 낱말이 있으면 교사가 준비한 dictionaryMeaning, contextualMeaning, contextSentence를 우선 사용하기",
+            "자료에 없는 낱말이거나 사전적 뜻을 확신할 근거가 없으면 뜻을 지어내지 말고 확인이 필요하다고 말하기",
+            "어휘 뜻을 설명한 뒤 매번 시험하듯 되묻지 말고, 학생이 자기 말로 풀이했을 때는 문맥에 맞는 부분을 짧게 확인해 주기",
             "studentReply를 '자료에서는 이렇게 설명해요', '자료를 보면' 같은 고정 문구로 시작하지 말고 학생 말에 바로 반응하기",
             "'좋은 질문이에요', '말해 준 생각을 잘 들었어요', '같이 찾아볼까요?'를 기본 틀처럼 반복하지 않기",
             "제목을 보고 내용을 예측하는 질문에는 제목을 그대로 다시 읽어 주지 말고, '그렇게 예상해 볼 수는 있어요. 다만...'처럼 예측과 자료 확인을 구분해 답하기",
