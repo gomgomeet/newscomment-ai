@@ -1465,7 +1465,10 @@ export function QuestioningChatbotBoard() {
   async function refreshLessonConnection(behaviorOverride?: QuestioningChatbotBehavior): Promise<string> {
     // 수업 코드만 있으면 갱신을 시도한다. 학생용 주소 상태는 새로고침으로 비었을 수
     // 있고, 같은 코드로 upsert하는 것이라 이미 있는 연결이면 새 설정으로 덮인다.
-    if (!connectionLessonCode.trim()) return "";
+    // 코드가 없으면 조용히 넘어가지 않는다 — "왜 학생 화면이 안 바뀌지?"의 답이 여기 있다.
+    if (!connectionLessonCode.trim()) {
+      return " ⚠ 수업 코드가 없어 학생용 수업 연결은 갱신하지 못했습니다. 수업 코드로 접속하는 학생이 있다면 ④를 눌러 주세요.";
+    }
 
     const config = buildCurrentChatbotConfig(behaviorOverride);
     if (!config) return "";

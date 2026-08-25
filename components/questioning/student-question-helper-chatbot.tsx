@@ -71,6 +71,16 @@ function makeId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+/** 자료가 언제 적용된 것인지 사람이 읽을 수 있게. 오래된 자료를 한눈에 알아본다. */
+function formatAppliedAt(value: string): string {
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return "시각 미상";
+  const date = new Date(time);
+  return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, "0")}:${String(
+    date.getMinutes(),
+  ).padStart(2, "0")}`;
+}
+
 function createFallbackConfig(): QuestioningChatbotConfig {
   const material = createDefaultQuestioningLessonMaterial();
   return {
@@ -218,6 +228,8 @@ export function StudentQuestionHelperChatbot() {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const chatSessionIdRef = useRef(makeId());
   const [config, setConfig] = useState<QuestioningChatbotConfig>(() => createFallbackConfig());
+  // 지금 보이는 자료가 어디서 왔는지. "왜 안 바뀌지?"를 화면이 직접 말하게 한다.
+  const [configSource, setConfigSource] = useState<"fallback" | "local" | "remote">("fallback");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [question, setQuestion] = useState("");
   const [lessonCode, setLessonCode] = useState("");
@@ -324,6 +336,7 @@ export function StudentQuestionHelperChatbot() {
 
       const nextLessonCode = payload.lessonCode || trimmedCode.toUpperCase();
       usesRemoteLessonRef.current = true;
+      setConfigSource("remote");
       setLessonCode(nextLessonCode);
       setConfig(normalizeQuestioningChatbotConfig(payload.config));
       window.localStorage.setItem(LESSON_CODE_KEY, nextLessonCode);
@@ -339,6 +352,7 @@ export function StudentQuestionHelperChatbot() {
     function applyChatbotConfig(storedValue: string | null, successMessage: string) {
       if (!storedValue) {
         setConfig(createFallbackConfig());
+        setConfigSource("fallback");
         setNotice("기본 수업 자료가 연결되었습니다. 교사용 보드에서 수정하면 수정한 자료가 우선 적용됩니다.");
         return;
       }
@@ -349,6 +363,7 @@ export function StudentQuestionHelperChatbot() {
           throw new Error("저장된 챗봇 설정 형식이 올바르지 않습니다.");
         }
         setConfig(normalizeQuestioningChatbotConfig(parsed));
+        setConfigSource("local");
         setNotice(successMessage);
       } catch (error) {
         const message = error instanceof Error ? error.message : "챗봇 설정을 읽을 수 없습니다.";
@@ -611,6 +626,13 @@ export function StudentQuestionHelperChatbot() {
               <p className="mt-3 max-w-3xl text-sm font-medium leading-6 text-slate-600">
                 {config.subjectUnit} · {config.targetGrade || "대상 미정"}
                 {lessonCode ? ` · 수업 코드 ${lessonCode}` : ""}
+              </p>
+              <p className="mt-1 text-xs font-medium leading-5 text-slate-500">
+                {configSource === "remote"
+                  ? `수업 연결 자료 · ${formatAppliedAt(config.updatedAt)} 적용`
+                  : configSource === "local"
+                    ? `교사용 보드 자료(이 브라우저) · ${formatAppliedAt(config.updatedAt)} 적용`
+                    : "⚠ 예시 자료가 보이는 중 — 수업 코드로 접속하거나, 교사용 보드에서 ⑧을 눌러 주세요."}
               </p>
             </div>
           </div>
