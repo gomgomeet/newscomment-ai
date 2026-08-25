@@ -1487,6 +1487,8 @@ function findRelevantSourceExcerpt(question: string, material: MaterialAnalysis,
     }
   }
 
+  // 까닭을 묻는 질문에는 낱말이 겹치는 문장보다 원인을 밝힌 문장이 답이다.
+  const asksWhy = /(왜|이유|까닭|때문)/.test(compactQuestion);
   const scored = segments.map((segment, index) => {
     const nextSegment = segments[index + 1];
     const scoringText =
@@ -1497,7 +1499,9 @@ function findRelevantSourceExcerpt(question: string, material: MaterialAnalysis,
         ? `${segment.text} ${nextSegment.text}`
         : segment.text;
     const normalizedSegment = scoringText.toLowerCase().replace(/\s+/g, "");
-    const score = terms.reduce(
+    const causalBonus =
+      asksWhy && /(때문|덕분|탓|(으로|로)\s*인해|원인|설명한다|설명했다|져서|아져|어져)/.test(scoringText) ? 5 : 0;
+    const score = causalBonus + terms.reduce(
       (total, term) =>
         total +
         (normalizedSegment.includes(term.replace(/\s+/g, ""))
@@ -1561,6 +1565,8 @@ function createTitlePredictionAnswer(question: string, material: MaterialAnalysi
 
 const localVocabularyMeanings: Record<string, string> = {
   // 기간을 세는 우리말 표현. 학생이 자주 걸리는데 사전을 찾기도 어렵다.
+  "폭염": "매우 심한 더위를 뜻해요. 여러 날 이어지는 아주 뜨거운 날씨를 말할 때 써요.",
+  "열대야": "밤에도 기온이 25도 아래로 내려가지 않는 무더운 밤을 뜻해요.",
   "석 달": "세 달, 곧 3개월을 뜻하는 말이에요. 하나·둘·셋을 셀 때 쓰는 옛날 말로 '석'이 셋을 가리켜요.",
   "두 달": "2개월, 곧 두 번의 한 달을 뜻해요.",
   "넉 달": "네 달, 곧 4개월을 뜻하는 말이에요.",
@@ -1771,6 +1777,19 @@ function normalizeRequestedVocabularyTerm(value: string, material: MaterialAnaly
   if (!trimmed || vocabularyTermStopwords.has(trimmed)) return "";
 
   const source = `${material.materialTitle}\n${material.visibleText}\n${material.summary}`.replace(/\s+/g, "");
+  // '폭염이'는 지문에 그대로 있지만("폭염이 잦아졌다") 낱말은 '폭염'이다.
+  // 조사를 뗀 꼴도 지문에 있으면 그쪽이 낱말이므로 먼저 본다.
+  const particleStripped = trimmed.replace(
+    /(이라는|라는|이라고|라고|이란|란|이라|에서는|에서|에게|으로|로|은|는|이|가|을|를|도|만|와|과|의)$/,
+    "",
+  );
+  if (
+    particleStripped !== trimmed &&
+    particleStripped.length >= 2 &&
+    source.includes(particleStripped.replace(/\s+/g, ""))
+  ) {
+    return particleStripped;
+  }
   if (source.includes(trimmed.replace(/\s+/g, ""))) return trimmed;
 
   // 학생 말투에 붙는 조사·인용 어미를 단계적으로 떼어 낸다. 예: `제트기라는`, `데시벨이란`, `흡음판은`
@@ -2261,13 +2280,31 @@ function firstSourceSentence(value: string, maxLength = 150) {
 function looksLikeSentence(value: string) {
   const trimmed = value.trim();
   if (trimmed.length < 10) return false;
+  // 마크다운 소제목(##, **)은 문장이 아니라 제목이다.
+  if (/^[#*>\-=]/.test(trimmed)) return false;
   // 가운뎃점으로 항목을 나열한 줄은 제목일 때가 많다.
   if (/·/.test(trimmed) && !/[.!?]$/.test(trimmed)) return false;
-  return /(다|요|까|죠|네|군요|습니다|했다|한다|이다|였다|된다)[.!?]?$/.test(trimmed);
+  // "누구에게 더 힘들까?"처럼 스스로 묻는 줄은 근거가 아니다. 질문을 질문으로
+  // 되받으면 아이는 답을 들은 게 아니다.
+  if (/[?？]$/.test(trimmed)) return false;
+  return /(다|요|죠|네|군요|습니다|했다|한다|이다|였다|된다)[.!?]?$/.test(trimmed);
+}
+
+/**
+ * 붙여 넣은 지문에 섞인 마크다운 표기를 걷어낸다.
+ *
+ * 기사·문서를 복사해 오면 `## 소제목`, `**강조**` 같은 기호가 따라온다. 이 기호가
+ * 챗봇 답변에 그대로 나가면 아이 화면에 "## 122년 만의 폭염…"처럼 찍힌다.
+ */
+function stripMarkdownNoise(value: string): string {
+  return value
+    .replace(/^[ \t]*#{1,6}[ \t]*/gm, "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/^[ \t]*[-*][ \t]+/gm, "");
 }
 
 function bestSourceSentence(value: string, studentTurn: string, maxLength = 165) {
-  const sentences = value
+  const sentences = stripMarkdownNoise(value)
     .replace(/(\d)\.(\d)/g, "$1<decimal>$2")
     .match(/[^.!?]+[.!?]?/g)
     ?.map((sentence) => sentence.replace(/<decimal>/g, ".").trim())
@@ -2277,12 +2314,19 @@ function bestSourceSentence(value: string, studentTurn: string, maxLength = 165)
   const terms = (studentTurn.match(/[가-힣A-Za-z0-9]+/g) || [])
     .map(normalizeSearchToken)
     .filter((term) => term.length >= 2 && !questionSearchStopwords.has(term));
+  // 까닭을 묻는 질문에는 낱말이 겹치는 문장보다 원인을 밝힌 문장이 답이다.
+  // "이번 여름은 왜 더웠어?"에 "39도까지 올랐다"(여름 일치)가 아니라
+  // "온실가스 배출로 기온이 올라"(원인)를 집어야 한다.
+  const asksWhy = /(왜|이유|까닭|때문)/.test(studentTurn);
   const scored = sentences.map((sentence, index) => {
     const compactSentence = sentence.toLowerCase().replace(/\s+/g, "");
-    const score = terms.reduce(
+    let score = terms.reduce(
       (total, term) => total + (compactSentence.includes(term.replace(/\s+/g, "")) ? Math.min(term.length, 6) : 0),
       0,
     );
+    if (asksWhy && /(때문|덕분|탓|(으로|로)\s*인해|원인|설명한다|설명했다|져서|아져|어져)/.test(sentence)) {
+      score += 5;
+    }
     return { sentence, index, score };
   });
   const best = scored.reduce((current, candidate) => (candidate.score > current.score ? candidate : current));
@@ -2329,18 +2373,24 @@ function isUncertainStudentTurn(value: string) {
 }
 
 function sourceLimitationCue(material: MaterialAnalysis) {
-  const source = `${material.summary}\n${material.visibleText}`;
+  const source = stripMarkdownNoise(`${material.summary}\n${material.visibleText}`);
   const sentences = source
     .replace(/(\d)\.(\d)/g, "$1<decimal>$2")
     .match(/[^.!?]+[.!?]?/g)
     ?.map((sentence) => sentence.replace(/<decimal>/g, ".").trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter(looksLikeSentence);
   const limitation = sentences?.find((sentence) =>
-    /(다만|하지만|그러나|반면|달랐|같지|확인하지|확인하지 못|알 수 없|하나뿐|하나씩|따로 조사|아직 조사|전문가.*없|비교하지)/.test(
+    // '-지만'은 우리말 기사가 반대 사정을 붙이는 가장 흔한 방식이다.
+    // "안심된다는 주민이 있었지만, 빛이 창문으로 들어와 잠들기 어렵다는 의견도 있었다."
+    /(다만|하지만|그러나|반면|지만|달랐|같지|확인하지|확인하지 못|알 수 없|하나뿐|하나씩|따로 조사|아직 조사|전문가.*없|비교하지)/.test(
       sentence,
     ),
   );
-  return firstSourceSentence(limitation || material.summary, 170);
+  // 한계를 밝힌 문장이 없으면 요약을 억지로 끼워 넣지 않는다. 요약은 한계가
+  // 아니라서 "다만 …" 뒤에 붙으면 말이 어긋난다.
+  if (!limitation) return "자료가 모든 조건을 다 보여 주지는 않아요.";
+  return firstSourceSentence(limitation, 170);
 }
 
 function sourceActionCue(material: MaterialAnalysis) {
@@ -2702,6 +2752,22 @@ function createGeneralNaturalTurn({
     };
   }
 
+  // "네가 먼저 질문해봐"는 챗봇더러 물어보라는 요청이다. 이때 아이 말을 되받거나
+  // "궁금한 걸 말해 줘"라고 답하면 요청과 정반대가 된다. 진짜로 질문한다.
+  if (/(네가|니가|너가|먼저).{0,10}(질문|물어).{0,6}(봐|줘|주세요|볼래)|^질문해\s*봐/.test(studentIdea.replace(/\s+/g, " "))) {
+    const starterTopic = firstKeyConceptOf(material);
+    return {
+      reply: starterTopic
+        ? `좋아요, 그럼 내가 먼저 물어볼게요. 이 글에서 ${starterTopic}에 대해 가장 크게 달라진 점은 무엇이었나요? 자료에서 그 부분을 찾아 말해 주세요.`
+        : `좋아요, 그럼 내가 먼저 물어볼게요. 제목을 보고 어떤 내용일 거라고 짐작했나요? 짐작과 실제 내용이 같았는지 자료에서 확인해 볼까요?`,
+      primaryMove: "clarify",
+      engagementState: "curious",
+      curriculumRelation: "direct",
+      sourceStatus: "supported",
+      supportLevel: 1,
+    };
+  }
+
   // 학생이 자기 생각을 말한 게 아니라 물어본 것이라면 되받아 읊지 않는다.
   // "설명해 주세요"를 "라고 짚었군요"로 받으면 묻는 사람을 무안하게 만든다.
   if (asksRatherThanStates(studentIdea)) {
@@ -2725,6 +2791,13 @@ function createGeneralNaturalTurn({
     sourceStatus: "supported",
     supportLevel: 0,
   };
+}
+
+/** 지문의 첫 핵심 개념. 챗봇이 먼저 물을 때 화제로 쓴다. */
+function firstKeyConceptOf(material: MaterialAnalysis): string {
+  return (Array.isArray(material.keyConcepts) ? material.keyConcepts : [])
+    .map((item) => item.trim())
+    .find((item) => item.length >= 2) ?? "";
 }
 
 /** 학생 말이 생각을 밝힌 것인지, 물어본 것인지 가른다. */
