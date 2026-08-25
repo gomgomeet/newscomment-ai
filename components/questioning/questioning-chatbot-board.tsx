@@ -836,10 +836,12 @@ export function QuestioningChatbotBoard() {
       }
 
       const storedConnection = window.localStorage.getItem(CONNECTION_STORAGE_KEY);
+      let restoredLessonCode = "";
       if (storedConnection) {
         try {
           const parsed = JSON.parse(storedConnection) as { lessonCode?: string; studentUrl?: string };
           if (typeof parsed.lessonCode === "string" && parsed.lessonCode) {
+            restoredLessonCode = parsed.lessonCode;
             setConnectionLessonCode(parsed.lessonCode);
           }
           if (typeof parsed.studentUrl === "string" && parsed.studentUrl) {
@@ -847,6 +849,15 @@ export function QuestioningChatbotBoard() {
           }
         } catch {
           window.localStorage.removeItem(CONNECTION_STORAGE_KEY);
+        }
+      }
+      // 보드가 코드를 기억하기 전(예전 판)에 ④를 눌렀던 경우, 같은 브라우저에서
+      // 학생 화면을 열어 봤다면 학생 쪽 저장소에 수업 코드가 남아 있다. 그걸 되찾아
+      // 와야 ⑧이 그 연결을 새 자료로 갱신할 수 있다.
+      if (!restoredLessonCode) {
+        const studentStoredCode = window.localStorage.getItem("questioning-lesson-code");
+        if (studentStoredCode && studentStoredCode.trim()) {
+          setConnectionLessonCode(studentStoredCode.trim());
         }
       }
 
