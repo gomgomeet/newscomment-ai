@@ -382,4 +382,12 @@ typecheck·lint·build 통과.
 합본은 여러 번 돌려도 안전하다 — `create trigger`에는 `if not exists`가 없어서
 `drop trigger if exists`를 앞에 붙였다. 나머지는 전부 `if not exists`.
 
-아직 적용 결과를 확인하지 못했다.
+### 적용 완료 (2026-08-25)
+선생님이 대시보드에서 실행 → `Success. No rows returned`.
+`information_schema`로 확인한 결과 표 5개가 모두 있다:
+questioning_card_relations / questioning_documents / questioning_lesson_connections /
+questioning_student_questions / questioning_thinking_cards.
+
+**아직 확인 못 한 것**: 보드 ⑧에서 카드가 실제로 저장되는지. 알림에
+"생각 카드 N장을 저장했습니다"가 뜨는지로 판별한다. 그리고 Gemini 키로 검색 호출을
+했을 때 `groundingChunks`가 파싱하는 모양과 같은지.
