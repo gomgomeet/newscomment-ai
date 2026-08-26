@@ -382,14 +382,20 @@ function localReply(turn) {
   }
 
   // 글 전체를 간추려 달라는 말은 낱말 질문이 아니다
-  if (/(결론|요약|간추|정리해|무슨\s*내용|중심\s*생각|핵심)/.test(t)) {
+  if (/(결론|요약|간추|정리해|무슨\s*내용|중심\s*생각|핵심|주장|글쓴이|하고\s*싶은\s*말|말하려는)/.test(t)) {
     const list = sentencesOf(config.passage).filter(looksLikeSentence);
     const last = list[list.length - 1] || "";
     const first = list[0] || "";
     if (first) return `이 글은 ${bare(first)}로 시작해서, ${bare(last)}로 맺어요. 두 문장을 이어 보면 글이 하고 싶은 말이 보일 거예요.`;
   }
 
-  const word = askedTerm(t);
+  let word = askedTerm(t);
+  // 조사를 떼다 '맞벌이'가 '맞벌'로 잘릴 수 있다. 선생님이 적어 둔 낱말이 질문에
+  // 그대로 들어 있으면 그것을 먼저 쓴다. 애써 적어 둔 뜻을 놓치지 않게.
+  const listed = Array.from(teacherWords().keys())
+    .filter((term) => t.includes(term))
+    .sort((a, b) => b.length - a.length)[0];
+  if (listed && (!word || listed.startsWith(word) || word.startsWith(listed))) word = listed;
   if (word) {
     lastTerm = word;
     const meaning = teacherWords().get(word);
