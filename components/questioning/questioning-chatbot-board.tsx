@@ -122,6 +122,8 @@ const evaluationRecordColumns = [
   { label: "성찰질문과 의견 표현", placeholder: "0~5" },
   { label: "총점", placeholder: "자동" },
   { label: "점수 근거", placeholder: "점수를 준 근거" },
+  { label: "도달 난이도", placeholder: "하·중·상" },
+  { label: "더 알아볼 질문", placeholder: "지문 밖 추가 질문" },
   { label: "질문모음", placeholder: "학생 질문 기록" },
   { label: "챗봇 답변모음", placeholder: "챗봇 답변 기록" },
   { label: "세특용 피드백", placeholder: "학생 활동 피드백" },
@@ -162,6 +164,16 @@ const evaluationRecordGuideRows = [
     label: "점수 근거",
     guide: "점수를 준 이유가 되는 학생 발화, 근거 확인, 질문 변화 내용을 적습니다.",
     use: "평가 판단의 설명 가능성을 높입니다.",
+  },
+  {
+    label: "도달 난이도",
+    guide: "2국면에서 학생이 실제로 도달한 가장 높은 질문 난이도를 기록합니다.",
+    use: "다음 수업에서 시작할 발판 수준을 정합니다.",
+  },
+  {
+    label: "더 알아볼 질문",
+    guide: "지문 밖으로 이어졌지만 수업 주제와 연결되는 학생 질문을 기록합니다.",
+    use: "후속 탐구와 다음 자료 준비에 활용합니다.",
   },
   {
     label: "질문모음",
@@ -618,6 +630,8 @@ function buildEvaluationWorkbookXml({
     studentKey: string;
     scores: number[];
     basis: string;
+    reachedDifficulty: string;
+    moreToExploreQuestions: string;
     questions: string;
     answers: string;
     feedback: string;
@@ -637,6 +651,8 @@ function buildEvaluationWorkbookXml({
               ...record.scores.map((score) => numberCell(score)),
               numberCell(record.scores.reduce((sum, score) => sum + score, 0)),
               textCell(record.basis),
+              textCell(record.reachedDifficulty),
+              textCell(record.moreToExploreQuestions),
               textCell(record.questions),
               textCell(record.answers),
               textCell(record.feedback),
@@ -649,7 +665,7 @@ function buildEvaluationWorkbookXml({
             textCell(index === 0 ? "예: 푸른초등학교_4-2_15" : ""),
             ...Array.from({ length: scoreColumnCount }, () => numberCell(0)),
             formulaCell(`=SUM(RC[-${scoreColumnCount}]:RC[-1])`, "Score"),
-            ...Array.from({ length: 4 }, () => textCell("")),
+            ...Array.from({ length: 6 }, () => textCell("")),
           ];
           return `<Row>${cells.join("")}</Row>`;
         }).join("");
@@ -710,6 +726,8 @@ function buildEvaluationWorkbookXml({
       <Column ss:Width="105"/>
       <Column ss:Width="125"/>
       <Column ss:Width="60"/>
+      <Column ss:Width="260"/>
+      <Column ss:Width="90"/>
       <Column ss:Width="260"/>
       <Column ss:Width="260"/>
       <Column ss:Width="260"/>
@@ -793,7 +811,7 @@ export function QuestioningChatbotBoard() {
   const [isBuildingCards, setIsBuildingCards] = useState(false);
   // 어휘표 직접 입력 화면은 걷어냈다. 낱말은 이미지 분석과 AI 리서치가 채운다.
   const [teacherVocabulary] = useState<MaterialVocabularyEntry[]>([]);
-  // [질문 분석] 결과 — 학생별 질문 통계와 평가 문장 초안. 하단 평가 기록 표를 채운다.
+  // [평가 불러오기] 결과 — Notion 실제 판정값을 우선하고 질문 통계·문장 초안을 합친다.
   const [questionAnalysis, setQuestionAnalysis] = useState<
     Array<{
       studentKey: string;
@@ -805,6 +823,10 @@ export function QuestioningChatbotBoard() {
       answerableRate: number;
       comment: string;
       suggestedScores: number[];
+      scoreSource: "notion" | "gemini" | "none";
+      scoreBasis: string;
+      reachedDifficulty: string;
+      moreToExploreQuestions: string[];
     }>
   >([]);
   // 점수는 교사가 표에서 직접 입력한다. 분석은 재료만 주고 판단은 교사가 한다.
@@ -1298,7 +1320,11 @@ export function QuestioningChatbotBoard() {
           geminiModel: aiModel,
         }),
       });
-      const payload = (await response.json()) as { students?: typeof questionAnalysis; error?: string };
+      const payload = (await response.json()) as {
+        students?: typeof questionAnalysis;
+        evaluationWarning?: string;
+        error?: string;
+      };
       if (!response.ok) throw new Error(payload.error || "질문 분석에 실패했습니다.");
 
       const students = payload.students ?? [];
@@ -1308,21 +1334,25 @@ export function QuestioningChatbotBoard() {
         const next = { ...current };
         students.forEach((entry) => {
           if (!next[entry.studentKey]) {
-            // 추천 점수를 미리 채운다. 교사가 검토하며 고치는 초안이다.
+            // Notion 실제 판정값을 우선하고, 없을 때만 Gemini 추천값을 쓴다.
             const suggested = entry.suggestedScores.length === 4 ? entry.suggestedScores.map(String) : ["", "", "", ""];
             next[entry.studentKey] = {
               scores: suggested as [string, string, string, string],
-              basis: `질문 ${entry.questionCount}개 · ${entry.intents.join("·") || "유형 없음"}`,
+              basis: entry.scoreBasis || `질문 ${entry.questionCount}개 · ${entry.intents.join("·") || "유형 없음"}`,
               feedback: entry.comment,
             };
           }
         });
         return next;
       });
+      const persistedCount = students.filter((entry) => entry.scoreSource === "notion").length;
+      const sourceSummary = persistedCount
+        ? `Notion 실제 판정 ${persistedCount}명`
+        : "실제 판정 없음";
       setNotice(
         students.length
-          ? `학생 ${students.length}명의 기록으로 아래 평가 기록 표를 채웠습니다. 점수는 추천값이니 검토·수정한 뒤 엑셀로 내려받으세요.`
-          : "아직 분석할 질문 기록이 없습니다.",
+          ? `학생 ${students.length}명의 평가 기록을 불러왔습니다. ${sourceSummary}${payload.evaluationWarning ? ` · ${payload.evaluationWarning}` : ""}`
+          : payload.evaluationWarning || "아직 분석할 질문 기록이 없습니다.",
       );
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "질문 분석에 실패했습니다.");
@@ -2050,6 +2080,8 @@ export function QuestioningChatbotBoard() {
           return Number.isFinite(parsed) ? parsed : 0;
         }),
         basis: edits?.basis ?? "",
+        reachedDifficulty: entry.reachedDifficulty,
+        moreToExploreQuestions: entry.moreToExploreQuestions.join(" / "),
         questions: entry.questions.join(" / "),
         answers: entry.answers.join(" / "),
         feedback: edits?.feedback ?? "",
@@ -3113,7 +3145,7 @@ export function QuestioningChatbotBoard() {
                     ) : (
                       <Wand2 className="size-4" aria-hidden="true" />
                     )}
-                    질문 분석
+                    평가 불러오기
                   </Button>
                   <Button type="button" size="sm" variant="outline" onClick={handleDownloadEvaluationWorkbook}>
                     <Download className="size-4" aria-hidden="true" />
@@ -3191,7 +3223,7 @@ export function QuestioningChatbotBoard() {
 
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1360px] text-left text-sm">
+              <table className="w-full min-w-[1680px] text-left text-sm">
                 <thead className="border-b border-border bg-muted text-xs text-muted-foreground">
                   <tr>
                     {evaluationRecordColumns.map((column) => (
@@ -3248,6 +3280,12 @@ export function QuestioningChatbotBoard() {
                                 value={edits.basis}
                                 onChange={(event) => setEdits((current) => ({ ...current, basis: event.target.value }))}
                               />
+                            </td>
+                            <td className="px-4 py-3 text-xs font-medium">
+                              {entry.reachedDifficulty || "-"}
+                            </td>
+                            <td className="max-w-64 px-4 py-3 text-xs leading-5 text-muted-foreground">
+                              {entry.moreToExploreQuestions.join(" / ") || "-"}
                             </td>
                             <td className="max-w-64 px-4 py-3 text-xs leading-5 text-muted-foreground">
                               {entry.questions.join(" / ")}

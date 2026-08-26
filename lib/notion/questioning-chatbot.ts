@@ -38,6 +38,17 @@ export type NotionQuestioningCredentials = {
   apiVersion?: string;
 };
 
+export type NotionQuestioningEvaluationRecord = {
+  studentKey: string;
+  scores: number[];
+  scoreBasis: string;
+  reachedDifficulty: string;
+  moreToExploreQuestions: string[];
+  questions: string[];
+  answers: string[];
+  feedback: string;
+};
+
 type NotionRequestContext = {
   credentials?: NotionQuestioningCredentials;
 };
@@ -816,6 +827,137 @@ function isBeyondTextQuestion(result: ChatResult) {
 
 function questionRecordText(question: string, result: ChatResult) {
   return isBeyondTextQuestion(result) ? `[더 알아볼 질문] ${question}` : question;
+}
+
+function notionPropertyText(property: unknown) {
+  const record = asRecord(property);
+  if (!record) return "";
+  const type = asString(record.type);
+
+  if (type === "title" || type === "rich_text") {
+    const items = record[type];
+    if (!Array.isArray(items)) return "";
+    return items
+      .map((item) => {
+        const value = asRecord(item);
+        return asString(value?.plain_text) || asString(asRecord(value?.text)?.content);
+      })
+      .join("")
+      .trim();
+  }
+  if (type === "select" || type === "status") {
+    return asString(asRecord(record[type])?.name).trim();
+  }
+  if (type === "number") {
+    return typeof record.number === "number" ? String(record.number) : "";
+  }
+  if (type === "formula") {
+    const formula = asRecord(record.formula);
+    return asString(formula?.string) || (typeof formula?.number === "number" ? String(formula.number) : "");
+  }
+  return "";
+}
+
+function notionPropertyNumber(property: unknown) {
+  const record = asRecord(property);
+  if (!record) return null;
+  if (record.type === "number" && typeof record.number === "number") return record.number;
+  const parsed = Number.parseFloat(notionPropertyText(property));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function loggedEntries(value: string) {
+  return value
+    .split(/\n{2,}/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 30);
+}
+
+export async function loadQuestioningEvaluationRecordsFromNotion({
+  credentials,
+  rubric,
+  materialTitle,
+}: {
+  credentials: NotionQuestioningCredentials;
+  rubric: RubricCriterion[];
+  materialTitle?: string;
+}): Promise<NotionQuestioningEvaluationRecord[]> {
+  const databaseInput = credentials.resultDatabaseId;
+  if (!databaseInput) {
+    throw new NotionQuestioningError("Notion 결과 DB ID가 설정되어 있지 않습니다.");
+  }
+
+  const context = { credentials };
+  const schema = await loadSchema(databaseInput, context);
+  const scoreKeys = rubric.map((criterion) => findRubricPropertyKey(schema.properties, criterion));
+  const missingLabels = rubric
+    .filter((_, index) => !scoreKeys[index])
+    .map((criterion) => criterion.label);
+  if (missingLabels.length > 0) {
+    throw new NotionQuestioningError(
+      `Notion 결과 DB에서 루브릭 칸을 찾지 못했습니다: ${missingLabels.join(", ")}.`,
+    );
+  }
+
+  const materialKey = findPropertyKey(schema.properties, ["수업 자료", "질문 자료", "자료 이름"]);
+  const basisKey = findPropertyKey(schema.properties, ["점수 근거", "평가 근거"]);
+  const difficultyKey = findPropertyKey(schema.properties, ["도달 난이도", "난이도"]);
+  const moreKey = findPropertyKey(schema.properties, ["더 알아볼 질문", "추가 질문"]);
+  const questionsKey = findPropertyKey(schema.properties, ["질문모음", "질문 모음"]);
+  const answersKey = findPropertyKey(schema.properties, ["챗봇 답변모음", "챗봇 답변 모음"]);
+  const feedbackKey = findPropertyKey(schema.properties, ["세특용 피드백", "피드백"]);
+  const queryPath = schema.dataSourceId
+    ? `data_sources/${schema.dataSourceId}/query`
+    : `databases/${schema.databaseId}/query`;
+  const expectedMaterial = normalizePropertyKey(materialTitle || "");
+  const records = new Map<string, NotionQuestioningEvaluationRecord>();
+  let cursor = "";
+
+  for (let page = 0; page < 5; page += 1) {
+    const response = await notionRequest(queryPath, {
+      method: "POST",
+      body: {
+        page_size: 100,
+        sorts: [{ timestamp: "last_edited_time", direction: "descending" }],
+        ...(cursor ? { start_cursor: cursor } : {}),
+      },
+    }, context);
+    const results = Array.isArray(response.results) ? response.results : [];
+
+    for (const item of results) {
+      const pageRecord = asRecord(item);
+      const properties = asRecord(pageRecord?.properties);
+      if (!properties || pageRecord?.archived === true || pageRecord?.in_trash === true) continue;
+
+      const studentKey = notionPropertyText(properties[schema.titlePropertyKey]);
+      if (!studentKey || records.has(studentKey)) continue;
+      const storedMaterial = materialKey ? normalizePropertyKey(notionPropertyText(properties[materialKey])) : "";
+      if (expectedMaterial && storedMaterial && storedMaterial !== expectedMaterial) continue;
+
+      const scores = scoreKeys.map((key) => notionPropertyNumber(properties[key as string]));
+      if (scores.some((score) => score === null)) continue;
+      const moreText = moreKey ? notionPropertyText(properties[moreKey]) : "";
+      records.set(studentKey, {
+        studentKey,
+        scores: scores.map((score) => score as number),
+        scoreBasis: basisKey ? notionPropertyText(properties[basisKey]) : "",
+        reachedDifficulty: difficultyKey ? notionPropertyText(properties[difficultyKey]) : "",
+        moreToExploreQuestions: moreText.split(/\n+/).map((item) => item.trim()).filter(Boolean),
+        questions: questionsKey ? loggedEntries(notionPropertyText(properties[questionsKey])) : [],
+        answers: answersKey ? loggedEntries(notionPropertyText(properties[answersKey])) : [],
+        feedback: feedbackKey ? notionPropertyText(properties[feedbackKey]) : "",
+      });
+    }
+
+    if (response.has_more !== true) break;
+    cursor = asString(response.next_cursor);
+    if (!cursor) break;
+  }
+
+  return Array.from(records.values()).sort((left, right) =>
+    left.studentKey.localeCompare(right.studentKey, "ko"),
+  );
 }
 
 function buildResultProperties({

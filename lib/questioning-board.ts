@@ -2123,6 +2123,18 @@ type LegacyChatResult = Pick<
   | "safetyFlag"
 >;
 
+function provisionalRubricScores(
+  rubric: RubricCriterion[],
+  scores: Partial<Record<"questioning" | "passage_comprehension" | "achievement_standard" | "reflection_opinion", number>>,
+  rationale: string,
+) {
+  return rubric.map((criterion) => ({
+    criterionKey: criterion.key,
+    score: scores[criterion.key as keyof typeof scores] ?? 0,
+    rationale,
+  }));
+}
+
 function createLegacyLocalQuestionResult({
   question,
   material,
@@ -2156,11 +2168,7 @@ function createLegacyLocalQuestionResult({
       revisionSuggestion: "이 자료에서 내가 확인하고 싶은 사실이나 이유는 무엇인가요?",
       evaluationSignals: ["개인정보 입력 가능성", "정답 대필 요청 가능성", "자료 근거 확인 필요"],
       teacherFeedback: "개인정보를 제외하고 자료 근거를 확인하는 질문으로 바꾸면 좋겠습니다.",
-      rubricScores: rubric.map((criterion) => ({
-        criterionKey: criterion.key,
-        score: criterion.key === "revision_reflection" ? 1 : 2,
-        rationale: "안전 규칙 확인이 필요합니다.",
-      })),
+      rubricScores: provisionalRubricScores(rubric, {}, "안전 전환 뒤 대화 이력 판정이 필요합니다."),
       safetyFlag: true,
     };
   }
@@ -2176,11 +2184,7 @@ function createLegacyLocalQuestionResult({
       revisionSuggestion: "이 자료에서 내가 궁금한 점은 무엇이고, 어느 부분에서 확인할 수 있나요?",
       evaluationSignals: ["자료 범위 밖 질문", "수업 목표 재연결 필요"],
       teacherFeedback: "질문을 수업 자료의 특정 부분과 연결하도록 안내하세요.",
-      rubricScores: rubric.map((criterion) => ({
-        criterionKey: criterion.key,
-        score: criterion.key === "standard_material_alignment" ? 1 : 2,
-        rationale: "성취기준과 자료 연결이 더 필요합니다.",
-      })),
+      rubricScores: provisionalRubricScores(rubric, {}, "지문 관련 질문으로 세지 않는 발화입니다."),
       safetyFlag: false,
     };
   }
@@ -2197,14 +2201,11 @@ function createLegacyLocalQuestionResult({
       revisionSuggestion: "‘이 낱말의 사전적 뜻은 무엇이고, 이 문장에서는 어떤 뜻으로 쓰였나요?’로 나누어 물어보세요.",
       evaluationSignals: ["어휘 의미 확인", "문장 맥락 확인", "사전적 의미와 문맥적 의미 구분"],
       teacherFeedback: "학생이 낱말의 기본 뜻을 확인한 뒤 문장 단서로 알맞은 뜻을 선택하는지 살펴보세요.",
-      rubricScores: rubric.map((criterion) => ({
-        criterionKey: criterion.key,
-        score:
-          criterion.key === "standard_material_alignment" || criterion.key === "evidence_check"
-            ? 4
-            : 3,
-        rationale: "낱말의 뜻을 지문 속 문장과 연결해 확인하는 질문입니다.",
-      })),
+      rubricScores: provisionalRubricScores(
+        rubric,
+        { questioning: 2, passage_comprehension: 2 },
+        "낱말 질문 한 개에서 관찰한 예비값이며 대화 이력 판정 전입니다.",
+      ),
       safetyFlag: false,
     };
   }
@@ -2221,11 +2222,11 @@ function createLegacyLocalQuestionResult({
       revisionSuggestion: "이 자료의 어떤 부분과 연결해서 더 알아보고 싶은가요? 확인할 출처도 함께 적어 보세요.",
       evaluationSignals: ["확장 질문", "자료 연결 확인 필요", "추가 출처 확인 필요"],
       teacherFeedback: "수업 자료와 연결되는 지점을 먼저 찾고, 추가 리서치 출처를 확인하도록 안내하세요.",
-      rubricScores: rubric.map((criterion) => ({
-        criterionKey: criterion.key,
-        score: criterion.key === "question_depth" ? 4 : 3,
-        rationale: "수업 내용과 연결되는 확장 질문으로 보이나 자료 근거와 추가 출처 확인이 필요합니다.",
-      })),
+      rubricScores: provisionalRubricScores(
+        rubric,
+        { questioning: 2 },
+        "수업 내용과 이어지는 질문 한 개에서 관찰한 예비값이며 대화 이력 판정 전입니다.",
+      ),
       safetyFlag: false,
     };
   }
@@ -2259,14 +2260,11 @@ function createLegacyLocalQuestionResult({
       evaluationSignals: ["자료 적용", "개인정보와 비교 부담 고려", "실천 방법 구체화"],
       teacherFeedback:
         "자료 속 실천을 그대로 옮기기보다 개인정보와 비교 부담까지 고려해 학교 상황에 맞게 적용하려는 질문입니다.",
-      rubricScores: rubric.map((criterion) => ({
-        criterionKey: criterion.key,
-        score:
-          criterion.key === "question_depth" || criterion.key === "standard_material_alignment"
-            ? 4
-            : 3,
-        rationale: "자료의 실천 방법을 우리 반 상황으로 옮기며 주의점까지 고려했습니다.",
-      })),
+      rubricScores: provisionalRubricScores(
+        rubric,
+        { questioning: 2, passage_comprehension: 2, achievement_standard: 2 },
+        "적용 질문 한 개에서 관찰한 예비값이며 대화 이력 판정 전입니다.",
+      ),
       safetyFlag: false,
     };
   }
@@ -2284,14 +2282,11 @@ function createLegacyLocalQuestionResult({
       evaluationSignals: ["제목 근거 예측", "자료 근거 확인 필요", "단정과 확인 구분"],
       teacherFeedback:
         "제목을 바탕으로 내용을 예상하는 질문입니다. 단정하지 않고 자료 속 근거와 비교하도록 안내하면 좋겠습니다.",
-      rubricScores: rubric.map((criterion) => ({
-        criterionKey: criterion.key,
-        score:
-          criterion.key === "standard_material_alignment" || criterion.key === "question_depth"
-            ? 4
-            : 3,
-        rationale: "제목을 단서로 내용을 예측하고 자료 확인으로 이어지는 질문입니다.",
-      })),
+      rubricScores: provisionalRubricScores(
+        rubric,
+        { questioning: 2, passage_comprehension: 2, achievement_standard: 2 },
+        "제목 예측 질문 한 개에서 관찰한 예비값이며 대화 이력 판정 전입니다.",
+      ),
       safetyFlag: false,
     };
   }
@@ -2339,20 +2334,16 @@ function createLegacyLocalQuestionResult({
     teacherFeedback: questionFocusMemo
       ? "교사가 정한 질문 성격 메모를 참고해 자료 근거와 질문 확장을 함께 보세요."
       : "질문 유형을 확인한 뒤 자료 근거를 표시하고, 더 구체적인 질문으로 다시 쓰고 바꾸게 하세요.",
-    rubricScores: rubric.map((criterion) => ({
-      criterionKey: criterion.key,
-      score:
-        questionType === "fact"
-          ? criterion.key === "question_depth"
-            ? 2
-            : 3
-          : questionType === "reflection"
-            ? criterion.key === "revision_reflection"
-              ? 4
-              : 3
-            : 3,
-      rationale: "로컬 분류 기준으로 산출한 예비 점수입니다. 교사가 최종 판단해야 합니다.",
-    })),
+    rubricScores: provisionalRubricScores(
+      rubric,
+      {
+        questioning: looksLikeQuestion ? 2 : 0,
+        passage_comprehension: questionType === "fact" ? 2 : 0,
+        achievement_standard: questionType === "inference" || questionType === "application" ? 2 : 0,
+        reflection_opinion: questionType === "reflection" ? 2 : 0,
+      },
+      "현재 발화 한 개에서 관찰한 예비값이며 대화 이력 판정 전입니다.",
+    ),
     safetyFlag: false,
   };
 }

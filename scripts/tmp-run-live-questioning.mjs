@@ -9,62 +9,62 @@ const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 
 const rubric = [
   {
-    key: "standard_material_alignment",
-    label: "성취기준·자료 연결",
-    description: "질문과 반응이 성취기준·자료에 맞닿았는지 본다.",
-    observableEvidence: "질문의 핵심, 근거 단서",
-    feedbackForward: "근거가 보이는 표현으로 한 단계 더 짚어준다.",
+    key: "questioning",
+    label: "질문하기",
+    description: "지문과 관련된 자기 질문을 만들고 이어 가는지 본다.",
+    observableEvidence: "지문 관련 질문 수와 질문의 변화",
+    feedbackForward: "지문의 낱말이나 문장을 단서로 한 질문을 이어 가게 한다.",
     levels: [
-      { score: 5, label: "탁월", descriptor: "근거와 성취기준이 매우 선명하게 연결되어 있다." },
-      { score: 4, label: "우수", descriptor: "연결은 되지만 정밀도가 더 필요하다." },
-      { score: 3, label: "도달", descriptor: "일부 질문은 연결이 약간 약하다." },
-      { score: 2, label: "부분 도달", descriptor: "대부분의 질의가 자료와 약하게 이어진다." },
-      { score: 1, label: "시작", descriptor: "연결의 흔적이 부족하다." },
+      { score: 5, label: "탁월", descriptor: "여러 질문을 만들고 생각을 확장한다." },
+      { score: 4, label: "우수", descriptor: "서로 다른 지문 관련 질문을 이어 간다." },
+      { score: 3, label: "도달", descriptor: "지문과 관련된 질문을 두 개 이상 만든다." },
+      { score: 2, label: "부분 도달", descriptor: "지문과 관련된 질문을 한 개 만든다." },
+      { score: 1, label: "시작", descriptor: "질문 시도가 있으나 지문 연결이 약하다." },
       { score: 0, label: "미제출", descriptor: "기록이 없다." },
     ],
   },
   {
-    key: "evidence_check",
-    label: "자료 근거 확인",
-    description: "주어진 답변을 자료로 검토했는지 본다.",
-    observableEvidence: "본문의 문장·숫자·상황 제시",
-    feedbackForward: "근거의 위치(문단/문장)를 함께 기록한다.",
+    key: "passage_comprehension",
+    label: "지문 이해",
+    description: "지문의 핵심 내용과 근거를 이해해 답하는지 본다.",
+    observableEvidence: "지문 내용 확인과 자기 말 설명",
+    feedbackForward: "지문 속 단서를 찾아 자기 말로 설명하게 한다.",
     levels: [
-      { score: 5, label: "탁월", descriptor: "근거를 구체적으로 재확인한다." },
-      { score: 4, label: "우수", descriptor: "근거를 확인하는 과정이 보인다." },
-      { score: 3, label: "도달", descriptor: "근거 확인이 부분적이다." },
-      { score: 2, label: "부분 도달", descriptor: "근거 확인이 추상적이다." },
-      { score: 1, label: "시작", descriptor: "근거 확인이 거의 없다." },
+      { score: 5, label: "탁월", descriptor: "핵심 내용과 근거를 정확히 연결해 설명한다." },
+      { score: 4, label: "우수", descriptor: "핵심 내용과 근거를 대체로 정확히 설명한다." },
+      { score: 3, label: "도달", descriptor: "핵심 내용을 자기 말로 설명한다." },
+      { score: 2, label: "부분 도달", descriptor: "핵심 내용 일부를 확인한다." },
+      { score: 1, label: "시작", descriptor: "지문 이해를 확인할 단서가 적다." },
       { score: 0, label: "미제출", descriptor: "기록이 없다." },
     ],
   },
   {
-    key: "question_depth",
-    label: "질문 유형 확장",
-    description: "사실 확인 질문에서 확장 질문으로 이어지는지 본다.",
-    observableEvidence: "가설 제시, 대안 탐색, 적용 질문",
-    feedbackForward: "하나의 확장 축을 잡아 가벼운 반대 가정을 추가한다.",
+    key: "achievement_standard",
+    label: "성취기준 점수",
+    description: "성취기준과 연결된 사고를 말이나 질문으로 드러내는지 본다.",
+    observableEvidence: "이유 추론, 근거와 조건 구분, 적용",
+    feedbackForward: "성취기준의 핵심 행동을 한 문장으로 설명하게 한다.",
     levels: [
-      { score: 5, label: "탁월", descriptor: "확장 질문이 다양하고 연속적이다." },
-      { score: 4, label: "우수", descriptor: "확장 흐름이 보인다." },
-      { score: 3, label: "도달", descriptor: "일부에서 확장이 나타난다." },
-      { score: 2, label: "부분 도달", descriptor: "확장이 단절된다." },
-      { score: 1, label: "시작", descriptor: "확장이 거의 없다." },
+      { score: 5, label: "탁월", descriptor: "근거와 조건을 구분하며 새로운 상황에 적용한다." },
+      { score: 4, label: "우수", descriptor: "근거를 들어 이유를 분명하게 설명한다." },
+      { score: 3, label: "도달", descriptor: "성취기준과 관련된 이유를 설명한다." },
+      { score: 2, label: "부분 도달", descriptor: "성취기준과 관련된 생각을 짧게 말한다." },
+      { score: 1, label: "시작", descriptor: "성취기준 관련 근거가 거의 드러나지 않는다." },
       { score: 0, label: "미제출", descriptor: "기록이 없다." },
     ],
   },
   {
-    key: "revision_reflection",
-    label: "질문 다시 쓰기·성찰",
-    description: "학생이 스스로 질문을 다듬고 성찰하는지가 보이는지 본다.",
-    observableEvidence: "질문 수정 발언, 성찰 문장",
-    feedbackForward: "어디를 바꿨는지 한 문장으로 요약하게 돕는다.",
+    key: "reflection_opinion",
+    label: "성찰질문과 의견 표현",
+    description: "지문을 바탕으로 자기 생각과 의견을 표현하는지 본다.",
+    observableEvidence: "의견, 이유, 더 알아볼 질문",
+    feedbackForward: "생각의 이유를 덧붙이고 후속 질문으로 이어 가게 한다.",
     levels: [
-      { score: 5, label: "탁월", descriptor: "성찰이 구체적이고 근거 기반이다." },
-      { score: 4, label: "우수", descriptor: "수정이나 성찰 시도가 있다." },
-      { score: 3, label: "도달", descriptor: "성찰은 있으나 짧다." },
-      { score: 2, label: "부분 도달", descriptor: "성찰이 약하다." },
-      { score: 1, label: "시작", descriptor: "성찰 시도가 거의 없다." },
+      { score: 5, label: "탁월", descriptor: "근거 있는 의견과 후속 탐구 질문을 함께 표현한다." },
+      { score: 4, label: "우수", descriptor: "의견과 이유를 분명하게 표현한다." },
+      { score: 3, label: "도달", descriptor: "자기 의견을 관련 있게 표현한다." },
+      { score: 2, label: "부분 도달", descriptor: "짧은 의견이나 성찰을 표현한다." },
+      { score: 1, label: "시작", descriptor: "의견 표현의 단서가 적다." },
       { score: 0, label: "미제출", descriptor: "기록이 없다." },
     ],
   },
@@ -135,11 +135,14 @@ function buildSimpleWorkbookXml({ subjectUnit, standard, materialTitle, records,
       record.scores[1] ?? 0,
       record.scores[2] ?? 0,
       record.scores[3] ?? 0,
+      record.scores.reduce((sum, score) => sum + Number(score || 0), 0),
+      record.basis,
+      record.reachedDifficulty,
+      record.moreToExploreQuestions,
       record.questions,
       record.answers,
       record.comment,
-      record.basis,
-      record.feedback,
+      record.scoreSource,
     ]),
   );
 
@@ -179,14 +182,14 @@ function buildSimpleWorkbookXml({ subjectUnit, standard, materialTitle, records,
     <Table>
       <Column ss:Width="140"/><Column ss:Width="80"/><Column ss:Width="90"/>
       <Column ss:Width="55"/><Column ss:Width="55"/><Column ss:Width="55"/><Column ss:Width="55"/>
-      <Column ss:Width="260"/><Column ss:Width="260"/><Column ss:Width="260"/>
-      <Column ss:Width="210"/><Column ss:Width="220"/>
-      <Row><Cell ss:MergeAcross="10" ss:StyleID="Title"><Data ss:Type="String">${escapeXml(filenameTitle)} 평가 기록</Data></Cell></Row>
+      <Column ss:Width="60"/><Column ss:Width="220"/><Column ss:Width="90"/><Column ss:Width="260"/>
+      <Column ss:Width="260"/><Column ss:Width="260"/><Column ss:Width="260"/><Column ss:Width="90"/>
+      <Row><Cell ss:MergeAcross="14" ss:StyleID="Title"><Data ss:Type="String">${escapeXml(filenameTitle)} 평가 기록</Data></Cell></Row>
       <Row>
         ${textCell("대상", "Header")} ${textCell("초등4", "Header")} ${textCell("성취기준", "Header")} ${textCell(standard, "Header")} ${textCell("수업 자료", "Header")} ${textCell(materialTitle, "Header")}
       </Row>
       <Row>
-        ${["학생키", "질문수", "답변가능률", "항목1", "항목2", "항목3", "항목4", "질문 원문", "답변 원문", "코멘트", "기반", "교사 피드백"]
+        ${["학생키", "질문수", "답변가능률", "질문하기", "지문 이해", "성취기준 점수", "성찰질문과 의견 표현", "총점", "점수 근거", "도달 난이도", "더 알아볼 질문", "질문 원문", "답변 원문", "코멘트", "점수 출처"]
           .map((item) => `<Cell ss:StyleID="Header"><Data ss:Type="String">${escapeXml(item)}</Data></Cell>`)
           .join("")}
       </Row>
@@ -380,8 +383,10 @@ async function main() {
     questions: (student.questions ?? student.sampleQuestions ?? []).join(" / "),
     answers: (student.answers ?? []).join(" / "),
     comment: student.comment || "",
-    basis: toString(student.suggestedScores),
-    feedback: student.comment || "",
+    basis: student.scoreBasis || toString(student.suggestedScores),
+    reachedDifficulty: student.reachedDifficulty || "",
+    moreToExploreQuestions: (student.moreToExploreQuestions ?? []).join(" / "),
+    scoreSource: student.scoreSource || "none",
   }));
 
   const workbookXml = buildSimpleWorkbookXml({
