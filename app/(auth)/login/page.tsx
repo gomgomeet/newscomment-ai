@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { signIn } from "@/app/(auth)/actions";
+import { AuthDivider, GoogleSignInButton } from "@/components/auth/google-sign-in-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -24,6 +25,8 @@ export default async function LoginPage({
             {notice}
           </p>
         ) : null}
+        <GoogleSignInButton />
+        <AuthDivider />
         <form action={signIn} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="email">이메일</Label>

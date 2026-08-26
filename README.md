@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | 무엇을 하나 | 학생이 쓴 뉴스 댓글을 루브릭으로 채점한다 | 학생이 지문에 스스로 질문하게 하고 그 과정을 평가한다 |
 | 경로 | `/dashboard/*` | `/questioning-board`(교사) · `/questioning-chatbot`(학생) |
-| 로그인 | 필요 (Supabase Auth) | 없음. 교사는 주소로, 학생은 수업 코드로 들어간다 |
+| 로그인 | 필요 — Google 로그인 또는 이메일/비밀번호 | 없음. 교사는 주소로, 학생은 수업 코드로 들어간다 |
 | 저장 위치 | Supabase Postgres (RLS) | 교사 개인 Notion + Supabase |
 | 쓰는 AI | OpenAI (평가 초안, 선택) | Gemini (대화) |
 | 코드량 | 약 3,800줄 | 약 15,800줄 |
@@ -35,6 +35,12 @@
 - 대량 붙여넣기
 - 공개 TXT·CSV·TSV·JSON 주소에서 가져오기
 - Notion 데이터베이스에서 가져오기 (프로젝트별 속성 매핑을 기억하고 중복은 건너뛴다)
+
+### 로그인
+
+Google 로그인과 이메일/비밀번호 두 가지를 쓴다. **Google 쪽을 권한다** — Supabase 내장 메일 발송이 프로젝트당 시간당 2건으로 묶여 있어, 여러 교사가 한꺼번에 가입하면 확인 메일을 받지 못한다. 설정 절차는 [Google 로그인 설정 안내](docs/GOOGLE_LOGIN_SETUP.md)에 있다.
+
+Google 제공자를 켜기 전에도 버튼은 보이지만, 누르면 오류 문구와 함께 로그인 화면으로 돌아온다. 이메일/비밀번호 경로는 영향받지 않는다.
 
 ### 채점
 
@@ -219,6 +225,7 @@ npm run eval:questioning:holdout      # 홀드아웃 묶음
 ### 평가 대시보드
 
 - [평가 대시보드 설계 계획](docs/EVALUATION_DASHBOARD_PLAN.md)
+- [Google 로그인 설정 안내](docs/GOOGLE_LOGIN_SETUP.md)
 - [Notion 가져오기 안내](docs/NOTION_IMPORT_GUIDE.md)
 - [Notion 수집 준비](docs/TRACK_A_NOTION_SETUP.md)
 
@@ -240,6 +247,7 @@ npm run eval:questioning:holdout      # 홀드아웃 묶음
 - **AI 초안이 수동 채점을 덮어쓴다.** 위 「채점」의 주의와 [설계 계획](docs/EVALUATION_DASHBOARD_PLAN.md) 참조.
 - `/dashboard/compare`는 AI와 교사 점수를 나란히 비교하지 못한다. 같은 원인이다.
 - 집계가 개수 셋과 기준별 평균뿐이다. 진행률, 점수 분포, 학생 단위 보기가 없다.
+- 비밀번호 재설정 흐름이 없다. 잊으면 Supabase 대시보드에서 직접 손봐야 한다.
 - 삭제 흐름이 구현되어 있지 않다.
 - 기준 최대 점수를 낮춰도 기존 평가 점수가 자동으로 정규화되지 않는다.
 - Notion 가져오기는 단방향이다. 가져온 뒤 Notion에서 고친 내용은 반영되지 않는다.
