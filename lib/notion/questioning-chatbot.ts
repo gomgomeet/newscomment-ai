@@ -6,6 +6,10 @@ import type {
   RubricCriterion,
   StandardAssessmentAnalysis,
 } from "@/lib/questioning-board";
+import {
+  buildStandardTargets,
+  buildStudentRecordPrompt,
+} from "@/lib/questioning-target-signals";
 
 const NOTION_API_BASE = "https://api.notion.com/v1";
 const DEFAULT_NOTION_VERSION = "2022-06-28";
@@ -186,6 +190,13 @@ function pickMatchingOption(optionNames: string[], preferred: string): string | 
   return null;
 }
 
+function normalizePropertyKey(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s\-_·•:()[\]{}]/g, "");
+}
+
 function findPropertyKey(properties: Record<string, unknown>, candidates: string[]) {
   const keys = Object.keys(properties);
 
@@ -196,11 +207,14 @@ function findPropertyKey(properties: Record<string, unknown>, candidates: string
     }
   }
 
-  const normalizedCandidates = candidates.map((candidate) => candidate.trim().toLowerCase());
+  const normalizedCandidates = candidates.map(normalizePropertyKey).filter((candidate) => candidate.length >= 2);
   return (
-    keys.find((key) => normalizedCandidates.includes(key.trim().toLowerCase())) ??
+    keys.find((key) => normalizedCandidates.includes(normalizePropertyKey(key))) ??
     keys.find((key) =>
-      normalizedCandidates.some((candidate) => key.trim().toLowerCase().includes(candidate)),
+      normalizedCandidates.some((candidate) => {
+        const normalizedKey = normalizePropertyKey(key);
+        return normalizedKey.includes(candidate) || candidate.includes(normalizedKey);
+      }),
     ) ??
     null
   );
@@ -707,23 +721,101 @@ function studentIdentifier(profile: StudentProfileForNotion) {
     .join("_");
 }
 
-function scoreByCriterionLabel(result: ChatResult, rubric: RubricCriterion[], label: string) {
-  const criterion = rubric.find((item) => item.label === label);
-  const score = result.rubricScores.find((item) => item.criterionKey === criterion?.key);
+function scoreForCriterion(result: ChatResult, criterion: RubricCriterion) {
+  const score = result.rubricScores.find((item) => item.criterionKey === criterion.key);
   return score?.score ?? "";
+}
+
+/**
+ * 첫 실수업에서 사용한 DB에는 `근거 확인`, `[유형확장]`, `성찰질문`처럼
+ * 루브릭 라벨의 일부만 적힌 칸이 있었다. 설정의 라벨을 우선 찾고, 이미 있는
+ * 템플릿에서 안전하게 대응할 수 있는 짧은 표기도 함께 허용한다.
+ */
+function rubricPropertyCandidates(label: string) {
+  const normalized = normalizePropertyKey(label);
+  // 결과 DB에는 성취기준 원문 칸이 이미 있으므로 같은 이름을 점수 칸으로 쓰지 않는다.
+  const candidates = normalized === "성취기준" ? ["성취기준 점수", "성취기준 평가"] : [label];
+
+  if (normalized.includes("성취기준자료연결")) {
+    candidates.push("기준 자료 연결", "자료 연결");
+  }
+  if (normalized.includes("자료근거확인")) {
+    candidates.push("근거 확인", "근거확인");
+  }
+  if (normalized.includes("질문유형확장")) {
+    candidates.push("유형 확장", "유형확장", "확장");
+  }
+  if (normalized.includes("질문다시쓰기성찰")) {
+    candidates.push("성찰 질문", "성찰질문", "질문 수정", "질문수정", "다시 쓰기", "다시쓰기");
+  }
+  if (normalized === "질문하기") candidates.push("질문하기");
+  if (normalized === "지문이해") candidates.push("지문 이해", "지문이해");
+  if (normalized.includes("성찰질문과의견표현")) {
+    candidates.push("성찰질문과 의견 표현", "성찰·의견", "성찰 의견");
+  }
+
+  return Array.from(new Set(candidates));
+}
+
+function findRubricPropertyKey(schema: Record<string, unknown>, criterion: RubricCriterion) {
+  const candidates = rubricPropertyCandidates(criterion.label);
+  if (normalizePropertyKey(criterion.label) === "성취기준") {
+    const normalizedCandidates = new Set(candidates.map(normalizePropertyKey));
+    return Object.keys(schema).find((key) => normalizedCandidates.has(normalizePropertyKey(key))) ?? null;
+  }
+  return findPropertyKey(schema, candidates);
 }
 
 function scoreSummary(result: ChatResult, rubric: RubricCriterion[]) {
   return result.rubricScores
     .map((score) => {
       const label = rubric.find((criterion) => criterion.key === score.criterionKey)?.label ?? score.criterionKey;
-      return `${label}: ${score.score}점 - ${score.rationale}`;
+      return `${label}: ${score.rationale || `${score.score}점`}`;
     })
     .join("\n");
 }
 
-function totalScore(result: ChatResult) {
-  return result.rubricScores.reduce((sum, item) => sum + item.score, 0);
+function totalScore(result: ChatResult, rubric: RubricCriterion[]) {
+  return rubric.reduce((sum, criterion) => sum + (scoreForCriterion(result, criterion) || 0), 0);
+}
+
+function buildStudentRecordPromptForConfig({
+  config,
+  questionLog,
+  result,
+}: {
+  config: QuestioningChatbotConfig;
+  questionLog: string;
+  result: ChatResult;
+}) {
+  const prompt = buildStudentRecordPrompt({
+    standard: config.standard,
+    targetGrade: config.targetGrade,
+    materialTitle: config.material.materialTitle,
+    targets: buildStandardTargets(config.standard, config.material.questionFocusMemo || ""),
+  });
+
+  return [
+    prompt,
+    "",
+    "아래 학생 기록과 평가 근거만 사용해 작성합니다.",
+    `학생이 실제로 한 질문·응답:\n${questionLog || "관찰 기록 없음"}`,
+    `현재 턴 평가 근거:\n${scoreSummary(result, config.rubric) || "관찰 기록 없음"}`,
+  ].join("\n");
+}
+
+function isBeyondTextQuestion(result: ChatResult) {
+  return (
+    result.questionType === "extension" ||
+    (result.sourceStatus === "source_insufficient" &&
+      result.curriculumRelation !== "disconnected" &&
+      result.questionType !== "off_topic" &&
+      result.questionType !== "safety")
+  );
+}
+
+function questionRecordText(question: string, result: ChatResult) {
+  return isBeyondTextQuestion(result) ? `[더 알아볼 질문] ${question}` : question;
 }
 
 function buildResultProperties({
@@ -733,6 +825,7 @@ function buildResultProperties({
   result,
   questionLog,
   answerLog,
+  studentRecordPrompt,
 }: {
   schema: NotionSchema;
   studentId: string;
@@ -740,46 +833,50 @@ function buildResultProperties({
   result: ChatResult;
   questionLog: string;
   answerLog: string;
+  studentRecordPrompt: string;
 }) {
   const properties: Record<string, unknown> = {};
+  const missingRubricLabels: string[] = [];
 
   properties[schema.titlePropertyKey] = buildPropertyValue("title", studentId);
   applyProperty(properties, schema.properties, ["학교_반_번호", "학생", "학생 식별값"], studentId);
   applyProperty(properties, schema.properties, ["수업 자료", "질문 자료", "자료 이름"], config.material.materialTitle);
   applyProperty(properties, schema.properties, ["성취기준", "standard"], config.standard);
   applyProperty(properties, schema.properties, ["질문 유형", "질문유형"], result.typeLabel);
-  applyProperty(
-    properties,
-    schema.properties,
-    ["성취기준·자료 연결"],
-    scoreByCriterionLabel(result, config.rubric, "성취기준·자료 연결"),
-  );
-  applyProperty(
-    properties,
-    schema.properties,
-    ["자료 근거 확인"],
-    scoreByCriterionLabel(result, config.rubric, "자료 근거 확인"),
-  );
-  applyProperty(
-    properties,
-    schema.properties,
-    ["질문 유형 확장"],
-    scoreByCriterionLabel(result, config.rubric, "질문 유형 확장"),
-  );
-  applyProperty(
-    properties,
-    schema.properties,
-    ["질문 다시 쓰기·성찰"],
-    scoreByCriterionLabel(result, config.rubric, "질문 다시 쓰기·성찰"),
-  );
-  applyProperty(properties, schema.properties, ["총점", "total"], totalScore(result));
+  for (const criterion of config.rubric) {
+    const propertyKey = findRubricPropertyKey(schema.properties, criterion);
+    if (!propertyKey) {
+      missingRubricLabels.push(criterion.label);
+      continue;
+    }
+
+    const propertyValue = buildPropertyValue(
+      propertySchemaType(schema.properties[propertyKey]),
+      scoreForCriterion(result, criterion),
+      schema.properties[propertyKey],
+    );
+    if (propertyValue) {
+      properties[propertyKey] = propertyValue;
+    }
+  }
+  applyProperty(properties, schema.properties, ["총점", "total"], totalScore(result, config.rubric));
   applyProperty(properties, schema.properties, ["점수 근거", "평가 근거"], scoreSummary(result, config.rubric));
+  applyProperty(properties, schema.properties, ["도달 난이도", "난이도"], result.reachedDifficulty || "");
+  applyProperty(
+    properties,
+    schema.properties,
+    ["더 알아볼 질문", "추가 질문"],
+    (result.moreToExploreQuestions || []).join("\n"),
+  );
   applyProperty(properties, schema.properties, ["질문모음", "질문 모음"], questionLog);
   applyProperty(properties, schema.properties, ["챗봇 답변모음", "챗봇 답변 모음"], answerLog);
-  applyProperty(properties, schema.properties, ["세특용 피드백", "피드백"], result.teacherFeedback);
+  // 매 턴의 teacherFeedback은 교사 지도 메모이지 학생 기록 초안이 아니다.
+  // 세특용 피드백 열에는 학생 주어·실제 근거 규칙이 포함된 작성 프롬프트를
+  // 남긴다. 챗봇 발화나 매 턴의 지도 문장이 세특 초안으로 오인되지 않게 한다.
+  applyProperty(properties, schema.properties, ["세특용 피드백", "피드백"], studentRecordPrompt);
   applyProperty(properties, schema.properties, ["업데이트", "저장일", "작성일"], new Date().toISOString());
 
-  return properties;
+  return { properties, missingRubricLabels };
 }
 
 function buildResultBlocks({
@@ -788,18 +885,24 @@ function buildResultBlocks({
   questionLog,
   answerLog,
   config,
+  studentRecordPrompt,
 }: {
   question: string;
   result: ChatResult;
   questionLog: string;
   answerLog: string;
   config: QuestioningChatbotConfig;
+  studentRecordPrompt: string;
 }) {
   return [
     headingBlock(2, `질문 활동 기록 - ${new Date().toLocaleString("ko-KR")}`),
     bulletBlock(`수업 자료: ${config.material.materialTitle || "미정"}`),
     bulletBlock(`질문 유형: ${result.typeLabel}`),
-    bulletBlock(`총점: ${totalScore(result)}`),
+    bulletBlock(`총점: ${totalScore(result, config.rubric)}`),
+    ...(result.reachedDifficulty ? [bulletBlock(`도달 난이도: ${result.reachedDifficulty}`)] : []),
+    ...(result.moreToExploreQuestions?.length
+      ? [bulletBlock(`더 알아볼 질문: ${result.moreToExploreQuestions.join(" / ")}`)]
+      : []),
     headingBlock(3, "이번 질문"),
     ...paragraphBlocks(question),
     headingBlock(3, "챗봇 답변"),
@@ -819,8 +922,11 @@ function buildResultBlocks({
     ...paragraphBlocks(questionLog || question),
     headingBlock(3, "누적 챗봇 답변모음"),
     ...paragraphBlocks(answerLog || result.studentReply),
-    headingBlock(3, "세특용 피드백"),
-    ...paragraphBlocks(result.teacherFeedback || "피드백 없음"),
+    headingBlock(3, "교사 지도 메모"),
+    ...paragraphBlocks(result.teacherFeedback || "지도 메모 없음"),
+    ...(studentRecordPrompt
+      ? [headingBlock(3, "세특용 피드백 작성 프롬프트"), ...paragraphBlocks(studentRecordPrompt)]
+      : []),
   ];
 }
 
@@ -862,24 +968,38 @@ export async function saveQuestioningResultToNotion({
   const schema = await loadSchema(databaseInput, context);
   const studentQuestions = conversation.filter((item) => item.role === "student").map((item) => item.content);
   const assistantAnswers = conversation.filter((item) => item.role === "assistant").map((item) => item.content);
-  const questionLog = [...studentQuestions, question].filter(Boolean).join("\n\n");
+  const currentQuestion = questionRecordText(question, result);
+  const questionLog = [...studentQuestions, currentQuestion].filter(Boolean).join("\n\n");
   const answerLog = [...assistantAnswers, result.studentReply].filter(Boolean).join("\n\n");
-  const properties = buildResultProperties({
+  const studentRecordPrompt = buildStudentRecordPromptForConfig({ config, questionLog, result });
+  const resultProperties = buildResultProperties({
     schema,
     studentId,
     config,
     result,
     questionLog,
     answerLog,
+    studentRecordPrompt,
   });
+  if (resultProperties.missingRubricLabels.length > 0) {
+    return {
+      ok: false,
+      warning:
+        `Notion 결과 DB에서 루브릭 칸을 찾지 못했습니다: ${resultProperties.missingRubricLabels.join(", ")}. ` +
+        "DB 칸 이름을 확인한 뒤 다시 저장해 주세요.",
+    };
+  }
+
+  const properties = resultProperties.properties;
+  const existingPage = await findPageByTitle(schema, studentId, context);
   const blocks = buildResultBlocks({
-    question,
+    question: currentQuestion,
     result,
     questionLog,
     answerLog,
     config,
+    studentRecordPrompt: existingPage ? "" : studentRecordPrompt,
   });
-  const existingPage = await findPageByTitle(schema, studentId, context);
 
   if (existingPage?.pageId) {
     await updatePageProperties(existingPage.pageId, properties, context);

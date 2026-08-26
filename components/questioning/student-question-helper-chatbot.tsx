@@ -551,7 +551,7 @@ export function StudentQuestionHelperChatbot() {
     setNotice("");
 
     try {
-      const recentConversation = messages.slice(-8).map((message) => ({
+      const recentConversation = messages.slice(-18).map((message) => ({
         role: message.role,
         content: message.content,
       }));

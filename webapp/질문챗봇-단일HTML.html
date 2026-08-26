@@ -386,6 +386,44 @@ function isQuestion(t) {
   return hasWh && !states;
 }
 
+/* B1에서 어려운 문장을 짚었을 때는 말만 바꾸고 사실은 보존한다. 숫자가 달라지면
+   풀이를 버리고 원문을 그대로 보여 준다. */
+function difficultSourceSentence(turn) {
+  if (!/(이\s*문장|문장이|문장을|이\s*부분|이해하기\s*어려|어려워|무슨\s*말인지)/.test(turn)) return "";
+  const quoted = turn.match(/[“‘"']([^”’"']{10,})[”’"']/)?.[1]?.trim();
+  const candidates = sentencesOf(config.passage).filter(looksLikeSentence);
+  if (quoted) {
+    const normalizedQuote = quoted.replace(/[^가-힣A-Za-z0-9]/g, "");
+    const belongsToSource = candidates.some(sentence => {
+      const normalizedSentence = sentence.replace(/[^가-힣A-Za-z0-9]/g, "");
+      return normalizedSentence.includes(normalizedQuote) || normalizedQuote.includes(normalizedSentence);
+    });
+    return belongsToSource ? quoted : "";
+  }
+  return candidates
+    .sort((a, b) => b.length - a.length)
+    .find(sentence => turn.replace(/\s/g, "").includes(sentence.replace(/\s/g, ""))) || "";
+}
+function sameNumbers(a, b) {
+  return JSON.stringify(a.match(/\d+(?:[.,]\d+)*/g) || []) === JSON.stringify(b.match(/\d+(?:[.,]\d+)*/g) || []);
+}
+function paraphraseSentence(turn) {
+  const source = difficultSourceSentence(turn);
+  if (!source) return "";
+  let changed = source;
+  teacherWords().forEach((meaning, term) => {
+    if (changed.includes(term)) changed = changed.replaceAll(term, `${term}(${meaning.replace(/[.。]$/, "")})`);
+  });
+  changed = changed.replace(/잠식하고\s*있/g, "조금씩 차지하고 있")
+    .replace(/로\s*인해/g, "때문에").replace(/에\s*의해/g, "때문에")
+    .replace(/되었다/g, "됐어요").replace(/하였다/g, "했어요");
+  if (!sameNumbers(source, changed)) changed = source;
+  const explanation = changed === source
+    ? "내용을 바꾸면 뜻이 달라질 수 있어 원문을 그대로 함께 읽을게요."
+    : `이 문장은 이런 뜻이에요. ${changed}`;
+  return `이 문장 말이지요. “${source}” ${explanation} 또 이해가 되지 않는 부분이 있을까요?`;
+}
+
 /* ---------------- 지문 기반 답 (키가 없을 때) ---------------- */
 function localReply(turn) {
   const t = turn.trim();
@@ -406,6 +444,8 @@ function localReply(turn) {
   if (/(내\s*이름|제\s*이름|나는\s*\S+(이야|야|입니다)|전화번호|몇\s*반|어디\s*살)/.test(t)) {
     return "이름이나 개인 정보는 알려 주지 않아도 돼요. 번호만으로 충분해요. 글에서 궁금한 점을 말해 줄래요?";
   }
+  const paraphrased = paraphraseSentence(t);
+  if (paraphrased) return paraphrased;
   if (/^(몰라요?|모르겠어요?|모르겠다|글쎄요?|없어요?)[.!\s]*$/.test(t)) {
     const first = sentencesOf(config.passage).filter(looksLikeSentence)[0] || "";
     return first
@@ -487,7 +527,9 @@ ${config.passage}${words}${memo}${std}
 9. 학생이 그만하고 싶어 하면 새 과제를 주지 말고 따뜻하게 마치세요.
 10. 이름·연락처 같은 개인정보를 묻지 마세요.
 11. ${config.grade || "초등"} 눈높이로 2~4문장. 어려운 말은 풀어 쓰세요.
-12. 숙제나 답을 대신 써 달라고 하면, 대신 써 주지 말고 학생이 자기 생각에서 시작할 작은 단계를 안내하세요.`;
+12. 숙제나 답을 대신 써 달라고 하면, 대신 써 주지 말고 학생이 자기 생각에서 시작할 작은 단계를 안내하세요.
+13. 학생이 이해하기 어려운 지문 문장을 짚으면 “이 문장 말이지요.”로 원문을 확인하고, 어려운 낱말을 쉬운 낱말로 바꾸거나 긴 문장을 나누어 설명한 뒤 “또 이해가 되지 않는 부분이 있을까요?”라고 한 번만 물으세요.
+14. 문장 풀이에서는 지문에 없는 예시·비유·배경 지식·판단을 더하거나 정보를 빼지 마세요. 숫자·주체·시점이 달라지면 풀이를 버리고 원문을 그대로 인용하세요.`;
 }
 async function geminiReply(turn) {
   const history = chatLog.slice(-8).map(m => ({

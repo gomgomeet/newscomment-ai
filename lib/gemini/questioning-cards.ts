@@ -600,7 +600,7 @@ export async function generateQuestionAnalysisWithGemini({
             text: [
               "You write Korean assessment notes for a teacher based only on the questions each student actually asked.",
               "Two sentences per student at most, observation-based, no praise inflation, no invented behavior.",
-              "Also suggest four rubric scores from 0 to 5, in this order: 성취기준·자료 연결, 자료 근거 확인, 질문 유형 확장, 질문 다시 쓰기·성찰.",
+              "Also suggest four rubric scores from 0 to 5, in this order: 질문하기, 지문 이해, 성취기준, 성찰질문과 의견 표현.",
               "Score only what the questions show. A student with one simple question cannot earn high scores everywhere.",
               'Return a JSON array only: [{"studentKey": "...", "comment": "...", "scores": [0,0,0,0]}].',
             ].join(" "),
@@ -613,7 +613,7 @@ export async function generateQuestionAnalysisWithGemini({
           parts: [
             {
               text: JSON.stringify({
-                task: "각 학생이 실제로 한 질문을 근거로 ①평가 기록 초안 1~2문장과 ②루브릭 추천 점수 4개(각 0~5)를 쓰세요. 순서는 성취기준·자료 연결, 자료 근거 확인, 질문 유형 확장, 질문 다시 쓰기·성찰. 질문이 보여 주지 않은 것에 점수를 주지 말고, 하지 않은 행동을 지어내지 마세요. 점수는 교사가 검토할 추천값입니다.",
+                task: "각 학생이 실제로 한 질문을 근거로 ①평가 기록 초안 1~2문장과 ②루브릭 추천 점수 4개(각 0~5)를 쓰세요. 순서는 질문하기, 지문 이해, 성취기준, 성찰질문과 의견 표현입니다. 질문이 보여 주지 않은 2국면 응답 행동에는 점수를 주지 말고, 하지 않은 행동을 지어내지 마세요. 점수는 교사가 검토할 추천값입니다.",
                 standard,
                 targetGrade,
                 students,

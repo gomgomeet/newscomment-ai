@@ -7,6 +7,7 @@ import {
 } from "@/lib/questioning-lesson-connections";
 import { saveQuestioningResultToNotion } from "@/lib/notion/questioning-chatbot";
 import { checkQuestioningChatRateLimit } from "@/lib/questioning-chat-rate-limit";
+import { applyQuestioningConversationPhase } from "@/lib/questioning-conversation-phase";
 import { verifyQuestioningPreviewToken } from "@/lib/questioning-preview-token";
 import {
   createLocalQuestionResult,
@@ -44,7 +45,7 @@ type StudentProfile = {
 };
 
 const MAX_STUDENT_TURN_LENGTH = 800;
-const MAX_CONVERSATION_TURNS = 10;
+const MAX_CONVERSATION_TURNS = 18;
 const MAX_CONVERSATION_CONTENT_LENGTH = 1200;
 const MAX_CONVERSATION_TOTAL_LENGTH = 8000;
 
@@ -406,6 +407,17 @@ export async function POST(request: Request) {
         // 리서치 실패는 기존의 정직한 "자료에 없어요" 답으로 충분하다.
       }
     }
+
+    // 로컬·Gemini가 만든 답 위에 같은 국면 규칙과 판정 채점을 적용한다.
+    // 서버 상태를 따로 저장하지 않고 최근 대화만으로 B1/B2와 2국면 순서를 복원한다.
+    result = applyQuestioningConversationPhase({
+      result,
+      currentTurn: question,
+      conversation,
+      material: config.material,
+      standard: config.standard,
+      teacherMemo: config.material.questionFocusMemo,
+    });
 
     const studentProfile = isTeacherPreview ? null : normalizeStudentProfile(body.studentProfile);
     const notionSave = isTeacherPreview

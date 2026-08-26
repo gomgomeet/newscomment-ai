@@ -2,6 +2,19 @@
 
 이 문서는 질문 챗봇을 수업에서 바로 사용하기 위해 필요한 API 키 저장 방법과 배포 방식을 한곳에 정리한 자료이다.
 
+## 2026-08-26 배포 게이트
+
+현재 운영형 학생 챗봇은 학생 브라우저에서 교사 Gemini 키를 읽거나 전송하지 않는다. 학생용 외부 모델은 서버에서 아래 두 환경변수를 모두 켠 경우에만 사용하며, 기본값은 로컬 자료 기반 응답이다.
+
+```text
+QUESTIONING_STUDENT_LLM_ENABLED=true
+QUESTIONING_STUDENT_PROVIDER=approved_gemini
+```
+
+운영 Notion 결과 DB에는 `질문하기`, `지문 이해`, `성취기준 점수`, `성찰질문과 의견 표현` 숫자 열과 `도달 난이도`, `더 알아볼 질문` 열이 필요하다. 필수 루브릭 열이 없으면 저장은 경고와 함께 중단된다.
+
+배포 순서는 `브랜치 푸시 → Vercel Preview 빌드 → 수업 코드·2국면 대화·Notion 실제 저장 확인 → Production 승격`이다. 운영 DB 스키마와 Preview 통합 검증을 마치기 전에는 Production으로 승격하지 않는다.
+
 ## 1. 현재 챗봇 구성
 
 - 교사용 제작보드: `/questioning-board`

@@ -201,6 +201,9 @@ export type ChatResult = {
   teacherFeedback: string;
   rubricScores: ChatEvaluation[];
   safetyFlag: boolean;
+  conversationPhase?: 1 | 2;
+  reachedDifficulty?: "하" | "중" | "상";
+  moreToExploreQuestions?: string[];
 };
 
 export type ChatMessage = {
@@ -1041,32 +1044,32 @@ export function buildStandardAssessmentAnalysis(standard: string): StandardAsses
 
   const evaluationElements: StandardAssessmentElement[] = [
     {
-      key: "standard_material_alignment",
-      label: "성취기준·자료 연결",
-      focus: "성취기준의 핵심 행동이 학생 질문과 자료 근거에 함께 드러나는가",
-      studentEvidence: "첫 질문, 자료 표시, 챗봇 답 확인 메모",
-      rubricUse: "질문이 성취기준에서 요구한 행동을 실제로 수행하게 하는지 판단",
+      key: "questioning",
+      label: "질문하기",
+      focus: "학생이 스스로 지문과 이어지는 질문을 만들어 내는가",
+      studentEvidence: "1국면에서 학생이 스스로 만든 질문의 수",
+      rubricUse: "질문의 좋고 나쁨이 아니라 질문을 만든 행동을 판단",
     },
     {
-      key: "evidence_check",
-      label: "자료 근거 확인",
-      focus: "챗봇의 답을 자료 속 문장, 장면, 표로 다시 확인하는가",
-      studentEvidence: "근거 위치, 답과 자료의 일치/불일치 메모",
-      rubricUse: "AI 답 수용이 아니라 자료 기반 검증이 일어났는지 판단",
+      key: "passage_comprehension",
+      label: "지문 이해",
+      focus: "지문의 낱말, 사실, 관계를 이해하고 근거를 들어 답하는가",
+      studentEvidence: "1국면의 지문 질문과 2국면 이해 확인 질문에 대한 답",
+      rubricUse: "두 국면의 지문 이해 증거를 함께 판단",
     },
     {
-      key: "question_depth",
-      label: "질문 유형 확장",
-      focus: "사실 확인에서 추론, 적용, 성찰로 사고가 확장되는가",
-      studentEvidence: "질문 유형 분류, 추가 질문, 다시 쓴 질문",
-      rubricUse: "질문이 단순 확인을 넘어 사고 과정으로 이어지는지 판단",
+      key: "achievement_standard",
+      label: "성취기준",
+      focus: "성취기준과 교사 메모에서 뽑은 표적 행동에 닿는가",
+      studentEvidence: "표적 신호가 든 학생 질문과 성취기준 질문에 대한 답",
+      rubricUse: "수업마다 달라지는 표적 행동의 관찰 신호를 판단",
     },
     {
-      key: "revision_reflection",
-      label: "질문 다시 쓰기·성찰",
-      focus: "처음 질문을 다시 쓰고 바꾸며 왜 좋아졌는지 설명하는가",
-      studentEvidence: "처음 질문, 다시 쓴 질문, 성찰 문장",
-      rubricUse: "질문을 다시 쓰고 바꾸는 과정과 자기 점검을 평가 포워드로 연결",
+      key: "reflection_opinion",
+      label: "성찰질문과 의견 표현",
+      focus: "글에 대한 자기 생각이나 느낌을 자기 말로 표현하는가",
+      studentEvidence: "2국면 마지막 생각·의견 질문에 대한 학생 답",
+      rubricUse: "정답이 아니라 자기 생각, 까닭, 지문 연결을 판단",
     },
   ];
 
@@ -1076,12 +1079,11 @@ export function buildStandardAssessmentAnalysis(standard: string): StandardAsses
     performanceBehaviors,
     evaluationElements,
     studentProducts: [
-      "첫 질문",
-      "질문 유형 분류",
-      "자료 속 근거 표시",
-      "챗봇 답 확인 메모",
-      "다시 쓴 질문",
-      "성찰 문장",
+      "1국면에서 학생이 스스로 만든 질문",
+      "2국면 지문 이해 질문에 대한 답",
+      "성취기준 표적 질문에 대한 답",
+      "마지막 생각·의견 질문에 대한 답",
+      "더 알아볼 질문",
     ],
     questionTypeLinks: [
       {
@@ -1175,6 +1177,17 @@ export function normalizeQuestioningChatbotConfig(config: QuestioningChatbotConf
   const assessmentAnalysis = config.assessmentAnalysis ?? buildStandardAssessmentAnalysis(config.standard);
   const fallbackCompass = buildCurriculumCompass(config.standard, assessmentAnalysis);
   const compass = config.curriculumCompass as Partial<CurriculumCompass> | undefined;
+  const redesignedRubricKeys = new Set([
+    "questioning",
+    "passage_comprehension",
+    "achievement_standard",
+    "reflection_opinion",
+  ]);
+  const rubric =
+    config.rubric.length === redesignedRubricKeys.size &&
+    config.rubric.every((criterion) => redesignedRubricKeys.has(criterion.key))
+      ? config.rubric
+      : buildRubric(config.standard);
 
   return {
     ...config,
@@ -1206,77 +1219,80 @@ export function normalizeQuestioningChatbotConfig(config: QuestioningChatbotConf
       doNotForce: normalizeCompassList(compass?.doNotForce, fallbackCompass.doNotForce),
     },
     material: normalizeQuestionMaterialForStudentDisplay(config.material),
+    rubric,
     behavior: normalizeQuestioningChatbotBehavior(config.behavior),
   };
 }
 
 export function buildRubric(standard: string): RubricCriterion[] {
   const standardHint = standard.trim() || "선택한 성취기준";
-  const analysis = buildStandardAssessmentAnalysis(standard);
-  const elementByKey = new Map(analysis.evaluationElements.map((element) => [element.key, element]));
+  const levels = (descriptors: string[]) =>
+    ["관찰 전", "시작", "부분 도달", "도달", "우수", "탁월"].map((label, score) => ({
+      score,
+      label,
+      descriptor: descriptors[score],
+    }));
 
   return [
     {
-      key: "standard_material_alignment",
-      label: "성취기준·자료 연결",
-      description: `${standardHint}에서 요구하는 핵심 성취가 질문과 자료 근거에 드러나는지 봅니다.`,
-      observableEvidence:
-        elementByKey.get("standard_material_alignment")?.studentEvidence ||
-        "첫 질문, 근거 표시, 챗봇 답 확인 메모",
-      feedbackForward: "질문에 자료의 특정 장면·문장·표와 성취기준의 행동 동사를 함께 넣게 안내합니다.",
-      levels: [
-        { score: 5, label: "탁월", descriptor: "질문, 근거, 설명이 성취기준의 핵심 행동과 자료를 정확히 연결합니다." },
-        { score: 4, label: "우수", descriptor: "질문이 성취기준과 자료에 분명히 연결되며 확인할 근거도 드러납니다." },
-        { score: 3, label: "도달", descriptor: "질문이 성취기준과 관련되지만 자료의 어느 부분을 볼지 더 분명히 해야 합니다." },
-        { score: 2, label: "부분 도달", descriptor: "성취기준 또는 자료와 관련은 있으나 질문의 초점이 넓거나 흐립니다." },
-        { score: 1, label: "시작", descriptor: "자료나 성취기준과의 연결이 약해 질문을 다시 잡아야 합니다." },
-        { score: 0, label: "미제출", descriptor: "평가할 질문이나 근거 기록이 없습니다." },
-      ],
+      key: "questioning",
+      label: "질문하기",
+      description: "1국면에서 학생이 스스로 질문을 만들어 이어 간 행동을 봅니다.",
+      observableEvidence: "학생이 스스로 만든 지문 관련 질문과 더 알아볼 질문의 수",
+      feedbackForward: "질문의 수준을 평가하기보다 궁금한 점을 말로 만들어 보는 기회를 줍니다.",
+      levels: levels([
+        "끝까지 질문하지 않았습니다.",
+        "B1 도움 뒤 질문 하나를 만들었습니다.",
+        "질문 하나를 스스로 만들었습니다.",
+        "질문을 두세 개 스스로 만들었습니다.",
+        "지문 관련 질문 네 개를 만들어 2국면에 도달했습니다.",
+        "지문 관련 질문을 다섯 개 이상 스스로 이어 갔습니다.",
+      ]),
     },
     {
-      key: "evidence_check",
-      label: "자료 근거 확인",
-      description: "챗봇 답을 그대로 받아들이지 않고 자료 속 근거로 다시 확인하는지 봅니다.",
-      observableEvidence: "근거가 되는 문장·장면·표시, 챗봇 답과 자료의 일치/불일치 메모",
-      feedbackForward: "답을 받은 뒤 '어디에서 확인했는가'와 '챗봇 답과 다른 점은 무엇인가'를 쓰게 합니다.",
-      levels: [
-        { score: 5, label: "탁월", descriptor: "근거 위치를 구체적으로 찾고 챗봇 답의 타당성을 자신의 말로 검토합니다." },
-        { score: 4, label: "우수", descriptor: "근거가 될 부분을 찾고 답과 비교해 확인합니다." },
-        { score: 3, label: "도달", descriptor: "자료 속 근거를 찾지만 답과 어떻게 연결되는지 설명이 짧습니다." },
-        { score: 2, label: "부분 도달", descriptor: "근거 확인이 형식적이거나 위치가 막연합니다." },
-        { score: 1, label: "시작", descriptor: "챗봇 답을 거의 그대로 받아들이고 자료 확인이 부족합니다." },
-        { score: 0, label: "미제출", descriptor: "근거 확인 기록이 없습니다." },
-      ],
+      key: "passage_comprehension",
+      label: "지문 이해",
+      description: "두 국면에서 지문의 낱말, 사실, 관계를 이해한 증거를 함께 봅니다.",
+      observableEvidence: "낱말·사실 질문과 2국면 이해 확인 질문에 대한 답",
+      feedbackForward: "막히면 지문의 볼 곳을 짚고, 하 난이도에서는 답이 든 문장을 함께 읽습니다.",
+      levels: levels([
+        "지문에 닿은 흔적을 아직 관찰하지 못했습니다.",
+        "하 난이도에서 문장을 함께 읽으며 답을 시도했습니다.",
+        "낱말의 뜻을 물으며 지문 이해를 시작했습니다.",
+        "낱말·사실을 묻고 이해 질문에 부분적으로 답했습니다.",
+        "이해 확인 질문에 지문 근거로 답했습니다.",
+        "사실·관계를 묻고 이해 질문에 근거를 들어 자기 말로 답했습니다.",
+      ]),
     },
     {
-      key: "question_depth",
-      label: "질문 유형 확장",
-      description: "사실 확인에서 추론, 적용, 성찰 질문으로 사고가 확장되는지 봅니다.",
-      observableEvidence: "사실·추론·적용·성찰 질문의 분류 기록과 다시 쓴 질문",
-      feedbackForward: "사실 질문 하나를 고른 뒤 '왜', '어떻게 적용할까', '내 질문은 무엇을 더 확인해야 하나'로 넓히게 합니다.",
-      levels: [
-        { score: 5, label: "탁월", descriptor: "질문 유형을 구분하고 근거를 바탕으로 더 깊은 질문으로 확장합니다." },
-        { score: 4, label: "우수", descriptor: "사실 질문을 넘어 추론, 적용, 성찰 중 하나 이상으로 질문을 발전시킵니다." },
-        { score: 3, label: "도달", descriptor: "질문 유형을 대체로 구분하지만 사고 확장은 일부에 머뭅니다." },
-        { score: 2, label: "부분 도달", descriptor: "질문이 대부분 사실 확인에 머물거나 유형 구분이 흔들립니다." },
-        { score: 1, label: "시작", descriptor: "질문 형태가 불분명하거나 자료와 연결된 궁금증이 약합니다." },
-        { score: 0, label: "미제출", descriptor: "분류하거나 개선할 질문이 없습니다." },
-      ],
+      key: "achievement_standard",
+      label: "성취기준",
+      description: `${standardHint}과 교사 메모에서 뽑은 표적 행동에 닿았는지 봅니다.`,
+      observableEvidence: "표적 신호가 든 학생 질문과 2국면 성취기준 질문에 대한 답",
+      feedbackForward: "성취기준 문구를 노출하지 않고 표적 행동을 학생 질문으로 바꾸어 묻습니다.",
+      levels: levels([
+        "성취기준 표적과 닿은 증거를 아직 관찰하지 못했습니다.",
+        "성취기준 질문에 답을 시도했지만 근거가 부족했습니다.",
+        "표적 행동에 스친 질문을 하나 만들었습니다.",
+        "성취기준 질문에 답했습니다.",
+        "표적 질문 하나를 만들고 성취기준 질문에도 답했습니다.",
+        "표적 질문을 둘 이상 만들고 성취기준 질문에 근거를 들어 답했습니다.",
+      ]),
     },
     {
-      key: "revision_reflection",
-      label: "질문 다시 쓰기·성찰",
-      description: "처음 질문을 더 명확하고 깊은 질문으로 다시 쓰고 바꾼 이유를 설명하는지 봅니다.",
-      observableEvidence: "처음 질문, 다시 쓴 질문, 왜 좋아졌는지 쓴 성찰 문장",
-      feedbackForward: "다시 쓴 질문에는 자료 단서, 사고 동사, 다음 탐구 방향 중 적어도 하나를 더 넣게 합니다.",
-      levels: [
-        { score: 5, label: "탁월", descriptor: "질문을 의미 있게 다시 쓰고 바꾸며, 바꾼 이유와 다음 확인 지점을 설명합니다." },
-        { score: 4, label: "우수", descriptor: "질문을 더 구체적으로 다시 쓰고 왜 좋아졌는지 간단히 설명합니다." },
-        { score: 3, label: "도달", descriptor: "질문을 다시 쓰지만 바꾼 이유가 짧거나 일부만 드러납니다." },
-        { score: 2, label: "부분 도달", descriptor: "표현만 조금 바꾸고 질문의 초점이나 깊이는 크게 달라지지 않습니다." },
-        { score: 1, label: "시작", descriptor: "질문 다시 쓰기나 성찰이 매우 부족합니다." },
-        { score: 0, label: "미제출", descriptor: "다시 쓴 질문 또는 성찰 기록이 없습니다." },
-      ],
+      key: "reflection_opinion",
+      label: "성찰질문과 의견 표현",
+      description: "마지막 생각·의견 질문에서 자기 생각을 표현한 행동을 봅니다.",
+      observableEvidence: "2국면 마지막 질문에 대한 학생의 생각, 느낌, 까닭, 지문 연결",
+      feedbackForward: "정답이 없는 생각·의견 질문을 반드시 마지막에 한 번 묻습니다.",
+      levels: levels([
+        "생각·의견 질문을 묻기 전에 대화가 끝났습니다.",
+        "생각·의견 질문을 물었지만 답하지 않았습니다.",
+        "좋아요처럼 한마디로 반응했습니다.",
+        "짧게라도 자기 생각이나 느낌을 말했습니다.",
+        "자기 생각을 자기 말로 표현했습니다.",
+        "자기 생각을 까닭이나 글의 내용과 이어 표현했습니다.",
+      ]),
     },
   ];
 }
@@ -2910,8 +2926,11 @@ function createGeneralNaturalTurn({
   }
 
   if (asksForMethod) {
+    const methodLead = recentAssistantText.includes(limitation)
+      ? "맞아요. 앞에서 찾은 다른 조건 때문에 한 번 더 확인할 필요가 있어요."
+      : limitation;
     return {
-      reply: `${limitation} 더 분명히 알려면 비교하려는 한 조건만 바꾸고 나머지 조건을 같게 하거나, 같은 조사를 여러 번 반복해 결과를 비교하면 좋아요.`,
+      reply: `${methodLead} 더 분명히 알려면 비교하려는 한 조건만 바꾸고 나머지 조건을 같게 하거나, 같은 조사를 여러 번 반복해 결과를 비교하면 좋아요.`,
       primaryMove: "offer_clue",
       engagementState: "seeking_evidence",
       curriculumRelation: "direct",

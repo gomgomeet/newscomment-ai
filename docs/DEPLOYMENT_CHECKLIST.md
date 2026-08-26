@@ -9,10 +9,23 @@
 ```bash
 npm run lint
 npm run typecheck
+npm run eval:questioning
 npm run build
 ```
 
 오류가 있으면 배포 전에 먼저 수정한다.
+
+질문 챗봇 평가의 현재 기준은 49세션 207턴에서 실패 0건, 검토 플래그 0건이다.
+
+## 2. 질문 챗봇 Notion 마이그레이션
+
+Production 승격 전에 결과 DB에 아래 열을 추가하고 Vercel Preview에서 실제 저장을 확인한다.
+
+- 숫자: `질문하기`, `지문 이해`, `성취기준 점수`, `성찰질문과 의견 표현`
+- 선택 또는 텍스트: `도달 난이도`
+- 텍스트: `더 알아볼 질문`
+
+필수 루브릭 열이 없을 때 저장 API가 경고를 반환하고 일부 점수만 기록하지 않는지 확인한다. 운영 DB를 확인하기 전에는 Production 배포를 진행하지 않는다.
 
 Windows 또는 Codex 샌드박스에서 `npm run build`가 `spawn EPERM`으로 실패할 수 있다. 이때는 먼저 코드 오류인지 실행 환경 문제인지 분리한다.
 
@@ -29,7 +42,7 @@ node -e "const {spawnSync}=require('child_process'); const r=spawnSync(process.e
 - 로컬 Windows 권한 문제가 반복되면 GitHub 브랜치/PR 푸시 후 Vercel 원격 빌드로 배포한다.
 - Codex 안에서 검증할 때만 권한 상승 실행을 허용해 `npm run build`를 돌린다.
 
-## 2. Supabase 확인
+## 3. Supabase 확인
 
 댓글 평가 웹앱 기능을 함께 사용할 경우 확인한다.
 
@@ -49,7 +62,7 @@ node -e "const {spawnSync}=require('child_process'); const r=spawnSync(process.e
 - 학생 질문과 챗봇 답변 본문은 Supabase가 아니라 교사 개인 Notion 결과 DB에 저장한다.
 - 수업 코드 만료일 또는 삭제 기준이 정해져 있다.
 
-## 3. Vercel 환경변수
+## 4. Vercel 환경변수
 
 Vercel 프로젝트 `newscomment-ai`의 Settings → Environment Variables에 아래 값을 넣는다. 운영 배포에서 필요한 핵심 값은 Supabase 연결정보 금고용 값이다.
 
@@ -86,6 +99,8 @@ NOTION_QUESTIONING_PREP_DATABASE_ID
 NOTION_QUESTIONING_RESULT_DATABASE_ID
 SUPABASE_SERVICE_ROLE_KEY
 QUESTIONING_CONNECTION_SETUP_TOKEN
+QUESTIONING_STUDENT_LLM_ENABLED
+QUESTIONING_STUDENT_PROVIDER
 ```
 
 질문 챗봇을 Gemini로 사용할 경우 교사용 보드에서 교사 개인 Gemini 키를 직접 입력하는 방식을 기본으로 한다. 모든 수업이 같은 서버 기본 키를 써야 하는 특수한 경우에만 `GEMINI_API_KEY`를 설정한다.
@@ -96,21 +111,21 @@ QUESTIONING_CONNECTION_SETUP_TOKEN
 
 자리표시자 값이나 예시 키를 넣은 상태로 배포하지 않는다.
 
-## 4. 데모 데이터
+## 5. 데모 데이터
 
 - 가짜 학생 이름이나 학생 번호를 사용한다.
 - 가짜 댓글과 샘플 루브릭을 사용한다.
 - 실제 학생 정보가 포함된 캡처 화면을 넣지 않는다.
 - 실제 수업 전에 테스트 기록을 삭제한다.
 
-## 5. 운영 권한
+## 6. 운영 권한
 
 - Supabase 프로젝트 소유자가 누구인지 확인한다.
 - 배포 설정에 접근할 수 있는 사람이 누구인지 확인한다.
 - API 키를 교체할 수 있는 사람이 누구인지 확인한다.
 - 데이터 삭제 요청을 누가 처리할지 정한다.
 
-## 6. 질문 챗봇 수업 전 확인
+## 7. 질문 챗봇 수업 전 확인
 
 - `/questioning-board`에서 질문 자료가 정상 입력된다.
 - `/questioning-chatbot`에서 질문 자료 전체 텍스트가 보인다.

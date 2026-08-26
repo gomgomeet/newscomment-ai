@@ -26,10 +26,10 @@ if (!Object.hasOwn(suiteFiles, suite)) {
 }
 
 const rubric = [
-  { key: "standard_material_alignment", label: "성취기준·자료 연결" },
-  { key: "evidence_check", label: "자료 근거 확인" },
-  { key: "question_depth", label: "질문 유형 확장" },
-  { key: "revision_reflection", label: "질문 다시 쓰기·성찰" },
+  { key: "questioning", label: "질문하기" },
+  { key: "passage_comprehension", label: "지문 이해" },
+  { key: "achievement_standard", label: "성취기준" },
+  { key: "reflection_opinion", label: "성찰질문과 의견 표현" },
 ].map((criterion) => ({
   ...criterion,
   description: criterion.label,
