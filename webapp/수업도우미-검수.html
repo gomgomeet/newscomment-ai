@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>수업도우미 · CSV 검수</title>
+<style>
+:root{--p:#028090;--pd:#065a6e;--tint:#e3f4f2;--ink:#26343b;--muted:#5e7078;--warn:#f96167;--warnbg:#fde7e8;--gold:#f9c846;--goldbg:#fff6de;--ok:#2c8a5b;--okbg:#e6f3ec;--line:#dde5e7;--bg:#f6f8f9}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif;background:var(--bg);color:var(--ink);font-size:14px;min-width:1100px}
+header{background:var(--pd);color:#fff;padding:14px 28px;display:flex;align-items:center;gap:14px}
+header h1{font-size:18px}
+header .sub{color:#9bd8d3;font-size:12.5px}
+.steps{display:flex;gap:8px;margin-left:auto}
+.step{padding:5px 12px;border-radius:14px;background:#0e7487;color:#cfe9e6;font-size:12.5px}
+.step.on{background:#fff;color:var(--pd);font-weight:bold}
+main{max-width:1500px;margin:0 auto;padding:20px 28px 60px}
+.card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin-bottom:16px}
+.card h2{font-size:16px;color:var(--pd);margin-bottom:10px}
+.hint{color:var(--muted);font-size:12.5px;line-height:1.5}
+button{font-family:inherit;font-size:13.5px;border:none;border-radius:7px;padding:8px 14px;cursor:pointer;background:var(--p);color:#fff}
+button.sec{background:#fff;color:var(--pd);border:1px solid var(--p)}
+button.ghost{background:#eef2f3;color:var(--ink)}
+button:disabled{opacity:.4;cursor:not-allowed}
+#drop{border:2px dashed var(--p);border-radius:10px;padding:26px;text-align:center;background:var(--tint);cursor:pointer;transition:.15s}
+#drop.over{background:#cdeae6}
+textarea#paste{width:100%;height:90px;border:1px solid var(--line);border-radius:7px;padding:8px;font-size:12.5px;margin-top:10px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.maps{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:8px}
+.maps label{font-size:12.5px;color:var(--muted);display:block;margin-bottom:3px}
+.maps select{width:100%;padding:6px;border:1px solid var(--line);border-radius:6px;font-family:inherit}
+.req::after{content:" *";color:var(--warn)}
+#summary{display:flex;gap:14px;flex-wrap:wrap}
+.stat{background:var(--tint);border-radius:8px;padding:10px 16px;min-width:110px}
+.stat b{display:block;font-size:20px;color:var(--pd)}
+.stat span{font-size:12px;color:var(--muted)}
+.dist{display:flex;gap:4px;align-items:flex-end;height:46px;margin-top:4px}
+.dist div{width:34px;background:var(--p);border-radius:3px 3px 0 0;position:relative}
+.dist div i{position:absolute;top:-16px;left:0;right:0;text-align:center;font-size:10.5px;font-style:normal;color:var(--muted)}
+.dist div u{position:absolute;bottom:-16px;left:0;right:0;text-align:center;font-size:10px;text-decoration:none;color:var(--muted)}
+table{width:100%;border-collapse:collapse;background:#fff}
+th{background:var(--tint);color:var(--pd);font-size:12.5px;padding:7px 6px;border:1px solid var(--line);position:sticky;top:0}
+td{border:1px solid var(--line);padding:6px;vertical-align:top;font-size:13px}
+tr.flag td{background:var(--goldbg)}
+tr.done td{background:var(--okbg)}
+td .txt{max-height:64px;overflow:hidden;cursor:pointer;white-space:pre-wrap;line-height:1.45}
+td .txt.open{max-height:none}
+.ai{display:inline-block;background:#eef2f3;border-radius:5px;padding:1px 7px;margin:1px;font-size:12.5px;color:var(--muted)}
+input.sc{width:44px;padding:4px;text-align:center;border:1px solid var(--line);border-radius:5px;font-family:inherit}
+input.sc.adj{border-color:var(--warn);background:var(--warnbg)}
+td textarea{width:100%;min-height:48px;border:1px solid var(--line);border-radius:5px;padding:5px;font-size:12.5px;font-family:inherit}
+td input[type=text]{width:100%;padding:5px;border:1px solid var(--line);border-radius:5px;font-family:inherit;font-size:12.5px}
+.lv{font-weight:bold}
+.lv.l4{color:var(--ok)}.lv.l3{color:var(--p)}.lv.l2{color:#d99a06}.lv.l1{color:var(--warn)}
+.badge{background:var(--gold);border-radius:9px;padding:1px 8px;font-size:11.5px}
+#warnBox{background:var(--warnbg);border:1px solid var(--warn);border-radius:8px;padding:10px 14px;margin:10px 0;font-size:13px;display:none}
+.toolbar{display:flex;gap:8px;margin:12px 0;align-items:center;flex-wrap:wrap}
+.hide{display:none}
+.modes{display:flex;gap:10px;margin:10px 0}
+.mode{flex:1;border:2px solid var(--line);border-radius:9px;padding:12px 14px;cursor:pointer;background:#fff;font-size:13px;line-height:1.5}
+.mode.on{border-color:var(--p);background:var(--tint)}
+.mode b{color:var(--pd)}
+.mode .rec{background:var(--gold);border-radius:8px;padding:1px 8px;font-size:11px;margin-left:6px}
+.roster{background:#f1f4f5;border-radius:8px;padding:10px 14px;margin-top:8px}
+.roster input[type=text]{padding:6px;border:1px solid var(--line);border-radius:6px;width:340px;font-family:inherit}
+details.rub{border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin:10px 0;background:#fff}
+details.rub summary{cursor:pointer;color:var(--pd);font-weight:bold}
+details.rub table{margin-top:8px}
+details.rub td,details.rub th{font-size:12px;position:static}
+footer{text-align:center;color:var(--muted);font-size:12px;padding:20px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🧑‍🏫 수업도우미 — 과정 중심 평가</h1>
+  <span class="sub">평가 설계부터 검수·분석까지 한 화면에서 (AI는 초안, 최종 판단은 교사)</span>
+  <div class="steps"><span class="step" id="st0">⓪ 설계</span><span class="step on" id="st1">① 파일</span><span class="step" id="st2">② 열 매핑</span><span class="step" id="st3">③ 검수</span><span class="step" id="st4">④ 내보내기</span></div>
+</header>
+<main>
+
+<div class="card" id="secApi">
+  <h2>🔑 AI 연결 (Claude · Gemini) <span class="hint">— 선택. 키를 넣으면 루브릭 생성·채점·세특 초안을 AI가 자동으로 해 줍니다. 키가 없어도 프롬프트 복사 방식으로 모두 사용할 수 있습니다.</span></h2>
+  <div class="toolbar">
+    <select id="apiProv" style="padding:8px;border:1px solid var(--line);border-radius:7px;font-family:inherit">
+      <option value="gemini">Gemini (무료 키 가능)</option>
+      <option value="anthropic">Claude (유료 · 채점 품질 우선)</option>
+    </select>
+    <input type="password" id="apiKey" placeholder="AIza..." autocomplete="off" style="flex:1;min-width:220px;padding:8px;border:1px solid var(--line);border-radius:7px;font-family:inherit">
+    <select id="apiModel" style="padding:8px;border:1px solid var(--line);border-radius:7px;font-family:inherit"></select>
+    <button id="keySave" class="sec">키 저장</button>
+    <button id="keyClear" class="ghost">키 지우기</button>
+    <span id="keyState" class="hint"></span>
+  </div>
+  <p class="hint" id="provHint"></p>
+  <p class="hint">🔒 키는 <b>이 브라우저(localStorage)에만</b> 저장됩니다 — 이 파일이나 깃허브·노션 어디에도 올라가지 않습니다. 키를 코드나 문서에 직접 붙여넣지 말고, 공용 PC에서는 사용 후 [키 지우기]를 눌러 주세요. AI 채점 시 학생 글(학번 제외)이 선택한 AI 서비스로 전송되므로 학교·교육청 지침을 확인하세요.</p>
+</div>
+
+<div class="card" id="secDesign">
+  <h2>⓪ 평가 설계 <span class="hint">— 성취기준을 골라 루브릭을 만들고 승인하면 검수 화면의 채점 기준이 됩니다. 이미 루브릭이 있으면 건너뛰어도 됩니다.</span></h2>
+  <div class="row" style="gap:16px">
+    <label>학년군
+      <select id="dBand" style="padding:6px;border:1px solid var(--line);border-radius:6px;font-family:inherit">
+        <option value="e34">초등 3~4학년</option><option value="e56">초등 5~6학년</option>
+        <option value="mid">중학교</option><option value="high">고등학교</option>
+      </select></label>
+    <label>과목
+      <select id="dSubj" style="padding:6px;border:1px solid var(--line);border-radius:6px;font-family:inherit">
+        <option value="kor">국어</option><option value="soc">사회</option>
+      </select></label>
+    <span class="hint">다른 과목은 추후 추가 예정</span>
+  </div>
+  <div id="dStds" style="margin:10px 0;max-height:180px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px 12px;background:#fff"></div>
+  <label class="hint">수업 내용 코멘트 (기사 주제·활동 형태·강조점 — 루브릭과 AI 프롬프트에 반영)</label>
+  <textarea id="dComment" style="width:100%;height:56px;border:1px solid var(--line);border-radius:7px;padding:8px;font-family:inherit;font-size:13px" placeholder="예: 학교 앞 교통안전 기사를 읽고 노션 폼으로 의견쓰기. 근거 문장 쓰기를 강조하고 싶음."></textarea>
+  <div class="toolbar">
+    <button id="dGen">기본 루브릭 만들기</button>
+    <button id="dGenAI" class="sec hide">✨ AI로 루브릭 만들기</button>
+    <button id="dPrompt" class="sec">🤖 AI 프롬프트 복사 (챗봇에 붙여넣기)</button>
+    <button id="dPasteBtn" class="ghost">AI 결과 붙여넣어 가져오기</button>
+  </div>
+  <textarea id="dPaste" class="hide" style="width:100%;height:90px;border:1px solid var(--line);border-radius:7px;padding:8px;font-size:12px;font-family:inherit" placeholder="챗봇이 만들어 준 루브릭 표(| 영역 | 4점 | 3점 | 2점 | 1점 | 형식)를 그대로 붙여넣고 아래 [표 적용]을 누르세요"></textarea>
+  <button id="dApplyPaste" class="ghost hide" style="margin-top:6px">표 적용</button>
+  <div id="dEditor" class="hide" style="margin-top:12px"></div>
+  <div id="dScoreTable" style="margin-top:10px"></div>
+  <div class="toolbar hide" id="dApproveBar">
+    <button id="dApprove" style="background:var(--ok)">✔ 이 루브릭 승인 (검수 기준으로 확정)</button>
+    <span id="dApproved" class="hint"></span>
+  </div>
+</div>
+
+<div class="card" id="secLoad">
+  <h2>① 평가 결과 CSV 올리기</h2>
+  <p class="hint">노션 「평가 결과 관리」 DB의 CSV 내보내기 파일, 구글폼 응답 시트 CSV, 또는 표를 복사해 붙여넣어도 됩니다. UTF-8·EUC-KR(엑셀 저장 CSV) 모두 지원합니다.</p>
+  <div id="drop" style="margin-top:10px">📄 여기로 CSV 파일을 끌어다 놓거나 클릭해서 선택하세요<input type="file" id="file" accept=".csv,.txt" style="display:none"></div>
+  <textarea id="paste" placeholder="또는 시트/표 내용을 복사해 여기에 붙여넣기 (탭·쉼표 구분 모두 인식)"></textarea>
+  <div class="toolbar">
+    <button id="btnPaste" class="sec">붙여넣은 내용 불러오기</button>
+    <button id="btnSample" class="ghost">샘플 데이터로 체험</button>
+    <button id="btnResume" class="ghost hide">이전 검수 이어서 하기</button>
+  </div>
+</div>
+
+<div class="card hide" id="secMap">
+  <h2>② 열 매핑 확인</h2>
+  <p class="hint">먼저 <b>편한 방식</b>을 골라 주세요. 파일을 보고 알맞은 쪽을 추천해 드립니다.</p>
+  <div class="modes">
+    <label class="mode" id="modeA"><input type="radio" name="mode" value="a" style="margin-right:4px"><b>(a) 노션 연동</b><span class="rec hide" id="recA">추천</span><br>
+      노션 「평가 결과 관리」 내보내기 CSV를 불러와 <b>AI 점수·피드백을 검수</b>하고, 결과 파일을 노션에 다시 반영합니다.</label>
+    <label class="mode" id="modeB"><input type="radio" name="mode" value="b" style="margin-right:4px"><b>(b) 연동 없이 바로 평가</b><span class="rec hide" id="recB">추천</span><br>
+      학번과 글만 있으면 됩니다. 화면의 <b>루브릭 기준을 보며 교사가 직접 채점</b>해 바로 결과표·분석표를 받습니다.</label>
+  </div>
+  <p class="hint">자동으로 찾은 열입니다. 다르면 바꿔 주세요. (b)를 고르면 AI 점수 열은 사용하지 않습니다.</p>
+  <div class="maps" id="maps"></div>
+  <div class="roster">
+    <b style="color:var(--pd)">학생 명단 (선택)</b> <span class="hint">— 입력하면 미제출 학생을 찾아 분석표 맨 위에 정리합니다.</span><br>
+    <input type="text" id="rosterIn" placeholder="예: S001-S030  또는  S001, S002, S003 …  (범위·쉼표·줄바꿈 모두 인식)" style="margin-top:6px">
+    <button class="sec" id="btnRoster" style="margin-left:6px">명단 적용</button>
+    <span class="hint" id="rosterInfo"></span>
+  </div>
+  <div class="toolbar">
+    <label class="hint">점수 척도:
+      <select id="scale"><option value="4">1~4점 (총 12점 · 스킬 기본)</option><option value="5">0~5점 (총 15점 · 패키지)</option></select>
+    </label>
+    <button id="btnGo">이 매핑으로 검수 시작 →</button>
+  </div>
+</div>
+
+<div class="card hide" id="secReview">
+  <h2>③ 검수 <span class="hint">— 점수를 고치면 조정 이유를 적어 주세요. 검수 완료에 체크된 행만 확정으로 내보내집니다.</span></h2>
+  <details class="rub" id="rubricPanel">
+    <summary>📏 채점 기준 — (b) 모드에서는 이 기준을 보며 채점하세요</summary>
+    <div id="rubApproved" class="hide"></div>
+    <div id="rubDefault">
+    <table>
+      <tr><th>평가 영역</th><th>4점 매우 잘함</th><th>3점 잘함</th><th>2점 노력 필요</th><th>1점 더 연습 필요</th></tr>
+      <tr><td><b>① 기사 내용 이해</b></td><td>핵심 내용과 중요한 정보를 정확하게 이해하고 글에서 구체적으로 활용</td><td>핵심 내용을 대체로 정확하게 이해하고 활용</td><td>일부만 이해, 핵심 내용·정보 활용 부족</td><td>잘못 이해했거나 기사 관련 내용이 거의 없음</td></tr>
+      <tr><td><b>② 기사와 생각 연결</b></td><td>기사와 자신의 생각·경험·지식을 구체적으로 비교하고 관계를 분명히 설명</td><td>기사와 자신의 생각을 자연스럽게 연결</td><td>생각은 있으나 기사와의 연결·비교가 약함</td><td>생각과 기사 내용의 관계가 거의 없음</td></tr>
+      <tr><td><b>③ 생각 표현</b></td><td>의견이 분명하고 구체적 이유·근거로 논리적·설득력 있게 표현</td><td>의견과 이유를 비교적 분명하게 표현</td><td>의견은 있으나 이유·근거가 부족</td><td>의견이 불분명하거나 이유·근거가 거의 없음</td></tr>
+    </table>
+    <p class="hint" style="margin-top:6px">핵심 원칙: 찬성/반대 '입장'이 아니라 기사와 '의미 있게 연결했는가'를 평가합니다. 근거가 없으면 낮은 점수(관대한 채점 금지). 다른 루브릭을 쓰는 수업이라면 이 표는 참고용입니다.</p>
+    </div>
+  </details>
+  <div id="summary"></div>
+  <div id="warnBox"></div>
+  <div class="toolbar">
+    <button class="sec hide" id="btnAiScore">🤖 AI 자동 채점 + 피드백·세특 초안</button>
+    <span id="aiProg" class="hint"></span>
+    <button class="ghost" id="btnFlagOnly">⚠ 우선 검토만 보기</button>
+    <button class="ghost" id="btnAll">전체 보기</button>
+    <button class="ghost" id="btnAllDone">남은 행 모두 검수 완료로</button>
+    <span class="hint">글을 클릭하면 전체가 펼쳐집니다 · 입력 내용은 이 브라우저에 자동 저장됩니다</span>
+  </div>
+  <div style="max-height:640px;overflow:auto;border:1px solid var(--line);border-radius:8px">
+  <table id="tbl"></table>
+  </div>
+</div>
+
+<div class="card hide" id="secExport">
+  <h2>④ 내보내기</h2>
+  <div class="toolbar">
+    <button id="btnCsv">📥 검수 결과 CSV (엑셀·구글시트용)</button>
+    <button id="btnAnalysis" class="sec">📊 학급 분석표 CSV</button>
+    <button id="btnFwd" class="sec">🧭 평가 포워드 모음 (복사)</button>
+    <button id="btnJson" class="ghost">진행 상태 파일 저장(.json)</button>
+    <label class="ghost" style="padding:8px 14px;border-radius:7px;background:#eef2f3;cursor:pointer">진행 상태 불러오기<input type="file" id="jsonIn" accept=".json" style="display:none"></label>
+    <button id="btnReset" class="ghost" style="color:var(--warn)">전체 초기화</button>
+  </div>
+  <p class="hint">검수 결과 CSV에는 원본 정보 + 교사 점수·최종 총점·성취수준·피드백·평가 포워드·조정 이유·검수 상태가 담깁니다. 노션에 반영하려면 이 파일을 가져오기 하거나, 값을 복사해 넣으면 됩니다.</p>
+</div>
+
+</main>
+<footer>과정 중심 평가를 위한 수업도우미 v0.5 — API 키와 학생 정보는 이 PC에만 저장됩니다. AI 채점을 켠 경우에만 학생 글(학번 제외)이 선택한 AI(Claude/Gemini)로 전송됩니다.</footer>
+
+<script>
+"use strict";
+// ---------- 상태 ----------
+let raw = {headers: [], rows: []};   // 파싱된 CSV
+let map = {};                        // 필드 → 열 인덱스
+let recs = [];                       // 검수 레코드
+let scaleMax = 4;                    // 4(1~4) 또는 5(0~5)
+let manualMode = false;              // AI 점수 없이 채점
+let mode = "a";                      // a=노션 연동, b=연동 없이 바로 평가
+let roster = [];                     // 학생 명단 (선택)
+const AREAS = [["u","이해"],["c","연결"],["e","표현"]];
+const LS = "sudoumi_review_v1";
+
+// ---------- CSV 파서 (따옴표·개행 처리) ----------
+function parseCSV(text){
+  const d = text.includes("\t") && !text.split("\n")[0].includes(",") ? "\t" : ",";
+  const rows=[]; let row=[], cell="", q=false;
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(q){ if(ch==='"'){ if(text[i+1]==='"'){cell+='"';i++;} else q=false; } else cell+=ch; }
+    else if(ch==='"') q=true;
+    else if(ch===d){ row.push(cell); cell=""; }
+    else if(ch==="\n"||ch==="\r"){ if(ch==="\r"&&text[i+1]==="\n") i++; row.push(cell); cell="";
+      if(row.some(c=>c.trim()!=="")) rows.push(row); row=[]; }
+    else cell+=ch;
+  }
+  if(cell!==""||row.length){ row.push(cell); if(row.some(c=>c.trim()!=="")) rows.push(row); }
+  if(!rows.length) return null;
+  return {headers: rows[0].map(h=>h.trim()), rows: rows.slice(1)};
+}
+function decodeFile(file, cb){
+  const fr=new FileReader();
+  fr.onload=()=>{ const buf=fr.result;
+    let txt=new TextDecoder("utf-8",{fatal:false}).decode(buf);
+    if((txt.match(/�/g)||[]).length>2){ try{ txt=new TextDecoder("euc-kr").decode(buf);}catch(e){} }
+    cb(txt.replace(/^﻿/,"")); };
+  fr.readAsArrayBuffer(file);
+}
+
+// ---------- 열 자동 매핑 ----------
+const FIELDS=[
+  ["id","학번(ID)",true, ["학번","학생 id","학생id","학생 번호","학생번호","번호","이름을 찾아","student"]],
+  ["text","글(댓글·의견)",true, ["댓글","의견","나의 의견","글","응답","내용","comment"]],
+  ["article","기사",false, ["기사","읽은 기사","제목을 찾아"]],
+  ["au","AI 이해",false, ["ai 이해","ai이해"]],
+  ["ac","AI 연결",false, ["ai 연결","ai연결"]],
+  ["ae","AI 표현",false, ["ai 표현","ai표현"]],
+  ["fb","피드백",false, ["피드백","feedback"]],
+  ["fwd","평가 포워드",false, ["평가 포워드","포워드","다음"]],
+];
+function autoMap(){
+  map={};
+  const hs=raw.headers.map(h=>h.toLowerCase());
+  for(const [key,,,cands] of FIELDS){
+    let idx=-1;
+    for(const c of cands){ idx=hs.findIndex(h=>h.includes(c.toLowerCase())); if(idx>=0) break; }
+    map[key]=idx;
+  }
+  // 교사 열 오인 방지: '교사'가 들어간 열은 AI 매핑에서 제외
+  for(const k of ["au","ac","ae"]) if(map[k]>=0 && hs[map[k]].includes("교사")) map[k]=-1;
+}
+function renderMaps(){
+  const box=document.getElementById("maps"); box.innerHTML="";
+  for(const [key,label,req] of FIELDS){
+    const div=document.createElement("div");
+    const opts=['<option value="-1">— 없음 —</option>']
+      .concat(raw.headers.map((h,i)=>`<option value="${i}" ${map[key]===i?"selected":""}>${esc(h)}</option>`)).join("");
+    div.innerHTML=`<label class="${req?"req":""}">${label}</label><select data-k="${key}">${opts}</select>`;
+    box.appendChild(div);
+  }
+  box.querySelectorAll("select").forEach(s=>s.onchange=()=>{ map[s.dataset.k]=parseInt(s.value); });
+}
+
+// ---------- 레코드 구성 ----------
+function toInt(v){ const n=parseInt(String(v).trim()); return isNaN(n)?null:n; }
+function buildRecs(){
+  manualMode = mode==="b" || (map.au<0 && map.ac<0 && map.ae<0);
+  recs = raw.rows.map((r,i)=>{
+    const g=k=> map[k]>=0 ? (r[map[k]]||"").trim() : "";
+    const useAI = !(mode==="b");
+    const rec={ i, id:g("id"), article:g("article"), text:g("text"),
+      ai: useAI ? {u:toInt(g("au")),c:toInt(g("ac")),e:toInt(g("ae"))} : {u:null,c:null,e:null},
+      t:{u:null,c:null,e:null}, fb:g("fb"), fwd:g("fwd"), sepc:"", evid:"", aiLow:false, reason:"", done:false };
+    for(const [k] of AREAS) rec.t[k]=rec.ai[k]; // 기본값 = AI 점수
+    return rec;
+  }).filter(r=>r.id||r.text);
+  // 척도 자동 감지
+  const maxSeen=Math.max(0,...recs.flatMap(r=>[r.ai.u,r.ai.c,r.ai.e].filter(v=>v!=null)));
+  if(maxSeen>4){ scaleMax=5; document.getElementById("scale").value="5"; }
+}
+function total(r){ let s=0,n=0; for(const [k] of AREAS){ if(r.t[k]!=null){s+=r.t[k];n++;} } return n?s:null; }
+function level(tot){
+  if(tot==null) return ["-",""];
+  if(scaleMax===4){ if(tot>=10)return["매우 잘함","l4"]; if(tot>=7)return["잘함","l3"]; if(tot>=4)return["보통","l2"]; return["노력요함","l1"]; }
+  else { if(tot>=13)return["매우 잘함","l4"]; if(tot>=9)return["잘함","l3"]; if(tot>=5)return["보통","l2"]; return["노력요함","l1"]; }
+}
+function isFlag(r){
+  const v=[r.ai.u,r.ai.c,r.ai.e].filter(x=>x!=null);
+  const gap=v.length>1 && (Math.max(...v)-Math.min(...v))>=2;
+  return gap || (r.text||"").length<15 || !!r.aiLow;
+}
+function isAdjusted(r){ return AREAS.some(([k])=>r.ai[k]!=null && r.t[k]!==r.ai[k]); }
+
+// ---------- 검수 테이블 ----------
+let flagOnly=false;
+function renderTable(){
+  const tb=document.getElementById("tbl");
+  const scHint = scaleMax===4?"1~4":"0~5";
+  let html=`<tr><th>학번</th><th>기사</th><th style="min-width:260px">글</th>
+    <th>AI 점수<br>(이해·연결·표현)</th><th>교사 점수 (${scHint})</th><th>총점</th><th>성취수준</th>
+    <th style="min-width:220px">피드백</th><th style="min-width:150px">평가 포워드</th>
+    <th style="min-width:170px">세특 초안</th>
+    <th style="min-width:140px">조정 이유</th><th>검수</th></tr>`;
+  recs.forEach(r=>{
+    if(flagOnly && !isFlag(r)) return;
+    const tot=total(r), [lv,cls]=level(tot);
+    const aiTxt = manualMode? '<span class="ai">수기 채점</span>' :
+      AREAS.map(([k,n])=>`<span class="ai">${n} ${r.ai[k]??"-"}</span>`).join("");
+    html+=`<tr data-i="${r.i}" class="${r.done?"done":""} ${isFlag(r)?"flag":""}">
+      <td><b>${esc(r.id)}</b>${isFlag(r)?' <span class="badge">⚠</span>':""}</td>
+      <td>${esc(r.article)}</td>
+      <td><div class="txt" onclick="this.classList.toggle('open')">${esc(r.text)}</div></td>
+      <td>${aiTxt}</td>
+      <td>${AREAS.map(([k,n])=>`<input class="sc ${r.ai[k]!=null&&r.t[k]!==r.ai[k]?"adj":""}" data-k="${k}" type="number" min="${scaleMax===4?1:0}" max="${scaleMax}" value="${r.t[k]??""}" title="${n}">`).join("")}</td>
+      <td style="text-align:center;font-weight:bold">${tot??"-"}</td>
+      <td class="lv ${cls}">${lv}</td>
+      <td><textarea data-f="fb">${esc(r.fb)}</textarea></td>
+      <td><textarea data-f="fwd" style="min-height:40px">${esc(r.fwd)}</textarea></td>
+      <td><textarea data-f="sepc" style="min-height:40px" placeholder="AI 채점 시 자동 생성">${esc(r.sepc||"")}</textarea></td>
+      <td><input type="text" data-f="reason" value="${esc(r.reason)}" placeholder="점수 조정 시 필수"></td>
+      <td style="text-align:center"><input type="checkbox" data-f="done" ${r.done?"checked":""}></td>
+    </tr>`;
+  });
+  tb.innerHTML=html;
+  tb.querySelectorAll("tr[data-i]").forEach(tr=>{
+    const r=recs.find(x=>x.i==tr.dataset.i);
+    tr.querySelectorAll("input.sc").forEach(inp=>inp.onchange=()=>{
+      let v=toInt(inp.value);
+      if(v!=null){ v=Math.max(scaleMax===4?1:0, Math.min(scaleMax, v)); inp.value=v; }
+      r.t[inp.dataset.k]=v; refreshRow(tr,r); save();
+    });
+    tr.querySelectorAll("[data-f]").forEach(el=>el.onchange=()=>{
+      if(el.dataset.f==="done") r.done=el.checked; else r[el.dataset.f]=el.value;
+      refreshRow(tr,r); save();
+    });
+  });
+  renderSummary();
+  updateKeyUI();
+}
+function refreshRow(tr,r){
+  const tot=total(r), [lv,cls]=level(tot);
+  tr.children[5].textContent=tot??"-";
+  tr.children[6].textContent=lv; tr.children[6].className="lv "+cls;
+  tr.className=(r.done?"done ":"")+(isFlag(r)?"flag":"");
+  tr.querySelectorAll("input.sc").forEach(inp=>{
+    inp.classList.toggle("adj", r.ai[inp.dataset.k]!=null && r.t[inp.dataset.k]!==r.ai[inp.dataset.k]);
+  });
+  renderSummary();
+}
+function renderSummary(){
+  const n=recs.length, done=recs.filter(r=>r.done).length;
+  const avg=k=>{ const v=recs.map(r=>r.t[k]).filter(x=>x!=null); return v.length?(v.reduce((a,b)=>a+b,0)/v.length).toFixed(1):"-"; };
+  const dist={"매우 잘함":0,"잘함":0,"보통":0,"노력요함":0};
+  recs.forEach(r=>{ const [lv]=level(total(r)); if(dist[lv]!=null) dist[lv]++; });
+  const mx=Math.max(1,...Object.values(dist));
+  const miss=missingStudents();
+  document.getElementById("summary").innerHTML=
+    `<div class="stat"><b>${n}</b><span>제출 인원${roster.length?` / 명단 ${roster.length}`:""}</span></div>
+     ${miss!==null?`<div class="stat" style="background:${miss.length?"var(--warnbg)":"var(--okbg)"}"><b>${miss.length}</b><span>미제출${miss.length?` — ${miss.slice(0,8).join(", ")}${miss.length>8?" 외":""}`:""}</span></div>`:""}
+     <div class="stat"><b>${done} / ${n}</b><span>검수 완료</span></div>
+     <div class="stat"><b>${avg("u")} · ${avg("c")} · ${avg("e")}</b><span>평균 (이해·연결·표현)</span></div>
+     <div class="stat"><span>성취수준 분포</span><div class="dist">${
+       Object.entries(dist).map(([k,v])=>`<div style="height:${8+38*v/mx}px"><i>${v}</i><u>${k.slice(0,2)}</u></div>`).join("")
+     }</div></div>`;
+  // 경고: 조정했는데 이유 없음
+  const missing=recs.filter(r=>isAdjusted(r)&&!r.reason.trim());
+  const wb=document.getElementById("warnBox");
+  if(missing.length){ wb.style.display="block";
+    wb.innerHTML=`⚠️ 점수를 조정했지만 <b>조정 이유가 비어 있는 행 ${missing.length}건</b>: `+missing.map(r=>esc(r.id)).join(", ");
+  } else wb.style.display="none";
+}
+
+// ---------- 내보내기 ----------
+function csvCell(v){ v=String(v??""); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }
+function download(name, text){
+  const blob=new Blob(["﻿"+text],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name; a.click();
+}
+function exportCsv(){
+  const head=["학번","기사","글","AI 이해","AI 연결","AI 표현","AI 총점","교사 이해","교사 연결","교사 표현","최종 총점","성취수준","피드백","평가 포워드","세특 초안","AI 채점 근거","조정 이유","검수 상태"];
+  const lines=[head.join(",")];
+  recs.forEach(r=>{
+    const aiTot=[r.ai.u,r.ai.c,r.ai.e].every(v=>v!=null)?r.ai.u+r.ai.c+r.ai.e:"";
+    lines.push([r.id,r.article,r.text,r.ai.u??"",r.ai.c??"",r.ai.e??"",aiTot,
+      r.t.u??"",r.t.c??"",r.t.e??"",total(r)??"",level(total(r))[0],r.fb,r.fwd,r.sepc||"",r.evid||"",r.reason,
+      r.done?"검수 완료":"대기"].map(csvCell).join(","));
+  });
+  download("검수결과.csv", lines.join("\n"));
+}
+function exportAnalysis(){
+  const n=recs.length, done=recs.filter(r=>r.done).length, adj=recs.filter(isAdjusted).length;
+  const avg=k=>{ const v=recs.map(r=>r.t[k]).filter(x=>x!=null); return v.length?(v.reduce((a,b)=>a+b,0)/v.length).toFixed(2):""; };
+  const dist={"매우 잘함":0,"잘함":0,"보통":0,"노력요함":0};
+  recs.forEach(r=>{ const [lv]=level(total(r)); if(dist[lv]!=null) dist[lv]++; });
+  const areas=[["이해",avg("u")],["연결",avg("c")],["표현",avg("e")]].filter(a=>a[1]!=="");
+  const weakest=areas.length?areas.reduce((a,b)=>parseFloat(a[1])<=parseFloat(b[1])?a:b)[0]:"-";
+  const low=recs.filter(r=>{const[lv]=level(total(r));return lv==="보통"||lv==="노력요함";}).map(r=>r.id);
+  const miss=missingStudents();
+  const L=[];
+  L.push("구분,내용");
+  if(miss!==null){
+    L.push(`학급 명단 인원,${roster.length}`);
+    L.push(`미제출 인원,${miss.length}`);
+    L.push(csvCell("미제출 학생")+","+csvCell(miss.join(" ")||"없음"));
+  }
+  L.push(`제출 인원,${n}`); L.push(`검수 완료,${done}`); L.push(`점수 조정 건수,${adj}`);
+  L.push(`영역 평균(이해/연결/표현),${avg("u")} / ${avg("c")} / ${avg("e")}`);
+  Object.entries(dist).forEach(([k,v])=>L.push(`성취수준 ${k},${v}명`));
+  L.push(csvCell("가장 부족한 영역")+","+csvCell(weakest+" — 다음 수업에서 이 영역을 여는 활동(문장 틀·기사 인용 연습 등)을 우선 배치"));
+  L.push(csvCell("보통 이하 학생")+","+csvCell(low.join(" ")||"없음"));
+  L.push(csvCell("다음 수업 제안")+","+csvCell("평가 포워드 모음을 함께 읽고, 부족 영역 문장 한 가지를 전체 목표로 제시"));
+  download("학급분석표.csv", L.join("\n"));
+}
+function copyForwards(){
+  const t=recs.filter(r=>r.fwd).map(r=>`${r.id}: ${r.fwd}`).join("\n");
+  navigator.clipboard.writeText(t).then(()=>alert("평가 포워드 "+recs.filter(r=>r.fwd).length+"건을 복사했습니다."));
+}
+
+// ---------- 저장/복원 ----------
+function save(){ try{ localStorage.setItem(LS, JSON.stringify({raw,map,recs,scaleMax,manualMode,mode,roster})); }catch(e){} }
+function restore(){ try{ const d=JSON.parse(localStorage.getItem(LS)); if(d&&d.recs&&d.recs.length){ return d; } }catch(e){} return null; }
+
+// ---------- 흐름 ----------
+function esc(s){ return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function loaded(text){
+  const p=parseCSV(text);
+  if(!p||!p.rows.length){ alert("표를 읽지 못했습니다. CSV 형식을 확인해 주세요."); return; }
+  raw=p; autoMap(); renderMaps();
+  // 모드 추천: AI 점수 열이 있으면 (a), 없으면 (b)
+  const hasAI = map.au>=0 || map.ac>=0 || map.ae>=0;
+  setMode(hasAI ? "a" : "b");
+  document.getElementById("recA").classList.toggle("hide", !hasAI);
+  document.getElementById("recB").classList.toggle("hide", hasAI);
+  show("secMap"); mark(2);
+}
+function setMode(m){
+  mode=m;
+  document.querySelector(`input[name=mode][value=${m}]`).checked=true;
+  document.getElementById("modeA").classList.toggle("on", m==="a");
+  document.getElementById("modeB").classList.toggle("on", m==="b");
+}
+function parseRoster(text){
+  text=(text||"").trim(); if(!text) return [];
+  const range=text.match(/^([A-Za-z]*)(\d+)\s*[-~]\s*([A-Za-z]*)(\d+)$/);
+  if(range){
+    const pre=range[1], a=parseInt(range[2]), b=parseInt(range[4]), w=range[2].length, out=[];
+    for(let n=Math.min(a,b);n<=Math.max(a,b);n++) out.push(pre+String(n).padStart(w,"0"));
+    return out;
+  }
+  return text.split(/[\s,;]+/).filter(Boolean);
+}
+function missingStudents(){
+  if(!roster.length) return null;
+  const submitted=new Set(recs.map(r=>String(r.id).trim()));
+  return roster.filter(id=>!submitted.has(String(id).trim()));
+}
+function startReview(){
+  if(map.id<0||map.text<0){ alert("학번과 글 열은 반드시 지정해야 합니다."); return; }
+  scaleMax=parseInt(document.getElementById("scale").value);
+  buildRecs();
+  if(!recs.length){ alert("읽을 수 있는 행이 없습니다."); return; }
+  show("secReview"); show("secExport"); mark(3);
+  document.getElementById("rubricPanel").open = (mode==="b");
+  renderTable(); save();
+}
+function show(id){ document.getElementById(id).classList.remove("hide"); }
+function mark(n){ for(let i=1;i<=4;i++) document.getElementById("st"+i).classList.toggle("on", i<=n); }
+
+// ---------- 이벤트 ----------
+const drop=document.getElementById("drop"), fileIn=document.getElementById("file");
+drop.onclick=()=>fileIn.click();
+drop.ondragover=e=>{e.preventDefault();drop.classList.add("over");};
+drop.ondragleave=()=>drop.classList.remove("over");
+drop.ondrop=e=>{e.preventDefault();drop.classList.remove("over"); if(e.dataTransfer.files[0]) decodeFile(e.dataTransfer.files[0], loaded);};
+fileIn.onchange=()=>{ if(fileIn.files[0]) decodeFile(fileIn.files[0], loaded); };
+document.getElementById("btnPaste").onclick=()=>{ const t=document.getElementById("paste").value.trim(); if(t) loaded(t); };
+document.querySelectorAll("input[name=mode]").forEach(r=>r.onchange=()=>setMode(r.value));
+document.getElementById("btnRoster").onclick=()=>{
+  roster=parseRoster(document.getElementById("rosterIn").value);
+  document.getElementById("rosterInfo").textContent = roster.length? ` ✓ ${roster.length}명 등록 (${roster[0]} ~ ${roster[roster.length-1]})` : " 명단이 비어 있습니다";
+  if(recs.length){ renderSummary(); save(); }
+};
+document.getElementById("btnGo").onclick=startReview;
+document.getElementById("btnFlagOnly").onclick=()=>{flagOnly=true;renderTable();};
+document.getElementById("btnAll").onclick=()=>{flagOnly=false;renderTable();};
+document.getElementById("btnAllDone").onclick=()=>{ recs.forEach(r=>r.done=true); renderTable(); save(); };
+document.getElementById("btnCsv").onclick=exportCsv;
+document.getElementById("btnAnalysis").onclick=exportAnalysis;
+document.getElementById("btnFwd").onclick=copyForwards;
+document.getElementById("btnJson").onclick=()=>{
+  const blob=new Blob([JSON.stringify({raw,map,recs,scaleMax,manualMode,mode,roster})],{type:"application/json"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="검수진행상태.json"; a.click();
+};
+document.getElementById("jsonIn").onchange=e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const fr=new FileReader(); fr.onload=()=>{ try{
+    const d=JSON.parse(fr.result); raw=d.raw; map=d.map; recs=d.recs; scaleMax=d.scaleMax; manualMode=d.manualMode; mode=d.mode||"a"; roster=d.roster||[];
+    show("secMap"); renderMaps(); setMode(mode); show("secReview"); show("secExport"); mark(3); renderTable(); save();
+  }catch(err){ alert("파일을 읽지 못했습니다."); } }; fr.readAsText(f);
+};
+document.getElementById("btnReset").onclick=()=>{ if(confirm("모든 검수 내용을 지우고 처음부터 시작할까요?")){ localStorage.removeItem(LS); location.reload(); } };
+document.getElementById("btnSample").onclick=()=>{
+  document.getElementById("rosterIn").value="S001-S008";
+  roster=parseRoster("S001-S008");
+  document.getElementById("rosterInfo").textContent=" ✓ 8명 등록 (S001 ~ S008)";
+  loaded(`학번을 작성해 봅니다. ,기사 제목을 찾아 봅니다.,댓글,AI 이해,AI 연결,AI 표현,피드백,평가 포워드
+S001,학교 앞 어린이 교통사고,"기사에서 사고가 늘었다고 했다. 나도 등굣길에 위험했던 적이 있어서 신호등이 더 필요하다고 생각한다.",4,3,3,기사 내용을 잘 활용했어요. 까닭을 한 가지 더 보태 보세요.,반대 의견도 생각해 보면 어떨까요?
+S002,학교 앞 어린이 교통사고,좋은 기사인 것 같다.,1,1,1,기사에서 알게 된 내용을 한 문장 넣어 보세요.,기사 속 숫자를 하나 찾아 써 볼까요?
+S003,일회용 플라스틱 사용,"나는 매점에서 개인 컵을 쓰면 좋겠다. 왜냐하면 우리가 매일 쓰는 컵부터 줄일 수 있기 때문이다.",3,4,4,주장과 까닭이 분명해요.,학교에 제안하는 글로 발전시켜 볼까요?
+S004,일회용 플라스틱 사용,"플라스틱은 나쁘다. 쓰지 말자. 쓰지 말자.",2,1,4,생각은 분명해요. 기사 내용과 연결해 보세요.,기사에서 근거 한 가지를 찾아볼까요?
+S005,학교 앞 어린이 교통사고,,,,,글이 비어 있어요. 다시 써 봅시다.,
+S006,일회용 플라스틱 사용,"기사를 읽고 우리 반 분리수거가 떠올랐다. 분리수거만 잘해도 쓰레기가 줄어든다고 했으니 우리 반 규칙을 만들자고 제안하고 싶다.",4,4,3,경험과 기사를 잘 연결했어요.,규칙 초안을 직접 써 보면 어떨까요?`);
+};
+// ---------- ⓪ 평가 설계 ----------
+const el=id=>document.getElementById(id);
+const STD_DATA={
+ kor:{
+  e34:[["4국02-04","글을 읽고 사실과 의견을 구분하며, 필자와 자신의 의견을 비교한다."],["4국02-05","글의 출처가 믿을 만한지 판단하며 읽는다."],["4국03-03","자신의 의견과 이유가 드러나는 글을 쓴다."]],
+  e56:[["6국02-01","글의 주제와 주장을 파악하며 요약한다."],["6국02-03","글 내용의 타당성과 표현의 적절성을 평가하며 읽는다."],["6국02-04","다양한 관점의 글을 비교하며 읽는다."],["6국03-02","근거와 출처를 밝혀 주장하는 글을 쓴다."],["6국06-02","뉴스·정보 매체 자료의 신뢰성을 평가한다."]],
+  mid:[["9국02-04","글과 자료의 타당성, 신뢰성, 표현의 적절성을 평가하며 읽는다."],["9국02-05","설명·논증 방법의 타당성을 평가하며 읽는다."],["9국02-06","동일한 화제의 여러 글을 주제 통합적으로 읽는다."],["9국03-03","타당한 근거를 들어 주장하는 글을 쓴다."],["9국03-04","의견 차이가 있는 사안에 대해 자료를 수집하여 주장하는 글을 쓴다."],["9국06-06","매체 자료의 공정성을 평가한다."]],
+  high:[["10공국1-02-01","논증의 타당성을 평가하고 자신의 관점으로 재구성한다."],["10공국1-03-01","사회적 쟁점에 대한 자신의 견해를 정교하게 표현한다."],["10공국1-06-01","사회적 의제를 다루는 매체 자료를 비판적으로 분석한다."],["10공국2-03-02","논증 요소에 따라 논증하는 글을 쓴다."],["12독작01-11","타당한 근거와 설득 전략을 활용하여 논증하는 글을 쓴다."]]
+ },
+ soc:{
+  e34:[["4사09-01","생활 주변의 문제를 합리적으로 해결하려는 태도를 기른다."]],
+  e56:[["6사08-03","미디어의 의미와 역할을 이해하고 미디어 내용을 비판적으로 분석한다."]],
+  mid:[["9사(일사)12-02","오늘날 주요 사회문제를 조사한다."],["9사(일사)12-03","사회문제 대응 사례를 검토하고 시민의 자세를 탐색한다."]],
+  high:[["10통사1/2","사회현상과 사회문제를 통합적으로 탐구한다."],["12사탐02-02","미디어 이용 과정의 문제를 탐구한다."],["12사탐04-01~04","사회문제를 선정하고 자료를 수집·분석하여 해결 방안을 제시한다."]]
+ }};
+const AREA_LIB={
+ und34:["기사 내용 이해",["기사의 핵심 내용과 중요한 정보를 정확하게 이해하고 글에서 구체적으로 활용한다","기사의 핵심 내용을 대체로 정확하게 이해하고 활용한다","기사 내용의 일부를 이해하고 있으나 핵심 내용이나 정보의 활용이 부족하다","기사 내용을 잘못 이해했거나 기사와 관련된 내용이 거의 나타나지 않는다"]],
+ con34:["기사와 자신의 생각 연결",["기사 내용과 자신의 생각·경험·지식을 구체적으로 비교하고 서로의 관계를 분명하게 설명한다","기사 내용과 자신의 생각을 자연스럽게 연결하여 표현한다","자신의 생각은 나타나지만 기사 내용과의 연결이나 비교가 약하다","자신의 생각과 기사 내용의 관계가 거의 나타나지 않는다"]],
+ exp34:["자신의 생각 표현",["자신의 의견이 분명하며 구체적인 이유나 근거를 들어 논리적이고 설득력 있게 표현한다","자신의 의견과 그 이유를 비교적 분명하게 표현한다","자신의 의견은 나타나지만 이유나 근거가 부족하거나 설명이 충분하지 않다","자신의 의견이 불분명하거나 이유·근거가 거의 나타나지 않는다"]],
+ und56:["기사 이해와 요약",["핵심 사건과 배경, 쟁점을 정확히 요약하고 사실과 의견을 구분한다","주요 내용을 대체로 정확히 요약한다","일부 내용은 파악했으나 핵심 쟁점이 흐리다","기사 내용을 단순 복사하거나 오해한다"]],
+ trust:["출처와 근거의 신뢰성 판단",["출처와 근거, 과장·누락 가능성을 구체적으로 짚어 신뢰성을 판단한다","출처와 근거의 신뢰성을 일부 판단한다","신뢰성 판단이 피상적이다","자료를 무비판적으로 수용한다"]],
+ argue:["근거를 들어 주장하기",["주장이 분명하고 기사 내용과 사례를 근거로 논리적으로 뒷받침한다","주장과 이유를 비교적 분명하게 표현한다","의견은 있으나 근거가 부족하거나 주장과의 관련이 약하다","주장이 불분명하거나 근거가 거의 없다"]],
+ civic:["시민적 관점·해결 지향",["사회적 영향과 다양한 관점, 실천 가능성을 균형 있게 고려한다","사회적 의미나 해결 방향을 제시한다","개인적 느낌에 머무르는 부분이 많다","사회적 관점이나 책임 의식이 드러나지 않는다"]]};
+const BAND_AREAS={e34:["und34","con34","exp34"],e56:["und56","con34","argue"],mid:["und56","trust","argue"],high:["und56","trust","argue","civic"]};
+const BAND_NAME={e34:"초등 3~4학년",e56:"초등 5~6학년",mid:"중학교",high:"고등학교"};
+const LS2="sudoumi_design_v1";
+let design=null, approved=null;
+
+function renderStds(){
+  const list=(STD_DATA[el("dSubj").value]||{})[el("dBand").value]||[];
+  el("dStds").innerHTML=list.length?list.map(([c,t],i)=>
+    `<label style="display:block;margin:4px 0"><input type="checkbox" class="stdck" value="${i}"> <b>[${esc(c)}]</b> ${esc(t)}</label>`).join("")
+    :'<span class="hint">이 학년군·과목의 성취기준 데이터가 아직 없습니다.</span>';
+  document.querySelectorAll(".stdck").forEach(c=>c.onchange=save2);
+}
+function selectedStds(){
+  const list=(STD_DATA[el("dSubj").value]||{})[el("dBand").value]||[];
+  return [...document.querySelectorAll(".stdck:checked")].map(c=>list[+c.value]).filter(Boolean);
+}
+function genRubric(){
+  const stds=selectedStds();
+  if(!stds.length){alert("성취기준을 1개 이상 선택해 주세요.");return;}
+  const band=el("dBand").value, joined=stds.map(s=>s[1]).join(" ");
+  let keys=[...BAND_AREAS[band]];
+  if(/신뢰|출처|공정/.test(joined)&&!keys.includes("trust")) keys[1]="trust";
+  if(/해결|사회문제|참여|시민/.test(joined)&&!keys.includes("civic")&&keys.length<4) keys.push("civic");
+  design={band,subj:el("dSubj").value,stds,comment:el("dComment").value.trim(),
+    areas:keys.map(k=>({name:AREA_LIB[k][0],desc:[...AREA_LIB[k][1]]}))};
+  renderEditor(); save2();
+}
+function renderEditor(){
+  if(!design){el("dEditor").classList.add("hide");el("dApproveBar").classList.add("hide");el("dScoreTable").innerHTML="";return;}
+  const heads=["4점 매우 잘함","3점 잘함","2점 노력 필요","1점 더 연습 필요"];
+  el("dEditor").classList.remove("hide");
+  el("dEditor").innerHTML=`<p class="hint">모든 칸을 직접 고칠 수 있습니다 · 적용 성취기준 ${design.stds.map(s=>"["+esc(s[0])+"]").join(" ")}${design.comment?" · 수업 코멘트: "+esc(design.comment):""}</p>
+   <table><tr><th style="width:150px">평가 영역</th>${heads.map(h=>`<th>${h}</th>`).join("")}</tr>
+   ${design.areas.map((a,i)=>`<tr><td><input type="text" class="aname" data-a="${i}" value="${esc(a.name)}" style="width:100%;padding:4px;border:1px solid var(--line);border-radius:5px;font-family:inherit;font-weight:bold"></td>${a.desc.map((d,j)=>`<td><textarea class="adesc" data-a="${i}" data-j="${j}" style="min-height:72px">${esc(d)}</textarea></td>`).join("")}</tr>`).join("")}</table>`;
+  el("dEditor").querySelectorAll(".aname").forEach(x=>x.onchange=()=>{design.areas[+x.dataset.a].name=x.value;renderScore();save2();});
+  el("dEditor").querySelectorAll(".adesc").forEach(x=>x.onchange=()=>{design.areas[+x.dataset.a].desc[+x.dataset.j]=x.value;save2();});
+  renderScore();
+  el("dApproveBar").classList.remove("hide");
+}
+function renderScore(){
+  if(!design){el("dScoreTable").innerHTML="";return;}
+  const N=design.areas.length,max=4*N;
+  const bins=[["매우 잘함",`${3*N+1}~${max}점`,"모든 영역의 수행이 뚜렷합니다","더 깊은 반론·대안 제시에 도전하게 합니다"],
+   ["잘함",`${2*N+1}~${3*N}점`,"대체로 갖추었으나 한 영역이 조금 약합니다","약한 영역 한 가지만 골라 보완하게 합니다"],
+   ["보통",`${N+1}~${2*N}점`,"생각은 있으나 기사 활용이나 근거가 부족합니다","기사 인용 문장과 '왜냐하면' 문장을 각각 1개씩 추가하게 합니다"],
+   ["노력요함",`${N}~${N}점`,"기사 내용과 의견이 거의 드러나지 않습니다","체크리스트를 보며 교사와 함께 한 문장씩 다시 씁니다"]];
+  el("dScoreTable").innerHTML=`<b style="color:var(--pd)">🧮 성취수준 점수표 (영역 ${N}개 · 총점 ${max}점)</b>
+   <table style="margin-top:6px"><tr><th>성취수준</th><th>총점 범위</th><th>학생 상태</th><th>다음 지도 방향</th></tr>
+   ${bins.map(b=>`<tr><td><b>${b[0]}</b></td><td>${b[1]}</td><td>${b[2]}</td><td>${b[3]}</td></tr>`).join("")}</table>`;
+}
+function buildPrompt(){
+  const stds=selectedStds();
+  if(!stds.length){alert("성취기준을 1개 이상 선택해 주세요.");return null;}
+  const cm=el("dComment").value.trim();
+  return `당신은 초·중등 과정 중심 평가 전문가입니다. 아래 성취기준에 맞는 신문기사 의견쓰기 평가 루브릭을 만들어 주세요.
+
+[대상] ${BAND_NAME[el("dBand").value]} · ${el("dSubj").value==="kor"?"국어":"사회"}
+[성취기준]
+${stds.map(s=>`- [${s[0]}] ${s[1]}`).join("\n")}
+${cm?`[수업 내용] ${cm}\n`:""}
+[지침]
+1. 성취기준 문장에서 평가 가능한 행동을 2~4개로 분해하고, 기본 3영역(기사 내용 이해 / 기사와 생각 연결 / 생각 표현)에 대응시키되 필요하면 영역을 교체·추가한다(영역 3~4개 유지).
+2. 학년군 수준에 맞게 기대 수준을 조정한다.
+3. 영역마다 4수준(4 매우 잘함 / 3 잘함 / 2 노력 필요 / 1 더 연습 필요)을 학생 글에서 관찰 가능한 증거로 서술한다.
+4. 찬성/반대 입장이 아니라 기사와의 연결과 근거의 질을 평가하도록 쓴다. 부사만 바꾼 기술문 금지.
+[출력 형식] 아래 마크다운 표만 출력:
+| 평가 영역 | 4점 매우 잘함 | 3점 잘함 | 2점 노력 필요 | 1점 더 연습 필요 |`;
+}
+function copyPrompt(){
+  const p=buildPrompt(); if(!p) return;
+  (navigator.clipboard?navigator.clipboard.writeText(p):Promise.reject()).then(
+    ()=>alert("AI 프롬프트를 복사했습니다. 챗봇(클로드 등)에 붙여넣고, 결과 표를 [AI 결과 붙여넣어 가져오기]로 가져오세요."),
+    ()=>{el("dPaste").classList.remove("hide");el("dPaste").value=p;alert("복사가 막혀 있어 아래 칸에 프롬프트를 표시했습니다. 직접 복사해 주세요.");});
+}
+function parseTableText(txt){
+  const rows=txt.split("\n").map(l=>l.trim()).filter(l=>l.startsWith("|"));
+  const cells=rows.map(l=>l.replace(/^\||\|$/g,"").split("|").map(c=>c.trim())).filter(r=>r.length>=5);
+  const body=cells.filter(r=>!/평가 ?영역/.test(r[0])&&!/^[-: ]*$/.test(r[0]));
+  return body.length?body.map(r=>({name:r[0].replace(/\*/g,""),desc:[r[1],r[2],r[3],r[4]]})):null;
+}
+function applyRubricAreas(areas){
+  const stds=selectedStds();
+  design={band:el("dBand").value,subj:el("dSubj").value,stds:stds.length?stds:(design?design.stds:[]),
+    comment:el("dComment").value.trim(),areas};
+  renderEditor(); save2();
+}
+function applyPaste(){
+  const body=parseTableText(el("dPaste").value);
+  if(!body){alert("표를 읽지 못했습니다. | 영역 | 4점 | 3점 | 2점 | 1점 | 형식인지 확인해 주세요.");return;}
+  applyRubricAreas(body);
+  el("dPaste").classList.add("hide"); el("dApplyPaste").classList.add("hide");
+}
+function renderApprovedPanel(){
+  const ap=el("rubApproved"), df=el("rubDefault");
+  if(!ap) return;
+  if(!approved){ap.classList.add("hide");df.classList.remove("hide");return;}
+  df.classList.add("hide"); ap.classList.remove("hide");
+  ap.innerHTML=`<p class="hint">✔ <b style="color:var(--ok)">승인된 루브릭</b> (${esc(approved.at)}) · 성취기준 ${approved.stds.map(s=>"["+esc(s[0])+"]").join(" ")} · 총점 ${approved.areas.length*4}점</p>
+   <table><tr><th>평가 영역</th><th>4점 매우 잘함</th><th>3점 잘함</th><th>2점 노력 필요</th><th>1점 더 연습 필요</th></tr>
+   ${approved.areas.map(a=>`<tr><td><b>${esc(a.name)}</b></td>${a.desc.map(d=>`<td>${esc(d)}</td>`).join("")}</tr>`).join("")}</table>`;
+}
+function save2(){ try{ localStorage.setItem(LS2, JSON.stringify({band:el("dBand").value,subj:el("dSubj").value,
+  checked:[...document.querySelectorAll(".stdck:checked")].map(c=>+c.value),comment:el("dComment").value,design,approved})); }catch(e){} }
+function restore2(){ try{ const d=JSON.parse(localStorage.getItem(LS2)); if(!d) return;
+  el("dBand").value=d.band||"e34"; el("dSubj").value=d.subj||"kor"; renderStds();
+  (d.checked||[]).forEach(i=>{const c=document.querySelector(`.stdck[value="${i}"]`); if(c) c.checked=true;});
+  el("dComment").value=d.comment||""; design=d.design||null; approved=d.approved||null;
+  if(design) renderEditor();
+  if(approved){el("dApproved").textContent=`승인됨 · ${approved.at}`; renderApprovedPanel();}
+ }catch(e){} }
+el("dBand").onchange=()=>{renderStds();save2();};
+el("dSubj").onchange=()=>{renderStds();save2();};
+el("dComment").onchange=save2;
+el("dGen").onclick=genRubric;
+el("dPrompt").onclick=copyPrompt;
+el("dPasteBtn").onclick=()=>{el("dPaste").classList.toggle("hide");el("dApplyPaste").classList.toggle("hide");};
+el("dApplyPaste").onclick=applyPaste;
+el("dApprove").onclick=()=>{ if(!design) return;
+  approved=Object.assign(JSON.parse(JSON.stringify(design)),{at:new Date().toLocaleString("ko-KR")});
+  el("dApproved").textContent=`승인됨 · ${approved.at} — 검수 화면의 채점 기준에 반영되었습니다`;
+  renderApprovedPanel(); save2(); };
+renderStds(); restore2(); el("st0").classList.add("on");
+
+// ---------- AI 연결: Claude / Gemini (키는 이 브라우저에만 저장) ----------
+const LSK="sudoumi_api_v1";
+const PROVIDERS={
+ gemini:{ name:"Gemini", ph:"AIza...",
+  models:[["gemini-2.5-flash","Gemini 2.5 Flash (기본 · 무료 티어 가능)"],["gemini-2.5-flash-lite","Gemini 2.5 Flash-Lite (가장 빠름·저렴)"],["gemini-2.5-pro","Gemini 2.5 Pro (정확)"]],
+  hint:"무료 키: aistudio.google.com → [Get API key] — 카드 등록 없이 발급됩니다. ⚠ 무료 티어는 입력 내용이 구글 모델 개선에 활용될 수 있으니 실습·샘플 데이터용으로 쓰고, 실제 학생 글 채점은 유료 티어나 Claude를 권장합니다." },
+ anthropic:{ name:"Claude", ph:"sk-ant-api03-...",
+  models:[["claude-opus-5","Claude Opus 5 (기본 · 정확)"],["claude-sonnet-5","Claude Sonnet 5 (균형)"],["claude-haiku-4-5","Claude Haiku 4.5 (빠름·저렴)"]],
+  hint:"키 발급: console.anthropic.com → API Keys. Claude.ai 구독과 별개로 크레딧 충전(최소 $5)이 필요합니다. 입력 데이터는 기본적으로 모델 학습에 사용되지 않습니다." }
+};
+let apiProv="gemini", apiKey="", apiModel="gemini-2.5-flash";
+function renderProv(){
+  const p=PROVIDERS[apiProv];
+  el("apiModel").innerHTML=p.models.map(([v,l])=>`<option value="${v}">${l}</option>`).join("");
+  if(p.models.some(([v])=>v===apiModel)) el("apiModel").value=apiModel; else apiModel=p.models[0][0];
+  el("apiKey").placeholder=p.ph;
+  el("provHint").textContent=p.hint;
+}
+function updateKeyUI(){
+  const on=!!apiKey;
+  el("keyState").textContent = on ? "✔ 연결됨 ("+PROVIDERS[apiProv].name+" · "+apiModel+")" : "키 없음 — 프롬프트 복사 방식 사용 가능";
+  el("keyState").style.color = on ? "var(--ok)" : "";
+  el("dGenAI").classList.toggle("hide", !on);
+  el("btnAiScore").classList.toggle("hide", !on || !recs.length);
+}
+function persistKey(){ try{ localStorage.setItem(LSK, JSON.stringify({prov:apiProv,key:apiKey,model:apiModel})); }catch(e){} }
+function loadKey(){ try{ const d=JSON.parse(localStorage.getItem(LSK)); if(d){
+  apiKey=d.key||"";
+  apiProv=d.prov||(apiKey&&apiKey.indexOf("sk-ant")===0?"anthropic":"gemini");
+  apiModel=d.model||PROVIDERS[apiProv].models[0][0];
+  el("apiKey").value=apiKey; el("apiProv").value=apiProv; } }catch(e){} renderProv(); updateKeyUI(); }
+el("apiProv").onchange=()=>{ apiProv=el("apiProv").value; apiModel=""; renderProv(); apiModel=el("apiModel").value;
+  if(apiKey) persistKey(); updateKeyUI(); };
+el("keySave").onclick=()=>{ apiKey=el("apiKey").value.trim(); apiProv=el("apiProv").value; apiModel=el("apiModel").value;
+  if(!apiKey){ alert("API 키를 입력해 주세요. Gemini는 aistudio.google.com, Claude는 console.anthropic.com에서 발급합니다."); return; }
+  persistKey(); updateKeyUI(); alert("키를 이 브라우저에 저장했습니다. 파일이나 깃허브에는 저장되지 않습니다."); };
+el("keyClear").onclick=()=>{ apiKey=""; el("apiKey").value=""; try{ localStorage.removeItem(LSK); }catch(e){} updateKeyUI(); };
+el("apiModel").onchange=()=>{ apiModel=el("apiModel").value; if(apiKey){ persistKey(); updateKeyUI(); } };
+
+async function callAI(system, user, maxTokens){
+  return apiProv==="gemini" ? callGemini(system,user,maxTokens) : callClaude(system,user,maxTokens);
+}
+async function callGemini(system, user, maxTokens){
+  const body={ contents:[{role:"user",parts:[{text:user}]}],
+    generationConfig:{maxOutputTokens:(maxTokens||2000)+1024} };
+  if(system) body.system_instruction={parts:[{text:system}]};
+  if(/flash/.test(apiModel)) body.generationConfig.thinkingConfig={thinkingBudget:0};
+  const res=await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+apiModel+":generateContent?key="+encodeURIComponent(apiKey),
+    {method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+  if(!res.ok){
+    let msg="HTTP "+res.status;
+    try{ const e=await res.json(); msg=(e.error&&e.error.message)||msg; }catch(_){}
+    if(res.status===400&&/API key/i.test(msg)) msg="Gemini API 키가 올바르지 않습니다. 키를 다시 확인해 주세요.";
+    if(res.status===403) msg="이 키로는 접근할 수 없습니다. AI Studio에서 키 상태를 확인해 주세요.";
+    if(res.status===429) msg="사용량 한도에 도달했습니다(무료 티어는 분·일 단위 제한). 잠시 후 다시 시도해 주세요.";
+    throw new Error(msg);
+  }
+  const data=await res.json();
+  const cand=data.candidates&&data.candidates[0];
+  if(!cand||!cand.content||!cand.content.parts) throw new Error("Gemini가 응답을 생성하지 않았습니다"+(cand&&cand.finishReason?" ("+cand.finishReason+")":"."));
+  return cand.content.parts.map(p=>p.text||"").join("");
+}
+async function callClaude(system, user, maxTokens){
+  const headers={ "content-type":"application/json", "x-api-key":apiKey,
+    "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" };
+  const body={ model:apiModel, max_tokens:maxTokens||2000,
+    messages:[{role:"user",content:user}] };
+  if(system) body.system=system;
+  if(apiModel==="claude-opus-5"){ headers["anthropic-beta"]="server-side-fallback-2026-07-01"; body.fallbacks="default"; }
+  const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers,body:JSON.stringify(body)});
+  if(!res.ok){
+    let msg="HTTP "+res.status;
+    try{ const e=await res.json(); msg=(e.error&&e.error.message)||msg; }catch(_){}
+    if(res.status===401) msg="API 키가 올바르지 않습니다. 키를 다시 확인해 주세요.";
+    if(res.status===429) msg="요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.";
+    throw new Error(msg);
+  }
+  const data=await res.json();
+  if(data.stop_reason==="refusal") throw new Error("AI가 이 요청을 처리하지 않았습니다"+(data.stop_details&&data.stop_details.explanation?": "+data.stop_details.explanation:"."));
+  return data.content.filter(b=>b.type==="text").map(b=>b.text).join("\n");
+}
+function extractJSON(text){
+  const s=text.indexOf("{"), e=text.lastIndexOf("}");
+  if(s<0||e<=s) throw new Error("응답에서 JSON을 찾지 못했습니다.");
+  return JSON.parse(text.slice(s,e+1));
+}
+
+// AI로 루브릭 생성
+el("dGenAI").onclick=async()=>{
+  const p=buildPrompt(); if(!p) return;
+  const btn=el("dGenAI"); btn.disabled=true; btn.textContent="✨ 생성 중…";
+  try{
+    const out=await callAI(null, p, 4000);
+    const body=parseTableText(out);
+    if(!body) throw new Error("AI 응답에서 루브릭 표를 읽지 못했습니다. [AI 프롬프트 복사] 방식으로 시도해 보세요.");
+    applyRubricAreas(body);
+  }catch(e){ alert("루브릭 생성 실패: "+e.message); }
+  btn.disabled=false; btn.textContent="✨ AI로 루브릭 만들기";
+};
+
+// AI 자동 채점 + 피드백·세특 초안
+function scoringSystem(areas){
+  const lows=scaleMax===4?"각 영역 1~4점":"각 영역 0~5점 (0 = 글에서 판단할 근거가 전혀 없음, 5 = 4점 기준을 뛰어넘는 수행)";
+  return `당신은 초·중등 과정 중심 평가 보조자입니다. 학생이 신문기사를 읽고 쓴 글(댓글·의견)을 아래 루브릭으로 채점합니다.
+[루브릭] 수준: 4=매우 잘함, 3=잘함, 2=노력 필요, 1=더 연습 필요
+${areas.map((a,i)=>`${i+1}. ${a.name} — 4점: ${a.desc[0]} / 3점: ${a.desc[1]} / 2점: ${a.desc[2]} / 1점: ${a.desc[3]}`).join("\n")}
+[점수 척도] ${lows}
+[규칙]
+- 찬성/반대 '입장'이 아니라 기사와의 연결과 근거의 질을 평가한다.
+- 글에 없는 내용을 추측하지 않는다. 짧다는 이유만으로 감점하지 않되, 근거가 없으면 낮은 점수를 준다.
+- 판단이 어려우면 확신도를 "낮음"으로 표시한다. 이 점수는 초안이며 최종 판단은 교사가 한다.
+- 피드백: 학생에게 말하듯 2~3문장 (잘한 점 1가지 + 보완할 점 1가지). 평가포워드: 다음 활동 제안 1문장. 세특초안: 교과 세부능력 및 특기사항 문체('~함', '~임' 개조식) 1~2문장, 학생 이름 없이.
+[출력] 설명 없이 JSON만 출력: {"scores":[영역1점수,영역2점수,영역3점수],"근거":"...","피드백":"...","평가포워드":"...","세특초안":"...","확신도":"높음|보통|낮음"}`;
+}
+el("btnAiScore").onclick=async()=>{
+  if(!apiKey){ alert("먼저 🔑 Claude AI 연결에서 키를 저장해 주세요."); return; }
+  let rub=approved;
+  if(!rub){
+    if(!confirm("⓪에서 승인한 루브릭이 없습니다. 기본 루브릭(기사 이해·생각 연결·생각 표현)으로 채점할까요?")) return;
+    rub={areas:["und34","con34","exp34"].map(k=>({name:AREA_LIB[k][0],desc:AREA_LIB[k][1]}))};
+  }
+  const areas=rub.areas.slice(0,3);
+  if(rub.areas.length>3) alert("루브릭 영역이 "+rub.areas.length+"개입니다. 점수표 구조상 앞의 3개 영역으로 채점합니다.");
+  let targets=recs.filter(r=>!r.done && AREAS.some(([k])=>r.ai[k]==null));
+  if(!targets.length){
+    if(!confirm("모든 행에 이미 AI 점수가 있습니다. 검수 완료가 아닌 행을 전부 다시 채점할까요?")) return;
+    targets=recs.filter(r=>!r.done);
+    if(!targets.length){ alert("채점할 행이 없습니다."); return; }
+  }
+  const sys=scoringSystem(areas), btn=el("btnAiScore"); btn.disabled=true;
+  const lo=scaleMax===4?1:0; let fail=0;
+  for(let i=0;i<targets.length;i++){
+    const r=targets[i];
+    el("aiProg").textContent=`채점 중 ${i+1}/${targets.length} (${r.id||"?"})…`;
+    try{
+      const user=(r.article?`[기사 제목] ${r.article}\n`:"")+`[학생 글]\n${r.text}`;
+      const j=extractJSON(await callAI(sys, user, 1500));
+      const s=(j.scores||[]).map(v=>Math.max(lo,Math.min(scaleMax,parseInt(v))));
+      if(s.length<3||s.some(isNaN)) throw new Error("점수 형식 오류");
+      r.ai={u:s[0],c:s[1],e:s[2]};
+      for(const [k] of AREAS) if(r.t[k]==null) r.t[k]=r.ai[k];
+      if(!String(r.fb||"").trim()) r.fb=j["피드백"]||"";
+      if(!String(r.fwd||"").trim()) r.fwd=j["평가포워드"]||"";
+      if(!String(r.sepc||"").trim()) r.sepc=j["세특초안"]||"";
+      r.evid=j["근거"]||""; r.aiLow=(j["확신도"]==="낮음");
+    }catch(e){ fail++; console.error(r.id, e); if(/키가 올바르지/.test(e.message)){ alert(e.message); break; } }
+    save();
+  }
+  manualMode=false; renderTable(); save();
+  el("aiProg").textContent="";
+  btn.disabled=false;
+  alert(`AI 채점 완료: 성공 ${targets.length-fail}건`+(fail?`, 실패 ${fail}건 (다시 누르면 실패한 행만 재시도)`:"")+"\n점수는 초안입니다. ⚠ 표시 행(확신도 낮음 포함)을 먼저 검토해 주세요.");
+};
+loadKey();
+
+// 이어서 하기
+(function(){ const d=restore(); if(d){ const b=document.getElementById("btnResume"); b.classList.remove("hide");
+  b.onclick=()=>{ raw=d.raw; map=d.map; recs=d.recs; scaleMax=d.scaleMax; manualMode=d.manualMode; mode=d.mode||"a"; roster=d.roster||[];
+    show("secMap"); renderMaps(); setMode(mode); show("secReview"); show("secExport"); mark(3); renderTable(); }; } })();
+</script>
+</body>
+</html>
