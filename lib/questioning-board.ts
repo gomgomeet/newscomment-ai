@@ -1931,6 +1931,11 @@ function resolveTermFromPhrase(phrase: string, material: MaterialAnalysis) {
 }
 
 function extractRequestedVocabularyTerm(studentTurn: string, material: MaterialAnalysis) {
+  const found = extractVocabularyTermCandidate(studentTurn, material);
+  return isUsableVocabularyTerm(found) ? found : "";
+}
+
+function extractVocabularyTermCandidate(studentTurn: string, material: MaterialAnalysis) {
   const compactTurn = studentTurn.replace(/\s+/g, "");
   // 교사 등록 어휘와 내장 사전 표제어를 긴 것부터 맞춰 `선택 배식` 같은 복합어를 놓치지 않는다.
   const knownTerms = [
@@ -2819,7 +2824,7 @@ function createGeneralNaturalTurn({
     compactTurn,
   );
   const falseDilemma = /(그럼|그러면).*(아예|다시|안|어둡|없애|금지).*(해야|돼|나아)/.test(compactTurn);
-  const causalOverclaim = /(때문|덕분|원인이맞|무조건|정확히|최고|best|둘다.*(줄|늘)|(줄|늘).*(줄|늘).*(잖|니까|뜻)|(신고|수치|값).*(뜻|원인)|줄어서|늘어서|(해서|어서|아서).*(줄|늘|좋아))/.test(
+  const causalOverclaim = /(때문|덕분|원인이맞|무조건|최고|best|정확히.{0,12}(줄|늘|올|내렸|낮췄|높였|때문|원인)|둘다.*(줄|늘)|(줄|늘).*(줄|늘).*(잖|니까|뜻)|(신고|수치|값).*(뜻|원인)|줄어서|늘어서|(해서|어서|아서).*(줄|늘|좋아))/.test(
     compactTurn,
   );
   const noticesCompetingFactor = /(도같이|도함께|도영향|도달랐|도다르|다르게|뿐이었|하나뿐|였네요|이었네요|있었네요|구나|군요)/.test(
@@ -2962,7 +2967,8 @@ function createGeneralNaturalTurn({
     };
   }
 
-  if (causalOverclaim) {
+  // 묻는 말은 단정이 아니다. "정확히 뭔지 정리해 줘"를 과잉일반화로 보면 안 된다.
+  if (causalOverclaim && !studentAsks) {
     const repeatedCausalFrame = recentAssistantText.includes("두 변화가 함께 나타난 것은");
     return {
       reply: repeatedCausalFrame
@@ -3103,7 +3109,7 @@ function createGeneralNaturalTurn({
   }
 
   return {
-    reply: `“${studentIdea}”라고 짚었군요. ${cue}`,
+    reply: `${receiveStudentIdea(studentIdea)} ${cue}`,
     primaryMove: "receive",
     engagementState: "noticing",
     curriculumRelation: "direct",
@@ -3120,13 +3126,35 @@ function firstKeyConceptOf(material: MaterialAnalysis): string {
 }
 
 /** 학생 말이 생각을 밝힌 것인지, 물어본 것인지 가른다. */
+/* 한 글자짜리는 낱말이 아니다. '중요 낱말은'에서 '낱'을 잡아 뜻을 못 찾겠다고 답한 적이 있다. */
+function isUsableVocabularyTerm(term: string) {
+  const trimmed = term.trim();
+  return trimmed.length >= 2 && /[가-힣A-Za-z]{2,}/.test(trimmed);
+}
+
+/* 학생 말을 받는 첫마디. 늘 "…라고 짚었군요"면 몇 턴만 지나도 녹음기처럼 들린다.
+   내용에 따라 돌려 쓰고, 절반은 학생 말을 되뇌지 않는 쪽으로 둔다. */
+function receiveStudentIdea(studentIdea: string) {
+  // 학생이 한 말은 남겨 둔다. 없애면 무엇을 받은 것인지 아이가 알 수 없다.
+  // 바꾸는 것은 감싸는 말이다. "짚었군요"만 늘 붙는 것이 문제였다.
+  const forms = [
+    (idea: string) => `“${idea}”라고 봤군요.`,
+    (idea: string) => `“${idea}”라는 점을 말해 줬네요.`,
+    (idea: string) => `“${idea}” — 그렇게 읽었군요.`,
+    (idea: string) => `“${idea}”라고 생각했군요.`,
+  ];
+  let hash = 0;
+  for (const ch of studentIdea) hash = (hash * 31 + ch.charCodeAt(0)) % 997;
+  return forms[hash % forms.length](studentIdea);
+}
+
 function asksRatherThanStates(value: string) {
   const trimmed = value.trim();
   if (/[?？]\s*$/.test(trimmed)) return true;
   // 물음표가 떨어져 나간 뒤에도 물음인 줄 알아야 한다. 학생 말은 화면에 옮겨질 때
   // 문장부호가 지워지는 일이 잦다.
   if (
-    /(설명해|알려\s*줘|알려\s*주세요|가르쳐|말해\s*줘|말해\s*주세요|궁금해요?|뭐예요|뭔가요|무엇인가요|뭐야|나요|까요|가요|은가요|ㄴ가요|는지|일까|을까|ㄹ까|거예요|건가요|이야|거야|거지|맞지|그렇지|맞나|맞아|아닌가|아니야)\s*[.!]?$/.test(
+    /(설명해|알려\s*줘|알려\s*주세요|가르쳐|말해\s*줘|말해\s*주세요|궁금해요?|뭐예요|뭔가요|무엇인가요|뭐야|나요|까요|가요|은가요|ㄴ가요|는지|일까|을까|ㄹ까|거예요|건가요|이야|거야|거지|맞지|그렇지|맞나|맞아|아닌가|아니야|해\s*줘|해\s*주세요|해\s*봐|정리해|요약해)\s*[.!]?$/.test(
       trimmed,
     )
   ) {
@@ -3612,8 +3640,22 @@ export function createLocalQuestionResult({
     /(이름|실명|전화번호|주소|개인정보).*(말하지\s*않아도|안\s*말|빼도|가려도|숨겨도|익명|안\s*써도|쓰지\s*않아도|넣지\s*않아도)/.test(
       turn,
     );
+  // 학생이 묻지 않았는데 스스로 이름을 밝히는 경우. "안녕 난 윤서야"에 "안녕 윤서야!"로
+  // 답하면 이름이 대화에 남고 결과 DB까지 저장된다. 아이가 먼저 말해도 받아 쓰지 않는다.
+  const introducesOwnName =
+    /(^|\s)(난|나는|내\s*이름은|제\s*이름은|저는|나\s*)[\s]*[가-힣]{2,4}\s*(이야|야|이에요|예요|입니다|이라고\s*해|라고\s*해|이라고\s*불러|라고\s*불러)/.test(
+      turn,
+    );
   const hasPrivateInformation =
-    asksToAvoidPersonalInformation || /(전화번호|주소|비밀번호|주민번호|이름은|이름이|이름을|실명|사진)/.test(turn);
+    asksToAvoidPersonalInformation ||
+    introducesOwnName ||
+    /(전화번호|주소|비밀번호|주민번호|이름은|이름이|이름을|실명|사진)/.test(turn);
+
+  // "고마워", "알려줘서 고마워~"처럼 감사만 남긴 말. 종료로 보기에는 이르다.
+  const thanksOnly =
+    /^(정말\s*|진짜\s*|알려\s*줘서\s*|알려\s*주셔서\s*)?(고마워요?|고맙습니다|감사합니다|감사해요|땡큐)[~!.\s]*$/.test(
+      turn.trim(),
+    );
 
   let primaryMove: PrimaryMove;
   let engagementState: EngagementState;
@@ -3622,17 +3664,27 @@ export function createLocalQuestionResult({
   let supportLevel: 0 | 1 | 2 | 3 | 4;
   let studentReply: string;
 
-  if (legacy.questionType === "safety") {
+  if (legacy.questionType === "safety" || introducesOwnName) {
     primaryMove = "safety_redirect";
     engagementState = "noticing";
     curriculumRelation = "disconnected";
     sourceStatus = "out_of_scope";
     supportLevel = 2;
-    studentReply = asksToAvoidPersonalInformation
+    studentReply = introducesOwnName
+      ? "반가워요! 이름은 말하지 않아도 괜찮아요. 번호만으로 충분하거든요. 자료에서 눈에 들어온 것부터 이야기해 볼까요?"
+      : asksToAvoidPersonalInformation
       ? "네, 이름은 말하지 않아도 돼요. 친구를 구분해야 할 때도 실명 대신 '어떤 학생', '한 친구'처럼 바꾸어 말하면 충분해요."
       : hasPrivateInformation
         ? "이름과 전화번호 같은 개인정보는 대화에 남기지 않는 게 좋아요. 그 정보는 빼고 '급한 연락이 필요한 학생'처럼 상황만 말하면 충분해요."
       : "완성된 답이나 문단을 대신 써 주지는 않을게요. 네가 말하고 싶은 내용 한 가지를 먼저 정하면, 시작할 수 있는 작은 단계나 필요한 표현을 도울 수 있어요.";
+  } else if (thanksOnly) {
+    // 고맙다는 말에 그 말을 그대로 돌려주면 되뱉기가 된다. 인사에는 인사로 답한다.
+    primaryMove = "receive";
+    engagementState = "noticing";
+    curriculumRelation = "direct";
+    sourceStatus = "supported";
+    supportLevel = 0;
+    studentReply = "천만에요. 궁금한 게 또 생기면 언제든 물어봐요.";
   } else if (isClosing) {
     primaryMove = "close";
     engagementState = "ready_to_close";
