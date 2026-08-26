@@ -185,7 +185,9 @@ function appendRecord(row) {
 
 /* ---------------- 지문 도구 ---------------- */
 function firstLineTitle(text) {
-  const line = text.split("\n").map(s => s.trim()).find(Boolean);
+  const raw = text.split("\n").map(s => s.trim()).find(Boolean);
+  // '# 지진이 나면' 같은 마크다운 제목이 자료명에 그대로 나가지 않게 한다
+  const line = raw ? raw.replace(/^[#>*\-\s]+/, "").trim() : "";
   if (!line) return "질문 자료";
   if (line.length <= 60) return line;
   const sentence = line.split(/(?<=[.!?])\s/)[0].trim();
@@ -302,7 +304,13 @@ function isOffTopic(turn) {
 
 /* ---------------- 학생 말 읽기 ---------------- */
 function isGreeting(t) { return /^(안녕하세요|안녕|하이|반가워요?|반갑습니다)[!~.?\s]*$/.test(t.trim()); }
-function isClosing(t) { return /(그만|됐어요|알겠어요|끝낼래|여기까지|안할래)/.test(t.replace(/\s/g, "")); }
+/* "왜 그렇게 됐어요?"는 그만하겠다는 말이 아니다. 물음표나 의문사가 있으면 질문으로 본다. */
+function isClosing(t) {
+  const s = t.trim();
+  if (/[?？]$/.test(s)) return false;
+  if (/(왜|어떻게|무엇|뭐|어디|언제|누가|누구|얼마나)/.test(s)) return false;
+  return /(그만|됐어요|알겠어요|끝낼래|여기까지|안할래)/.test(s.replace(/\s/g, ""));
+}
 const NOT_A_WORD = /^(그래서|그러면|그럼|근데|그런데|이거|저거|그거|여기|거기|이건|그건)/;
 function looksLikeTerm(w) {
   const t = w.trim();
