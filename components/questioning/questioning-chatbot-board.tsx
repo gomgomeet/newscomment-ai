@@ -827,6 +827,7 @@ export function QuestioningChatbotBoard() {
   const [connectionTeacherLabel, setConnectionTeacherLabel] = useState("");
   const [connectionLessonCode, setConnectionLessonCode] = useState("");
   const [savedConnections, setSavedConnections] = useState<SavedLessonConnection[]>([]);
+  const [liveResearchEnabled, setLiveResearchEnabled] = useState(false);
   const [connectionSetupToken, setConnectionSetupToken] = useState("");
   const [notionApiKey, setNotionApiKey] = useState("");
   const [isNotionTokenSaved, setIsNotionTokenSaved] = useState(false);
@@ -1387,6 +1388,7 @@ export function QuestioningChatbotBoard() {
       rubric,
       behavior: normalizedBehavior,
       prdText: normalizedPrdText,
+      liveResearchEnabled,
       classInfo: normalizeQuestioningClassInfo({
         school: schoolName,
         classroom: classroomName,
@@ -2132,6 +2134,30 @@ export function QuestioningChatbotBoard() {
               </span>{" "}
               키와 토큰은 이 브라우저에만 저장됩니다. 다른 컴퓨터나 브라우저에서 열면 다시 입력해야 합니다.
             </p>
+
+            {/* 자료 밖 질문을 웹에서 찾을지. 켜져 있는 줄 모르고 수업이 지문 밖으로
+                새는 일이 있어 기본을 끄고 교사가 켜게 했다. */}
+            <div className="mt-4 rounded-md border border-border bg-background p-3">
+              <label className="flex cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  className="mt-1 size-4 shrink-0"
+                  checked={liveResearchEnabled}
+                  onChange={(event) => setLiveResearchEnabled(event.target.checked)}
+                />
+                <span className="text-sm">
+                  <span className="font-semibold">탐구 확장 — 자료 밖 질문도 찾아서 답하기</span>
+                  <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                    {liveResearchEnabled ? "켜짐" : "꺼짐 (기본)"}
+                  </span>
+                  <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                    끄면 자료에 없는 질문에 <b>지어내지 않고 정직하게</b> 답하고 &lsquo;더 알아볼 질문&rsquo;으로 남깁니다.
+                    켜면 웹에서 찾아 <b>출처와 함께</b> 답합니다. 신뢰도 A·B 출처가 없으면 켜져 있어도 답하지 않습니다.
+                    지문 정독이 목표인 차시는 꺼 두시고, 탐구를 넓히는 차시에만 켜세요.
+                  </span>
+                </span>
+              </label>
+            </div>
 
             <div className="mt-4 border-t border-border pt-4">
               <div className="flex flex-wrap items-center gap-2 text-sm">

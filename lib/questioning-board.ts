@@ -237,6 +237,9 @@ export type QuestioningChatbotConfig = {
   behavior: QuestioningChatbotBehavior;
   prdText: string;
   classInfo?: QuestioningClassInfo;
+  /** 자료 밖 질문을 웹에서 찾아 답할지. 기본은 꺼짐 — 켜져 있는 줄 모르고
+   *  수업이 지문 밖으로 새는 일을 막는다. 차시 목표가 탐구 확장일 때 교사가 켠다. */
+  liveResearchEnabled?: boolean;
   updatedAt: string;
 };
 
@@ -1176,6 +1179,7 @@ export function normalizeQuestioningChatbotConfig(config: QuestioningChatbotConf
   return {
     ...config,
     classInfo: normalizeQuestioningClassInfo(config.classInfo),
+    liveResearchEnabled: config.liveResearchEnabled === true,
     assessmentAnalysis,
     curriculumCompass: {
       rawStandard:
