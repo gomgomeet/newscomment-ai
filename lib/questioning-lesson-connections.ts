@@ -81,8 +81,14 @@ function encryptSecret(value: string) {
 }
 
 function decryptSecret(value: string) {
-  const [version, ivText, tagText, encryptedText] = value.split(":");
-  if (version !== "v1" || !ivText || !tagText || !encryptedText) {
+  const parts = value.split(":");
+  if (parts.length !== 4) {
+    throw new Error("저장된 연결정보 암호문 형식이 올바르지 않습니다.");
+  }
+
+  const [version, ivText, tagText, encryptedText] = parts;
+  // Local-response mode permits an empty provider key, whose encrypted payload is empty.
+  if (version !== "v1" || !ivText || !tagText) {
     throw new Error("저장된 연결정보 암호문 형식이 올바르지 않습니다.");
   }
 
