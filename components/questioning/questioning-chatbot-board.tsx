@@ -245,6 +245,37 @@ const CLASS_INFO_STORAGE_KEY = "questioning-class-info-v1";
 // 수업 코드와 학생용 주소도 기억한다. 새로고침 뒤 ⑧이 "갱신할 연결이 없다"고
 // 착각해 학생이 옛 자료를 계속 보는 일을 막는다.
 const CONNECTION_STORAGE_KEY = "questioning-connection-v1";
+/* 보드는 지금까지 수업 코드를 하나만 기억했다. 반이 여럿이거나 차시가 쌓이면
+   예전 코드를 손으로 옮겨 적어야 했다. 만든 연결을 목록으로 남긴다.
+   이 브라우저에만 저장되므로 다른 교사에게는 보이지 않는다. */
+const CONNECTION_LIST_STORAGE_KEY = "questioning-connection-list-v1";
+
+type SavedLessonConnection = {
+  lessonCode: string;
+  studentUrl: string;
+  previewToken: string;
+  school: string;
+  classroom: string;
+  materialTitle: string;
+  savedAt: string;
+};
+
+function readSavedConnections(): SavedLessonConnection[] {
+  try {
+    const raw = window.localStorage.getItem(CONNECTION_LIST_STORAGE_KEY);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (entry): entry is SavedLessonConnection =>
+        typeof entry === "object" &&
+        entry !== null &&
+        typeof (entry as SavedLessonConnection).lessonCode === "string" &&
+        Boolean((entry as SavedLessonConnection).lessonCode),
+    );
+  } catch {
+    return [];
+  }
+}
 
 type TeacherPreviewMessage = {
   id: string;
@@ -795,6 +826,7 @@ export function QuestioningChatbotBoard() {
   const [isAiKeySaved, setIsAiKeySaved] = useState(false);
   const [connectionTeacherLabel, setConnectionTeacherLabel] = useState("");
   const [connectionLessonCode, setConnectionLessonCode] = useState("");
+  const [savedConnections, setSavedConnections] = useState<SavedLessonConnection[]>([]);
   const [connectionSetupToken, setConnectionSetupToken] = useState("");
   const [notionApiKey, setNotionApiKey] = useState("");
   const [isNotionTokenSaved, setIsNotionTokenSaved] = useState(false);
@@ -912,6 +944,8 @@ export function QuestioningChatbotBoard() {
         setNotionApiKey(storedNotionToken);
         setIsNotionTokenSaved(true);
       }
+
+      setSavedConnections(readSavedConnections());
 
       const storedConnection = window.localStorage.getItem(CONNECTION_STORAGE_KEY);
       let restoredLessonCode = "";
@@ -1729,9 +1763,70 @@ export function QuestioningChatbotBoard() {
         CONNECTION_STORAGE_KEY,
         JSON.stringify({ lessonCode, studentUrl, previewToken: token }),
       );
+      // 목록에도 남긴다. 같은 코드를 다시 저장하면 그 줄을 갱신한다.
+      const entry: SavedLessonConnection = {
+        lessonCode,
+        studentUrl,
+        previewToken: token,
+        school: schoolName.trim(),
+        classroom: classroomName.trim(),
+        materialTitle: materialTitle.trim(),
+        savedAt: new Date().toISOString(),
+      };
+      const next = [entry, ...readSavedConnections().filter((item) => item.lessonCode !== lessonCode)];
+      window.localStorage.setItem(CONNECTION_LIST_STORAGE_KEY, JSON.stringify(next.slice(0, 30)));
+      setSavedConnections(next.slice(0, 30));
     } catch {
       // 브라우저 저장 실패는 현재 화면의 연결에는 영향을 주지 않는다.
     }
+  }
+
+  /** 목록에서 하나를 골라 지금 작업할 연결로 삼는다. */
+  function applySavedConnection(entry: SavedLessonConnection) {
+    setConnectionLessonCode(entry.lessonCode);
+    setSavedStudentChatbotUrl(entry.studentUrl);
+    setPreviewToken(entry.previewToken);
+    if (entry.school) setSchoolName(entry.school);
+    if (entry.classroom) setClassroomName(entry.classroom);
+    try {
+      window.localStorage.setItem(
+        CONNECTION_STORAGE_KEY,
+        JSON.stringify({
+          lessonCode: entry.lessonCode,
+          studentUrl: entry.studentUrl,
+          previewToken: entry.previewToken,
+        }),
+      );
+    } catch {
+      // 저장 실패해도 이번 화면에서는 그대로 쓸 수 있다.
+    }
+    setNotice(
+      `${entry.classroom || "이 수업"}의 연결 ${entry.lessonCode}을(를) 불러왔습니다. 자료를 바꾼 뒤 ⑧을 누르면 이 주소가 갱신됩니다.`,
+    );
+  }
+
+  /** 새 챗봇을 만들려면 코드 칸을 비운다. ④를 누르면 새 코드가 생긴다. */
+  function startNewLessonConnection() {
+    setConnectionLessonCode("");
+    setSavedStudentChatbotUrl("");
+    setPreviewToken("");
+    try {
+      window.localStorage.removeItem(CONNECTION_STORAGE_KEY);
+    } catch {
+      // 지우지 못해도 화면의 코드 칸은 비었으므로 새 코드가 만들어진다.
+    }
+    setNotice("수업 코드를 비웠습니다. ③에서 학년반을 확인하고 ④를 누르면 새 챗봇 주소가 만들어집니다.");
+  }
+
+  function forgetSavedConnection(lessonCode: string) {
+    const next = readSavedConnections().filter((item) => item.lessonCode !== lessonCode);
+    try {
+      window.localStorage.setItem(CONNECTION_LIST_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // 목록 저장에 실패해도 서버의 연결은 그대로 살아 있다.
+    }
+    setSavedConnections(next);
+    setNotice(`목록에서 ${lessonCode}을(를) 지웠습니다. 학생용 챗봇 자체는 그대로 살아 있습니다.`);
   }
 
   async function refreshLessonConnection(behaviorOverride?: QuestioningChatbotBehavior): Promise<string> {
@@ -2142,6 +2237,92 @@ export function QuestioningChatbotBoard() {
                   {savedStudentChatbotUrl || "수업 연결 저장 후 생성됩니다."}
                 </span>
               </p>
+            </div>
+
+            {/* 만들어 둔 수업 연결 목록. 반이 여럿이거나 차시가 쌓일 때 코드를 손으로
+                옮겨 적지 않아도 되게 한다. 이 브라우저에만 저장된다. */}
+            <div className="mt-4 rounded-md border border-border bg-background p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <Database className="size-4 text-primary" aria-hidden="true" />
+                  <p className="font-semibold">내 수업 챗봇 목록</p>
+                  <p className="text-xs text-muted-foreground">
+                    이 브라우저에만 저장됩니다. 다른 선생님에게는 보이지 않습니다.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="whitespace-nowrap"
+                  onClick={startNewLessonConnection}
+                >
+                  새 챗봇 만들기 (코드 비우기)
+                </Button>
+              </div>
+
+              {savedConnections.length === 0 ? (
+                <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                  아직 저장된 연결이 없습니다. ④ 수업 연결 저장을 누르면 여기에 쌓입니다.
+                  반이 여럿이면 반마다 하나씩 만들어 두세요.
+                </p>
+              ) : (
+                <ul className="mt-3 space-y-2">
+                  {savedConnections.map((entry) => {
+                    const isCurrent = entry.lessonCode === connectionLessonCode.trim();
+                    return (
+                      <li
+                        key={entry.lessonCode}
+                        className={`flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs ${
+                          isCurrent ? "border-primary bg-primary/5" : "border-border"
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-foreground">
+                            {entry.classroom || "반 미지정"}
+                            {entry.materialTitle ? ` · ${entry.materialTitle}` : ""}
+                            {isCurrent ? " · 지금 작업 중" : ""}
+                          </p>
+                          <p className="mt-0.5 break-all text-muted-foreground">
+                            {entry.lessonCode}
+                            {entry.savedAt ? ` · ${entry.savedAt.slice(0, 10)}` : ""}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 gap-1">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => applySavedConnection(entry)}
+                            disabled={isCurrent}
+                          >
+                            불러오기
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              void navigator.clipboard?.writeText(entry.studentUrl);
+                              setNotice(`${entry.classroom || entry.lessonCode}의 학생용 주소를 복사했습니다.`);
+                            }}
+                          >
+                            링크 복사
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => forgetSavedConnection(entry.lessonCode)}
+                          >
+                            지우기
+                          </Button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </div>
           </div>
           <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
