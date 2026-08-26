@@ -191,6 +191,12 @@ function firstLineTitle(text) {
   const sentence = line.split(/(?<=[.!?])\s/)[0].trim();
   return sentence.length <= 60 ? sentence : sentence.slice(0, 40).trim() + "…";
 }
+/* 첫 줄은 제목이다. '…줄였다'처럼 문장꼴로 끝나는 제목도 있어서 어미만으로는
+   걸러지지 않는다. 제목을 근거라고 내밀면 아이가 본문을 안 읽게 된다. */
+function titleLine() {
+  const lines = config.passage.split("\n").map(s => s.trim()).filter(Boolean);
+  return lines.length > 1 ? lines[0] : "";
+}
 function sentencesOf(text) {
   return text.replace(/(\d)\.(\d)/g, "$1<d>$2")
     .split(/(?<=[.!?])\s+|\n+/)
@@ -201,6 +207,7 @@ function sentencesOf(text) {
 function looksLikeSentence(s) {
   const t = s.trim();
   if (t.length < 10) return false;
+  if (t === titleLine()) return false;
   if (/^[#*>\-=]/.test(t)) return false;
   if (/[?]$/.test(t)) return false;
   return /(다|요|죠|네|군요|습니다|한다|이다|였다|된다)[.!?]?$/.test(t);
