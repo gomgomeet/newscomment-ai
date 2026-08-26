@@ -2791,6 +2791,10 @@ function createGeneralNaturalTurn({
 
   const limitation = withoutLeadingConnector(sourceLimitationCue(material));
   const studentIdea = compactStudentIdea(studentTurn);
+  // compactStudentIdea가 물음표를 지우므로, 질문 여부는 반드시 원문으로 본다.
+  // 지운 뒤에 판정하면 "이게 맞는 거야?"가 진술로 읽혀 그대로 되받게 된다.
+  const studentAsks =
+    asksRatherThanStates(studentTurn) || asksRatherThanStates(studentIdea);
   const recentStudentTurns = conversation
     .filter((entry) => entry.role === "student")
     .slice(-3)
@@ -3033,7 +3037,7 @@ function createGeneralNaturalTurn({
   if (questionType === "extension") {
     return {
       // 질문이면 되받아 읊지 않는다. 근거를 보여 주고 자료 밖임을 정직하게 말한다.
-      reply: asksRatherThanStates(studentIdea)
+      reply: studentAsks
         ? `${cue} 여기까지가 자료가 알려 주는 부분이에요. 그 다음은 글이 직접 답해 주지 않으니, 함께 확인할 질문으로 남겨 두면 좋아요.`
         : `“${studentIdea}”라는 궁금증은 자료에서 한 걸음 더 나아간 생각이에요. ${cue} 이 연결은 남겨 두되, 자료 밖의 사실은 추가 출처를 확인하기 전까지 단정하지 않을게요.`,
       primaryMove: "productive_extension",
@@ -3058,7 +3062,7 @@ function createGeneralNaturalTurn({
   if (questionType === "application") {
     return {
       // "우리가 뭘 할 수 있어요?"는 생각이 아니라 물음이다. 자료 속 실천 사례를 보여 준다.
-      reply: asksRatherThanStates(studentIdea)
+      reply: studentAsks
         ? `${cue} 자료 속 사람들이 한 방법이에요. 우리 상황에서는 무엇을 바꿔야 할지 하나만 골라 볼까요?`
         : `“${studentIdea}”처럼 네 상황에 연결한 점이 중요해요. ${cue} 자료의 방법을 그대로 복사하기보다 네 상황에서 달라지는 조건을 함께 보면 돼요.`,
       primaryMove: "follow_student_lead",
@@ -3083,10 +3087,12 @@ function createGeneralNaturalTurn({
 
   // 학생이 자기 생각을 말한 게 아니라 물어본 것이라면 되받아 읊지 않는다.
   // "설명해 주세요"를 "라고 짚었군요"로 받으면 묻는 사람을 무안하게 만든다.
-  if (asksRatherThanStates(studentIdea)) {
+  if (studentAsks) {
     return {
+      // 되묻기만 하면 물은 사람이 답을 못 받는다. 자료로 확인되는 데까지 먼저 말하고
+      // 그다음에 한 걸음을 권한다.
       reply: cue
-        ? `${cue} 이 문장에서 가장 궁금한 말이나 기준은 무엇인가요?`
+        ? `${cue} 자료로 확인되는 건 여기까지예요. 이 문장에서 더 알고 싶은 곳은 어디인가요?`
         : "자료에서 그 내용을 찾지 못했어요. 어느 문장이 궁금한지 알려 주면 같이 살펴볼게요.",
       primaryMove: "clarify",
       engagementState: "curious",
@@ -3120,7 +3126,7 @@ function asksRatherThanStates(value: string) {
   // 물음표가 떨어져 나간 뒤에도 물음인 줄 알아야 한다. 학생 말은 화면에 옮겨질 때
   // 문장부호가 지워지는 일이 잦다.
   if (
-    /(설명해|알려\s*줘|알려\s*주세요|가르쳐|말해\s*줘|말해\s*주세요|궁금해요?|뭐예요|뭔가요|무엇인가요|뭐야|나요|까요|가요|은가요|ㄴ가요|는지|일까|을까|ㄹ까|거예요|건가요)\s*[.!]?$/.test(
+    /(설명해|알려\s*줘|알려\s*주세요|가르쳐|말해\s*줘|말해\s*주세요|궁금해요?|뭐예요|뭔가요|무엇인가요|뭐야|나요|까요|가요|은가요|ㄴ가요|는지|일까|을까|ㄹ까|거예요|건가요|이야|거야|거지|맞지|그렇지|맞나|맞아|아닌가|아니야)\s*[.!]?$/.test(
       trimmed,
     )
   ) {
