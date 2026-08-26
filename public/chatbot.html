@@ -87,6 +87,14 @@
       <button class="ghost" id="btnSave">이 브라우저에 저장</button>
       <button class="ghost" id="btnRecords">기록 내려받기</button>
     </div>
+    <div class="row" style="margin-top:10px">
+      <button class="ghost" id="btnStudentLink">학생용 링크 만들기</button>
+    </div>
+    <div id="linkBox" class="hidden" style="margin-top:10px">
+      <label for="studentLink">학생에게 줄 주소 <span style="font-weight:400;color:var(--muted)">(API 키는 들어가지 않습니다)</span></label>
+      <textarea id="studentLink" style="min-height:70px;font-size:12px" readonly></textarea>
+      <p class="hint">이 주소를 열면 준비 화면 없이 <b>학생 화면이 바로</b> 나옵니다. 지문·학년·낱말이 함께 실려 갑니다.</p>
+    </div>
     <div id="setupMsg" class="hint"></div>
   </div>
 
@@ -156,6 +164,11 @@ function loadConfig() {
     const raw = localStorage.getItem(KEY_CONFIG);
     if (raw) config = Object.assign(config, JSON.parse(raw));
   } catch { /* 저장본이 깨졌으면 빈 설정으로 시작한다 */ }
+  fillForm();
+}
+/* 설정을 입력칸에 옮긴다. startStudent()가 입력칸을 다시 읽으므로, 링크로 받은
+   설정도 먼저 여기에 채워 두어야 덮어써지지 않는다. */
+function fillForm() {
   $("fTitle").value = config.title; $("fPassage").value = config.passage;
   $("fGrade").value = config.grade; $("fCount").value = config.count;
   $("fStandard").value = config.standard; $("fWords").value = config.words;
@@ -181,6 +194,33 @@ function appendRecord(row) {
     all.push(row);
     localStorage.setItem(KEY_LOG, JSON.stringify(all));
   } catch { /* 기록 실패가 대화를 막지 않는다 */ }
+}
+
+/* ---------------- 학생용 링크 ----------------
+   설정을 주소의 # 뒤에 실어 보낸다. # 뒤는 서버로 전송되지 않고 브라우저 안에만
+   남는다. API 키는 절대 싣지 않는다 — 주소를 받은 학생 모두에게 넘어가기 때문이다. */
+function encodeConfigForLink() {
+  const share = {
+    title: config.title, passage: config.passage, grade: config.grade,
+    count: config.count, standard: config.standard, words: config.words, memo: config.memo,
+  };
+  const bytes = new TextEncoder().encode(JSON.stringify(share));
+  let binary = "";
+  bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function decodeConfigFromLink() {
+  const raw = location.hash.replace(/^#s=/, "");
+  if (!raw || !location.hash.startsWith("#s=")) return null;
+  try {
+    const padded = raw.replace(/-/g, "+").replace(/_/g, "/");
+    const binary = atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
+    const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
+    const parsed = JSON.parse(new TextDecoder().decode(bytes));
+    return parsed && typeof parsed.passage === "string" && parsed.passage ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 /* ---------------- 지문 도구 ---------------- */
@@ -561,6 +601,26 @@ function esc(s) { return String(s ?? "").replace(/[&<>]/g, c => ({ "&": "&amp;",
 $("btnStart").addEventListener("click", startStudent);
 $("btnSave").addEventListener("click", saveConfig);
 $("btnRecords").addEventListener("click", showRecords);
+$("btnStudentLink").addEventListener("click", () => {
+  readForm();
+  if (!config.passage) { $("setupMsg").textContent = "지문을 먼저 입력해 주세요."; return; }
+  if (!config.title) { config.title = firstLineTitle(config.passage); $("fTitle").value = config.title; }
+  saveConfig();
+  const url = `${location.origin}${location.pathname}#s=${encodeConfigForLink()}`;
+  $("studentLink").value = url;
+  $("linkBox").classList.remove("hidden");
+  $("studentLink").select();
+  // 지문이 길면 주소도 길어진다. QR은 2천 자 언저리가 한계라 미리 알린다.
+  const qrNote = url.length > 2000
+    ? ` 주소가 ${url.length}자로 길어 QR로 만들기 어렵습니다. 링크를 그대로 전달하거나 지문을 줄여 주세요.`
+    : " QR로 만들어 화면에 띄워도 됩니다.";
+  try {
+    navigator.clipboard.writeText(url);
+    $("setupMsg").textContent = "학생용 주소를 복사했습니다." + qrNote;
+  } catch {
+    $("setupMsg").textContent = "주소를 길게 눌러 복사해 주세요." + qrNote;
+  }
+});
 $("btnBack").addEventListener("click", () => {
   $("studentCard").classList.add("hidden");
   $("setupCard").classList.remove("hidden");
@@ -581,7 +641,16 @@ $("sInput").addEventListener("keydown", (e) => {
   // 엔터로 보내고 Shift+엔터는 줄바꿈. 한글 조합 중 엔터는 글자 확정이라 보내지 않는다.
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
 });
-loadConfig();
+const shared = decodeConfigFromLink();
+if (shared) {
+  // 링크로 들어온 학생. 준비 화면을 건너뛰고 바로 학생 화면을 연다.
+  config = Object.assign(config, shared, { key: "" });
+  fillForm();
+  startStudent();
+  $("btnBack").classList.add("hidden");
+} else {
+  loadConfig();
+}
 </script>
 </body>
 </html>
