@@ -2537,35 +2537,121 @@ function compactStudentIdea(value: string) {
     .slice(0, 42);
 }
 
+/* 글자가 같아야만 반복인 것은 아니다. 말만 바꿔 같은 내용을 되풀이하는 것이
+   아이에게는 더 답답하다. 뜻을 지닌 낱말만 남겨 겹치는 정도로 본다. */
+const REPETITION_STOP_WORDS = new Set([
+  "자료", "글에", "이야기", "내용", "부분", "문장", "생각", "질문", "이것", "그것",
+  "그리고", "하지만", "그런데", "우리", "너의", "네가", "제가", "있어요", "있어",
+  "해요", "합니다", "같아요", "때문", "정말", "조금", "다시", "함께", "여기",
+]);
+function contentWords(text: string) {
+  return new Set(
+    text
+      .replace(/[“”"'‘’]/g, " ")
+      .split(/[^가-힣A-Za-z0-9]+/)
+      .map((word) => word.trim())
+      .filter((word) => word.length >= 2)
+      .map((word) => word.replace(/(이라는|라는|에서는|에서|에게|으로|로|은|는|이|가|을|를|도|만|와|과|의)$/, ""))
+      .filter((word) => word.length >= 2 && !REPETITION_STOP_WORDS.has(word)),
+  );
+}
+function contentOverlap(a: string, b: string) {
+  const left = contentWords(a);
+  const right = contentWords(b);
+  // 낱말이 적으면 우연히 겹친다. 짧은 쪽 기준으로 나누면 더 심해져서 합집합으로 본다.
+  if (left.size < 5 || right.size < 5) return 0;
+  let shared = 0;
+  left.forEach((word) => {
+    if (right.has(word)) shared += 1;
+  });
+  return shared / (left.size + right.size - shared);
+}
+
+/* 같은 질문을 계속 던지는 학생. 답을 한 번 더 주는 것보다 지문으로 돌려보내는 편이
+   낫다. 두 번째까지는 다르게 답해 보고, 세 번째부터 되돌린다. */
+function repeatsSameQuestion(
+  studentTurn: string,
+  conversation: QuestioningConversationEntry[],
+) {
+  const asked = studentTurn.trim();
+  // 앞 답을 되묻는 말은 같은 질문이 아니라 이해를 돕는 요청이다.
+  if (/(뭘|무엇을|어디를|어느|어떤 걸|무슨 말)/.test(asked)) return false;
+  const key = (text: string) => text.replace(/[\s?？.!,]/g, "");
+  const askedKey = key(asked);
+  if (askedKey.length < 5) return false;
+  const earlier = conversation
+    .filter((entry) => entry.role === "student")
+    .slice(-5)
+    .map((entry) => entry.content.trim());
+  const sameCount = earlier.filter((entry) => {
+    const entryKey = key(entry);
+    if (!entryKey) return false;
+    // 글자가 거의 같거나, 한쪽이 다른 쪽을 통째로 담고 있으면 같은 질문으로 본다.
+    if (entryKey === askedKey) return true;
+    if (entryKey.includes(askedKey) || askedKey.includes(entryKey)) return true;
+    return contentOverlap(entry, asked) >= 0.85;
+  }).length;
+  return sameCount >= 2;
+}
+
 function avoidRepeatedStudentReply(
   reply: string,
   conversation: QuestioningConversationEntry[],
   sourceCue: string,
+  studentTurn = "",
 ) {
   const recentAssistantTurns = conversation
     .filter((entry) => entry.role === "assistant")
     .slice(-3)
     .map((entry) => entry.content.trim());
 
-  if (!recentAssistantTurns.includes(reply.trim())) {
+  const trimmed = reply.trim();
+  const repeats = recentAssistantTurns.some(
+    (earlier) => earlier === trimmed || contentOverlap(earlier, trimmed) >= 0.8,
+  );
+  if (!repeats) {
     return reply;
   }
 
   const conciseCue = firstSourceSentence(sourceCue, 120);
+  // 학생 말을 옳다고 인정하지는 않는다. 잘못된 단정까지 승인하게 된다.
+  // 말한 내용만 되받아 두고 다음 대목으로 넘긴다.
+  const studentIdea = studentTurn.trim().replace(/[?？]$/, "");
+  // 부탁·명령은 받아 주면 안 된다. "전체 문단 주세요"에 "맞아요"라고 답하면
+  // 대필을 승낙한 것이 된다.
+  const asksForSomething =
+    /(주세요|줘요|줘|해\s*줘|해\s*주|만들어|써\s*줘|써\s*주|알려\s*줘|알려\s*주|보여\s*줘|시켜|해\s*봐|하지\s*마)/.test(
+      studentTurn,
+    );
+  const receivesStudent =
+    studentIdea &&
+    studentIdea.length <= 40 &&
+    !/[?？]/.test(studentTurn) &&
+    !asksForSomething
+      ? [
+          `${studentIdea} 그렇게 말해 줬네요. 같은 문장을 또 읽기보다 다음 대목을 볼게요.`,
+        ]
+      : [];
   const alternatives = conciseCue
     ? [
+        ...receivesStudent,
         `앞에서 한 말을 반복하지 않을게요. 핵심은 ${conciseCue}`,
         `이번에는 한 가지만 짚을게요. ${conciseCue}`,
         `네가 방금 말한 내용을 이어 보면 ${conciseCue}`,
       ]
     : [
+        ...receivesStudent,
         "앞에서 한 말을 반복하지 않을게요. 방금 떠올린 생각을 그대로 두어도 괜찮아요.",
         "이번에는 설명을 더 붙이지 않을게요. 네 생각을 잠시 그대로 두어도 돼요.",
       ];
 
   return (
-    alternatives.find((candidate) => !recentAssistantTurns.includes(candidate)) ||
-    "앞에서 한 말을 되풀이하지 않고 여기서 잠시 멈출게요."
+    alternatives.find(
+      (candidate) =>
+        !recentAssistantTurns.some(
+          (earlier) => earlier === candidate || contentOverlap(earlier, candidate) >= 0.8,
+        ),
+    ) || reply
   );
 }
 
@@ -3485,6 +3571,11 @@ export function createLocalQuestionResult({
     !needsRepair &&
     !repeatedUncertainty &&
     recentAssistantTurns.filter((entry) => hasQuestionEnding(entry.content)).length < 2;
+  // 같은 질문을 세 번째 던지면 답을 한 번 더 주기보다 지문으로 돌려보낸다.
+  // 그만하려는 학생과 삐친 학생에게는 적용하지 않는다.
+  const asksSameQuestionAgain =
+    !isClosing && !needsRepair && !isUncertain && repeatsSameQuestion(turn, conversation);
+
   const asksBoardCaution =
     legacy.questionType === "application" &&
     /잔반게시판/.test(compactTurn) &&
@@ -3616,8 +3707,22 @@ export function createLocalQuestionResult({
     studentReply = generalTurn.reply;
   }
 
+  if (asksSameQuestionAgain) {
+    const pointer = shortSourceCue
+      ? `자료에서 “${shortSourceCue}” 이 부분을 다시 보면 실마리가 있어요.`
+      : "자료를 처음부터 한 번 더 천천히 읽어 보면 실마리가 보일 거예요.";
+    studentReply = `같은 질문이 이어지고 있어요. 답을 한 번 더 말하기보다, 지문을 다시 읽고 생각해 본 뒤에 물어봐 주면 좋겠어요. ${pointer}`;
+    primaryMove = "offer_clue";
+    engagementState = "seeking_evidence";
+    supportLevel = 2;
+  }
+
   const normalizedReply = keepAtMostOneQuestion(
-    avoidRepeatedStudentReply(studentReply, conversation, sourceCue),
+    // 지문으로 돌려보내는 말은 같은 대목을 일부러 다시 짚는다. 반복 검사에 걸려
+    // 덮어써지면 되돌리기 자체가 사라진다.
+    asksSameQuestionAgain
+      ? studentReply
+      : avoidRepeatedStudentReply(studentReply, conversation, sourceCue, turn),
   ).trim();
   const finalIsClosing = isClosing || primaryMove === "close";
   const expectsStudentReply = !finalIsClosing && hasQuestionEnding(normalizedReply);
