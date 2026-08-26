@@ -3109,7 +3109,7 @@ function createGeneralNaturalTurn({
   }
 
   return {
-    reply: `“${studentIdea}”라고 짚었군요. ${cue}`,
+    reply: `${receiveStudentIdea(studentIdea)} ${cue}`,
     primaryMove: "receive",
     engagementState: "noticing",
     curriculumRelation: "direct",
@@ -3130,6 +3130,22 @@ function firstKeyConceptOf(material: MaterialAnalysis): string {
 function isUsableVocabularyTerm(term: string) {
   const trimmed = term.trim();
   return trimmed.length >= 2 && /[가-힣A-Za-z]{2,}/.test(trimmed);
+}
+
+/* 학생 말을 받는 첫마디. 늘 "…라고 짚었군요"면 몇 턴만 지나도 녹음기처럼 들린다.
+   내용에 따라 돌려 쓰고, 절반은 학생 말을 되뇌지 않는 쪽으로 둔다. */
+function receiveStudentIdea(studentIdea: string) {
+  // 학생이 한 말은 남겨 둔다. 없애면 무엇을 받은 것인지 아이가 알 수 없다.
+  // 바꾸는 것은 감싸는 말이다. "짚었군요"만 늘 붙는 것이 문제였다.
+  const forms = [
+    (idea: string) => `“${idea}”라고 봤군요.`,
+    (idea: string) => `“${idea}”라는 점을 말해 줬네요.`,
+    (idea: string) => `“${idea}” — 그렇게 읽었군요.`,
+    (idea: string) => `“${idea}”라고 생각했군요.`,
+  ];
+  let hash = 0;
+  for (const ch of studentIdea) hash = (hash * 31 + ch.charCodeAt(0)) % 997;
+  return forms[hash % forms.length](studentIdea);
 }
 
 function asksRatherThanStates(value: string) {
