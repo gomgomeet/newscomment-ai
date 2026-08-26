@@ -70,6 +70,8 @@ export type Database = {
           owner_id: string;
           title: string;
           description: string | null;
+          auto_generated: boolean;
+          generation_context: Json;
           created_at: string;
           updated_at: string;
         };
@@ -78,12 +80,16 @@ export type Database = {
           owner_id: string;
           title: string;
           description?: string | null;
+          auto_generated?: boolean;
+          generation_context?: Json;
           created_at?: string;
           updated_at?: string;
         };
         Update: {
           title?: string;
           description?: string | null;
+          auto_generated?: boolean;
+          generation_context?: Json;
           updated_at?: string;
         };
         Relationships: [];

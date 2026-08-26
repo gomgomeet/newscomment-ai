@@ -15,6 +15,13 @@
 /evals/questioning-chatbot/results/*.json
 !/evals/questioning-chatbot/results/.gitkeep
 
+# generated workspace scratch files
+/tmp/
+
+# presentation render/test artifacts
+/output/pptx/**/*.png
+/output/pptx/*.inspect.ndjson
+
 # next.js
 /.next/
 /out/

@@ -22,7 +22,14 @@ export function RubricList({ rubrics }: { rubrics: Rubric[] }) {
         <Link key={rubric.id} href={`/dashboard/rubrics/${rubric.id}`}>
           <Card className="transition-colors hover:border-primary">
             <CardHeader>
-              <CardTitle className="text-base">{rubric.title}</CardTitle>
+              <CardTitle className="flex items-center gap-2 text-base">
+                {rubric.title}
+                {rubric.auto_generated ? (
+                  <span className="rounded-md bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
+                    자동 생성
+                  </span>
+                ) : null}
+              </CardTitle>
               <CardDescription>{rubric.description || "설명 없음"}</CardDescription>
             </CardHeader>
           </Card>
