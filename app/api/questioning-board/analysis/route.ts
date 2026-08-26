@@ -16,6 +16,10 @@ function optionalText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function normalizeStudentKey(value: string) {
+  return value.trim().replace(/\s+/g, "");
+}
+
 function assertSetupAllowed(setupToken: unknown) {
   const expectedToken = process.env.QUESTIONING_CONNECTION_SETUP_TOKEN?.trim();
   if (!expectedToken) return;
@@ -68,9 +72,11 @@ export async function POST(request: Request) {
     }
 
     const evaluationByStudent = new Map(
-      persistedEvaluations.map((entry) => [entry.studentKey, entry]),
+      persistedEvaluations.map((entry) => [normalizeStudentKey(entry.studentKey), entry]),
     );
-    const fallbackStats = stats.filter((entry) => !evaluationByStudent.has(entry.studentKey));
+    const fallbackStats = stats.filter(
+      (entry) => !evaluationByStudent.has(normalizeStudentKey(entry.studentKey)),
+    );
 
     // 평가 문장은 있으면 좋은 것. Gemini가 실패해도 통계는 그대로 돌려준다.
     let comments = new Map<string, { comment: string; scores: number[] }>();
@@ -94,7 +100,12 @@ export async function POST(request: Request) {
       }
     }
 
-    const statsByStudent = new Map(stats.map((entry) => [entry.studentKey, entry]));
+    const statsByStudent = new Map(
+      stats.map((entry) => [normalizeStudentKey(entry.studentKey), entry]),
+    );
+    const generatedByStudent = new Map(
+      Array.from(comments.entries()).map(([studentKey, value]) => [normalizeStudentKey(studentKey), value]),
+    );
     const studentKeys = Array.from(
       new Set([...statsByStudent.keys(), ...evaluationByStudent.keys()]),
     ).sort((left, right) => left.localeCompare(right, "ko"));
@@ -105,11 +116,11 @@ export async function POST(request: Request) {
       students: studentKeys.map((studentKey) => {
         const stat = statsByStudent.get(studentKey);
         const persisted = evaluationByStudent.get(studentKey);
-        const generated = comments.get(studentKey);
+        const generated = generatedByStudent.get(studentKey);
         const questions = stat?.questions.length ? stat.questions : persisted?.questions ?? [];
         const answers = stat?.answers.length ? stat.answers : persisted?.answers ?? [];
         return {
-          studentKey,
+          studentKey: persisted?.studentKey ?? stat?.studentKey ?? studentKey,
           questionCount: stat?.questionCount ?? questions.length,
           intents: stat?.intents ?? [],
           sampleQuestions: stat?.sampleQuestions ?? questions.slice(0, 3),
