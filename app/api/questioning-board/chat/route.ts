@@ -190,6 +190,69 @@ function combineReplyWithResearch(baseReply: string, researchedAnswer: string, s
   return `${normalizedBase} ${trimmedResearch} 출처는 ${source}입니다.`;
 }
 
+const TOPIC_TERM_STOPWORDS = new Set([
+  "자료",
+  "내용",
+  "질문",
+  "기사",
+  "지문",
+  "어떤",
+  "무엇",
+  "뭐예요",
+  "알려",
+  "간단히",
+  "출처",
+  "직접",
+  "우리",
+  "사람",
+]);
+
+function topicTerms(value: string) {
+  return Array.from(
+    new Set(
+      (value.match(/[가-힣A-Za-z0-9]+/g) || [])
+        .map((term) => term.toLowerCase().replace(/(은|는|이|가|을|를|에서|으로|로|와|과|의)$/g, ""))
+        .filter((term) => term.length >= 3 && !TOPIC_TERM_STOPWORDS.has(term)),
+    ),
+  );
+}
+
+function isLikelyMaterialExtension(
+  question: string,
+  conversation: ReturnType<typeof normalizeConversation>,
+  material: MaterialAnalysis,
+) {
+  if (/(게임|아이돌|축구|유튜브|배고|졸려|심심|먹고\s*싶|놀고\s*싶)/.test(question)) {
+    return false;
+  }
+
+  const materialTerms = topicTerms(
+    [material.materialTitle, material.summary, material.visibleText, ...material.keyConcepts].join(" "),
+  );
+  const directTerms = topicTerms(question);
+  const overlaps = (terms: string[]) =>
+    terms.some((questionTerm) =>
+      materialTerms.some(
+        (materialTerm) =>
+          questionTerm.includes(materialTerm) || materialTerm.includes(questionTerm),
+      ),
+    );
+
+  if (overlaps(directTerms)) return true;
+
+  const followsPriorTopic = /(그\s*내용|그것|자료\s*밖|더\s*알려|출처와\s*함께)/.test(question);
+  if (!followsPriorTopic) return false;
+  const lastStudentTurn = [...conversation].reverse().find((entry) => entry.role === "student")?.content || "";
+  return overlaps(topicTerms(lastStudentTurn));
+}
+
+function asksToCheckSourceBoundary(question: string) {
+  return (
+    /(이\s*(기사|자료|지문)|자료|지문).*(직접|실제로).*(나오|있)/.test(question) ||
+    /(자료|지문).*(안|밖).*(정보|내용).*(구분|어떻게)/.test(question)
+  );
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as ChatRequest;
@@ -357,6 +420,24 @@ export async function POST(request: Request) {
       });
     }
 
+    const likelyMaterialExtension = isLikelyMaterialExtension(question, conversation, config.material);
+    if (
+      likelyMaterialExtension &&
+      (result.sourceStatus === "source_insufficient" || result.sourceStatus === "out_of_scope") &&
+      result.questionType === "off_topic"
+    ) {
+      result.curriculumRelation = "productive_extension";
+      result.sourceStatus = "source_insufficient";
+      result.questionType = "extension";
+      result.primaryMove = "productive_extension";
+      result.typeLabel = "확장 질문";
+      if (/수업 내용과 관련된 질문|자료 속 장면|자료의 어느 문장/.test(result.studentReply)) {
+        result.studentReply = "자료에는 직접 나오지 않아요.";
+        result.answer = result.studentReply;
+        result.expectsStudentReply = false;
+      }
+    }
+
     // 자료에 없지만 주제와 이어지는 질문은 웹에서 찾아 출처와 함께 답해 준다.
     // "염증이 생기면 어떤 일이 생겨요?"를 "자료에 없어요"로만 끝내지 않기 위해서다.
     // 검색 근거(A·B 출처)가 없으면 조용히 기존의 정직한 답을 그대로 쓴다.
@@ -367,8 +448,8 @@ export async function POST(request: Request) {
       useApprovedExternalProvider &&
       lessonConnection &&
       result.sourceStatus === "source_insufficient" &&
-      knowledgeCards.length === 0 &&
       onTopic &&
+      !asksToCheckSourceBoundary(question) &&
       result.questionType !== "safety" &&
       result.questionType !== "off_topic"
     ) {
@@ -387,6 +468,7 @@ export async function POST(request: Request) {
             researched.answer,
             researched.sourceOrganization,
           );
+          result.answer = result.studentReply;
           answeredByResearch = true;
           // 다음 학생부터 재사용되도록 리서치 카드로도 남긴다. 실패는 무시한다.
           if (!isTeacherPreview) {

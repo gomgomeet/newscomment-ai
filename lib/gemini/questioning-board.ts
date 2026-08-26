@@ -278,13 +278,69 @@ function asksToAvoidPersonalInformation(value: string) {
   );
 }
 
+function containsPersonalInformation(value: string) {
+  const compact = compactKoreanTurn(value);
+  return (
+    /01[016789][-. ]?\d{3,4}[-. ]?\d{4}/.test(value) ||
+    /\b\d{6}[- ]?[1-4]\d{6}\b/.test(value) ||
+    /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(value) ||
+    /(내|제)(이름|주소)(은|이|는)/.test(compact) ||
+    /(전화번호|집주소|비밀번호|주민번호|이메일)/.test(compact)
+  );
+}
+
+function redactPersonalInformation(value: string) {
+  return value
+    .replace(/01[016789][-. ]?\d{3,4}[-. ]?\d{4}/g, "[전화번호 삭제됨]")
+    .replace(/\b\d{6}[- ]?[1-4]\d{6}\b/g, "[주민번호 삭제됨]")
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[이메일 삭제됨]")
+    .replace(
+      /((?:내|제)\s*이름(?:은|이)\s*)[가-힣]{2,4}(?=(?:이고|고|이야|예요|입니다|[,\s.!?]))/g,
+      "$1[이름 삭제됨]",
+    )
+    .replace(
+      /((?:내|제)\s*(?:집\s*)?주소(?:는|가|는?)\s*)[^,.!?]{2,50}/g,
+      "$1[주소 삭제됨]",
+    )
+    .replace(/(비밀번호(?:는|가|는?)\s*)[^,\s.!?]+/g, "$1[비밀번호 삭제됨]")
+    .replace(/\b[가-힣]{2,4}\s*학생\b/g, "학생");
+}
+
+function isStudentCausalHypothesis(value: string) {
+  const compact = compactKoreanTurn(value).replace(/[.!?？~]+$/g, "");
+  return /(때문|덕분|아서|어서).*(거죠|맞죠|것같아요|것같습니다|아닐까요|아닌가요)$/.test(compact);
+}
+
+function isEverydayOffTopicState(value: string) {
+  return /(배고파|배고프|졸려|졸리|목말라|심심해|피곤해)/.test(compactKoreanTurn(value));
+}
+
 function isClosingStudentTurn(value: string) {
   const compact = compactKoreanTurn(value).replace(/[.!?？~]+$/g, "");
-  return /^(네|응|ㅇㅋ|오케이)?(이제)?(알겠어|알겠어요|알았습니다|됐어|됐어요|괜찮아|괜찮아요|그만할래|그만할게|끝낼래|끝낼게|여기까지할게|여기까지만할게|고마워|감사합니다)$/.test(compact);
+  return /^(네|응|ㅇㅋ|오케이)?(이제)?(알겠어|알겠어요|알았습니다|됐어|됐어요|괜찮아|괜찮아요|그만할래|그만할래요|그만할게|그만할게요|끝낼래|끝낼래요|끝낼게|끝낼게요|여기까지할게|여기까지할게요|여기까지만할게|여기까지만할게요|고마워|감사합니다)$/.test(compact);
 }
 
 function privacyAnonymizationReply() {
   return "네, 이름은 말하지 않아도 돼요. 사람을 구분해야 할 때는 '한 친구', '어떤 학생'처럼 바꾸고, 수업 자료와 연결되는 내용만 이야기하면 됩니다.";
+}
+
+function privacyRemovalReply() {
+  return "이름과 전화번호 같은 개인정보는 대화에 남기지 않는 게 좋아요. 방금 적은 정보는 빼고, 수업 내용과 관련된 상황만 익명으로 이야기해 주세요.";
+}
+
+function causalHypothesisReply() {
+  return "가능한 가설이지만, 아직 자료에서 직접 확인된 원인이라고 단정할 수는 없어요. 자료에 그 까닭을 직접 밝힌 문장이 있는지 확인해 보면 됩니다.";
+}
+
+function everydayOffTopicReply(value: string) {
+  const compact = compactKoreanTurn(value);
+  if (/배고/.test(compact)) {
+    return "배가 고프구나. 지금은 수업 중이니 잠깐 숨을 고르고, 준비되면 자료 이야기로 다시 이어가면 돼요.";
+  }
+  if (/졸|피곤/.test(compact)) {
+    return "많이 피곤하구나. 잠깐 자세를 바꾸고 쉬었다가, 준비되면 자료 이야기로 다시 이어가면 돼요.";
+  }
+  return "그럴 수 있어요. 잠깐 쉬었다가 준비되면 자료 이야기로 다시 이어가면 돼요.";
 }
 
 function closingReply() {
@@ -827,6 +883,11 @@ export async function answerQuestionWithGemini({
 }): Promise<ChatResult & { model: string }> {
   const apiKey = getApiKey(apiKeyOverride);
   const model = getModel(modelOverride);
+  const safeQuestion = redactPersonalInformation(question);
+  const safeConversation = conversation.map((entry) => ({
+    ...entry,
+    content: redactPersonalInformation(entry.content),
+  }));
   const questionFocusMemo = material.questionFocusMemo?.trim();
   const doNotForceMemo = curriculumCompass.doNotForce
     .map((item) => item.trim())
@@ -839,7 +900,7 @@ export async function answerQuestionWithGemini({
     curriculumCompass,
     material,
   });
-  const materialReasoningContext = buildMaterialReasoningContext(material, question);
+  const materialReasoningContext = buildMaterialReasoningContext(material, safeQuestion);
   const answerMaxOutputTokens = model.includes("pro") ? 3600 : 2800;
   const parsed = await requestGeminiJson({
     apiKey,
@@ -874,8 +935,8 @@ export async function answerQuestionWithGemini({
             observableEvidence: criterion.observableEvidence,
             feedbackForward: criterion.feedbackForward,
           })),
-          recentConversation: conversation.slice(-8),
-          studentTurn: question,
+          recentConversation: safeConversation.slice(-8),
+          studentTurn: safeQuestion,
           // 교사가 확인한 지식 카드. 지문 밖 질문에 "없어요"로만 끝내지 않기 위한 재료다.
           teacherKnowledgeCards: knowledgeCards,
           responseRules: [
@@ -961,8 +1022,12 @@ export async function answerQuestionWithGemini({
         .filter((item) => item.criterionKey)
     : [];
 
-  const privacyQuestion = asksToAvoidPersonalInformation(question);
+  const asksPrivacyAvoidance = asksToAvoidPersonalInformation(question);
+  const hasPersonalInformation = containsPersonalInformation(question);
+  const privacyQuestion = asksPrivacyAvoidance || hasPersonalInformation;
   const closingTurn = isClosingStudentTurn(question);
+  const causalHypothesisTurn = isStudentCausalHypothesis(question);
+  const everydayOffTopicTurn = isEverydayOffTopicState(question);
   const questionType = privacyQuestion
     ? "safety"
     : isChatQuestionType(parsed.questionType) ? parsed.questionType : "fact";
@@ -977,9 +1042,15 @@ export async function answerQuestionWithGemini({
   const parsedSupportLevel = normalizeSupportLevel(parsed.supportLevel);
   const supportLevel = Math.min(parsedSupportLevel, policyDecision.maxSupportLevel) as 0 | 1 | 2 | 3 | 4;
   const studentReply = privacyQuestion
-    ? privacyAnonymizationReply()
+    ? asksPrivacyAvoidance
+      ? privacyAnonymizationReply()
+      : privacyRemovalReply()
     : closingTurn
       ? closingReply()
+      : causalHypothesisTurn
+        ? causalHypothesisReply()
+        : everydayOffTopicTurn
+          ? everydayOffTopicReply(question)
       : sanitizeStudentReply(parsed.studentReply, question, {
           allowQuestion: policyDecision.allowQuestion,
         });

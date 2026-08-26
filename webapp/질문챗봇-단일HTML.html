@@ -117,6 +117,7 @@
       </div>
       <div class="row" style="margin-top:8px">
         <button id="btnSend" style="flex:0 0 auto">보내기</button>
+        <button class="ghost" id="btnNewStudent" style="flex:0 0 auto">새 학생</button>
         <span class="hint" id="chatHint" style="flex:1">지문에서 답을 찾아 함께 이야기해요.</span>
       </div>
     </div>
@@ -242,7 +243,6 @@ function teacherWords() {
 function quote(sentence) {
   const t = sentence.trim().replace(/[.\s]+$/, "");
   if (!t) return "";
-  if (/(요|니다)[.!?]?$/.test(t)) return t;
   const forms = [
     s => `자료에는 “${s}”라고 나와 있어요.`,
     s => `글에서 “${s}”라는 문장을 찾을 수 있어요.`,
@@ -270,22 +270,53 @@ function keywords(text) {
       .map(stripJosa).filter(w => w.length >= 2 && !STOP.has(w))
   ));
 }
+function termVariants(term) {
+  const compact = term.replace(/\s/g, "");
+  const variants = new Set([compact]);
+  [
+    /(했어요|했나요|합니다|합니까|해요|했죠|했어|했다)$/,
+    /(었어요|았어요|어요|아요|습니다|습니까|나요|까요|죠)$/,
+    /(하다|되다|이다|다)$/,
+  ].forEach(pattern => {
+    const stem = compact.replace(pattern, "");
+    if (stem.length >= 2) variants.add(stem);
+  });
+  if (compact.endsWith("하다") && compact.length > 3) variants.add(compact.slice(0, -2));
+  return Array.from(variants).filter(v => v.length >= 2);
+}
+function sentenceHasTerm(sentence, term) {
+  const compact = sentence.replace(/\s/g, "");
+  return termVariants(term).some(v => compact.includes(v));
+}
 /* 질문과 가장 맞닿는 지문 문장. 까닭을 물으면 원인을 밝힌 문장을 먼저 본다. */
 /* 방금 쓴 근거는 다시 쓰지 않는다. 같은 문장을 두 번 내밀면 대화가 멈춘 것처럼 보인다. */
 let lastEvidence = "";
 /* 방금 뜻을 물어본 낱말. "이 글에서는?"이라고 이어 물으면 이 낱말의 문맥 뜻을 준다. */
 let lastTerm = "";
 function findEvidence(question) {
-  const list = sentencesOf(config.passage).filter(looksLikeSentence).filter(s => s !== lastEvidence);
+  const list = sentencesOf(config.passage).filter(looksLikeSentence);
   if (!list.length) return "";
   const asked = keywords(question);
   const why = /(왜|이유|까닭|때문)/.test(question);
   const how = /(할\s*수\s*있|방법|어떻게\s*해|하면\s*돼|하면\s*좋|해야\s*해|실천)/.test(question);
+  const quantity = /(몇|얼마나|수치|무게|거리|킬로그램|그램|퍼센트|%)/.test(question);
+  const change = /(얼마나|몇).{0,10}(줄|늘|달라|차이)|(?:줄|늘).{0,10}(얼마나|몇)/.test(question);
+  const basis = /(어떻게|무엇으로|어떤\s*방법).{0,12}(재|잰|쟀|측정|기록|계산|조사)|근거|기준/.test(question);
+  const observed = /(확인한\s*사실|관찰한\s*사실|관찰\s*결과|실험\s*결과|결과는)/.test(question);
+  const transfer = /(다른|우리|모든).{0,12}(학교|학급|반|곳|사람).{0,16}(똑같|같은|모두|결과|수치|나오)/.test(question);
+  const privacy = /(주소|이름표|전화번호|개인\s*정보|위치\s*정보)/.test(question);
   let best = "", bestScore = 0;
   list.forEach(s => {
-    let score = asked.filter(k => s.replace(/\s/g, "").includes(k)).length * 2;
-    if (why && /(때문|덕분|탓|(으로|로)\s*인해|원인|져서|아져|어져)/.test(s)) score += 5;
+    let score = asked.filter(k => sentenceHasTerm(s, k)).length * 2;
+    if (why && /(때문|덕분|탓|(으로|로)\s*인해|원인|되어|해서|어서|아서|져서|아져|어져|약속|실천)/.test(s)) score += 5;
     if (how && /(늘리|줄이|바꾸|정했|하기로|방안|대책|실천|시작했|이어\s*가|해 보|고르게)/.test(s)) score += 5;
+    if (quantity && /\d/.test(s)) score += 6;
+    if (change && /\d/.test(s) && /(줄|늘|달라|차이)/.test(s)) score += 10;
+    if (basis && /(재었|재었습니다|측정|기록|조사|평균|계산|표)/.test(s)) score += 7;
+    if (observed && /(뒤|결과|관찰|나타|진한|연했|늘었|줄었|길고|짧고|높고|낮고)/.test(s)) score += 7;
+    if (transfer && /(단정할\s*수\s*없|같은\s*(결과|수치)|조건|한\s*학급|한\s*학교)/.test(s)) score += 9;
+    if (privacy && /(주소|이름표|전화번호|개인|위치\s*정보)/.test(s)) score += 8;
+    if (s === lastEvidence && !(quantity || basis || observed || transfer || privacy || why)) score -= 3;
     if (score > bestScore) { best = s; bestScore = score; }
   });
   if (bestScore < 2) return "";
@@ -346,7 +377,7 @@ function localReply(turn) {
     return `안녕하세요! 오늘은 「${config.title}」를 함께 읽어요. 먼저 제목과 첫 문장을 보고 궁금한 점을 말해 주세요.`;
   }
   if (isClosing(t)) {
-    return "알겠어요. 오늘 떠올린 생각만으로도 충분해요. 더 궁금한 게 생기면 언제든 이어서 물어봐요.";
+    return "좋아요. 오늘 떠올린 생각만으로도 충분해요. 여기에서 편안하게 마칠게요.";
   }
   if (/(네가|니가|먼저).{0,8}(질문|물어)|퀴즈|문제\s*(내|해)/.test(t.replace(/\s/g, " "))) {
     return `좋아요, 내가 먼저 물어볼게요. 이 글에서 가장 크게 달라진 점은 무엇이었나요? 자료에서 그 부분을 찾아 말해 주세요.`;
@@ -368,7 +399,7 @@ function localReply(turn) {
   // 앞 낱말을 이어 묻는 말인지 먼저 본다
   if (lastTerm && /(이\s*글|여기|본문|자료)에서(는)?|문맥|어떤\s*뜻으로|어떻게\s*쓰/.test(t)) {
     const where = sentencesOf(config.passage).filter(looksLikeSentence)
-      .find(x => x.replace(/\s/g, "").includes(lastTerm.replace(/\s/g, "")));
+      .find(x => sentenceHasTerm(x, lastTerm));
     if (where) return `이 글에서는 ${bare(where)}라는 문장에 ${josa("‘" + lastTerm + "’", "이", "가")} 나와요. 이 문장에서는 어떤 뜻으로 읽히나요?`;
     return `${josa("‘" + lastTerm + "’", "이", "가")} 쓰인 문장을 자료에서 찾지 못했어요. 낱말이 보이는 곳을 알려 주면 함께 살펴볼게요.`;
   }
@@ -387,11 +418,11 @@ function localReply(turn) {
     const meaning = teacherWords().get(word);
     if (meaning) {
       const tidy = meaning.replace(/[.\s]+$/, "");
-      return `${josa("‘" + word + "’", "은", "는")} ${tidy}을 뜻해요. 이 글에서 어떤 뜻으로 쓰였는지 궁금하면 이어서 물어봐 주세요.`;
+      return `${josa("‘" + word + "’", "은", "는")} ${josa("“" + tidy + "”", "이라는", "라는")} 뜻이에요. 이 글에서 어떤 뜻으로 쓰였는지 궁금하면 이어서 물어봐 주세요.`;
     }
     const where = sentencesOf(config.passage)
       .filter(looksLikeSentence)
-      .find(s => s.replace(/\s/g, "").includes(word.replace(/\s/g, "")));
+      .find(s => sentenceHasTerm(s, word));
     if (where) return `자료에서는 ${bare(where)}라는 문장에 ${josa("‘" + word + "’", "이", "가")} 나와요. 사전 뜻은 제가 가진 자료에 없어서 지어내지 않을게요. 앞뒤 문장을 보고 어떤 뜻일지 짐작해 볼까요?`;
     return `${josa("‘" + word + "’", "은", "는")} 자료에서 찾지 못했어요. 낱말이 나온 부분을 알려 주거나, 국어사전에서 뜻을 확인한 뒤 이 글의 내용과 맞는지 견주어 보세요.`;
   }
@@ -400,8 +431,49 @@ function localReply(turn) {
     return "그 이야기도 재미있겠네요. 지금은 이 글을 함께 보는 시간이라, 글에서 눈에 들어온 말이나 궁금한 점을 하나만 말해 줄래요?";
   }
 
+  const evidenceSentences = sentencesOf(config.passage).filter(looksLikeSentence);
+  const numberWithUnit = t.replace(/\s/g, "").match(/\d+(?:\.\d+)?(?:킬로그램|그램|퍼센트|%|킬로미터|미터|명|개|번)/)?.[0] || "";
+  if (numberWithUnit && !config.passage.replace(/\s/g, "").includes(numberWithUnit)) {
+    return `${josa("‘" + numberWithUnit + "’", "은", "는")} 이 글에 나오지 않아요. 비슷한 수치로 바꾸어 답하지 않고, 확인할 질문으로 남겨 둘게요.`;
+  }
+  if (/(주소|이름표|전화번호|개인\s*정보|위치\s*정보)/.test(t) && /(보여|올려|공개|써도|말해도|괜찮)/.test(t)) {
+    const safetyEvidence = evidenceSentences.find(s => /(주소|이름표|전화번호|개인|위치\s*정보)/.test(s));
+    return safetyEvidence
+      ? `아니요. ${quote(safetyEvidence)} 다른 사람의 동의가 있어도 개인을 알아볼 수 있는 정보는 따로 가려야 해요.`
+      : "아니요. 이름, 주소, 전화번호처럼 개인을 알아볼 수 있는 정보는 공개하지 않는 것이 안전해요.";
+  }
+  if (/(다른|우리|모든).{0,12}(학교|학급|반|곳|사람).{0,16}(똑같|같은|모두|결과|수치|나오)/.test(t)) {
+    const limitEvidence = evidenceSentences.find(s => /(단정할\s*수\s*없|같은\s*(결과|수치)|조건|한\s*학급|한\s*학교)/.test(s));
+    return limitEvidence
+      ? `${quote(limitEvidence)} 다른 곳에서도 시도할 수 있지만 결과가 똑같다고 미리 정할 수는 없어요.`
+      : "다른 곳에서도 시도해 볼 수는 있지만, 사람과 기간 같은 조건이 달라 결과까지 똑같다고 말할 수는 없어요.";
+  }
+  if (/(어떻게|무엇으로|어떤\s*방법).{0,12}(재|잰|쟀|측정|기록|계산|조사)|근거|기준/.test(t)) {
+    const methodEvidence = evidenceSentences.find(s => /(재었|재었습니다|측정|기록|조사|평균|계산|표)/.test(s));
+    return methodEvidence
+      ? `${quote(methodEvidence)} 다만 구체적인 도구나 계산 방법은 이 글에 더 자세히 나오지 않아요.`
+      : "그 수치를 확인한 구체적인 방법은 이 글에 나오지 않아요. 방법을 지어내지 않고 확인할 질문으로 남겨 둘게요.";
+  }
+  if (/(때문|덕분|아서|어서).*(거죠|맞죠|것\s*같|아닐까)/.test(t)) {
+    const controlEvidence = evidenceSentences.find(s => /(같은\s*(양|조건)|조건을\s*같)/.test(s))
+      || evidenceSentences.find(s => /도움이\s*될\s*수/.test(s))
+      || evidenceSentences.find(s => /단정할\s*수\s*없/.test(s));
+    return controlEvidence
+      ? `그건 생각해 볼 수 있는 가설이에요. ${quote(controlEvidence)} 하지만 이 글에서 확인된 사실과 아직 확인하지 않은 원인은 구분해야 해요.`
+      : "그건 생각해 볼 수 있는 가설이지만, 이 글에서 확인된 원인이라고 단정할 근거는 아직 없어요.";
+  }
+  if (/(무조건|반드시|확실히|분명)/.test(t) && /(때문|좋아|나빠|결과|효과)/.test(t)) {
+    const cautiousEvidence = evidenceSentences.find(s => /(도움이\s*될\s*수|단정할\s*수\s*없)/.test(s))
+      || evidenceSentences.find(s => /(가능|예상)/.test(s));
+    return cautiousEvidence
+      ? `${quote(cautiousEvidence)} 이 글은 가능성을 보여 주지만, 한 가지 까닭만으로 결과를 무조건 단정할 수는 없어요.`
+      : "그럴 가능성은 생각해 볼 수 있지만, 이 글의 근거만으로 원인과 결과를 무조건 단정할 수는 없어요.";
+  }
+
   const ev = findEvidence(t);
   if (ev) {
+    if (/(왜|이유|까닭|때문)/.test(t)) return `${quote(ev)} 이 문장이 까닭을 설명해요.`;
+    if (/(몇|얼마나|수치|무게|거리|확인한\s*사실|관찰\s*결과|실험\s*결과)/.test(t)) return quote(ev);
     return isQuestion(t)
       ? `${quote(ev)} ${followUp()}`
       : `그렇게 생각했군요. ${quote(ev)} 이 문장과 견주어 보면 어떤가요?`;
@@ -433,7 +505,14 @@ ${config.passage}${words}${memo}${std}
 9. 학생이 그만하고 싶어 하면 새 과제를 주지 말고 따뜻하게 마치세요.
 10. 이름·연락처 같은 개인정보를 묻지 마세요.
 11. ${config.grade || "초등"} 눈높이로 2~4문장. 어려운 말은 풀어 쓰세요.
-12. 숙제나 답을 대신 써 달라고 하면, 대신 써 주지 말고 학생이 자기 생각에서 시작할 작은 단계를 안내하세요.`;
+12. 숙제나 답을 대신 써 달라고 하면, 대신 써 주지 말고 학생이 자기 생각에서 시작할 작은 단계를 안내하세요.
+13. "몰라요"에는 다그치지 말고 지문의 첫 문장이나 낱말 하나에서 시작하게 도우세요.
+14. 자료 밖 질문에는 없다고 정직하게 답하고, 수업과 무관한 말에는 공감한 뒤 글로 돌아오게 하세요. 두 경우를 같은 답으로 처리하지 마세요.
+15. 수치·측정 방법·판단 기준처럼 답이 분명한 질문에는 근거를 바로 답하세요. 자료에 방법이 없으면 없다고 밝히고 되묻기로 피하지 마세요.
+16. 다른 학교나 상황에도 적용할 수는 있지만 같은 결과가 나온다고 보장하지 마세요. 사람·기간·환경 같은 조건 차이를 짧게 알려 주세요.
+17. 학생이 원인을 제안하면 지문에서 확인된 사실과 학생의 가설을 구분하세요. "무조건" 같은 단정은 가능성 표현으로 고쳐 주세요.
+18. 주소·이름표·연락처 공개처럼 안전 여부가 분명한 질문에는 먼저 "안 돼요" 또는 "가려야 해요"라고 답한 뒤 지문 근거를 설명하세요.
+19. 학생이 한 종료 표현을 그대로 되풀이하지 말고 새 과제 없이 자연스럽게 마치세요.`;
 }
 async function geminiReply(turn) {
   const history = chatLog.slice(-8).map(m => ({
@@ -482,6 +561,7 @@ function startStudent() {
   if (!config.passage) { $("setupMsg").textContent = "지문을 먼저 입력해 주세요."; return; }
   if (!config.title) { config.title = firstLineTitle(config.passage); $("fTitle").value = config.title; }
   saveConfig();
+  resetConversationState();
 
   $("sTitle").textContent = config.title;
   $("sPassage").textContent = config.passage;
@@ -491,6 +571,8 @@ function startStudent() {
   const n = parseInt(config.count, 10);
   if (n > 0) for (let i = 1; i <= Math.min(n, 60); i++) sel.insertAdjacentHTML("beforeend", `<option value="${i}">${i}번</option>`);
   else sel.insertAdjacentHTML("beforeend", '<option value="0">번호 없음</option>');
+  $("idBox").classList.remove("hidden");
+  $("chatBox").classList.add("hidden");
 
   $("setupCard").classList.add("hidden");
   $("recordCard").classList.add("hidden");
@@ -516,23 +598,27 @@ async function send() {
   }
   bubble("bot", reply);
   chatLog.push({ who: "bot", text: reply });
-  appendRecord({ no: studentNo, q: turn, a: reply, engine, at: new Date().toISOString() });
+  appendRecord({ lesson: config.title, grade: config.grade, no: studentNo, q: turn, a: reply, engine, at: new Date().toISOString() });
 
   sending = false; $("btnSend").disabled = false;
   if (!$("chatHint").textContent.includes("막혀")) $("chatHint").textContent = "지문에서 답을 찾아 함께 이야기해요.";
 }
 function showRecords() {
+  readForm();
   let rows = [];
-  try { rows = JSON.parse(localStorage.getItem(KEY_LOG) || "[]"); } catch { rows = []; }
+  try {
+    const all = JSON.parse(localStorage.getItem(KEY_LOG) || "[]");
+    rows = all.filter(r => r.lesson === config.title);
+  } catch { rows = []; }
   if (!rows.length) { $("setupMsg").textContent = "아직 기록이 없습니다."; return; }
 
-  const head = "<table><tr><th>번호</th><th>학생 질문</th><th>챗봇 답변</th><th>시각</th></tr>";
-  const body = rows.map(r => `<tr><td>${r.no || "-"}</td><td>${esc(r.q)}</td><td>${esc(r.a)}</td><td>${r.at.slice(5, 16).replace("T", " ")}</td></tr>`).join("");
+  const head = "<table><tr><th>자료</th><th>학년</th><th>번호</th><th>학생 질문</th><th>챗봇 답변</th><th>응답 엔진</th><th>시각</th></tr>";
+  const body = rows.map(r => `<tr><td>${esc(r.lesson)}</td><td>${esc(r.grade)}</td><td>${r.no || "-"}</td><td>${esc(r.q)}</td><td>${esc(r.a)}</td><td>${esc(r.engine)}</td><td>${r.at.slice(5, 16).replace("T", " ")}</td></tr>`).join("");
   $("recordTable").innerHTML = head + body + "</table>";
   $("recordCard").classList.remove("hidden");
 
-  const csv = "번호,질문,답변,시각\n" + rows.map(r =>
-    [r.no, r.q, r.a, r.at].map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")
+  const csv = "자료,학년,번호,질문,답변,응답엔진,시각\n" + rows.map(r =>
+    [r.lesson, r.grade, r.no, r.q, r.a, r.engine, r.at].map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")
   ).join("\n");
   const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
@@ -543,10 +629,28 @@ function showRecords() {
 }
 function esc(s) { return String(s ?? "").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
 
+function resetConversationState() {
+  chatLog = [];
+  studentNo = "";
+  lastEvidence = "";
+  lastTerm = "";
+  followUpAt = 0;
+  $("sNumber").value = "";
+  $("chat").innerHTML = "";
+  $("sInput").value = "";
+  $("chatHint").textContent = "지문에서 답을 찾아 함께 이야기해요.";
+}
+function chooseNewStudent() {
+  resetConversationState();
+  $("idBox").classList.remove("hidden");
+  $("chatBox").classList.add("hidden");
+}
+
 /* ---------------- 연결 ---------------- */
 $("btnStart").addEventListener("click", startStudent);
 $("btnSave").addEventListener("click", saveConfig);
 $("btnRecords").addEventListener("click", showRecords);
+$("btnNewStudent").addEventListener("click", chooseNewStudent);
 $("btnBack").addEventListener("click", () => {
   $("studentCard").classList.add("hidden");
   $("setupCard").classList.remove("hidden");
@@ -554,11 +658,10 @@ $("btnBack").addEventListener("click", () => {
 $("btnEnter").addEventListener("click", () => {
   const v = $("sNumber").value;
   if (!v) { alert("번호를 골라 주세요."); return; }
+  resetConversationState();
   studentNo = v;
   $("idBox").classList.add("hidden");
   $("chatBox").classList.remove("hidden");
-  chatLog = [];
-  $("chat").innerHTML = "";
   bubble("bot", `안녕하세요! 저는 질문 도우미예요. 위의 글을 읽고 궁금한 점이나 눈에 들어온 내용을 편하게 말해 주세요.`);
   $("sInput").focus();
 });
