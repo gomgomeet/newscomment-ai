@@ -497,6 +497,10 @@ export async function researchAnswerForStudent({
               "Search first, then answer in 2-3 short Korean sentences at the given grade level.",
               "State only what the search results support. No question marks — the answer must not ask anything back.",
               "If the search does not clearly support an answer, reply with the single word 모름.",
+              // 지어냄을 줄이는 지시. 아래 세 가지가 검색 없이 기억으로 답하는 것을 막는다.
+              "Never state a number, date, name, or statistic that is not written in the search results.",
+              "Do not combine facts from different sources into a new claim.",
+              "When the results disagree or are unclear, reply 모름 rather than picking one.",
             ].join(" "),
           },
         ],
@@ -545,9 +549,14 @@ export async function researchAnswerForStudent({
   if (graded.length === 0) return null;
 
   const best = graded[0];
+  // 근거가 하나뿐이면 단정하지 않는다. 여러 곳이 같은 말을 할 때만 확실하게 말한다.
+  const hedged =
+    graded.length < 2
+      ? `${answer.replace(/[?？.]+$/, "")}라고 한 곳에서 설명해요. 더 확인해 보면 좋겠어요.`
+      : answer;
   return {
     // 아이 화면에 물음표가 섞여 나가지 않게 한 번 더 걸러 둔다.
-    answer: answer.replace(/[?？]/g, ".").slice(0, 400),
+    answer: hedged.replace(/[?？]/g, ".").slice(0, 400),
     sourceOrganization: best.domain || best.title,
     sourceUrl: best.url,
     reliability: best.grade,

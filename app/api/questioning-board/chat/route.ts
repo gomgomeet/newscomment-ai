@@ -364,6 +364,8 @@ export async function POST(request: Request) {
     const onTopic =
       result.curriculumRelation === "direct" || result.curriculumRelation === "productive_extension";
     if (
+      // 교사가 켰을 때만 웹에서 찾는다. 켜져 있는 줄 모르고 수업이 새는 것을 막는다.
+      config.liveResearchEnabled === true &&
       useApprovedExternalProvider &&
       lessonConnection &&
       result.sourceStatus === "source_insufficient" &&
