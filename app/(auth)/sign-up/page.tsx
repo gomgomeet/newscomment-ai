@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { signUp } from "@/app/(auth)/actions";
+import { AuthDivider, GoogleSignInButton } from "@/components/auth/google-sign-in-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -19,6 +20,8 @@ export default async function SignUpPage({
         <CardDescription>교사용 평가 작업공간을 생성합니다.</CardDescription>
       </CardHeader>
       <CardContent>
+        <GoogleSignInButton label="Google로 시작하기" />
+        <AuthDivider />
         <form action={signUp} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="full_name">이름</Label>

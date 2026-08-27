@@ -1,12 +1,29 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
+}
+
+// Vercel serves previews and production on different hosts, so the OAuth return
+// address has to be built from the request rather than a fixed env value.
+// Every host used here must also be listed in Supabase's Redirect URLs.
+async function siteOrigin() {
+  const headerList = await headers();
+  const forwardedHost = headerList.get("x-forwarded-host");
+  const host = forwardedHost || headerList.get("host");
+
+  if (!host) {
+    return "";
+  }
+
+  const protocol = headerList.get("x-forwarded-proto") || (host.startsWith("localhost") ? "http" : "https");
+  return `${protocol}://${host}`;
 }
 
 export async function signIn(formData: FormData) {
@@ -62,6 +79,28 @@ export async function signUp(formData: FormData) {
 
   revalidatePath("/", "layout");
   redirect("/dashboard");
+}
+
+export async function signInWithGoogle() {
+  const supabase = await createClient();
+  const origin = await siteOrigin();
+
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo: `${origin}/auth/callback`,
+    },
+  });
+
+  if (error || !data.url) {
+    // The provider is configured in Supabase, not here, so the most common
+    // failure is that Google sign-in has not been enabled yet.
+    const message = error?.message ?? "Google 로그인을 시작하지 못했습니다. 잠시 뒤 다시 시도해 주세요.";
+    redirect(`/login?message=${encodeURIComponent(message)}`);
+  }
+
+  // Google hosts the consent screen, so this leaves the app entirely.
+  redirect(data.url);
 }
 
 export async function signOut() {
