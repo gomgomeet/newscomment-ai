@@ -24,6 +24,7 @@ export default async function InsightsPage() {
         .select("*")
         .in("project_id", projectIds)
         .eq("evaluator_id", user.id)
+        .eq("source", "teacher-manual")
     : { data: [], error: null };
 
   if (evaluationsError) {

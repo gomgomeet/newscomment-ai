@@ -46,7 +46,7 @@ Google 제공자를 켜기 전에도 버튼은 보이지만, 누르면 오류 �
 
 교사가 기준별로 직접 점수를 매긴다. `OPENAI_API_KEY`가 있으면 **AI 초안**을 만들어 참고할 수 있다. 저장 주체는 언제나 교사다.
 
-> **주의 — AI 초안이 수동 채점을 덮어쓴다.** `evaluations` 표의 유일 제약이 `(comment_id, evaluator_id)`라서, 같은 댓글에 수동 채점과 AI 초안이 함께 남지 못한다. 수동 채점을 저장한 뒤 AI 초안을 만들면 앞의 점수와 근거가 사라진다. 같은 이유로 `/dashboard/compare`는 둘을 나란히 비교하지 못한다. 자세한 내용과 해결 계획은 [평가 대시보드 설계 계획](docs/EVALUATION_DASHBOARD_PLAN.md)에 있다.
+AI 초안과 교사 수동 평가는 `evaluations.source`로 분리해 저장한다. `/dashboard/compare`에서 둘을 나란히 보고, 교사가 최종 판단을 남긴다.
 
 ---
 
@@ -155,8 +155,9 @@ NOTION_API_VERSION=2022-06-28
 | `004_questioning_thinking_cards` | `questioning_documents` `questioning_thinking_cards` `questioning_card_relations` `questioning_student_questions` | 질문 챗봇 |
 | `005_questioning_cards_pgvector` | pgvector 확장 + `embedding` 열 | **적용하지 않는다** |
 | `006_generated_rubric_metadata` | `rubrics.auto_generated` `rubrics.generation_context` | 평가 대시보드 |
+| `007_evaluation_sources` | `evaluations.source` + 교사 평가/AI 초안 분리 제약 | 평가 대시보드 |
 
-- 평가 대시보드만 쓸 거면 `001` `002` `006`으로 충분하다.
+- 평가 대시보드만 쓸 거면 `001` `002` `006` `007`로 충분하다.
 - 질문 챗봇을 쓰려면 `003` `004`가 필요하다. `supabase/manual-apply-003-004.sql` 합본으로 한 번에 돌릴 수 있다.
 - `005`는 이 열을 읽거나 쓰는 코드가 아직 없어 적용하지 않는다. 미룬 이유와 나중에 켜는 절차는 [마이그레이션 안내](docs/MIGRATIONS.md)에 정리해 두었다.
 
@@ -225,6 +226,7 @@ npm run eval:questioning:holdout      # 홀드아웃 묶음
 ### 평가 대시보드
 
 - [평가 대시보드 설계 계획](docs/EVALUATION_DASHBOARD_PLAN.md)
+- [노션·Claude 기반 과정중심평가 연수 설계](docs/PROCESS_ASSESSMENT_TRAINING_PLAN.md)
 - [Google 로그인 설정 안내](docs/GOOGLE_LOGIN_SETUP.md)
 - [Notion 가져오기 안내](docs/NOTION_IMPORT_GUIDE.md)
 - [Notion 수집 준비](docs/TRACK_A_NOTION_SETUP.md)
@@ -244,8 +246,7 @@ npm run eval:questioning:holdout      # 홀드아웃 묶음
 
 ### 평가 대시보드
 
-- **AI 초안이 수동 채점을 덮어쓴다.** 위 「채점」의 주의와 [설계 계획](docs/EVALUATION_DASHBOARD_PLAN.md) 참조.
-- `/dashboard/compare`는 AI와 교사 점수를 나란히 비교하지 못한다. 같은 원인이다.
+- `/dashboard/compare`는 AI와 교사 평가의 총점·종합 피드백만 나란히 보여준다. 기준별 일치율은 아직 없다.
 - 집계가 개수 셋과 기준별 평균뿐이다. 진행률, 점수 분포, 학생 단위 보기가 없다.
 - 비밀번호 재설정 흐름이 없다. 잊으면 Supabase 대시보드에서 직접 손봐야 한다.
 - 삭제 흐름이 구현되어 있지 않다.
