@@ -20,14 +20,14 @@ export function ProjectEditForm({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>프로젝트 수정</CardTitle>
+        <CardTitle>수업활동 수정</CardTitle>
         <CardDescription>제목, 루브릭, 상태를 업데이트합니다.</CardDescription>
       </CardHeader>
       <CardContent>
         <form action={updateProject} className="space-y-4">
           <input type="hidden" name="project_id" value={project.id} />
           <div className="space-y-2">
-            <Label htmlFor="edit_title">프로젝트 제목</Label>
+            <Label htmlFor="edit_title">수업활동 제목</Label>
             <Input id="edit_title" name="title" required defaultValue={project.title} />
           </div>
           <div className="space-y-2">

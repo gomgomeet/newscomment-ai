@@ -43,16 +43,16 @@ export default async function ComparePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-semibold tracking-tight">Compare</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">저장된 평가</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          저장된 평가 결과를 프로젝트와 댓글 기준으로 비교합니다.
+          저장된 평가 결과를 수업활동과 댓글 기준으로 비교합니다.
         </p>
       </div>
       {(evaluations ?? []).length === 0 ? (
         <Card>
           <CardHeader>
             <CardTitle>비교할 평가가 없습니다</CardTitle>
-            <CardDescription>프로젝트 상세에서 댓글 평가를 먼저 저장하세요.</CardDescription>
+            <CardDescription>수업활동 상세에서 댓글 평가를 먼저 저장하세요.</CardDescription>
           </CardHeader>
         </Card>
       ) : (
@@ -66,7 +66,7 @@ export default async function ComparePage() {
                 <CardHeader>
                   <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
                     <div>
-                      <CardTitle className="text-base">{project?.title ?? "프로젝트 없음"}</CardTitle>
+                      <CardTitle className="text-base">{project?.title ?? "수업활동 없음"}</CardTitle>
                       <CardDescription>
                         {comment?.student_name || "이름 없는 댓글"} · {evaluation.model_name || "manual"}
                       </CardDescription>
@@ -85,7 +85,7 @@ export default async function ComparePage() {
                   </p>
                   {project ? (
                     <Button asChild variant="outline" size="sm">
-                      <Link href={`/dashboard/projects/${project.id}`}>프로젝트 열기</Link>
+                      <Link href={`/dashboard/projects/${project.id}`}>수업활동 열기</Link>
                     </Button>
                   ) : null}
                 </CardContent>

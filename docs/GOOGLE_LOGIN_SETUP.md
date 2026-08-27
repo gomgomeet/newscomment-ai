@@ -90,6 +90,40 @@ Google Cloud의 **대상** 탭에서 게시 상태를 확인한다. 기본값인
 
 `openid`, `userinfo.email`, `userinfo.profile`만 쓰므로 민감한 범위가 아니고, Google 심사 없이 바로 게시된다.
 
+## 6-1. Confirm email을 끌지 정하기
+
+`Authentication → Sign In / Providers`의 **User Signups** 묶음에 `Confirm email` 토글이 있다. 이것은 **Google 로그인과 무관하다.** Google로 들어오는 교사는 Google이 이미 주소를 확인해 주므로 이 토글을 거치지 않는다.
+
+영향을 받는 것은 **이메일/비밀번호로 가입하는 경우**뿐이다.
+
+| | 켜 둘 때 | 끌 때 |
+| --- | --- | --- |
+| 가입 흐름 | 확인 메일 → 링크 클릭 → 로그인 | 가입 즉시 로그인 |
+| 시간당 2건 한도 | **걸린다** | 걸리지 않는다 |
+| 주소 진위 | Supabase가 확인 | 확인하지 않음 |
+
+**Google 로그인을 주 경로로 쓴다면 켜 둔 채로 두어도 된다.** 이메일 가입은 예비 경로이고, 예비 경로를 쓰는 사람이 적으면 시간당 2건으로 충분하다.
+
+**연수에서 이메일 가입도 열어 둘 생각이라면 끈다.** 스무 명이 동시에 가입하면 두 명만 메일을 받는다. 코드는 이미 대비되어 있다 — `app/(auth)/actions.ts`의 `signUp`은 세션이 바로 생기면 확인 메일을 기다리지 않고 대시보드로 보낸다.
+
+끄면 아무 주소로나 가입할 수 있게 된다. 교사마다 자기 Supabase를 쓰는 지금 구조에서는 위험이 낮지만, 여러 교사가 한 프로젝트를 공유하는 방식으로 바꾼다면 다시 켜는 것을 검토한다.
+
+## 6-2. 설정 상태 점검표
+
+Google 로그인을 켠 뒤 아래가 모두 맞는지 확인한다.
+
+| 위치 | 항목 | 있어야 할 상태 |
+| --- | --- | --- |
+| Sign In / Providers | **Google** | Enabled + Client ID·Secret 입력됨 |
+| Sign In / Providers | **Email** | Enabled (기존 계정이 막히지 않게) |
+| Sign In / Providers | Allow new users to sign up | ON |
+| Sign In / Providers | Confirm email | 위 6-1의 판단에 따라 |
+| URL Configuration | **Site URL** | `https://newscomment-ai.vercel.app` |
+| URL Configuration | **Redirect URLs** | 운영·로컬 주소 (미리보기는 선택) |
+| Google Cloud → 대상 | 게시 상태 | **프로덕션** (테스트면 본인만 로그인됨) |
+
+`Sign In / Providers` 화면에서 Google이 Enabled로 보여도 **URL Configuration은 별도 화면**이다. 이 둘을 함께 확인한다.
+
 ## 7. 확인
 
 1. `/login`을 연다

@@ -17,7 +17,7 @@ export async function createProject(formData: FormData) {
   const rubricId = readText(formData, "rubric_id");
 
   if (!title) {
-    redirect("/dashboard/projects?message=프로젝트 제목을 입력해 주세요.");
+    redirect("/dashboard/projects?message=수업활동 제목을 입력해 주세요.");
   }
 
   if (rubricId) {
@@ -63,7 +63,7 @@ export async function updateProject(formData: FormData) {
   const status = readText(formData, "status");
 
   if (!projectId || !title) {
-    redirect(`/dashboard/projects/${projectId}?message=프로젝트 제목을 입력해 주세요.`);
+    redirect(`/dashboard/projects/${projectId}?message=수업활동 제목을 입력해 주세요.`);
   }
 
   const { data: project, error: projectError } = await supabase
@@ -74,7 +74,7 @@ export async function updateProject(formData: FormData) {
     .single();
 
   if (projectError || !project) {
-    redirect("/dashboard/projects?message=접근할 수 없는 프로젝트입니다.");
+    redirect("/dashboard/projects?message=접근할 수 없는 수업활동입니다.");
   }
 
   if (rubricId) {

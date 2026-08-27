@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 const workflow = [
   {
     title: "Notion 자료 연결",
-    description: "수업용 Notion 페이지, 데이터베이스, 내보낸 CSV/JSON을 평가 프로젝트의 출발점으로 둡니다.",
+    description: "수업용 Notion 페이지, 데이터베이스, 내보낸 CSV/JSON을 수업활동의 출발점으로 둡니다.",
     icon: Database,
   },
   {
@@ -17,7 +17,7 @@ const workflow = [
   },
   {
     title: "댓글과 페이지 분석",
-    description: "학생 댓글을 기준별로 평가하고, 프로젝트별·학생별 흐름을 비교할 수 있게 정리합니다.",
+    description: "학생 댓글을 기준별로 평가하고, 수업활동별·학생별 흐름을 비교할 수 있게 정리합니다.",
     icon: BarChart3,
   },
 ];
@@ -52,7 +52,7 @@ export default async function Home() {
           </h1>
           <p className="mt-5 max-w-2xl text-base leading-7 text-muted-foreground">
             NewsComment AI는 교사가 Notion에 모아 둔 신문기사, 토론 댓글, 읽기 반응 기록을
-            프로젝트 단위로 가져와 루브릭 평가와 분석까지 이어 가는 도구입니다.
+            수업활동 단위로 가져와 루브릭 평가와 분석까지 이어 가는 도구입니다.
           </p>
           <div className="mt-6 flex flex-wrap gap-2">
             {useCases.map((useCase) => (

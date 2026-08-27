@@ -24,7 +24,7 @@ export default async function RubricsPage({
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px]">
       <section className="space-y-4">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Rubrics</h2>
+          <h2 className="text-2xl font-semibold tracking-tight">평가 루브릭</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             평가 기준 묶음과 배점을 관리합니다.
           </p>
