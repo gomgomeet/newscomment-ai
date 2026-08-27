@@ -13,12 +13,14 @@ export function CommentEvaluationList({
   criteria,
   evaluations,
   scores,
+  filter = "all",
 }: {
   projectId: string;
   comments: Comment[];
   criteria: Criterion[];
   evaluations: Evaluation[];
   scores: Score[];
+  filter?: "all" | "remaining";
 }) {
   if (comments.length === 0) {
     return (
@@ -31,9 +33,24 @@ export function CommentEvaluationList({
     );
   }
 
+  const evaluatedCommentIds = new Set(evaluations.map((evaluation) => evaluation.comment_id));
+  const visibleComments =
+    filter === "remaining" ? comments.filter((comment) => !evaluatedCommentIds.has(comment.id)) : comments;
+
+  if (visibleComments.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>남은 댓글이 없습니다</CardTitle>
+          <CardDescription>이 수업활동의 댓글은 모두 채점되었습니다.</CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
+
   return (
     <div className="space-y-4">
-      {comments.map((comment) => {
+      {visibleComments.map((comment) => {
         const evaluation = evaluations.find((item) => item.comment_id === comment.id);
         const evaluationScores = evaluation
           ? scores.filter((score) => score.evaluation_id === evaluation.id)
