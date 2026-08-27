@@ -227,6 +227,7 @@ npm run eval:questioning:holdout      # 홀드아웃 묶음
 
 - [평가 대시보드 설계 계획](docs/EVALUATION_DASHBOARD_PLAN.md)
 - [노션·Claude 기반 과정중심평가 연수 설계](docs/PROCESS_ASSESSMENT_TRAINING_PLAN.md)
+- [과정중심평가 Claude 스킬팩](docs/PROCESS_ASSESSMENT_SKILL_PACK.md)
 - [Google 로그인 설정 안내](docs/GOOGLE_LOGIN_SETUP.md)
 - [Notion 가져오기 안내](docs/NOTION_IMPORT_GUIDE.md)
 - [Notion 수집 준비](docs/TRACK_A_NOTION_SETUP.md)
