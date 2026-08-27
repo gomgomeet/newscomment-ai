@@ -17,7 +17,7 @@ export default async function LoginPage({
     <Card className="w-full max-w-md">
       <CardHeader>
         <CardTitle>로그인</CardTitle>
-        <CardDescription>NewsComment AI 대시보드에 접속합니다.</CardDescription>
+        <CardDescription>NewsComment AI 과정 중심 평가 보드에 들어갑니다.</CardDescription>
       </CardHeader>
       <CardContent>
         {notice ? (
