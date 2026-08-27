@@ -6,11 +6,13 @@ import { CommentForm } from "@/components/comments/comment-form";
 import { NotionCommentImportForm } from "@/components/comments/notion-comment-import-form";
 import { SourceCommentImportForm } from "@/components/comments/source-comment-import-form";
 import { CommentEvaluationList } from "@/components/evaluations/comment-evaluation-list";
+import { AssessmentWorkflowPanel } from "@/components/evaluations/assessment-workflow-panel";
 import { ProjectEditForm } from "@/components/projects/project-edit-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/lib/auth/require-user";
 import { buildProjectReport } from "@/lib/evaluation-dashboard";
+import { readAssessmentSpec } from "@/lib/assessment-spec";
 import { readNotionSourceDefaults } from "@/lib/notion/project-source";
 
 export default async function ProjectDetailPage({
@@ -104,6 +106,9 @@ export default async function ProjectDetailPage({
   });
   const progressPercentage = Math.round(report.completionRate * 100);
   const maxBucketCount = Math.max(...report.distribution.map((bucket) => bucket.count), 1);
+  const assessmentSpec = readAssessmentSpec(project.assessment_spec);
+  const trialCount = (evaluations ?? []).filter((evaluation) => evaluation.evaluation_stage === "trial").length;
+  const pendingReviewCount = (evaluations ?? []).filter((evaluation) => evaluation.review_status === "pending").length;
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px]">
@@ -141,6 +146,13 @@ export default async function ProjectDetailPage({
             <p><span className="font-medium">생성일:</span> {new Date(project.created_at).toLocaleString("ko-KR")}</p>
           </CardContent>
         </Card>
+        <AssessmentWorkflowPanel
+          projectId={project.id}
+          spec={assessmentSpec}
+          rubricReady={Boolean(project.rubric_id && (criteria ?? []).length > 0)}
+          trialCount={trialCount}
+          pendingReviewCount={pendingReviewCount}
+        />
         <Card>
           <CardHeader>
             <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
@@ -270,7 +282,7 @@ export default async function ProjectDetailPage({
           <div>
             <h3 className="text-lg font-semibold">댓글 채점</h3>
             <p className="text-sm text-muted-foreground">
-              {evaluationFilter === "remaining" ? "아직 채점하지 않은 댓글만 보고 있습니다." : "전체 댓글을 보고 있습니다."}
+              {evaluationFilter === "remaining" ? "아직 채점하지 않은 댓글만 보고 있습니다." : "AI 초안은 교사가 유지·수정·보류한 뒤 확정됩니다."}
             </p>
           </div>
           <div className="flex gap-2">

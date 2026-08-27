@@ -5,6 +5,7 @@ type Criterion = Database["public"]["Tables"]["rubric_criteria"]["Row"];
 export type AiEvaluationResult = {
   model: string;
   feedback: string;
+  feedforward: string;
   scores: {
     criterion_id: string;
     score: number;
@@ -50,9 +51,10 @@ function isEvaluationPayload(value: unknown): value is Omit<AiEvaluationResult, 
     return false;
   }
 
-  const payload = value as { feedback?: unknown; scores?: unknown };
+  const payload = value as { feedback?: unknown; feedforward?: unknown; scores?: unknown };
   return (
     typeof payload.feedback === "string" &&
+    typeof payload.feedforward === "string" &&
     Array.isArray(payload.scores) &&
     payload.scores.every((score) => {
       if (typeof score !== "object" || score === null) {
@@ -75,11 +77,19 @@ export async function evaluateCommentWithOpenAI({
   rubricTitle,
   comment,
   criteria,
+  assessmentContext,
 }: {
   projectTitle: string;
   rubricTitle: string;
   comment: string;
   criteria: Criterion[];
+  assessmentContext?: {
+    achievementStandard: string;
+    learningGoal: string;
+    essentialQuestion: string;
+    evidenceDescription: string;
+    deferConditions: string;
+  };
 }): Promise<AiEvaluationResult> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -108,6 +118,7 @@ export async function evaluateCommentWithOpenAI({
             project_title: projectTitle,
             rubric_title: rubricTitle,
             comment,
+            assessment_context: assessmentContext,
             criteria: criteria.map((criterion) => ({
               criterion_id: criterion.id,
               label: criterion.label,
@@ -125,9 +136,12 @@ export async function evaluateCommentWithOpenAI({
           schema: {
             type: "object",
             additionalProperties: false,
-            required: ["feedback", "scores"],
+            required: ["feedback", "feedforward", "scores"],
             properties: {
               feedback: {
+                type: "string",
+              },
+              feedforward: {
                 type: "string",
               },
               scores: {
@@ -175,6 +189,7 @@ export async function evaluateCommentWithOpenAI({
   return {
     model,
     feedback: parsed.feedback,
+    feedforward: parsed.feedforward,
     scores: parsed.scores,
     raw,
   };

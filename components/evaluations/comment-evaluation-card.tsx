@@ -43,9 +43,10 @@ export function CommentEvaluationCard({
             <CardDescription>{new Date(comment.created_at).toLocaleString("ko-KR")}</CardDescription>
           </div>
           {evaluation ? (
-            <span className="rounded-md bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
-              총점 {evaluation.total_score ?? 0}
-            </span>
+            <div className="text-right text-xs text-muted-foreground">
+              <span className="rounded-md bg-muted px-2 py-1 font-medium">총점 {evaluation.total_score ?? 0}</span>
+              <p className="mt-2">{evaluation.evaluation_stage === "trial" ? "시험 채점" : evaluation.evaluation_stage === "batch" ? "일괄 채점" : "교사 평가"} · {evaluation.review_status === "pending" ? "검토 대기" : evaluation.review_status === "kept" ? "유지" : evaluation.review_status === "revised" ? "수정" : "보류"}</p>
+            </div>
           ) : null}
         </div>
       </CardHeader>
@@ -137,6 +138,18 @@ export function CommentEvaluationCard({
                   placeholder="학생에게 전달할 종합 피드백을 입력하세요."
                   defaultValue={evaluation?.feedback ?? ""}
                 />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`feedforward_${comment.id}`}>피드포워드</Label>
+                <Textarea id={`feedforward_${comment.id}`} name="feedforward" placeholder="다음 활동에서 학생이 시도할 구체적인 한 가지를 적으세요." defaultValue={evaluation?.feedforward ?? ""} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`review_status_${comment.id}`}>교사 검토</Label>
+                <select id={`review_status_${comment.id}`} name="review_status" defaultValue={evaluation?.review_status === "pending" ? "kept" : evaluation?.review_status ?? "revised"} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                  <option value="kept">유지: AI 초안을 그대로 확정</option>
+                  <option value="revised">수정: 교사가 점수·문장을 고쳐 확정</option>
+                  <option value="held">보류: 증거를 더 확인</option>
+                </select>
               </div>
               <Button type="submit">{evaluation ? "평가 업데이트" : "평가 저장"}</Button>
             </form>

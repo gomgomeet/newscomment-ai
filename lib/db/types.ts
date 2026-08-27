@@ -37,6 +37,7 @@ export type Database = {
           description: string | null;
           source_url: string | null;
           notion_source: Json;
+          assessment_spec: Json;
           status: "draft" | "active" | "archived";
           created_at: string;
           updated_at: string;
@@ -49,6 +50,7 @@ export type Database = {
           description?: string | null;
           source_url?: string | null;
           notion_source?: Json;
+          assessment_spec?: Json;
           status?: "draft" | "active" | "archived";
           created_at?: string;
           updated_at?: string;
@@ -59,6 +61,7 @@ export type Database = {
           description?: string | null;
           source_url?: string | null;
           notion_source?: Json;
+          assessment_spec?: Json;
           status?: "draft" | "active" | "archived";
           updated_at?: string;
         };
@@ -158,6 +161,11 @@ export type Database = {
           total_score: number | null;
           feedback: string | null;
           raw_output: Json;
+          rubric_version: string | null;
+          execution_id: string | null;
+          evaluation_stage: "manual" | "trial" | "batch";
+          review_status: "pending" | "kept" | "revised" | "held";
+          feedforward: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -170,6 +178,11 @@ export type Database = {
           total_score?: number | null;
           feedback?: string | null;
           raw_output?: Json;
+          rubric_version?: string | null;
+          execution_id?: string | null;
+          evaluation_stage?: "manual" | "trial" | "batch";
+          review_status?: "pending" | "kept" | "revised" | "held";
+          feedforward?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -178,6 +191,11 @@ export type Database = {
           total_score?: number | null;
           feedback?: string | null;
           raw_output?: Json;
+          rubric_version?: string | null;
+          execution_id?: string | null;
+          evaluation_stage?: "manual" | "trial" | "batch";
+          review_status?: "pending" | "kept" | "revised" | "held";
+          feedforward?: string | null;
           updated_at?: string;
         };
         Relationships: [];

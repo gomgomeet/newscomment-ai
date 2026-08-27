@@ -1,5 +1,12 @@
 # 학교에서 이어서 할 작업
 
+## 2026-08-28 대시보드 반영
+
+- 두 스킬을 수업활동 상세의 `3F 평가 작업 흐름`에 연결했다.
+- 평가설계 승인, 1~3건 시험 채점, 교사 유지·수정·보류, 피드포워드 저장이 가능하다.
+- 실행 전 `supabase/migrations/007_assessment_skill_workflow.sql` 적용이 필요하다.
+- 실습 순서는 `docs/ASSESSMENT_SKILLS_DASHBOARD_INTEGRATION.md`에 정리했다.
+
 ## 현재 완료 상태
 
 - 평가 준비 스킬과 자동채점 스킬 연계 완료

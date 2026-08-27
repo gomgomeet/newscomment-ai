@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth/require-user";
+import { readAssessmentSpec } from "@/lib/assessment-spec";
 import type { Json } from "@/lib/db/types";
 import {
   buildNotionCommentMetadata,
@@ -473,10 +474,48 @@ export async function updateComment(formData: FormData) {
   redirect(`/dashboard/projects/${projectId}`);
 }
 
+export async function saveAssessmentSpec(formData: FormData) {
+  const projectId = readText(formData, "project_id");
+  const learningGoal = readText(formData, "learning_goal");
+  const achievementStandard = readText(formData, "achievement_standard");
+  const approved = formData.get("approved") === "on";
+
+  if (!projectId || !learningGoal || !achievementStandard) {
+    redirect(`/dashboard/projects/${projectId}?message=성취기준과 평가목표를 입력해 주세요.`);
+  }
+
+  const { supabase, user } = await requireOwnedProject(projectId);
+  const spec = {
+    schema: "assessment-spec-v1",
+    version: readText(formData, "version") || "v1.0",
+    achievementStandard,
+    learningGoal,
+    essentialQuestion: readText(formData, "essential_question"),
+    evidenceDescription: readText(formData, "evidence_description"),
+    deferConditions: readText(formData, "defer_conditions"),
+    notionInputProperty: readText(formData, "notion_input_property"),
+    notionStudentProperty: readText(formData, "notion_student_property"),
+    notionFeedbackProperty: readText(formData, "notion_feedback_property"),
+    approved,
+    approvedBy: approved ? user.email ?? user.id : "",
+    approvedAt: approved ? new Date().toISOString() : null,
+    trialCount: 3,
+    batchSize: 5,
+  } satisfies Json;
+
+  const { error } = await supabase.from("projects").update({ assessment_spec: spec }).eq("id", projectId);
+  if (error) redirect(`/dashboard/projects/${projectId}?message=${encodeURIComponent(error.message)}`);
+
+  revalidatePath(`/dashboard/projects/${projectId}`);
+  redirect(`/dashboard/projects/${projectId}?notice=${encodeURIComponent(approved ? "평가설계를 승인했습니다. 1~3건 시험 채점을 시작하세요." : "평가설계 초안을 저장했습니다.")}`);
+}
+
 export async function saveEvaluation(formData: FormData) {
   const projectId = readText(formData, "project_id");
   const commentId = readText(formData, "comment_id");
   const feedback = readText(formData, "feedback");
+  const feedforward = readText(formData, "feedforward");
+  const reviewStatus = readText(formData, "review_status");
 
   if (!projectId || !commentId) {
     redirect(`/dashboard/projects/${projectId}?message=평가할 댓글을 찾을 수 없습니다.`);
@@ -529,6 +568,12 @@ export async function saveEvaluation(formData: FormData) {
   });
 
   const totalScore = scoreRows.reduce((sum, row) => sum + row.score, 0);
+  const { data: existingEvaluation } = await supabase
+    .from("evaluations")
+    .select("model_name, raw_output, evaluation_stage, rubric_version, execution_id")
+    .eq("comment_id", commentId)
+    .eq("evaluator_id", user.id)
+    .maybeSingle();
   const { data: evaluation, error: evaluationError } = await supabase
     .from("evaluations")
     .upsert(
@@ -536,10 +581,15 @@ export async function saveEvaluation(formData: FormData) {
         project_id: projectId,
         comment_id: commentId,
         evaluator_id: user.id,
-        model_name: "teacher-manual",
+        model_name: existingEvaluation?.model_name ?? "teacher-manual",
         total_score: totalScore,
         feedback: feedback || null,
-        raw_output: { source: "teacher-manual" },
+        feedforward: feedforward || null,
+        review_status: ["kept", "revised", "held"].includes(reviewStatus) ? reviewStatus as "kept" | "revised" | "held" : "revised",
+        evaluation_stage: existingEvaluation?.evaluation_stage ?? "manual",
+        rubric_version: existingEvaluation?.rubric_version ?? null,
+        execution_id: existingEvaluation?.execution_id ?? null,
+        raw_output: existingEvaluation?.raw_output ?? { source: "teacher-manual" },
       },
       { onConflict: "comment_id,evaluator_id" },
     )
@@ -577,6 +627,11 @@ export async function generateAiEvaluation(formData: FormData) {
   }
 
   const { supabase, user, project } = await requireOwnedProject(projectId);
+  const assessmentSpec = readAssessmentSpec(project.assessment_spec);
+
+  if (!assessmentSpec?.approved) {
+    redirect(`/dashboard/projects/${projectId}?message=AI 채점 전에 평가 준비에서 평가설계를 저장하고 교사 승인을 완료해 주세요.`);
+  }
 
   if (!project.rubric_id) {
     redirect(`/dashboard/projects/${projectId}?message=AI 평가를 생성하려면 수업활동에 루브릭을 연결해 주세요.`);
@@ -621,6 +676,13 @@ export async function generateAiEvaluation(formData: FormData) {
       rubricTitle: rubric.title,
       comment: comment.content,
       criteria,
+      assessmentContext: {
+        achievementStandard: assessmentSpec.achievementStandard,
+        learningGoal: assessmentSpec.learningGoal,
+        essentialQuestion: assessmentSpec.essentialQuestion,
+        evidenceDescription: assessmentSpec.evidenceDescription,
+        deferConditions: assessmentSpec.deferConditions,
+      },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI 평가 생성에 실패했습니다.";
@@ -640,6 +702,12 @@ export async function generateAiEvaluation(formData: FormData) {
   });
   const totalScore = scoreRows.reduce((sum, row) => sum + row.score, 0);
   const rawOutput = JSON.parse(JSON.stringify(aiResult.raw)) as Json;
+  const { count: aiEvaluationCount } = await supabase
+    .from("evaluations")
+    .select("id", { count: "exact", head: true })
+    .eq("project_id", projectId)
+    .neq("model_name", "teacher-manual");
+  const evaluationStage = (aiEvaluationCount ?? 0) < assessmentSpec.trialCount ? "trial" : "batch";
 
   const { data: evaluation, error: evaluationError } = await supabase
     .from("evaluations")
@@ -651,6 +719,11 @@ export async function generateAiEvaluation(formData: FormData) {
         model_name: aiResult.model,
         total_score: totalScore,
         feedback: aiResult.feedback,
+        rubric_version: assessmentSpec.version,
+        execution_id: crypto.randomUUID(),
+        evaluation_stage: evaluationStage,
+        review_status: "pending",
+        feedforward: aiResult.feedforward,
         raw_output: rawOutput,
       },
       { onConflict: "comment_id,evaluator_id" },
@@ -677,5 +750,5 @@ export async function generateAiEvaluation(formData: FormData) {
   }
 
   revalidatePath(`/dashboard/projects/${projectId}`);
-  redirect(`/dashboard/projects/${projectId}`);
+  redirect(`/dashboard/projects/${projectId}?notice=${encodeURIComponent(evaluationStage === "trial" ? "시험 채점 초안을 만들었습니다. 근거와 점수를 검토해 유지·수정·보류를 선택하세요." : "AI 채점 초안을 만들었습니다. 교사 검토 후 확정하세요.")}`);
 }
