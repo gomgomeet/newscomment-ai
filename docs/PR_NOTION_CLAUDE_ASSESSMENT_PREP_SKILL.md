@@ -28,6 +28,18 @@ notion-claude-assessment-grader
 - 개별 ZIP과 두 스킬 묶음 ZIP 제공
 - ZIP 설치 안내, 3차시 연수 적용안, NIE 파일럿 문서 추가
 
+## 과정중심평가 대시보드 반영
+
+- 수업활동마다 `assessment-spec-v1` 평가설계 저장 및 교사 승인
+- 성취기준, 평가목표, 핵심 질문, 학습 증거, 판단 보류 조건 입력
+- 실제 Notion 학생·결과물·피드백 속성명 매핑
+- 승인된 평가설계가 없으면 AI 채점 차단
+- 최초 1~3건 시험 채점과 이후 채점 단계 구분
+- 루브릭 버전과 AI 실행 ID 저장
+- AI 피드백과 다음 활동용 피드포워드 동시 생성
+- 교사가 결과를 유지·수정·보류하여 최종 검토
+- 서로 다른 활동은 별도 평가설계를 사용하며 점수를 자동 합산하지 않음
+
 ## 안전 원칙
 
 - 학생 원문과 기존 Relation은 수정하지 않는다.
@@ -56,12 +68,16 @@ notion-claude-assessment-grader
 - 독립 ZIP 압축 해제 및 파일 구성 확인
 - Codex·Claude Code·배포본의 `SKILL.md` 동기화
 - `git diff --check` 통과
+- 앱 `npm run typecheck` 통과
+- 앱 `npm run lint` 통과
+- 앱 `npm run build` 통과
 
 ## 남은 검증
 
 - 학교 환경에서 묶음 ZIP 설치
-- 실제 익명화 결과물 3~5건으로 `assessment-spec-v1` 생성
-- 시험 채점과 Notion 쓰기 속성 확인
+- Supabase `007_assessment_skill_workflow.sql` 적용
+- 실제 익명화 결과물 1~3건으로 대시보드 시험 채점
+- Notion 쓰기 속성 확인
 - 교사 검토 후 피드백·피드포워드 품질 확인
 - 외부 공유 전 개인 링크·학생 정보 재검토
 
