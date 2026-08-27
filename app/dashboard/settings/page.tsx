@@ -1,22 +1,23 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 const setupItems = [
-  "Supabase URL and publishable key are configured.",
-  "Supabase migration has been applied.",
-  "Email/password Auth is enabled.",
-  "Redirect URLs are configured for local and production domains.",
-  "RLS is enabled on all app tables.",
-  "A second test account cannot see the first account's data.",
-  "Migration 002 has been applied if you use the Notion import.",
+  "Supabase 주소와 publishable 키를 넣었다.",
+  "마이그레이션을 번호 순서대로 적용했다.",
+  "이메일/비밀번호 로그인이 켜져 있다.",
+  "Google 로그인을 쓴다면 제공자를 켜고 클라이언트 ID와 보안 비밀번호를 넣었다.",
+  "로컬 주소와 배포 주소를 Redirect URLs에 등록했다.",
+  "모든 표에 RLS가 켜져 있다.",
+  "다른 계정으로 로그인하면 내 데이터가 보이지 않는다.",
+  "Notion 가져오기를 쓴다면 마이그레이션 002를 적용했다.",
 ];
 
 const privacyItems = [
-  "Use fake data for demos and screenshots.",
-  "Avoid storing full student names when aliases are enough.",
-  "Do not commit .env.local or database exports.",
-  "Keep API keys server-side only.",
-  "Review AI-generated feedback before sharing it with students.",
-  "Confirm school policy before using real student data.",
+  "시연이나 화면 갈무리에는 가짜 데이터를 쓴다.",
+  "학생 번호나 별칭으로 충분하면 실명을 저장하지 않는다.",
+  ".env.local과 데이터베이스 내보내기 파일은 커밋하지 않는다.",
+  "API 키는 서버에만 둔다.",
+  "AI가 쓴 피드백은 학생에게 주기 전에 교사가 읽고 고친다.",
+  "실제 학생 데이터를 쓰기 전에 학교 방침을 확인한다.",
 ];
 
 export default function SettingsPage() {
@@ -26,7 +27,7 @@ export default function SettingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-semibold tracking-tight">Settings</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">설정</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           배포와 교사 공유 전에 확인할 운영 항목입니다.
         </p>
@@ -34,20 +35,20 @@ export default function SettingsPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Environment</CardTitle>
+            <CardTitle>연결 상태</CardTitle>
             <CardDescription>현재 서버 환경에서 확인 가능한 설정입니다.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
-            <p><span className="font-medium">Supabase URL:</span> configured through public env</p>
-            <p><span className="font-medium">OpenAI key:</span> {hasOpenAiKey ? "configured" : "not configured"}</p>
-            <p><span className="font-medium">AI model:</span> {process.env.OPENAI_EVALUATION_MODEL || "gpt-5.6"}</p>
-            <p><span className="font-medium">Notion key:</span> {hasNotionKey ? "configured" : "not configured"}</p>
-            <p><span className="font-medium">Notion API version:</span> {process.env.NOTION_API_VERSION || "2022-06-28"}</p>
+            <p><span className="font-medium">Supabase 주소:</span> 공개 환경변수로 설정됨</p>
+            <p><span className="font-medium">OpenAI 키:</span> {hasOpenAiKey ? "설정됨" : "설정 안 됨"}</p>
+            <p><span className="font-medium">AI 모델:</span> {process.env.OPENAI_EVALUATION_MODEL || "gpt-5.6"}</p>
+            <p><span className="font-medium">Notion 키:</span> {hasNotionKey ? "설정됨" : "설정 안 됨"}</p>
+            <p><span className="font-medium">Notion API 버전:</span> {process.env.NOTION_API_VERSION || "2022-06-28"}</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Template Sharing</CardTitle>
+            <CardTitle>다른 교사와 공유하기</CardTitle>
             <CardDescription>다른 교사에게 공개할 때 권장하는 방식입니다.</CardDescription>
           </CardHeader>
           <CardContent className="text-sm leading-6 text-muted-foreground">
@@ -59,7 +60,7 @@ export default function SettingsPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Deployment Checklist</CardTitle>
+            <CardTitle>배포 전 확인</CardTitle>
             <CardDescription>실제 사용 전 확인 항목입니다.</CardDescription>
           </CardHeader>
           <CardContent>
@@ -75,7 +76,7 @@ export default function SettingsPage() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Privacy Checklist</CardTitle>
+            <CardTitle>개인정보 점검</CardTitle>
             <CardDescription>학생 데이터 사용 전 점검 항목입니다.</CardDescription>
           </CardHeader>
           <CardContent>

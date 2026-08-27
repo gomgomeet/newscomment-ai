@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/lib/auth/require-user";
 
@@ -79,9 +80,14 @@ export default async function InsightsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-semibold tracking-tight">Insights</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">평가 결과</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           저장된 평가 점수를 기준별 평균으로 요약합니다.
+        </p>
+        <p className="mt-2 text-sm">
+          <Link href="/dashboard/compare" className="font-medium text-primary hover:underline">
+            댓글별로 저장된 평가 보기
+          </Link>
         </p>
       </div>
       <div className="grid gap-4 md:grid-cols-3">

@@ -33,9 +33,9 @@ export default async function ProjectsPage({
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px]">
       <section className="space-y-4">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Projects</h2>
+          <h2 className="text-2xl font-semibold tracking-tight">수업활동</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            로그인한 교사 계정의 프로젝트만 표시됩니다.
+            로그인한 교사 계정의 수업활동만 표시됩니다.
           </p>
         </div>
         <ProjectList projects={projects ?? []} />

@@ -9,8 +9,8 @@ export function ProjectList({ projects }: { projects: Project[] }) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>프로젝트가 없습니다</CardTitle>
-          <CardDescription>오른쪽 양식에서 첫 평가 프로젝트를 생성하세요.</CardDescription>
+          <CardTitle>수업활동이 없습니다</CardTitle>
+          <CardDescription>오른쪽 양식에서 첫 수업활동을 만들어 보세요.</CardDescription>
         </CardHeader>
       </Card>
     );

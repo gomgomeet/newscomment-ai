@@ -43,7 +43,7 @@ async function requireOwnedProject(projectId: string) {
     .single();
 
   if (error || !project) {
-    redirect("/dashboard/projects?message=접근할 수 없는 프로젝트입니다.");
+    redirect("/dashboard/projects?message=접근할 수 없는 수업활동입니다.");
   }
 
   return { supabase, user, project };
@@ -248,7 +248,7 @@ export async function importCommentsFromSource(formData: FormData) {
   const sourceUrlOverride = readText(formData, "source_url");
 
   if (!projectId) {
-    redirect("/dashboard/projects?message=프로젝트를 찾을 수 없습니다.");
+    redirect("/dashboard/projects?message=수업활동을 찾을 수 없습니다.");
   }
 
   const { supabase, project } = await requireOwnedProject(projectId);
@@ -337,7 +337,7 @@ export async function importCommentsFromNotion(formData: FormData) {
   const projectId = readText(formData, "project_id");
 
   if (!projectId) {
-    redirect("/dashboard/projects?message=프로젝트를 찾을 수 없습니다.");
+    redirect("/dashboard/projects?message=수업활동을 찾을 수 없습니다.");
   }
 
   const { supabase, project } = await requireOwnedProject(projectId);
@@ -485,7 +485,7 @@ export async function saveEvaluation(formData: FormData) {
   const { supabase, user, project } = await requireOwnedProject(projectId);
 
   if (!project.rubric_id) {
-    redirect(`/dashboard/projects/${projectId}?message=프로젝트에 루브릭을 먼저 연결해 주세요.`);
+    redirect(`/dashboard/projects/${projectId}?message=수업활동에 루브릭을 먼저 연결해 주세요.`);
   }
 
   const { data: comment, error: commentError } = await supabase
@@ -579,7 +579,7 @@ export async function generateAiEvaluation(formData: FormData) {
   const { supabase, user, project } = await requireOwnedProject(projectId);
 
   if (!project.rubric_id) {
-    redirect(`/dashboard/projects/${projectId}?message=AI 평가를 생성하려면 프로젝트에 루브릭을 연결해 주세요.`);
+    redirect(`/dashboard/projects/${projectId}?message=AI 평가를 생성하려면 수업활동에 루브릭을 연결해 주세요.`);
   }
 
   const { data: rubric, error: rubricError } = await supabase

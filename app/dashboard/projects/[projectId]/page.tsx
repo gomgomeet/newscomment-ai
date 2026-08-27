@@ -117,7 +117,7 @@ export default async function ProjectDetailPage({
         ) : null}
         <Card>
           <CardHeader>
-            <CardTitle>프로젝트 정보</CardTitle>
+            <CardTitle>수업활동 정보</CardTitle>
             <CardDescription>{project.description || "설명이 없습니다."}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 text-sm sm:grid-cols-2">
@@ -134,7 +134,7 @@ export default async function ProjectDetailPage({
             <CardHeader>
               <CardTitle>루브릭 연결 필요</CardTitle>
               <CardDescription>
-                기준별 평가를 저장하려면 프로젝트 생성 시 루브릭을 선택하거나 이후 편집 기능에서 연결해야 합니다.
+                기준별 평가를 저장하려면 수업활동을 만들 때 루브릭을 고르거나, 나중에 수정에서 연결해야 합니다.
               </CardDescription>
             </CardHeader>
           </Card>

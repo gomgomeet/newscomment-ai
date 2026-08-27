@@ -19,13 +19,13 @@ export function ProjectForm({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>새 프로젝트</CardTitle>
+        <CardTitle>새 수업활동</CardTitle>
         <CardDescription>평가할 뉴스 댓글 수업 단위를 생성합니다.</CardDescription>
       </CardHeader>
       <CardContent>
         <form action={createProject} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="title">프로젝트 제목</Label>
+            <Label htmlFor="title">수업활동 제목</Label>
             <Input id="title" name="title" required placeholder="예: 5학년 뉴스 댓글 비판적 읽기" />
           </div>
           <div className="space-y-2">
@@ -48,7 +48,7 @@ export function ProjectForm({
             </Select>
           </div>
           {message ? <p className="text-sm text-destructive">{message}</p> : null}
-          <Button type="submit">프로젝트 생성</Button>
+          <Button type="submit">수업활동 만들기</Button>
         </form>
       </CardContent>
     </Card>
