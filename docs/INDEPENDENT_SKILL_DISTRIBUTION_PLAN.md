@@ -24,7 +24,7 @@ notion-claude-assessment-grader/
 ```
 
 - `notion-claude-assessment-prep`: 평가 기준안·문항·DB·폼 준비
-- `notion-claude-assessment-grader`: 승인된 준비안으로 Notion 결과물을 자동채점하고 AI 결과 기록
+- `notion-claude-assessment-grader`: 승인된 평가 실행 명세로 Notion 결과물을 자동채점하고 AI 결과 기록·교사 검토·다음 수업 제안
 
 개별 ZIP과 두 스킬 묶음 ZIP을 모두 유지한다. 초보 연수에서는 묶음 ZIP을 설치하되 1번 스킬을 먼저 실행한다.
 
