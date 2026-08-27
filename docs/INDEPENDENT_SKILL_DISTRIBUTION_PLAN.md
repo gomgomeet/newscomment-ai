@@ -13,6 +13,21 @@ notion-claude-assessment-prep/
 
 현재 ZIP에는 평가 준비 스킬 본체만 포함한다. 프로젝트 소스, 학생 자료, 개인 Notion 링크, 평가 결과, 연수용 내부 문서는 포함하지 않는다.
 
+## 2단계 스킬 묶음
+
+```text
+notion-claude-assessment-prep/
+└── SKILL.md
+
+notion-claude-assessment-grader/
+└── SKILL.md
+```
+
+- `notion-claude-assessment-prep`: 평가 기준안·문항·DB·폼 준비
+- `notion-claude-assessment-grader`: 승인된 준비안으로 Notion 결과물을 자동채점하고 AI 결과 기록
+
+개별 ZIP과 두 스킬 묶음 ZIP을 모두 유지한다. 초보 연수에서는 묶음 ZIP을 설치하되 1번 스킬을 먼저 실행한다.
+
 ## 이후 추가할 수 있는 구성물
 
 ```text
