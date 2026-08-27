@@ -59,3 +59,31 @@ notion-claude-assessment-prep 스킬을 사용해서 내 수업의 평가를 준
 - 점수는 참고값이며 AI 초안은 교사 검토 전 결과다.
 - 개인정보가 있는 원문은 비식별화한다.
 - 실제로 생성되지 않은 폼·링크·QR은 생성되었다고 보고하지 않는다.
+
+## ZIP 공유와 설치 상세 안내
+
+연수자는 GitHub 저장소 전체가 아니라 독립 배포 ZIP 링크만 참가자에게 제공한다.
+
+1. 참가자는 ZIP 파일을 다운로드한다.
+2. 파일을 마우스 오른쪽 버튼으로 클릭하고 `모두 추출`을 선택한다.
+3. 압축을 푼 폴더에서 `notion-claude-assessment-prep` 폴더를 찾는다.
+4. 폴더 안에 `SKILL.md`, `references`, `examples`가 있는지 확인한다.
+5. Codex 사용자는 `%USERPROFILE%\\.codex\\skills` 폴더 안에 스킬 폴더 전체를 복사한다.
+6. Claude Code 사용자는 사용할 프로젝트의 `.claude\\skills` 폴더 안에 스킬 폴더 전체를 복사한다.
+7. Codex 또는 Claude Code를 다시 시작한다.
+
+최종 경로는 다음과 같아야 한다.
+
+```text
+Codex: %USERPROFILE%\\.codex\\skills\\notion-claude-assessment-prep\\SKILL.md
+Claude Code: 프로젝트\\.claude\\skills\\notion-claude-assessment-prep\\SKILL.md
+```
+
+설치 확인 문장:
+
+```text
+notion-claude-assessment-prep 스킬을 사용해서 평가 준비를 시작해줘.
+먼저 필요한 Notion 링크와 정보를 질문해줘.
+```
+
+폴더가 `notion-claude-assessment-prep/notion-claude-assessment-prep/SKILL.md`처럼 중첩되면 한 단계 바깥 폴더를 제거한다. `SKILL.md.txt`로 저장된 경우 파일 확장자를 표시하도록 설정한 뒤 `.txt`를 제거한다. Notion 자료를 읽지 못하는 경우에는 스킬 설치와 별도로 Notion 읽기·편집 권한을 허용해야 한다.

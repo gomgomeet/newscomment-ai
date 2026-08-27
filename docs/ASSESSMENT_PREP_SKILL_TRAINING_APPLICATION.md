@@ -106,6 +106,17 @@ Notion Relation은 원본 추적에 필요할 때만 사용한다. Relation이 �
 
 참가자는 자신의 Notion 링크를 입력한다. 학생 개인정보가 포함된 자료는 비식별화하거나 연수용 합성 자료를 사용한다.
 
+### ZIP 설치 실습
+
+초보 교사에게는 GitHub Fork나 Clone을 요구하지 않고 `notion-claude-assessment-prep.zip`만 제공한다. 참가자는 압축을 푼 스킬 폴더를 Codex의 `%USERPROFILE%\\.codex\\skills` 또는 Claude Code 프로젝트의 `.claude\\skills`에 복사한 뒤 도구를 다시 시작한다. 연수자는 배포 ZIP에 개인 학생 자료나 Notion 링크를 포함하지 않는다.
+
+설치 확인 문장:
+
+```text
+notion-claude-assessment-prep 스킬을 사용해서 평가 준비를 시작해줘.
+먼저 필요한 Notion 링크와 정보를 질문해줘.
+```
+
 ## 연수에서 강조할 오해 방지
 
 - 스킬은 자동 채점기가 아니라 평가 준비와 교사 판단 보조 도구다.
