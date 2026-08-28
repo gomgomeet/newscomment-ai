@@ -15,6 +15,7 @@ import {
   isNotionResultMetadata,
 } from "@/lib/assessment-prep/readiness";
 import { requireUser } from "@/lib/auth/require-user";
+import { projectStatusLabels } from "@/lib/constants/project-status";
 import { readNotionSourceDefaults } from "@/lib/notion/project-source";
 
 export default async function ProjectDetailPage({
@@ -126,10 +127,7 @@ export default async function ProjectDetailPage({
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px]">
       <section className="space-y-6">
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-          <div>
-            <p className="text-sm text-muted-foreground">Project detail</p>
-            <h2 className="text-2xl font-semibold tracking-tight">{project.title}</h2>
-          </div>
+          <h2 className="text-2xl font-semibold tracking-tight">{project.title}</h2>
           <Button asChild variant="outline">
             <Link href={`/dashboard/projects/${project.id}/results`}>최종결과 보기</Link>
           </Button>
@@ -157,11 +155,11 @@ export default async function ProjectDetailPage({
             <CardDescription>{project.description || "설명이 없습니다."}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 text-sm sm:grid-cols-2">
-            <p><span className="font-medium">상태:</span> {project.status}</p>
+            <p><span className="font-medium">상태:</span> {projectStatusLabels[project.status]}</p>
             <p><span className="font-medium">루브릭:</span> {rubric?.title || "미선택"}</p>
             <p><span className="font-medium">댓글 수:</span> {(comments ?? []).length}</p>
             <p><span className="font-medium">교사 확정:</span> {teacherEvaluations.length}</p>
-            <p><span className="font-medium">소스 URL:</span> {project.source_url || "미등록"}</p>
+            <p><span className="font-medium">자료 주소:</span> {project.source_url || "미등록"}</p>
             <p><span className="font-medium">생성일:</span> {new Date(project.created_at).toLocaleString("ko-KR")}</p>
           </CardContent>
         </Card>
@@ -170,7 +168,7 @@ export default async function ProjectDetailPage({
             <CardHeader>
               <CardTitle>루브릭 연결 필요</CardTitle>
               <CardDescription>
-                기준별 평가를 저장하려면 수업활동을 만들 때 루브릭을 고르거나, 나중에 수정에서 연결해야 합니다.
+                기준별 평가를 저장하려면 수업활동에 평가 루브릭을 연결해 주세요.
               </CardDescription>
             </CardHeader>
           </Card>

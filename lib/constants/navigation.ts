@@ -5,7 +5,7 @@ import { BarChart3, ClipboardCheck, FileText, FolderKanban, Gauge, Settings, Spa
 // Compare는 저장된 평가를 훑는 보조 화면이라 「평가 결과」 안에서 연다.
 export const navigation = [
   { href: "/dashboard", label: "대시보드", icon: Gauge },
-  { href: "/dashboard/prep", label: "평가 준비 프렙", icon: ClipboardCheck },
+  { href: "/dashboard/prep", label: "평가 준비하기", icon: ClipboardCheck },
   { href: "/dashboard/projects", label: "수업활동", icon: FolderKanban },
   { href: "/dashboard/rubrics", label: "평가 루브릭", icon: Sparkles },
   { href: "/dashboard/insights", label: "평가 결과", icon: BarChart3 },

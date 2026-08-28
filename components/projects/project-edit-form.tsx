@@ -1,6 +1,6 @@
 import { updateProject } from "@/app/dashboard/projects/actions";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -21,13 +21,12 @@ export function ProjectEditForm({
     <Card>
       <CardHeader>
         <CardTitle>수업활동 수정</CardTitle>
-        <CardDescription>제목, 루브릭, 상태를 업데이트합니다.</CardDescription>
       </CardHeader>
       <CardContent>
         <form action={updateProject} className="space-y-4">
           <input type="hidden" name="project_id" value={project.id} />
           <div className="space-y-2">
-            <Label htmlFor="edit_title">수업활동 제목</Label>
+            <Label htmlFor="edit_title">수업활동 이름</Label>
             <Input id="edit_title" name="title" required defaultValue={project.title} />
           </div>
           <div className="space-y-2">
@@ -35,7 +34,7 @@ export function ProjectEditForm({
             <Textarea id="edit_description" name="description" defaultValue={project.description ?? ""} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="edit_source_url">뉴스 또는 Notion URL</Label>
+            <Label htmlFor="edit_source_url">뉴스 또는 Notion 주소</Label>
             <Input id="edit_source_url" name="source_url" type="url" defaultValue={project.source_url ?? ""} />
           </div>
           <div className="space-y-2">
@@ -52,9 +51,9 @@ export function ProjectEditForm({
           <div className="space-y-2">
             <Label htmlFor="edit_status">상태</Label>
             <Select id="edit_status" name="status" defaultValue={project.status}>
-              <option value="draft">draft</option>
-              <option value="active">active</option>
-              <option value="archived">archived</option>
+              <option value="draft">준비 중</option>
+              <option value="active">진행 중</option>
+              <option value="archived">종료</option>
             </Select>
           </div>
           <Button type="submit" variant="outline">수정 저장</Button>
