@@ -2,6 +2,7 @@ import type { Json } from "@/lib/db/types";
 
 export type NotionSourceDefaults = {
   database_url: string;
+  content_mode: "property" | "page_body";
   content_property: string;
   student_property: string;
   topic_property: string;
@@ -9,6 +10,7 @@ export type NotionSourceDefaults = {
 
 const EMPTY_DEFAULTS: NotionSourceDefaults = {
   database_url: "",
+  content_mode: "property",
   content_property: "",
   student_property: "",
   topic_property: "",
@@ -24,9 +26,11 @@ export function readNotionSourceDefaults(value: Json): NotionSourceDefaults {
     const stored = record[key];
     return typeof stored === "string" ? stored : "";
   };
+  const contentMode = read("content_mode");
 
   return {
     database_url: read("database_url"),
+    content_mode: contentMode === "page_body" ? "page_body" : "property",
     content_property: read("content_property"),
     student_property: read("student_property"),
     topic_property: read("topic_property"),

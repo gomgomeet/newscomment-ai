@@ -89,6 +89,10 @@ export default async function InsightsPage() {
           <Link href="/dashboard/compare" className="font-medium text-primary hover:underline">
             댓글별로 저장된 평가 보기
           </Link>
+          <span className="mx-2 text-muted-foreground">·</span>
+          <Link href="/dashboard/growth" className="font-medium text-primary hover:underline">
+            성장 기록 보드(생기부) 열기
+          </Link>
         </p>
       </div>
       <div className="grid gap-4 md:grid-cols-3">
