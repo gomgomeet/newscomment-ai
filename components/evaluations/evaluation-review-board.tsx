@@ -249,7 +249,7 @@ function ReviewCard({ item }: { item: ReviewQueueItem }) {
 
         <div className="flex flex-wrap gap-2">
           <Button asChild size="sm">
-            <Link href={`/dashboard/projects/${item.projectId}#comment-${item.commentId}`}>
+            <Link href={`/dashboard/projects/${item.projectId}?view=all#comment-${item.commentId}`}>
               평가 확인·수정 <ArrowRight className="ml-1 size-4" aria-hidden="true" />
             </Link>
           </Button>

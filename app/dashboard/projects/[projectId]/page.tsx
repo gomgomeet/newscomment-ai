@@ -22,10 +22,12 @@ export default async function ProjectDetailPage({
   searchParams,
 }: {
   params: Promise<{ projectId: string }>;
-  searchParams: Promise<{ message?: string; notice?: string }>;
+  searchParams: Promise<{ message?: string; notice?: string; view?: string }>;
 }) {
   const { projectId } = await params;
-  const { message, notice } = await searchParams;
+  const { message, notice, view } = await searchParams;
+  const initialEvaluationView =
+    view === "all" || view === "remaining" || view === "priority" ? view : "priority";
   const { supabase, user } = await requireUser();
   const { data: project, error } = await supabase
     .from("projects")
@@ -182,6 +184,7 @@ export default async function ProjectDetailPage({
           teacherEvaluations={teacherEvaluations}
           aiEvaluations={aiEvaluations}
           scores={scores ?? []}
+          initialView={initialEvaluationView}
         />
       </section>
       <aside className="space-y-4">
