@@ -1,5 +1,3 @@
-import "server-only";
-
 import type { Database, Json } from "@/lib/db/types";
 import type {
   ReviewQueueAiEvaluation,
