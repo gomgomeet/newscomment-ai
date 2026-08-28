@@ -40,7 +40,7 @@ export type SchoolPdfField = {
 export async function analyzeSchoolPdf(bytes: Uint8Array) {
   const document = await PDFDocument.load(bytes, { ignoreEncryption: false, updateMetadata: false });
   const pages = document.getPages();
-  const fields = document.getForm().getFields().flatMap((field, index) => {
+  const fields = document.getForm().getFields().flatMap((field: unknown, index: number) => {
     if (!(field instanceof PDFTextField)) return [];
     const normalizedName = field.getName().trim().toLowerCase();
     const pageRef = field.acroField.getWidgets()[0]?.P();

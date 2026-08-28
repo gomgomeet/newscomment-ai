@@ -1,8 +1,8 @@
 # 평가 대시보드 원격 배포 인수인계
 
-작성일: 2026-08-28  
-대상 PR: [#47 과정중심평가 대시보드 시연 흐름 구현](https://github.com/gomgomeet/newscomment-ai/pull/47)  
-작업 브랜치: `feat/evaluation-dashboard-demo-flow`  
+작성일: 2026-08-28
+대상 PR: [#47 과정중심평가 대시보드 시연 흐름 구현](https://github.com/gomgomeet/newscomment-ai/pull/47)
+작업 브랜치: `feat/evaluation-dashboard-demo-flow`
 배포 대상: Vercel 프로젝트 `newscomment-ai`
 
 ## 1. 현재 상태
@@ -126,4 +126,3 @@ Production 전 최소 확인 항목:
 - [ ] PR #47 `main` 병합 완료
 - [ ] Production 배포 `READY`
 - [ ] Production 상태 확인 및 오류 로그 점검 완료
-

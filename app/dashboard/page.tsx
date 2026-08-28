@@ -223,7 +223,7 @@ export default async function DashboardPage() {
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-xs text-muted-foreground">{formatLastEvaluation(project.lastEvaluation)}</p>
-                    <Button asChild size="sm"><Link href={`/dashboard/projects/${project.id}`}>이어서 채점하기</Link></Button>
+                    <Button asChild size="sm"><Link href={`/dashboard/projects/${project.id}?filter=remaining`}>이어서 채점하기</Link></Button>
                   </div>
                 </CardContent>
               </Card>

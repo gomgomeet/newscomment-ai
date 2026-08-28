@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BarChart3, CheckCircle2, ListFilter, UsersRound } from "lucide-react";
 import { notFound } from "next/navigation";
 import { AssessmentPrepBanner } from "@/components/assessment-prep/prep-banner";
 import { BulkCommentForm } from "@/components/comments/bulk-comment-form";
@@ -15,6 +16,7 @@ import {
   isNotionResultMetadata,
 } from "@/lib/assessment-prep/readiness";
 import { requireUser } from "@/lib/auth/require-user";
+import { buildProjectReport } from "@/lib/evaluation-dashboard";
 import { readNotionSourceDefaults } from "@/lib/notion/project-source";
 
 export default async function ProjectDetailPage({
@@ -22,10 +24,11 @@ export default async function ProjectDetailPage({
   searchParams,
 }: {
   params: Promise<{ projectId: string }>;
-  searchParams: Promise<{ message?: string; notice?: string }>;
+  searchParams: Promise<{ message?: string; notice?: string; filter?: string }>;
 }) {
   const { projectId } = await params;
-  const { message, notice } = await searchParams;
+  const { message, notice, filter } = await searchParams;
+  const initialEvaluationView = filter === "remaining" ? "remaining" : "priority";
   const { supabase, user } = await requireUser();
   const { data: project, error } = await supabase
     .from("projects")
@@ -112,6 +115,15 @@ export default async function ProjectDetailPage({
     throw new Error(scoresError.message);
   }
 
+  const report = buildProjectReport({
+    comments: comments ?? [],
+    evaluations: teacherEvaluations,
+    criteria: criteria ?? [],
+    scores: scores ?? [],
+  });
+  const progressPercentage = Math.round(report.completionRate * 100);
+  const maxBucketCount = Math.max(...report.distribution.map((bucket) => bucket.count), 1);
+
   const prepReadiness = buildAssessmentPrepReadiness({
     project,
     rubricGenerationContext: rubric?.generation_context,
@@ -165,6 +177,85 @@ export default async function ProjectDetailPage({
             <p><span className="font-medium">생성일:</span> {new Date(project.created_at).toLocaleString("ko-KR")}</p>
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader>
+            <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+              <div>
+                <CardTitle>수업활동 리포트</CardTitle>
+                <CardDescription>교사 확정 평가 기준의 진행률, 점수 분포, 먼저 볼 학생을 모았습니다.</CardDescription>
+              </div>
+              <span className="rounded-md bg-muted px-2 py-1 text-sm font-medium text-muted-foreground">
+                {progressPercentage}% 완료
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-md border border-border p-3">
+                <UsersRound className="size-4 text-primary" aria-hidden="true" />
+                <p className="mt-3 text-2xl font-semibold">{report.commentCount}</p>
+                <p className="text-xs text-muted-foreground">가져온 결과물</p>
+              </div>
+              <div className="rounded-md border border-border p-3">
+                <CheckCircle2 className="size-4 text-primary" aria-hidden="true" />
+                <p className="mt-3 text-2xl font-semibold">{report.evaluatedCount}</p>
+                <p className="text-xs text-muted-foreground">교사 확정</p>
+              </div>
+              <div className="rounded-md border border-border p-3">
+                <ListFilter className="size-4 text-primary" aria-hidden="true" />
+                <p className="mt-3 text-2xl font-semibold">{report.remainingCount}</p>
+                <p className="text-xs text-muted-foreground">남은 결과물</p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="h-2 overflow-hidden rounded-full bg-muted">
+                <div className="h-full bg-primary" style={{ width: `${progressPercentage}%` }} />
+              </div>
+              <p className="text-xs text-muted-foreground">여러 날에 나눠 확정해도 이곳에서 이어갈 수 있습니다.</p>
+            </div>
+            {report.evaluatedCount > 0 ? (
+              <div className="grid gap-6 xl:grid-cols-2">
+                <section className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <BarChart3 className="size-4 text-primary" aria-hidden="true" />
+                    <h3 className="text-sm font-semibold">점수 분포</h3>
+                  </div>
+                  <div className="space-y-3">
+                    {report.distribution.map((bucket) => (
+                      <div key={bucket.label} className="grid grid-cols-[64px_minmax(0,1fr)_32px] items-center gap-3 text-sm">
+                        <span className="text-xs text-muted-foreground">{bucket.label}</span>
+                        <div className="h-2 overflow-hidden rounded-full bg-muted">
+                          <div
+                            className={`h-full ${bucket.tone}`}
+                            style={{ width: `${Math.max((bucket.count / maxBucketCount) * 100, bucket.count > 0 ? 8 : 0)}%` }}
+                          />
+                        </div>
+                        <span className="text-right text-xs font-medium">{bucket.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+                <section className="space-y-3">
+                  <h3 className="text-sm font-semibold">먼저 볼 학생</h3>
+                  <div className="space-y-2">
+                    {report.priorityStudents.map((row) => (
+                      <div key={row.evaluation.id} className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm">
+                        <span className="min-w-0 truncate">{row.comment?.student_name || "이름 없는 결과물"}</span>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {row.evaluation.total_score ?? 0} / {report.maxTotalScore}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              </div>
+            ) : (
+              <div className="rounded-md border border-dashed border-border p-4 text-sm leading-6 text-muted-foreground">
+                교사 평가를 확정하면 점수 분포와 먼저 볼 학생 목록이 표시됩니다.
+              </div>
+            )}
+          </CardContent>
+        </Card>
         {!project.rubric_id ? (
           <Card>
             <CardHeader>
@@ -182,6 +273,7 @@ export default async function ProjectDetailPage({
           teacherEvaluations={teacherEvaluations}
           aiEvaluations={aiEvaluations}
           scores={scores ?? []}
+          initialView={initialEvaluationView}
         />
       </section>
       <aside className="space-y-4">

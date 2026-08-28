@@ -78,7 +78,7 @@ export async function uploadSchoolPdfTemplate(formData: FormData) {
   }
   if (analysis.fields.length) {
     const { error: fieldsError } = await supabase.from("school_pdf_template_fields").insert(
-      analysis.fields.map((field) => ({ ...field, template_id: templateId })),
+      analysis.fields.map((field: typeof analysis.fields[number]) => ({ ...field, template_id: templateId })),
     );
     if (fieldsError) redirect(`/dashboard/forms/${templateId}?message=${encodeURIComponent(fieldsError.message)}`);
   }

@@ -482,6 +482,42 @@ export async function updateComment(formData: FormData) {
   redirect(`/dashboard/projects/${projectId}`);
 }
 
+export async function saveAssessmentSpec(formData: FormData) {
+  const projectId = readText(formData, "project_id");
+  const learningGoal = readText(formData, "learning_goal");
+  const achievementStandard = readText(formData, "achievement_standard");
+  const approved = formData.get("approved") === "on";
+
+  if (!projectId || !learningGoal || !achievementStandard) {
+    redirect(`/dashboard/projects/${projectId}?message=성취기준과 평가목표를 입력해 주세요.`);
+  }
+
+  const { supabase, user } = await requireOwnedProject(projectId);
+  const spec = {
+    schema: "assessment-spec-v1",
+    version: readText(formData, "version") || "v1.0",
+    achievementStandard,
+    learningGoal,
+    essentialQuestion: readText(formData, "essential_question"),
+    evidenceDescription: readText(formData, "evidence_description"),
+    deferConditions: readText(formData, "defer_conditions"),
+    notionInputProperty: readText(formData, "notion_input_property"),
+    notionStudentProperty: readText(formData, "notion_student_property"),
+    notionFeedbackProperty: readText(formData, "notion_feedback_property"),
+    approved,
+    approvedBy: approved ? user.email ?? user.id : "",
+    approvedAt: approved ? new Date().toISOString() : null,
+    trialCount: 3,
+    batchSize: 5,
+  } satisfies Json;
+
+  const { error } = await supabase.from("projects").update({ assessment_spec: spec }).eq("id", projectId);
+  if (error) redirect(`/dashboard/projects/${projectId}?message=${encodeURIComponent(error.message)}`);
+
+  revalidatePath(`/dashboard/projects/${projectId}`);
+  redirect(`/dashboard/projects/${projectId}?notice=${encodeURIComponent(approved ? "평가설계를 승인했습니다. AI 초안 생성을 시작할 수 있습니다." : "평가설계 초안을 저장했습니다.")}`);
+}
+
 export async function saveEvaluation(formData: FormData) {
   const projectId = readText(formData, "project_id");
   const commentId = readText(formData, "comment_id");
