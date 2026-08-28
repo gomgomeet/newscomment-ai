@@ -17,17 +17,21 @@ import {
 import { requireUser } from "@/lib/auth/require-user";
 import { projectStatusLabels } from "@/lib/constants/project-status";
 import { readNotionSourceDefaults } from "@/lib/notion/project-source";
+import { getEvaluationNotionConnectionStatus } from "@/lib/notion/teacher-connection";
 
 export default async function ProjectDetailPage({
   params,
   searchParams,
 }: {
   params: Promise<{ projectId: string }>;
-  searchParams: Promise<{ message?: string; notice?: string }>;
+  searchParams: Promise<{ message?: string; notice?: string; view?: string }>;
 }) {
   const { projectId } = await params;
-  const { message, notice } = await searchParams;
+  const { message, notice, view } = await searchParams;
+  const initialEvaluationView =
+    view === "all" || view === "remaining" || view === "priority" ? view : "priority";
   const { supabase, user } = await requireUser();
+  const notionConnectionPromise = getEvaluationNotionConnectionStatus({ supabase, userId: user.id });
   const { data: project, error } = await supabase
     .from("projects")
     .select("*")
@@ -113,11 +117,12 @@ export default async function ProjectDetailPage({
     throw new Error(scoresError.message);
   }
 
+  const notionConnection = await notionConnectionPromise;
   const prepReadiness = buildAssessmentPrepReadiness({
     project,
     rubricGenerationContext: rubric?.generation_context,
     criterionCount: (criteria ?? []).length,
-    notionConnectionConfigured: Boolean(process.env.NOTION_API_KEY),
+    notionConnectionConfigured: notionConnection.configured,
     notionResultCount: (comments ?? []).filter((comment) => isNotionResultMetadata(comment.metadata)).length,
     assessmentPrep: savedPrep,
   });
@@ -179,6 +184,7 @@ export default async function ProjectDetailPage({
           teacherEvaluations={teacherEvaluations}
           aiEvaluations={aiEvaluations}
           scores={scores ?? []}
+          initialView={initialEvaluationView}
         />
       </section>
       <aside className="space-y-4">
@@ -186,7 +192,8 @@ export default async function ProjectDetailPage({
         <NotionCommentImportForm
           projectId={project.id}
           defaults={readNotionSourceDefaults(project.notion_source)}
-          configured={Boolean(process.env.NOTION_API_KEY)}
+          configured={notionConnection.configured}
+          connectionLabel={notionConnection.workspaceLabel}
         />
         <SourceCommentImportForm projectId={project.id} sourceUrl={project.source_url} />
         <CommentForm projectId={project.id} />

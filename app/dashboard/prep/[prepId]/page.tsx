@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { buildAssessmentPrepReadiness, isNotionResultMetadata } from "@/lib/assessment-prep/readiness";
 import { requireUser } from "@/lib/auth/require-user";
+import { getEvaluationNotionConnectionStatus } from "@/lib/notion/teacher-connection";
 
 export default async function AssessmentPrepDetailPage({
   params,
@@ -35,7 +36,7 @@ export default async function AssessmentPrepDetailPage({
 
   if (projectError || !project) notFound();
 
-  const [rubricResult, criteriaResult, versionsResult, commentsResult] = await Promise.all([
+  const [rubricResult, criteriaResult, versionsResult, commentsResult, notionConnection] = await Promise.all([
     project.rubric_id
       ? supabase.from("rubrics").select("*").eq("id", project.rubric_id).eq("owner_id", user.id).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
@@ -44,6 +45,7 @@ export default async function AssessmentPrepDetailPage({
       : Promise.resolve({ data: [], error: null }),
     supabase.from("assessment_prep_versions").select("*").eq("prep_id", prep.id).order("version_number", { ascending: false }),
     supabase.from("comments").select("metadata").eq("project_id", project.id),
+    getEvaluationNotionConnectionStatus({ supabase, userId: user.id }),
   ]);
 
   const queryError = rubricResult.error ?? criteriaResult.error ?? versionsResult.error ?? commentsResult.error;
@@ -53,7 +55,7 @@ export default async function AssessmentPrepDetailPage({
     project,
     rubricGenerationContext: rubricResult.data?.generation_context,
     criterionCount: criteriaResult.data?.length ?? 0,
-    notionConnectionConfigured: Boolean(process.env.NOTION_API_KEY),
+    notionConnectionConfigured: notionConnection.configured,
     notionResultCount: (commentsResult.data ?? []).filter((comment) => isNotionResultMetadata(comment.metadata)).length,
     assessmentPrep: prep,
   });
@@ -70,7 +72,7 @@ export default async function AssessmentPrepDetailPage({
         criteria={criteriaResult.data ?? []}
         versions={versionsResult.data ?? []}
         readiness={readiness}
-        notionConfigured={Boolean(process.env.NOTION_API_KEY)}
+        notionConnection={notionConnection}
       />
     </div>
   );

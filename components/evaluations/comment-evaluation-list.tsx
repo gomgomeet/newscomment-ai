@@ -18,6 +18,7 @@ export function CommentEvaluationList({
   teacherEvaluations,
   aiEvaluations,
   scores,
+  initialView = "priority",
 }: {
   projectId: string;
   comments: Comment[];
@@ -25,8 +26,9 @@ export function CommentEvaluationList({
   teacherEvaluations: Evaluation[];
   aiEvaluations: Evaluation[];
   scores: Score[];
+  initialView?: "all" | "remaining" | "priority";
 }) {
-  const [view, setView] = useState<"all" | "remaining" | "priority">("priority");
+  const [view, setView] = useState<"all" | "remaining" | "priority">(initialView);
 
   if (comments.length === 0) {
     return (
