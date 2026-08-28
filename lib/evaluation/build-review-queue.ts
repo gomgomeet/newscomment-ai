@@ -1,33 +1,16 @@
-import type { Database, Json } from "@/lib/db/types";
+import type { Database } from "@/lib/db/types";
 import type {
   ReviewQueueAiEvaluation,
   ReviewQueueItem,
   ReviewQueueTeacherEvaluation,
 } from "@/lib/evaluation/review-queue-types";
+import { readNotionResultMetadata } from "../notion/result-metadata.ts";
 
 type Project = Database["public"]["Tables"]["projects"]["Row"];
 type Comment = Database["public"]["Tables"]["comments"]["Row"];
 type Evaluation = Database["public"]["Tables"]["evaluations"]["Row"];
 type Score = Database["public"]["Tables"]["evaluation_scores"]["Row"];
 type Criterion = Database["public"]["Tables"]["rubric_criteria"]["Row"];
-
-function jsonObject(value: Json): Record<string, Json | undefined> | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, Json | undefined>)
-    : null;
-}
-
-function safeNotionUrl(metadata: Json) {
-  const candidate = jsonObject(metadata)?.notion_page_url;
-  if (typeof candidate !== "string") return null;
-
-  try {
-    const url = new URL(candidate);
-    return url.protocol === "https:" ? url.toString() : null;
-  } catch {
-    return null;
-  }
-}
 
 function keepLatest(
   map: Map<string, Evaluation>,
@@ -177,7 +160,7 @@ export function buildEvaluationReviewQueue({
         content: comment.content,
         createdAt: comment.created_at,
         updatedAt,
-        notionPageUrl: safeNotionUrl(comment.metadata),
+        notionPageUrl: readNotionResultMetadata(comment.metadata).pageUrl,
         ai,
         teacher,
         scoreDifference,

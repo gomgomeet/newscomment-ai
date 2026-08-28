@@ -263,9 +263,15 @@ function ReviewCard({ item }: { item: ReviewQueueItem }) {
   );
 }
 
-export function EvaluationReviewBoard({ items }: { items: ReviewQueueItem[] }) {
+export function EvaluationReviewBoard({
+  items,
+  initialProjectId = "all",
+}: {
+  items: ReviewQueueItem[];
+  initialProjectId?: string;
+}) {
   const [filter, setFilter] = useState<FilterKey>("priority");
-  const [projectId, setProjectId] = useState("all");
+  const [projectId, setProjectId] = useState(initialProjectId);
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query.trim().toLocaleLowerCase("ko-KR"));
 

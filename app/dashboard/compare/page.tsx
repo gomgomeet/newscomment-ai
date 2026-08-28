@@ -2,8 +2,15 @@ import { EvaluationReviewBoard } from "@/components/evaluations/evaluation-revie
 import { requireUser } from "@/lib/auth/require-user";
 import { buildEvaluationReviewQueue } from "@/lib/evaluation/build-review-queue";
 
-export default async function ComparePage() {
-  const { supabase, user } = await requireUser();
+export default async function ComparePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ project?: string }>;
+}) {
+  const [{ project: requestedProjectId }, { supabase, user }] = await Promise.all([
+    searchParams,
+    requireUser(),
+  ]);
 
   const [projectsResult, commentsResult, evaluationsResult] = await Promise.all([
     supabase
@@ -58,5 +65,12 @@ export default async function ComparePage() {
     criteria: criteriaResult.data ?? [],
   });
 
-  return <EvaluationReviewBoard items={items} />;
+  return (
+    <EvaluationReviewBoard
+      items={items}
+      initialProjectId={
+        requestedProjectId && projectIds.has(requestedProjectId) ? requestedProjectId : "all"
+      }
+    />
+  );
 }
