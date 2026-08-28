@@ -749,6 +749,8 @@ export async function generateAiEvaluation(formData: FormData) {
         raw_output: {
           source: "ai-draft",
           result: rawOutput,
+          improvement_suggestions: aiResult.improvement_suggestions,
+          revision_prompt: aiResult.revision_prompt,
         },
       },
       { onConflict: "comment_id,evaluator_id,source" },

@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/lib/auth/require-user";
 import type { Database } from "@/lib/db/types";
+import { readAiImprovementPlan } from "@/lib/evaluations/ai-improvement";
 
 type Criterion = Database["public"]["Tables"]["rubric_criteria"]["Row"];
 type Score = Database["public"]["Tables"]["evaluation_scores"]["Row"];
@@ -236,6 +237,12 @@ export default async function ComparePage() {
             const projectCriteria = project?.rubric_id ? criteriaByRubricId.get(project.rubric_id) ?? [] : [];
             const teacherScores = pair.teacher ? scoresByEvaluationId.get(pair.teacher.id) ?? new Map() : new Map();
             const aiScores = pair.ai ? scoresByEvaluationId.get(pair.ai.id) ?? new Map() : new Map();
+            const improvementPlan = pair.ai
+              ? readAiImprovementPlan(pair.ai.raw_output)
+              : { suggestions: [], revisionPrompt: null };
+            const improvementByCriterion = new Map(
+              improvementPlan.suggestions.map((suggestion) => [suggestion.criterion_id, suggestion]),
+            );
 
             return (
               <Card key={commentId}>
@@ -283,6 +290,7 @@ export default async function ComparePage() {
                       {projectCriteria.map((criterion) => {
                         const teacherScore = teacherScores.get(criterion.id);
                         const aiScore = aiScores.get(criterion.id);
+                        const improvement = improvementByCriterion.get(criterion.id);
                         const difference =
                           teacherScore && aiScore ? teacherScore.score - aiScore.score : null;
                         return (
@@ -298,6 +306,13 @@ export default async function ComparePage() {
                               <p className="text-xs leading-5 text-muted-foreground">교사 근거: {teacherScore?.rationale || "저장된 근거 없음"}</p>
                               <p className="text-xs leading-5 text-muted-foreground">AI 근거: {aiScore?.rationale || "저장된 근거 없음"}</p>
                             </div>
+                            {improvement ? (
+                              <div className="mt-3 rounded-md bg-primary/5 p-3 text-xs leading-5">
+                                <p className="font-medium text-primary">향상 방법 제안</p>
+                                <p className="mt-1">{improvement.suggestion}</p>
+                                <p className="mt-1 text-muted-foreground">완료 확인: {improvement.success_check}</p>
+                              </div>
+                            ) : null}
                           </div>
                         );
                       })}
