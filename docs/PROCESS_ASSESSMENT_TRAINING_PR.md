@@ -102,12 +102,27 @@ Notion AI 시연은 평가기준 설계보다 앞설 수 없다. AI 영역과 �
 초보자 연수에서는 **검증된 플러그인 또는 공식 Notion 커넥터**를 우선한다.
 
 - Claude Code·Cowork에서는 Notion MCP, 평가 Skill, 명령, 안전 규칙을 한 묶음으로 배포할 수 있는 플러그인이 절차 재현에 유리하다.
-- 일반 Claude 웹에서는 평가 Skill ZIP과 공식 Notion 커넥터를 사용한다.
+- 일반 Claude 웹에서는 `클로드 평가 데모 ZIP`과 공식 Notion 커넥터를 사용한다.
 - 공식 연결은 참가자가 Notion 내부 통합 토큰을 직접 입력하는 수업이 아니라 사용자 OAuth 승인 방식으로 안내한다.
 - 연결된 Claude는 사용자가 접근할 수 있는 Notion 범위에서 읽고 쓸 수 있으므로 실제 학생 자료가 있는 전체 교사 계정보다 데모 워크스페이스를 사용한다.
 - 평가보드 서버의 단일 `NOTION_API_KEY`와 참가자의 Claude–Notion OAuth 연결은 서로 다른 경로다.
 
 연결 과정은 [사전 준비｜Claude와 Notion 연결·권한 점검하기](https://app.notion.com/p/3cac5f01a4a4815b9dc3c86d27d846ee)에 분리했다. 교안 본 수업에서는 연결 설정 자체보다 **읽기 확인 → 초안 → 교사 검수 → 승인 후 쓰기**를 학습 성취로 본다.
+
+### Claude 웹 배포본
+
+Claude 웹은 ZIP 하나를 하나의 Custom Skill로 등록하므로 `edu-rubric`과 `edu-evidence-judge` 폴더를 ZIP 최상위에 나란히 넣지 않는다. 대신 최상위 Skill 하나가 두 차시 모듈을 선택하도록 구성했다.
+
+- 배포 이름: **클로드 평가 데모 ZIP**
+- 파일: [`claude-evaluation-demo.zip`](../public/downloads/claude-evaluation-demo.zip)
+- Skill 이름: `claude-evaluation-demo`
+- 1차시 모듈: 백워드 설계 기반 평가기준안·루브릭 설계
+- 2차시 모듈: Notion 읽기 확인 → Claude 평가 초안 → 교사 검수 → 피드백·평가 포워드 → 승인 후 결과 저장
+- Claude 웹 등록: `Customize → Skills → + → Create skill → Upload a skill`에서 ZIP을 풀지 않고 업로드한 뒤 활성화
+- Notion 접근: ZIP에 토큰을 넣지 않고 Claude의 공식 Notion 커넥터를 별도로 OAuth 연결
+- 연결 실패: 익명 원문과 승인된 루브릭을 복사·붙여넣는 대체 경로 사용
+
+기존 개별 스킬 파일은 개발·검수용 원본으로 유지한다. 연수 참가자에게는 통합 ZIP 하나만 배포한다.
 
 ## 7. 3차시: 3F 보드를 실제 수업 운영에 사용한다
 
@@ -191,6 +206,7 @@ Notion AI 시연은 평가기준 설계보다 앞설 수 없다. AI 영역과 �
 - [x] 1차시에 승인 후 Notion AI 자동채점 초안 시연 추가
 - [x] 2차시를 Claude–Notion 자동채점·교사 검수·승인 후 저장 구조로 재작성
 - [x] 플러그인·공식 커넥터·MCP·복사 붙여넣기 대체 경로 정리
+- [x] `edu-rubric`과 2차시 평가 스킬을 `클로드 평가 데모 ZIP` 하나로 통합
 - [x] 3차시를 3F 보드·다음 수업·후속 결과·1회성·누적 기록 중심으로 재작성
 - [x] 3차시 보드 운영 매뉴얼과 실제 학교 운영 주기 추가
 - [x] 3F 연결 허브와 초보 교사용 실행 안내 연결
@@ -259,3 +275,5 @@ Notion AI 시연은 평가기준 설계보다 앞설 수 없다. AI 영역과 �
 - [`PROCESS_ASSESSMENT_SKILL_PACK.md`](PROCESS_ASSESSMENT_SKILL_PACK.md)
 - [`edu-rubric`](../skills/edu-rubric/SKILL.md)
 - [`edu-evidence-judge`](../skills/edu-evidence-judge/SKILL.md)
+- [`클로드 평가 데모`](../skills/claude-evaluation-demo/SKILL.md)
+- [`클로드 평가 데모 ZIP`](../public/downloads/claude-evaluation-demo.zip)
