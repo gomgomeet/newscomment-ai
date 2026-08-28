@@ -13,18 +13,36 @@ export function NotionPageEvaluationForm({
   configured: boolean;
   rubricReady: boolean;
 }) {
+  const templateUrl = readTemplateUrl(process.env.NIE_NOTION_TEMPLATE_URL);
+
   return (
     <Card className="border-primary/40">
       <CardHeader>
         <div className="flex items-center justify-between gap-3">
-          <CardTitle>1순위 · Notion 페이지 바로 평가</CardTitle>
+          <CardTitle>1순위 · 복제한 Notion 템플릿 연결</CardTitle>
           <span className="rounded-full bg-primary/10 px-2 py-1 text-xs font-medium text-primary">이번 연수 실습</span>
         </div>
         <CardDescription>
-          학생 결과물 페이지의 전체 본문을 가져와 성취기준별 AI 평가 초안을 만듭니다.
+          제공된 NIE 템플릿을 평가 앱이 읽을 수 있는 Notion 워크스페이스에 복제한 뒤 연결합니다.
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        <div className="space-y-3 rounded-md border border-border bg-muted/40 p-4 text-sm">
+          <p className="font-medium">먼저 NIE 템플릿을 복제하세요</p>
+          <ol className="list-decimal space-y-1 pl-5 text-xs leading-5 text-muted-foreground">
+            <li>강사가 안내한 공동 연수용 Notion 워크스페이스에 템플릿을 복제합니다.</li>
+            <li>학생 결과물을 작성하고, 해당 페이지의 공유 → 연결에서 평가 앱 통합을 추가합니다.</li>
+            <li>학생 페이지 링크를 복사해 아래 입력란에 붙여넣습니다.</li>
+          </ol>
+          {templateUrl ? (
+            <Button asChild variant="outline" size="sm">
+              <a href={templateUrl} target="_blank" rel="noreferrer">NIE 템플릿 복제하기</a>
+            </Button>
+          ) : (
+            <p className="text-xs text-muted-foreground">복제 링크는 연수 안내 자료에서 제공합니다.</p>
+          )}
+          <p className="text-xs text-muted-foreground">개인 워크스페이스 연결과 Notion 템플릿 자동 생성은 후속 기능입니다.</p>
+        </div>
         <form action={importNotionPageForEvaluation} className="space-y-4">
           <input type="hidden" name="project_id" value={projectId} />
           <div className="space-y-2">
@@ -67,4 +85,15 @@ export function NotionPageEvaluationForm({
       </CardContent>
     </Card>
   );
+}
+
+function readTemplateUrl(value: string | undefined) {
+  if (!value) return null;
+
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
 }

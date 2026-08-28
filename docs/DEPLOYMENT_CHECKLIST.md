@@ -102,6 +102,7 @@ GEMINI_API_KEY
 GEMINI_QUESTIONING_MODEL
 NOTION_API_KEY
 NOTION_API_VERSION
+NIE_NOTION_TEMPLATE_URL
 NOTION_QUESTIONING_PREP_DATABASE_ID
 NOTION_QUESTIONING_RESULT_DATABASE_ID
 SUPABASE_SERVICE_ROLE_KEY
@@ -109,6 +110,8 @@ QUESTIONING_CONNECTION_SETUP_TOKEN
 QUESTIONING_STUDENT_LLM_ENABLED
 QUESTIONING_STUDENT_PROVIDER
 ```
+
+`NIE_NOTION_TEMPLATE_URL`은 선택 항목이다. 설정하면 평가보드의 Notion 입력 카드에 `NIE 템플릿 복제하기` 버튼이 나타난다. 참가자가 공동 연수용 워크스페이스 안에 복제할 수 있는 공개 링크만 넣고 Notion API 토큰이나 비공개 관리 페이지 주소는 넣지 않는다. 현재 평가보드는 단일 `NOTION_API_KEY`를 사용하므로 참가자별 개인 워크스페이스는 공용 보드에 직접 연결할 수 없다.
 
 질문 챗봇을 Gemini로 사용할 경우 교사용 보드에서 교사 개인 Gemini 키를 직접 입력하는 방식을 기본으로 한다. 모든 수업이 같은 서버 기본 키를 써야 하는 특수한 경우에만 `GEMINI_API_KEY`를 설정한다.
 
