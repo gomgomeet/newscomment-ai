@@ -25,7 +25,7 @@
 | `/dashboard/projects` | 프로젝트 만들기, 목록, 상세, 수정 |
 | `/dashboard/rubrics` | 루브릭과 기준 만들기·수정, 뉴스 기사 루브릭 자동 생성 |
 | `/dashboard/evaluation` | 채점할 프로젝트 고르기 |
-| `/dashboard/compare` | 저장된 평가 훑어보기 |
+| `/dashboard/compare` | 노션 원결과물·AI 근거·교사 확정을 선별하는 검토 작업대 |
 | `/dashboard/insights` | 기준별 평균 |
 | `/dashboard/settings` | 연결 상태 확인 |
 
@@ -46,7 +46,7 @@ Google 제공자를 켜기 전에도 버튼은 보이지만, 누르면 오류 �
 
 교사가 기준별로 직접 점수를 매긴다. `OPENAI_API_KEY`가 있으면 **AI 초안**을 만들어 참고할 수 있다. 저장 주체는 언제나 교사다.
 
-AI 초안과 교사 수동 평가는 `evaluations.source`로 분리해 저장한다. `/dashboard/compare`에서 둘을 나란히 보고, 교사가 최종 판단을 남긴다.
+AI 초안과 교사 수동 평가는 `evaluations.source`로 분리해 저장한다. `/dashboard/compare`에서 미평가 결과물까지 포함해 원문·기준별 근거·점수 차이·평가 포워드를 나란히 보고, 교사가 확인할 결과부터 선별해 최종 판단을 남긴다.
 
 ---
 
@@ -247,7 +247,7 @@ npm run eval:questioning:holdout      # 홀드아웃 묶음
 
 ### 평가 대시보드
 
-- `/dashboard/compare`는 AI와 교사 평가의 총점·종합 피드백만 나란히 보여준다. 기준별 일치율은 아직 없다.
+- `/dashboard/compare`는 전체 결과물을 `교사 확인 우선`, `근거 확인`, `재작성 권장`, `성장 기록 준비`로 선별하고 AI·교사의 기준별 점수와 판단 근거를 나란히 보여준다.
 - 집계가 개수 셋과 기준별 평균뿐이다. 진행률, 점수 분포, 학생 단위 보기가 없다.
 - 비밀번호 재설정 흐름이 없다. 잊으면 Supabase 대시보드에서 직접 손봐야 한다.
 - 삭제 흐름이 구현되어 있지 않다.
