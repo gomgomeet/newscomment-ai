@@ -16,10 +16,11 @@ export default async function ProjectDetailPage({
   searchParams,
 }: {
   params: Promise<{ projectId: string }>;
-  searchParams: Promise<{ message?: string; notice?: string }>;
+  searchParams: Promise<{ filter?: string; message?: string; notice?: string }>;
 }) {
   const { projectId } = await params;
-  const { message, notice } = await searchParams;
+  const { filter, message, notice } = await searchParams;
+  const evaluationFilter = filter === "unevaluated" ? "unevaluated" : "all";
   const { supabase, user } = await requireUser();
   const { data: project, error } = await supabase
     .from("projects")
@@ -94,6 +95,12 @@ export default async function ProjectDetailPage({
     throw new Error(scoresError.message);
   }
 
+  const evaluatedCommentIds = new Set((evaluations ?? []).map((evaluation) => evaluation.comment_id));
+  const commentCount = (comments ?? []).length;
+  const evaluatedCount = evaluatedCommentIds.size;
+  const remainingCount = Math.max(commentCount - evaluatedCount, 0);
+  const progress = commentCount === 0 ? 0 : Math.round((evaluatedCount / commentCount) * 100);
+
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px]">
       <section className="space-y-6">
@@ -125,11 +132,27 @@ export default async function ProjectDetailPage({
             <p><span className="font-medium">상태:</span> {project.status}</p>
             <p><span className="font-medium">루브릭:</span> {rubric?.title || "미선택"}</p>
             <p><span className="font-medium">댓글 수:</span> {(comments ?? []).length}</p>
-            <p><span className="font-medium">평가 수:</span> {(evaluations ?? []).length}</p>
+            <p><span className="font-medium">교사 평가:</span> {evaluatedCount}개 / 남음 {remainingCount}개 ({progress}%)</p>
             <p><span className="font-medium">소스 URL:</span> {project.source_url || "미등록"}</p>
             <p><span className="font-medium">생성일:</span> {new Date(project.created_at).toLocaleString("ko-KR")}</p>
           </CardContent>
         </Card>
+        <div className="flex flex-col justify-between gap-3 rounded-md border border-border p-4 sm:flex-row sm:items-center">
+          <div>
+            <h3 className="text-base font-semibold">채점 작업대</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              남은 댓글만 보거나 전체 댓글을 보면서 교사 평가를 이어갈 수 있습니다.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant={evaluationFilter === "unevaluated" ? "default" : "outline"} size="sm">
+              <Link href={`/dashboard/projects/${project.id}?filter=unevaluated`}>안 한 것만 보기</Link>
+            </Button>
+            <Button asChild variant={evaluationFilter === "all" ? "default" : "outline"} size="sm">
+              <Link href={`/dashboard/projects/${project.id}`}>전체 보기</Link>
+            </Button>
+          </div>
+        </div>
         {!project.rubric_id ? (
           <Card>
             <CardHeader>
@@ -146,6 +169,7 @@ export default async function ProjectDetailPage({
           criteria={criteria ?? []}
           evaluations={evaluations ?? []}
           scores={scores ?? []}
+          filter={evaluationFilter}
         />
       </section>
       <aside className="space-y-4">
