@@ -16,6 +16,7 @@ import {
 } from "@/lib/assessment-prep/readiness";
 import { requireUser } from "@/lib/auth/require-user";
 import { readNotionSourceDefaults } from "@/lib/notion/project-source";
+import { getEvaluationNotionConnectionStatus } from "@/lib/notion/teacher-connection";
 
 export default async function ProjectDetailPage({
   params,
@@ -27,6 +28,7 @@ export default async function ProjectDetailPage({
   const { projectId } = await params;
   const { message, notice } = await searchParams;
   const { supabase, user } = await requireUser();
+  const notionConnectionPromise = getEvaluationNotionConnectionStatus({ supabase, userId: user.id });
   const { data: project, error } = await supabase
     .from("projects")
     .select("*")
@@ -112,11 +114,12 @@ export default async function ProjectDetailPage({
     throw new Error(scoresError.message);
   }
 
+  const notionConnection = await notionConnectionPromise;
   const prepReadiness = buildAssessmentPrepReadiness({
     project,
     rubricGenerationContext: rubric?.generation_context,
     criterionCount: (criteria ?? []).length,
-    notionConnectionConfigured: Boolean(process.env.NOTION_API_KEY),
+    notionConnectionConfigured: notionConnection.configured,
     notionResultCount: (comments ?? []).filter((comment) => isNotionResultMetadata(comment.metadata)).length,
     teacherEvaluationCount: teacherEvaluations.length,
     assessmentPrep: savedPrep,
@@ -189,7 +192,8 @@ export default async function ProjectDetailPage({
         <NotionCommentImportForm
           projectId={project.id}
           defaults={readNotionSourceDefaults(project.notion_source)}
-          configured={Boolean(process.env.NOTION_API_KEY)}
+          configured={notionConnection.configured}
+          connectionLabel={notionConnection.workspaceLabel}
         />
         <SourceCommentImportForm projectId={project.id} sourceUrl={project.source_url} />
         <CommentForm projectId={project.id} />

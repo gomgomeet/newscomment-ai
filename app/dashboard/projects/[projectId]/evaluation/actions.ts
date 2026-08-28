@@ -10,6 +10,10 @@ import {
 } from "@/lib/notion/dedupe";
 import { NotionImportError, importCommentsFromNotionDatabase } from "@/lib/notion/import-comments";
 import { readNotionSourceDefaults } from "@/lib/notion/project-source";
+import {
+  EvaluationNotionConnectionError,
+  getEvaluationNotionAccessToken,
+} from "@/lib/notion/teacher-connection";
 import { evaluateCommentWithOpenAI } from "@/lib/openai/evaluate-comment";
 
 const MAX_COMMENT_LENGTH = 5000;
@@ -339,7 +343,7 @@ export async function importCommentsFromNotion(formData: FormData) {
     redirect("/dashboard/projects?message=수업활동을 찾을 수 없습니다.");
   }
 
-  const { supabase, project } = await requireOwnedProject(projectId);
+  const { supabase, user, project } = await requireOwnedProject(projectId);
   const saved = readNotionSourceDefaults(project.notion_source);
 
   const databaseInput = readText(formData, "notion_database") || saved.database_url;
@@ -359,7 +363,9 @@ export async function importCommentsFromNotion(formData: FormData) {
 
   let result;
   try {
+    const apiKey = await getEvaluationNotionAccessToken({ supabase, userId: user.id });
     result = await importCommentsFromNotionDatabase({
+      apiKey,
       databaseInput,
       contentMode,
       contentProperty,
@@ -374,7 +380,7 @@ export async function importCommentsFromNotion(formData: FormData) {
         ? ` 사용 가능한 속성: ${error.availableProperties.join(", ")}`
         : "";
     const message =
-      error instanceof NotionImportError
+      error instanceof NotionImportError || error instanceof EvaluationNotionConnectionError
         ? `${error.message}${detail}`
         : "Notion 댓글 가져오기에 실패했습니다.";
 

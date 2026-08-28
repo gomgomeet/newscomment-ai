@@ -82,6 +82,14 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 
 권장 범위: Production, Preview, Development. 특히 GitHub 브랜치/PR 미리보기 배포를 확인하려면 Preview에도 넣어야 한다.
 
+평가 대시보드의 교사별 Notion 연결 필수 항목:
+
+```text
+EVALUATION_SECRET_ENCRYPTION_KEY
+```
+
+16자 이상의 충분히 긴 임의 문자열을 사용하고 Production, Preview, Development에 같은 값을 유지한다. 값을 바꾸면 이미 저장한 토큰을 복호화할 수 없으므로 먼저 교사 연결을 끊고 다시 연결해야 한다.
+
 질문 챗봇 운영형 필수 항목:
 
 ```text
@@ -113,6 +121,8 @@ QUESTIONING_STUDENT_PROVIDER
 질문 챗봇을 Gemini로 사용할 경우 교사용 보드에서 교사 개인 Gemini 키를 직접 입력하는 방식을 기본으로 한다. 모든 수업이 같은 서버 기본 키를 써야 하는 특수한 경우에만 `GEMINI_API_KEY`를 설정한다.
 
 현재 권장 운영형에서는 교사 개인 `Notion API 토큰`을 교사용 보드에 입력하고, 웹앱 서버가 Integration이 연결된 Notion 템플릿에서 `챗봇 수업 준비 DB`와 `챗봇 수업 결과 DB`를 자동으로 찾는다. 따라서 교사별 운영에서는 `NOTION_API_KEY`, `NOTION_QUESTIONING_PREP_DATABASE_ID`, `NOTION_QUESTIONING_RESULT_DATABASE_ID`를 Vercel 환경변수에 고정하지 않는다.
+
+평가 대시보드도 평가 준비 프렙에서 교사가 자기 Notion 토큰을 연결한다. `NOTION_API_KEY`는 공용 시연 연결을 위한 선택적 호환값이며, 여러 교사가 함께 쓰는 운영 배포에서는 두지 않는 것을 권장한다.
 
 여러 교사가 같은 웹앱을 사용하는 운영형에서는 교사별 Gemini 키와 Notion 토큰을 직접 환경변수에 넣지 않고, `SUPABASE_SECRET_KEY` 또는 `SUPABASE_SERVICE_ROLE_KEY`와 `QUESTIONING_SECRET_ENCRYPTION_KEY`로 서버에서 암호화 저장·조회한다. 저장 버튼을 공개 화면에 둘 경우 `QUESTIONING_CONNECTION_SETUP_TOKEN`으로 연결 저장 암호를 설정한다.
 

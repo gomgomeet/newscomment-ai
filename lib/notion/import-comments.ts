@@ -161,12 +161,11 @@ function findPropertyKey(properties: Record<string, unknown>, requestedName: str
   return keys.find((key) => key.trim().toLowerCase() === normalized) ?? null;
 }
 
-async function notionRequest(path: string, init?: { method?: string; body?: unknown }) {
-  const apiKey = process.env.NOTION_API_KEY;
-  if (!apiKey) {
-    throw new NotionImportError("NOTION_API_KEY가 설정되어 있지 않습니다.");
-  }
-
+async function notionRequest(
+  path: string,
+  apiKey: string,
+  init?: { method?: string; body?: unknown },
+) {
   let response: Response;
   try {
     response = await fetch(`${NOTION_API_BASE}/${path}`, {
@@ -187,7 +186,7 @@ async function notionRequest(path: string, init?: { method?: string; body?: unkn
 
   if (!response.ok) {
     if (response.status === 401) {
-      throw new NotionImportError("Notion 토큰이 올바르지 않습니다. NOTION_API_KEY를 확인해 주세요.");
+      throw new NotionImportError("Notion 토큰이 올바르지 않습니다. 평가 준비 프렙의 연결을 확인해 주세요.");
     }
 
     if (response.status === 404) {
@@ -256,6 +255,7 @@ function blockToPlainText(block: Record<string, unknown>) {
 async function readBlockChildrenText(
   blockId: string,
   maxLength: number,
+  apiKey: string,
   depth = 0,
 ): Promise<string> {
   if (!blockId || maxLength <= 0 || depth > MAX_BLOCK_DEPTH) {
@@ -272,7 +272,7 @@ async function readBlockChildrenText(
       query.set("start_cursor", startCursor);
     }
 
-    const page = await notionRequest(`blocks/${blockId}/children?${query.toString()}`);
+    const page = await notionRequest(`blocks/${blockId}/children?${query.toString()}`, apiKey);
     const results = Array.isArray(page.results) ? page.results : [];
 
     for (const item of results) {
@@ -291,6 +291,7 @@ async function readBlockChildrenText(
         const nestedText = await readBlockChildrenText(
           asString(block.id),
           maxLength - currentLength,
+          apiKey,
           depth + 1,
         );
         if (nestedText) {
@@ -311,6 +312,7 @@ async function readBlockChildrenText(
 }
 
 export async function importCommentsFromNotionDatabase({
+  apiKey,
   databaseInput,
   contentMode,
   contentProperty,
@@ -319,6 +321,7 @@ export async function importCommentsFromNotionDatabase({
   maxRows,
   maxContentLength,
 }: {
+  apiKey: string;
   databaseInput: string;
   contentMode: NotionContentMode;
   contentProperty: string;
@@ -332,10 +335,10 @@ export async function importCommentsFromNotionDatabase({
     throw new NotionImportError("Notion 데이터베이스 URL 또는 ID 형식이 올바르지 않습니다.");
   }
 
-  const database = await notionRequest(`databases/${databaseId}`);
+  const database = await notionRequest(`databases/${databaseId}`, apiKey);
   const dataSourceId = firstDataSourceId(database);
 
-  const schemaSource = dataSourceId ? await notionRequest(`data_sources/${dataSourceId}`) : database;
+  const schemaSource = dataSourceId ? await notionRequest(`data_sources/${dataSourceId}`, apiKey) : database;
   const properties = asRecord(schemaSource.properties) ?? {};
   const availableProperties = Object.keys(properties);
 
@@ -371,7 +374,7 @@ export async function importCommentsFromNotionDatabase({
   let truncated = false;
 
   do {
-    const page = await notionRequest(queryPath, {
+    const page = await notionRequest(queryPath, apiKey, {
       method: "POST",
       body: {
         page_size: NOTION_PAGE_SIZE,
@@ -391,7 +394,7 @@ export async function importCommentsFromNotionDatabase({
 
       const pageId = asString(notionPage.id);
       const content = contentMode === "page_body"
-        ? await readBlockChildrenText(pageId, maxContentLength)
+        ? await readBlockChildrenText(pageId, maxContentLength, apiKey)
         : contentKey
           ? propertyToPlainText(pageProperties[contentKey]).trim()
           : "";

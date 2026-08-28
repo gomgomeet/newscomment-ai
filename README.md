@@ -126,6 +126,14 @@ QUESTIONING_CONNECTION_SETUP_TOKEN=      # 선택. 새 수업 연결 저장을 �
 
 `QUESTIONING_SECRET_ENCRYPTION_KEY`가 없으면 교사가 입력한 키를 저장할 수 없다. 즉 **수업 코드 방식이 동작하지 않는다.**
 
+### 평가 대시보드의 교사별 Notion 연결에 필요
+
+```text
+EVALUATION_SECRET_ENCRYPTION_KEY=        # 16자 이상의 서버 전용 임의 문자열
+```
+
+교사는 평가 준비 프렙에서 자기 Notion 통합 토큰을 입력한다. 앱은 이 값으로 토큰을 암호화해 교사별로 저장하며 브라우저에 다시 보내지 않는다.
+
 ### 선택
 
 ```text
@@ -135,7 +143,7 @@ GEMINI_API_KEY=                          # 서버 기본 키. 교사별 키만 �
 GEMINI_QUESTIONING_MODEL=gemini-2.5-flash
 QUESTIONING_STUDENT_LLM_ENABLED=false    # 학생 응답에 외부 제공자를 쓸지
 QUESTIONING_STUDENT_PROVIDER=local
-NOTION_API_KEY=                          # 평가 대시보드의 Notion 가져오기 카드에 쓰인다
+NOTION_API_KEY=                          # 선택: 단일 사용자/시연용 서버 공용 Notion 연결
 NOTION_API_VERSION=2022-06-28
 ```
 
@@ -156,8 +164,10 @@ NOTION_API_VERSION=2022-06-28
 | `005_questioning_cards_pgvector` | pgvector 확장 + `embedding` 열 | **적용하지 않는다** |
 | `006_generated_rubric_metadata` | `rubrics.auto_generated` `rubrics.generation_context` | 평가 대시보드 |
 | `007_evaluation_sources` | `evaluations.source` + 교사 평가/AI 초안 분리 제약 | 평가 대시보드 |
+| `008`~`014` | 평가 준비, 교사 검토·재채점, 성장 기록, 학교 PDF 양식과 보안·인덱스 | 평가 대시보드 |
+| `20260828151841_evaluation_notion_connections` | 교사별 암호화 Notion 연결 + RLS | 평가 대시보드 |
 
-- 평가 대시보드만 쓸 거면 `001` `002` `006` `007`로 충분하다.
+- 평가 대시보드를 쓸 때는 `005`를 제외한 마이그레이션을 파일명 순서대로 적용한다.
 - 질문 챗봇을 쓰려면 `003` `004`가 필요하다. `supabase/manual-apply-003-004.sql` 합본으로 한 번에 돌릴 수 있다.
 - `005`는 이 열을 읽거나 쓰는 코드가 아직 없어 적용하지 않는다. 미룬 이유와 나중에 켜는 절차는 [마이그레이션 안내](docs/MIGRATIONS.md)에 정리해 두었다.
 

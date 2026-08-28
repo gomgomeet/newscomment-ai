@@ -9,6 +9,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { AssessmentPrepReadiness } from "@/lib/assessment-prep/readiness";
 import type { Database, Json } from "@/lib/db/types";
+import type { EvaluationNotionConnectionStatus } from "@/lib/notion/teacher-connection";
 
 type Prep = Database["public"]["Tables"]["assessment_preps"]["Row"];
 type Project = Database["public"]["Tables"]["projects"]["Row"];
@@ -45,7 +46,7 @@ export function AssessmentPrepEditor({
   criteria,
   versions,
   readiness,
-  notionConfigured,
+  notionConnection,
 }: {
   prep: Prep;
   project: Project;
@@ -53,7 +54,7 @@ export function AssessmentPrepEditor({
   criteria: Criterion[];
   versions: PrepVersion[];
   readiness: AssessmentPrepReadiness;
-  notionConfigured: boolean;
+  notionConnection: EvaluationNotionConnectionStatus;
 }) {
   const notion = asRecord(prep.notion_config);
   const notionMode = textValue(notion, "content_mode") === "page_body" ? "page_body" : "property";
@@ -174,9 +175,12 @@ export function AssessmentPrepEditor({
             <CardDescription>Notion 원본은 읽기만 하며 평가 결과를 되쓰지 않습니다.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className={`rounded-xl border p-4 text-sm ${notionConfigured ? "border-teal-200 bg-teal-50 text-teal-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
-              <div className="flex items-center gap-2 font-semibold"><LockKeyhole className="h-4 w-4" />{notionConfigured ? "Notion 읽기 토큰이 서버에 연결됨" : "Notion 읽기 토큰 연결 필요"}</div>
-              <p className="mt-1 leading-6">{notionConfigured ? "Integration에 공유된 데이터베이스만 읽을 수 있습니다." : ".env.local의 NOTION_API_KEY에 토큰을 넣고 개발 서버를 다시 시작해 주세요."}</p>
+            <div className={`rounded-xl border p-4 text-sm ${notionConnection.configured ? "border-teal-200 bg-teal-50 text-teal-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+              <div className="flex items-center gap-2 font-semibold"><LockKeyhole className="h-4 w-4" />{notionConnection.configured ? `${notionConnection.workspaceLabel} 연결됨` : "Notion 읽기 토큰 연결 필요"}</div>
+              <p className="mt-1 leading-6">
+                {notionConnection.configured ? "Integration에 공유된 데이터베이스만 읽을 수 있습니다." : "평가 준비 목록의 ‘내 Notion 연결’에서 통합 토큰을 확인하고 저장해 주세요."}
+              </p>
+              <Link href="/dashboard/prep#notion-connection" className="mt-2 inline-flex font-semibold underline">Notion 연결 관리</Link>
             </div>
             <div className="space-y-2">
               <Label htmlFor="notion_database_url">학생 결과물 데이터베이스 URL</Label>

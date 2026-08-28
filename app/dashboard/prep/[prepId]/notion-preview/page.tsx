@@ -7,6 +7,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { requireUser } from "@/lib/auth/require-user";
 import type { Json } from "@/lib/db/types";
 import { importCommentsFromNotionDatabase, NotionImportError, type NotionImportResult } from "@/lib/notion/import-comments";
+import {
+  EvaluationNotionConnectionError,
+  getEvaluationNotionAccessToken,
+} from "@/lib/notion/teacher-connection";
 
 function asRecord(value: Json | null | undefined) {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -53,7 +57,9 @@ export default async function NotionPreviewPage({ params }: { params: Promise<{ 
     previewError = "평가 준비안에 Notion 데이터베이스 URL을 먼저 저장해 주세요.";
   } else {
     try {
+      const apiKey = await getEvaluationNotionAccessToken({ supabase, userId: user.id });
       preview = await importCommentsFromNotionDatabase({
+        apiKey,
         databaseInput,
         contentMode,
         contentProperty,
@@ -63,9 +69,13 @@ export default async function NotionPreviewPage({ params }: { params: Promise<{ 
         maxContentLength: 5000,
       });
     } catch (error) {
-      previewError = error instanceof NotionImportError
-        ? `${error.message}${error.availableProperties.length ? ` 사용 가능한 속성: ${error.availableProperties.join(", ")}` : ""}`
-        : "Notion 연결 미리보기에 실패했습니다.";
+      if (error instanceof NotionImportError) {
+        previewError = `${error.message}${error.availableProperties.length ? ` 사용 가능한 속성: ${error.availableProperties.join(", ")}` : ""}`;
+      } else if (error instanceof EvaluationNotionConnectionError) {
+        previewError = error.message;
+      } else {
+        previewError = "Notion 연결 미리보기에 실패했습니다.";
+      }
     }
   }
 
