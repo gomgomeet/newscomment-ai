@@ -10,6 +10,7 @@ import {
   filterNewNotionRows,
 } from "@/lib/notion/dedupe";
 import { NotionImportError, importCommentsFromNotionDatabase } from "@/lib/notion/import-comments";
+import { importNotionPageArtifact, NotionPageImportError } from "@/lib/notion/import-page";
 import { readNotionSourceDefaults } from "@/lib/notion/project-source";
 import { evaluateCommentWithOpenAI } from "@/lib/openai/evaluate-comment";
 
@@ -17,6 +18,7 @@ const MAX_COMMENT_LENGTH = 5000;
 const MAX_BULK_TEXT_LENGTH = 250000;
 const MAX_SOURCE_TEXT_LENGTH = 500000;
 const MAX_IMPORTED_COMMENTS = 200;
+const MAX_NOTION_PAGE_LENGTH = 30000;
 
 function readText(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -441,6 +443,97 @@ export async function importCommentsFromNotion(formData: FormData) {
   redirect(`/dashboard/projects/${projectId}?notice=${encodeURIComponent(parts.join(" "))}`);
 }
 
+export async function importNotionPageForEvaluation(formData: FormData) {
+  const projectId = readText(formData, "project_id");
+  const pageInput = readText(formData, "notion_page_url");
+  const studentName = readText(formData, "student_name");
+  const generateDraft = readText(formData, "generate_ai_draft") === "yes";
+
+  if (!projectId) {
+    redirect("/dashboard/projects?message=수업활동을 찾을 수 없습니다.");
+  }
+  if (!pageInput) {
+    redirect(`/dashboard/projects/${projectId}?message=Notion 페이지 링크를 입력해 주세요.`);
+  }
+
+  const { supabase, project } = await requireOwnedProject(projectId);
+  let artifact;
+  try {
+    artifact = await importNotionPageArtifact(pageInput, MAX_NOTION_PAGE_LENGTH);
+  } catch (error) {
+    const message =
+      error instanceof NotionPageImportError ? error.message : "Notion 페이지를 읽지 못했습니다.";
+    redirect(`/dashboard/projects/${projectId}?message=${encodeURIComponent(message)}`);
+  }
+
+  const { data: existing } = await supabase
+    .from("comments")
+    .select("id")
+    .eq("project_id", projectId)
+    .contains("metadata", { notion_page_id: artifact.pageId })
+    .maybeSingle();
+
+  if (existing) {
+    redirect(
+      `/dashboard/projects/${projectId}?notice=${encodeURIComponent(
+        "이미 가져온 Notion 페이지입니다. 기존 결과물에서 평가를 이어가세요.",
+      )}`,
+    );
+  }
+
+  const { data: comment, error: insertError } = await supabase
+    .from("comments")
+    .insert({
+      project_id: projectId,
+      student_name: studentName || artifact.title,
+      content: artifact.content,
+      metadata: {
+        source: "notion-page",
+        notion_page_id: artifact.pageId,
+        notion_page_url: artifact.pageUrl,
+        notion_page_title: artifact.title,
+        block_count: artifact.blockCount,
+        truncated: artifact.truncated,
+      },
+    })
+    .select("id")
+    .single();
+
+  if (insertError || !comment) {
+    redirect(
+      `/dashboard/projects/${projectId}?message=${encodeURIComponent(
+        insertError?.message ?? "Notion 결과물 저장에 실패했습니다.",
+      )}`,
+    );
+  }
+
+  await supabase
+    .from("projects")
+    .update({ source_url: artifact.pageUrl })
+    .eq("id", projectId);
+
+  if (generateDraft) {
+    if (!project.rubric_id) {
+      redirect(
+        `/dashboard/projects/${projectId}?notice=${encodeURIComponent(
+          "Notion 페이지는 가져왔습니다. 루브릭을 연결한 뒤 AI 초안을 생성해 주세요.",
+        )}`,
+      );
+    }
+    const evaluationData = new FormData();
+    evaluationData.set("project_id", projectId);
+    evaluationData.set("comment_id", comment.id);
+    return generateAiEvaluation(evaluationData);
+  }
+
+  revalidatePath(`/dashboard/projects/${projectId}`);
+  redirect(
+    `/dashboard/projects/${projectId}?notice=${encodeURIComponent(
+      `Notion 페이지 전체에서 ${artifact.blockCount}개 블록을 읽어 평가자료로 추가했습니다.${artifact.truncated ? " 길이 제한으로 일부만 반영했습니다." : ""}`,
+    )}`,
+  );
+}
+
 export async function updateComment(formData: FormData) {
   const projectId = readText(formData, "project_id");
   const commentId = readText(formData, "comment_id");
@@ -656,6 +749,8 @@ export async function generateAiEvaluation(formData: FormData) {
         raw_output: {
           source: "ai-draft",
           result: rawOutput,
+          improvement_suggestions: aiResult.improvement_suggestions,
+          revision_prompt: aiResult.revision_prompt,
         },
       },
       { onConflict: "comment_id,evaluator_id,source" },

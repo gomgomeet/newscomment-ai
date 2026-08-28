@@ -2,6 +2,8 @@
 
 NewsComment AI는 Notion 데이터베이스에 모은 학생 댓글을 바로 가져올 수 있다. Notion에서 수집한 학급 토론 기록을 복사해 붙여 넣지 않고, 루브릭 평가 프로젝트로 연결하기 위한 기능이다.
 
+NIE 신문평가 수업에서 페이지 템플릿을 복제해 Claude 평가보드에 연결하려면 [노션×Claude NIE 과정중심평가 대시보드 연수 운영 교안](NOTION_CLAUDE_NIE_EVALUATION_TRAINING_RUNBOOK.md)과 [NIE Notion 복제 템플릿과 Claude 평가보드 연결 안내](NIE_NOTION_TEMPLATE_LINKING_GUIDE.md)를 먼저 따른다.
+
 Notion 데이터베이스의 한 행은 앱에서 댓글 하나가 된다.
 
 ## 1. Notion 데이터베이스 만들기

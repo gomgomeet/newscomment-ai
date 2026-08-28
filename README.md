@@ -226,7 +226,10 @@ npm run eval:questioning:holdout      # 홀드아웃 묶음
 ### 평가 대시보드
 
 - [평가 대시보드 설계 계획](docs/EVALUATION_DASHBOARD_PLAN.md)
-- [노션·Claude 기반 과정중심평가 연수 설계](docs/PROCESS_ASSESSMENT_TRAINING_PLAN.md)
+- [노션×Claude로 완성하는 NIE 과정중심평가 대시보드 설계](docs/PROCESS_ASSESSMENT_TRAINING_PLAN.md)
+- [노션×Claude NIE 과정중심평가 대시보드 연수 운영 교안](docs/NOTION_CLAUDE_NIE_EVALUATION_TRAINING_RUNBOOK.md)
+- [NIE Notion 복제 템플릿과 Claude 평가보드 연결 안내](docs/NIE_NOTION_TEMPLATE_LINKING_GUIDE.md)
+- [연수 후 심화 숙제 — Claude 자동평가 엔진 전환](docs/CLAUDE_EVALUATION_ENGINE_PLAN.md)
 - [과정중심평가 Claude 스킬팩](docs/PROCESS_ASSESSMENT_SKILL_PACK.md)
 - [Google 로그인 설정 안내](docs/GOOGLE_LOGIN_SETUP.md)
 - [Notion 가져오기 안내](docs/NOTION_IMPORT_GUIDE.md)
