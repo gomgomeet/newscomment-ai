@@ -8,7 +8,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import type { Database, Json } from "@/lib/db/types";
+import type { Database } from "@/lib/db/types";
+import { readNotionResultMetadata } from "@/lib/notion/result-metadata";
 
 type Comment = Database["public"]["Tables"]["comments"]["Row"];
 type Criterion = Database["public"]["Tables"]["rubric_criteria"]["Row"];
@@ -38,12 +39,10 @@ export function CommentEvaluationCard({
   const aiScoreByCriterion = new Map(aiScores.map((score) => [score.criterion_id, score]));
   const editableContent = comment.content.slice(0, MAX_EDITABLE_COMMENT_LENGTH);
   const commentWasTruncated = comment.content.length > MAX_EDITABLE_COMMENT_LENGTH;
-  const metadata = typeof comment.metadata === "object" && comment.metadata !== null && !Array.isArray(comment.metadata)
-    ? comment.metadata as Record<string, Json | undefined>
-    : null;
-  const notionPageUrl = typeof metadata?.notion_page_url === "string" ? metadata.notion_page_url : "";
-  const notionLastEdited = typeof metadata?.notion_last_edited_time === "string" ? metadata.notion_last_edited_time : "";
-  const isRevision = typeof metadata?.notion_revision_of === "string" && metadata.notion_revision_of.length > 0;
+  const notionMetadata = readNotionResultMetadata(comment.metadata);
+  const notionPageUrl = notionMetadata.pageUrl;
+  const notionLastEdited = notionMetadata.lastEditedAt;
+  const isRevision = notionMetadata.isRevision;
 
   return (
     <Card id={`comment-${comment.id}`} className="scroll-mt-24">
