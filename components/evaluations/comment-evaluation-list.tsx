@@ -12,6 +12,7 @@ export function CommentEvaluationList({
   comments,
   criteria,
   evaluations,
+  aiEvaluations,
   scores,
   filter = "all",
 }: {
@@ -19,6 +20,7 @@ export function CommentEvaluationList({
   comments: Comment[];
   criteria: Criterion[];
   evaluations: Evaluation[];
+  aiEvaluations: Evaluation[];
   scores: Score[];
   filter?: "all" | "unevaluated";
 }) {
@@ -34,6 +36,13 @@ export function CommentEvaluationList({
   }
 
   const evaluationByCommentId = new Map(evaluations.map((evaluation) => [evaluation.comment_id, evaluation]));
+  const aiEvaluationByCommentId = new Map(aiEvaluations.map((evaluation) => [evaluation.comment_id, evaluation]));
+  const scoresByEvaluationId = new Map<string, Score[]>();
+  for (const score of scores) {
+    const evaluationScores = scoresByEvaluationId.get(score.evaluation_id) ?? [];
+    evaluationScores.push(score);
+    scoresByEvaluationId.set(score.evaluation_id, evaluationScores);
+  }
   const visibleComments =
     filter === "unevaluated"
       ? comments.filter((comment) => !evaluationByCommentId.has(comment.id))
@@ -54,9 +63,8 @@ export function CommentEvaluationList({
     <div className="space-y-4">
       {visibleComments.map((comment) => {
         const evaluation = evaluationByCommentId.get(comment.id);
-        const evaluationScores = evaluation
-          ? scores.filter((score) => score.evaluation_id === evaluation.id)
-          : [];
+        const evaluationScores = evaluation ? scoresByEvaluationId.get(evaluation.id) ?? [] : [];
+        const aiEvaluation = aiEvaluationByCommentId.get(comment.id);
 
         return (
           <CommentEvaluationCard
@@ -65,7 +73,9 @@ export function CommentEvaluationList({
             comment={comment}
             criteria={criteria}
             evaluation={evaluation}
+            aiEvaluation={aiEvaluation}
             scores={evaluationScores}
+            aiScores={aiEvaluation ? scoresByEvaluationId.get(aiEvaluation.id) ?? [] : []}
           />
         );
       })}

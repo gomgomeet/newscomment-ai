@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { BulkCommentForm } from "@/components/comments/bulk-comment-form";
 import { CommentForm } from "@/components/comments/comment-form";
 import { NotionCommentImportForm } from "@/components/comments/notion-comment-import-form";
+import { NotionPageEvaluationForm } from "@/components/comments/notion-page-evaluation-form";
 import { SourceCommentImportForm } from "@/components/comments/source-comment-import-form";
 import { CommentEvaluationList } from "@/components/evaluations/comment-evaluation-list";
 import { ProjectEditForm } from "@/components/projects/project-edit-form";
@@ -79,8 +80,7 @@ export default async function ProjectDetailPage({
     .from("evaluations")
     .select("*")
     .eq("project_id", project.id)
-    .eq("evaluator_id", user.id)
-    .eq("source", "teacher-manual");
+    .eq("evaluator_id", user.id);
 
   if (evaluationsError) {
     throw new Error(evaluationsError.message);
@@ -95,7 +95,9 @@ export default async function ProjectDetailPage({
     throw new Error(scoresError.message);
   }
 
-  const evaluatedCommentIds = new Set((evaluations ?? []).map((evaluation) => evaluation.comment_id));
+  const teacherEvaluations = (evaluations ?? []).filter((evaluation) => evaluation.source === "teacher-manual");
+  const aiEvaluations = (evaluations ?? []).filter((evaluation) => evaluation.source === "ai-draft");
+  const evaluatedCommentIds = new Set(teacherEvaluations.map((evaluation) => evaluation.comment_id));
   const commentCount = (comments ?? []).length;
   const evaluatedCount = evaluatedCommentIds.size;
   const remainingCount = Math.max(commentCount - evaluatedCount, 0);
@@ -137,6 +139,29 @@ export default async function ProjectDetailPage({
             <p><span className="font-medium">생성일:</span> {new Date(project.created_at).toLocaleString("ko-KR")}</p>
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>평가자료 연결 방법</CardTitle>
+            <CardDescription>자료가 있는 곳에 따라 세 경로를 사용합니다. 이번 연수는 Notion 페이지 실습에 집중합니다.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-md border border-primary/40 bg-primary/5 p-4">
+              <p className="text-sm font-semibold">1. Notion 페이지 링크</p>
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">전체 블록을 읽고 성취기준별 AI 초안을 즉시 생성합니다.</p>
+              <span className="mt-3 inline-block rounded-full bg-primary/10 px-2 py-1 text-xs font-medium text-primary">지금 사용 가능 · 실습 중점</span>
+            </div>
+            <div className="rounded-md border border-border p-4">
+              <p className="text-sm font-semibold">2. Google Sheets</p>
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">학생별 행·탭과 수정 이력을 묶어 참여 과정과 결과를 분석합니다.</p>
+              <span className="mt-3 inline-block rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">다음 단계 · 링크/CSV 입력</span>
+            </div>
+            <div className="rounded-md border border-border p-4">
+              <p className="text-sm font-semibold">3. 이미지·PDF·Word</p>
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">캡처의 글자와 파일 전체를 읽어 출처 위치가 있는 평가 근거로 정리합니다.</p>
+              <span className="mt-3 inline-block rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">다음 단계 · 파일 업로드</span>
+            </div>
+          </CardContent>
+        </Card>
         <div className="flex flex-col justify-between gap-3 rounded-md border border-border p-4 sm:flex-row sm:items-center">
           <div>
             <h3 className="text-base font-semibold">채점 작업대</h3>
@@ -167,13 +192,19 @@ export default async function ProjectDetailPage({
           projectId={project.id}
           comments={comments ?? []}
           criteria={criteria ?? []}
-          evaluations={evaluations ?? []}
+          evaluations={teacherEvaluations}
+          aiEvaluations={aiEvaluations}
           scores={scores ?? []}
           filter={evaluationFilter}
         />
       </section>
       <aside className="space-y-4">
         <ProjectEditForm project={project} rubrics={rubrics ?? []} />
+        <NotionPageEvaluationForm
+          projectId={project.id}
+          configured={Boolean(process.env.NOTION_API_KEY)}
+          rubricReady={Boolean(project.rubric_id && (criteria ?? []).length > 0)}
+        />
         <NotionCommentImportForm
           projectId={project.id}
           defaults={readNotionSourceDefaults(project.notion_source)}
