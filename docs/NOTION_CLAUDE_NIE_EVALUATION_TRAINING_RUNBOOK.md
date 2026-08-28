@@ -29,6 +29,7 @@
 1. [1차시｜성취기준으로 NIE 평가 기준안 설계하기](https://app.notion.com/p/3cac5f01a4a4815dbac5fc6ce3f9f902)
 2. [2차시｜Claude 평가 초안을 검토하고 교사 판단 정하기](https://app.notion.com/p/3cac5f01a4a4816e88aed605749a7933)
 3. [3차시｜노션에 피드백을 기록하고 다음 학습 설계하기](https://app.notion.com/p/3cac5f01a4a481e58e46c1f42fa8abd2)
+4. [선택 확장｜Claude와 Notion을 MCP로 연결하기](https://app.notion.com/p/3cac5f01a4a4815b9dc3c86d27d846ee)
 
 ## 3. 도구와 사람의 역할
 
@@ -165,7 +166,34 @@ v1은 덮어쓰지 않는다. 교사는 학생의 v2 답을 대신 쓰지 않고
 - Notion AI 또는 Claude가 작동하지 않으면 미리 준비한 결과 화면으로 검토 활동을 계속한다.
 - 참가자에게 Notion 토큰이나 API 키를 입력하게 하지 않는다.
 
-## 9. 연수 전 강사 체크리스트
+## 9. 선택 확장: Claude–Notion MCP 연결
+
+이 활동은 3차시 필수 수료 기준에 포함하지 않고, 연수 후 15분 선택 실습이나 강사 시연으로 운영한다. 기본 2차시는 연결 장애와 개인정보 위험을 줄이기 위해 계속 복사·붙여넣기로 완주한다.
+
+공식 Notion MCP는 내부 통합 토큰을 참가자가 입력하는 방식이 아니라 OAuth로 사용자 계정을 승인하는 방식이다. 연결된 Claude는 해당 사용자가 Notion에서 접근할 수 있는 범위와 같은 권한으로 읽고 쓸 수 있으므로, 실제 학생 자료가 있는 교사 계정 전체를 연수에서 바로 연결하지 않는다.
+
+### 선택 실습 순서
+
+1. 별도 데모 워크스페이스 또는 데모 페이지만 볼 수 있는 연수용 계정을 준비한다.
+2. Claude의 `Customize → Connectors`에서 Notion을 선택하고 OAuth 승인을 완료한다.
+3. Claude에게 연결된 워크스페이스 이름만 확인하게 하고 아직 쓰지 않도록 한다.
+4. 승인된 루브릭과 익명 샘플 한 건을 읽기만 하게 한 뒤 페이지 URL·루브릭 버전·원문 사실을 대조한다.
+5. 변경 대상과 필드를 먼저 보여 달라고 요청하고, 승인 후 `AI 초안` 필드 한 건에만 쓰게 한다.
+6. 교사 최종판단·확정점수·생활기록부 필드가 수정되지 않았는지 확인한다.
+7. Claude와 Notion의 연결 설정에서 연결을 해제한다.
+
+### 선택 실습 성공 기준
+
+- 의도한 데모 워크스페이스에 연결되었다.
+- 읽기 시험을 통과한 뒤에만 쓰기를 실행했다.
+- 익명 샘플 한 건과 AI 초안 필드만 변경되었다.
+- 근거 원문 URL과 루브릭 버전이 남아 있다.
+- 교사가 원문과 대조한 뒤 최종판단을 기록했다.
+- 실습 종료 후 연결을 해제했다.
+
+공식 연결 주소는 `https://mcp.notion.com/mcp`이며, 가능한 경우 직접 설정 파일을 편집하기보다 Claude의 [Notion 커넥터](https://claude.com/connectors/notion)를 사용한다. 전체 안내와 프롬프트는 [선택 확장 Notion 페이지](https://app.notion.com/p/3cac5f01a4a4815b9dc3c86d27d846ee)를 따른다.
+
+## 10. 연수 전 강사 체크리스트
 
 - [ ] NIE 수업 설계 교수안의 백워드 설계 부분 준비
 - [ ] 공통 성취기준 1개와 수업 의도 준비
@@ -174,8 +202,9 @@ v1은 덮어쓰지 않는다. 교사는 학생의 v2 답을 대신 쓰지 않고
 - [ ] 익명 실제 사례의 v1·피드백·v2 묶음 준비
 - [ ] Notion AI 샘플 한 건과 Claude 결과 화면 준비
 - [ ] 평가 기준안 설계부터 다음 수업 메모까지 전체 리허설
+- [ ] 선택 확장을 운영한다면 별도 데모 워크스페이스·연수용 계정과 연결 해제 절차 준비
 
-## 10. 최종 수료 기준
+## 11. 최종 수료 기준
 
 > 나는 성취기준에서 NIE 평가 기준안을 먼저 설계하고, Notion AI와 Claude의 평가 초안을 학생 원문과 대조해 교사 판단을 확정하며, 그 판단을 피드백·v2 과제·다음 수업 지원으로 연결할 수 있다.
 
@@ -186,3 +215,7 @@ v1은 덮어쓰지 않는다. 교사는 학생의 v2 답을 대신 쓰지 않고
 - [수행평가 기준안 생성 스킬](https://app.notion.com/p/397c5f01a4a4812b8272fd9576195f84)
 - [신문기사 댓글 AI 자동채점 스킬](https://app.notion.com/p/b63c5f01a4a483d7aff281043adc3894)
 - [Claude 평가 프롬프트｜원문 근거 확인용](https://app.notion.com/p/3c9c5f01a4a481fcae53f9c61eed69f7)
+- [선택 확장｜Claude와 Notion을 MCP로 연결하기](https://app.notion.com/p/3cac5f01a4a4815b9dc3c86d27d846ee)
+- [Notion MCP 연결 공식 안내](https://developers.notion.com/guides/mcp/get-started-with-mcp)
+- [Notion MCP 보안 권고](https://developers.notion.com/guides/mcp/mcp-security-best-practices)
+- [Claude 커넥터 시작하기](https://claude.com/docs/connectors/getting-started)

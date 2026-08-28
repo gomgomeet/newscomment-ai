@@ -147,6 +147,17 @@ AI가 낮게 준 경우 7건    AI가 높게 준 경우 3건
 
 차시별 운영은 [노션×Claude NIE 과정중심평가 연수 운영 교안](NOTION_CLAUDE_NIE_EVALUATION_TRAINING_RUNBOOK.md)을 기준으로 한다.
 
+#### Claude–Notion MCP 선택 확장과 평가보드 연결의 구분
+
+연수 후 선택 실습에서는 Notion의 공식 호스티드 MCP와 OAuth를 사용해 Claude가 데모 워크스페이스를 직접 읽고 AI 초안 한 건을 쓰게 할 수 있다. 이 연결은 Claude 사용자의 Notion 권한으로 동작하며, 현재 평가보드 서버가 사용하는 단일 `NOTION_API_KEY`와는 별개다.
+
+- 공식 MCP 실습: Claude 커넥터 → 사용자 OAuth → 데모 Notion 읽기·AI 초안 쓰기
+- 현재 평가보드: 서버 `NOTION_API_KEY` → 연결된 공동 워크스페이스 페이지 읽기
+- 후속 제품 과제: 교사별 OAuth, 토큰 보관·폐기, 권한 동의, 계정 전환과 감사 기록
+- 안전 기준: 데모 계정, 읽기 우선, 샘플 한 건, 변경 전 승인, AI/교사 필드 분리, 종료 후 연결 해제
+
+따라서 MCP 연결 성공을 평가보드의 개인 워크스페이스 연결 완료로 기록하지 않는다. 선택 실습의 상세 순서는 [연수 운영 교안](NOTION_CLAUDE_NIE_EVALUATION_TRAINING_RUNBOOK.md#9-선택-확장-claudenotion-mcp-연결)을 따른다.
+
 Notion 경로의 완료 조건:
 
 - 학생 페이지 링크와 식별명을 입력한다.
