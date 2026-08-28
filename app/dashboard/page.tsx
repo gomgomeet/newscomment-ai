@@ -59,7 +59,6 @@ export default async function DashboardPage() {
   const totalEvaluated = evaluatedCommentIds.size;
   const totalRemaining = Math.max(totalComments - totalEvaluated, 0);
   const commentsByProject = new Map<string, typeof comments>();
-  const teacherEvaluationCountByProject = new Map<string, number>();
   const lastEvaluationByProject = new Map<string, string>();
   const notionResultCountByProject = new Map<string, number>();
   const criterionCountByRubric = new Map<string, number>();
@@ -77,10 +76,6 @@ export default async function DashboardPage() {
   }
 
   for (const evaluation of evaluations) {
-    teacherEvaluationCountByProject.set(
-      evaluation.project_id,
-      (teacherEvaluationCountByProject.get(evaluation.project_id) ?? 0) + 1,
-    );
     const latest = lastEvaluationByProject.get(evaluation.project_id);
     if (!latest || evaluation.updated_at > latest) {
       lastEvaluationByProject.set(evaluation.project_id, evaluation.updated_at);
@@ -128,7 +123,6 @@ export default async function DashboardPage() {
           : 0,
         notionConnectionConfigured: Boolean(process.env.NOTION_API_KEY),
         notionResultCount: notionResultCountByProject.get(prepProject.id) ?? 0,
-        teacherEvaluationCount: teacherEvaluationCountByProject.get(prepProject.id) ?? 0,
         assessmentPrep: savedPrep,
       })
     : null;

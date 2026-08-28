@@ -72,7 +72,7 @@ export function AssessmentPrepEditor({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full bg-white px-3 py-1.5 text-sm font-semibold text-indigo-800 shadow-sm">
-              준비 {readiness.completedCount}/6
+              준비 {readiness.completedCount}/{readiness.stages.length}
             </span>
             <span className="rounded-full bg-white px-3 py-1.5 text-sm font-medium text-muted-foreground shadow-sm">
               활성 버전 v{prep.current_version}
@@ -83,7 +83,7 @@ export function AssessmentPrepEditor({
           </div>
         </div>
 
-        <div className="mt-6 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+        <div className="mt-6 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           {readiness.stages.map((stage, index) => (
             <a key={stage.key} href={`#${stage.key}`} className="rounded-xl border border-indigo-100 bg-white/85 p-3 hover:border-indigo-300">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -211,19 +211,6 @@ export function AssessmentPrepEditor({
           </CardContent>
         </Card>
 
-        <Card id="guidance">
-          <CardHeader><CardTitle>5. 학생 안내와 안전 규칙</CardTitle><CardDescription>평가 전에 학생에게 공개할 안내와 교사가 지킬 규칙을 분리합니다.</CardDescription></CardHeader>
-          <CardContent className="grid gap-4 lg:grid-cols-2">
-            <div className="space-y-2"><Label htmlFor="student_guidance">학생 안내</Label><Textarea id="student_guidance" name="student_guidance" defaultValue={prep.student_guidance} rows={6} placeholder="결과물 제출 위치, 평가 기준, 수정 기회 등을 안내합니다." /></div>
-            <div className="space-y-2"><Label htmlFor="safety_rules">안전·개인정보·AI 규칙</Label><Textarea id="safety_rules" name="safety_rules" defaultValue={prep.safety_rules} rows={6} placeholder="실명 최소화, 민감정보 제외, AI 초안은 교사가 최종 확인 등" /></div>
-          </CardContent>
-        </Card>
-
-        <Card id="sample">
-          <CardHeader><CardTitle>6. 샘플 시험 평가</CardTitle><CardDescription>예시 결과물 하나에 기준을 적용해 모호한 기준과 교사 확인 지점을 기록합니다.</CardDescription></CardHeader>
-          <CardContent><Textarea name="sample_evaluation_notes" defaultValue={prep.sample_evaluation_notes} rows={6} placeholder="예: 사실 근거가 없는 주장은 2점 이하. 출처가 있으나 주장과 연결이 약하면 교사 확인 우선으로 분류." /></CardContent>
-        </Card>
-
         <div className="sticky bottom-4 z-10 flex flex-col justify-between gap-3 rounded-2xl border bg-background/95 p-4 shadow-lg backdrop-blur sm:flex-row sm:items-center">
           <div><p className="font-semibold">초안을 먼저 저장하세요.</p><p className="text-sm text-muted-foreground">저장해도 현재 활성 버전과 과거 평가는 바뀌지 않습니다.</p></div>
           <Button type="submit"><Save className="h-4 w-4" /> 초안 저장</Button>
@@ -231,10 +218,10 @@ export function AssessmentPrepEditor({
       </form>
 
       <Card>
-        <CardHeader><CardTitle>활성 버전 만들기</CardTitle><CardDescription>6단계가 모두 준비되면 불변 스냅샷을 만들고 이후 평가의 기준으로 사용합니다.</CardDescription></CardHeader>
+        <CardHeader><CardTitle>활성 버전 만들기</CardTitle><CardDescription>4단계가 모두 준비되면 불변 스냅샷을 만들고 이후 평가의 기준으로 사용합니다.</CardDescription></CardHeader>
         <CardContent className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-          <div className="flex items-center gap-3"><Sparkles className="h-5 w-5 text-indigo-600" /><div><p className="font-medium">현재 준비 {readiness.completedCount}/6</p><p className="text-sm text-muted-foreground">활성화 후 수정하면 다음 활성화 때 v{prep.current_version + 1}이 생성됩니다.</p></div></div>
-          <form action={activateAssessmentPrep}><input type="hidden" name="prep_id" value={prep.id} /><Button type="submit" disabled={readiness.completedCount < 6}>이 평가안 활성화</Button></form>
+          <div className="flex items-center gap-3"><Sparkles className="h-5 w-5 text-indigo-600" /><div><p className="font-medium">현재 준비 {readiness.completedCount}/{readiness.stages.length}</p><p className="text-sm text-muted-foreground">활성화 후 수정하면 다음 활성화 때 v{prep.current_version + 1}이 생성됩니다.</p></div></div>
+          <form action={activateAssessmentPrep}><input type="hidden" name="prep_id" value={prep.id} /><Button type="submit" disabled={readiness.completedCount < readiness.stages.length}>이 평가안 활성화</Button></form>
         </CardContent>
       </Card>
 
