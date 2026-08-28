@@ -1,6 +1,6 @@
 import { createProject } from "@/app/dashboard/projects/actions";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -20,12 +20,11 @@ export function ProjectForm({
     <Card>
       <CardHeader>
         <CardTitle>새 수업활동</CardTitle>
-        <CardDescription>평가할 뉴스 댓글 수업 단위를 생성합니다.</CardDescription>
       </CardHeader>
       <CardContent>
         <form action={createProject} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="title">수업활동 제목</Label>
+            <Label htmlFor="title">수업활동 이름</Label>
             <Input id="title" name="title" required placeholder="예: 5학년 뉴스 댓글 비판적 읽기" />
           </div>
           <div className="space-y-2">
@@ -33,7 +32,7 @@ export function ProjectForm({
             <Textarea id="description" name="description" placeholder="수업 목표, 평가 맥락, 학생 그룹 등을 기록하세요." />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="source_url">뉴스 또는 Notion URL</Label>
+            <Label htmlFor="source_url">뉴스 또는 Notion 주소</Label>
             <Input id="source_url" name="source_url" type="url" placeholder="https://..." />
           </div>
           <div className="space-y-2">

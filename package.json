@@ -9,11 +9,13 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "skills:package": "node scripts/package-skills.mjs",
+    "test:evaluation-review": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --experimental-strip-types lib/evaluation/build-review-queue.test.mts",
     "eval:questioning": "node scripts/run-questioning-dialogue-eval.mjs --suite=all",
     "eval:questioning:development": "node scripts/run-questioning-dialogue-eval.mjs --suite=development",
     "eval:questioning:holdout": "node scripts/run-questioning-dialogue-eval.mjs --suite=holdout"
   },
   "dependencies": {
+    "@pdf-lib/fontkit": "1.1.1",
     "@radix-ui/react-slot": "^1.3.3",
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.112.3",
@@ -21,6 +23,7 @@
     "clsx": "^2.1.1",
     "lucide-react": "^1.33.0",
     "next": "16.3.1",
+    "pdf-lib": "1.17.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "tailwind-merge": "^3.6.0"

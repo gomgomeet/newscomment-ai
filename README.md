@@ -25,7 +25,7 @@
 | `/dashboard/projects` | 프로젝트 만들기, 목록, 상세, 수정 |
 | `/dashboard/rubrics` | 루브릭과 기준 만들기·수정, 뉴스 기사 루브릭 자동 생성 |
 | `/dashboard/evaluation` | 채점할 프로젝트 고르기 |
-| `/dashboard/compare` | 저장된 평가 훑어보기 |
+| `/dashboard/compare` | 노션 원결과물·AI 근거·교사 확정을 선별하는 검토 작업대 |
 | `/dashboard/insights` | 기준별 평균 |
 | `/dashboard/settings` | 연결 상태 확인 |
 
@@ -46,7 +46,7 @@ Google 제공자를 켜기 전에도 버튼은 보이지만, 누르면 오류 �
 
 교사가 기준별로 직접 점수를 매긴다. `OPENAI_API_KEY`가 있으면 **AI 초안**을 만들어 참고할 수 있다. 저장 주체는 언제나 교사다.
 
-AI 초안과 교사 수동 평가는 `evaluations.source`로 분리해 저장한다. `/dashboard/compare`에서 둘을 나란히 보고, 교사가 최종 판단을 남긴다.
+AI 초안과 교사 수동 평가는 `evaluations.source`로 분리해 저장한다. `/dashboard/compare`에서 미평가 결과물까지 포함해 원문·기준별 근거·점수 차이·평가 포워드를 나란히 보고, 교사가 확인할 결과부터 선별해 최종 판단을 남긴다.
 
 ---
 
@@ -126,6 +126,14 @@ QUESTIONING_CONNECTION_SETUP_TOKEN=      # 선택. 새 수업 연결 저장을 �
 
 `QUESTIONING_SECRET_ENCRYPTION_KEY`가 없으면 교사가 입력한 키를 저장할 수 없다. 즉 **수업 코드 방식이 동작하지 않는다.**
 
+### 평가 대시보드의 교사별 Notion 연결에 필요
+
+```text
+EVALUATION_SECRET_ENCRYPTION_KEY=        # 16자 이상의 서버 전용 임의 문자열
+```
+
+교사는 평가 준비 프렙에서 자기 Notion 통합 토큰을 입력한다. 앱은 이 값으로 토큰을 암호화해 교사별로 저장하며 브라우저에 다시 보내지 않는다.
+
 ### 선택
 
 ```text
@@ -135,7 +143,7 @@ GEMINI_API_KEY=                          # 서버 기본 키. 교사별 키만 �
 GEMINI_QUESTIONING_MODEL=gemini-2.5-flash
 QUESTIONING_STUDENT_LLM_ENABLED=false    # 학생 응답에 외부 제공자를 쓸지
 QUESTIONING_STUDENT_PROVIDER=local
-NOTION_API_KEY=                          # 평가 대시보드의 Notion 가져오기 카드에 쓰인다
+NOTION_API_KEY=                          # 선택: 단일 사용자/시연용 서버 공용 Notion 연결
 NOTION_API_VERSION=2022-06-28
 ```
 
@@ -156,8 +164,10 @@ NOTION_API_VERSION=2022-06-28
 | `005_questioning_cards_pgvector` | pgvector 확장 + `embedding` 열 | **적용하지 않는다** |
 | `006_generated_rubric_metadata` | `rubrics.auto_generated` `rubrics.generation_context` | 평가 대시보드 |
 | `007_evaluation_sources` | `evaluations.source` + 교사 평가/AI 초안 분리 제약 | 평가 대시보드 |
+| `008`~`014` | 평가 준비, 교사 검토·재채점, 성장 기록, 학교 PDF 양식과 보안·인덱스 | 평가 대시보드 |
+| `20260828151841_evaluation_notion_connections` | 교사별 암호화 Notion 연결 + RLS | 평가 대시보드 |
 
-- 평가 대시보드만 쓸 거면 `001` `002` `006` `007`로 충분하다.
+- 평가 대시보드를 쓸 때는 `005`를 제외한 마이그레이션을 파일명 순서대로 적용한다.
 - 질문 챗봇을 쓰려면 `003` `004`가 필요하다. `supabase/manual-apply-003-004.sql` 합본으로 한 번에 돌릴 수 있다.
 - `005`는 이 열을 읽거나 쓰는 코드가 아직 없어 적용하지 않는다. 미룬 이유와 나중에 켜는 절차는 [마이그레이션 안내](docs/MIGRATIONS.md)에 정리해 두었다.
 
@@ -247,7 +257,7 @@ npm run eval:questioning:holdout      # 홀드아웃 묶음
 
 ### 평가 대시보드
 
-- `/dashboard/compare`는 AI와 교사 평가의 총점·종합 피드백만 나란히 보여준다. 기준별 일치율은 아직 없다.
+- `/dashboard/compare`는 전체 결과물을 `교사 확인 우선`, `근거 확인`, `재작성 권장`, `성장 기록 준비`로 선별하고 AI·교사의 기준별 점수와 판단 근거를 나란히 보여준다.
 - 집계가 개수 셋과 기준별 평균뿐이다. 진행률, 점수 분포, 학생 단위 보기가 없다.
 - 비밀번호 재설정 흐름이 없다. 잊으면 Supabase 대시보드에서 직접 손봐야 한다.
 - 삭제 흐름이 구현되어 있지 않다.

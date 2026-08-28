@@ -11,9 +11,8 @@ export function AppSidebar() {
   return (
     <aside className="hidden w-64 shrink-0 border-r border-border bg-card lg:block">
       <div className="flex h-16 items-center border-b border-border px-5">
-        <Link href="/dashboard" className="flex flex-col leading-tight">
-          <span className="text-base font-semibold text-foreground">NewsComment AI</span>
-          <span className="text-xs text-muted-foreground">과정 중심 평가 보드</span>
+        <Link href="/dashboard" className="text-base font-semibold text-foreground">
+          과정 중심 평가 보드
         </Link>
       </div>
       <nav className="space-y-1 p-3">

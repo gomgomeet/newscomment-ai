@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { Database } from "@/lib/db/types";
+import { readNotionResultMetadata } from "@/lib/notion/result-metadata";
 
 type Comment = Database["public"]["Tables"]["comments"]["Row"];
 type Criterion = Database["public"]["Tables"]["rubric_criteria"]["Row"];
@@ -23,24 +24,34 @@ export function CommentEvaluationCard({
   criteria,
   evaluation,
   scores,
+  aiEvaluation,
+  aiScores,
 }: {
   projectId: string;
   comment: Comment;
   criteria: Criterion[];
   evaluation?: Evaluation;
   scores: Score[];
+  aiEvaluation?: Evaluation;
+  aiScores: Score[];
 }) {
   const scoreByCriterion = new Map(scores.map((score) => [score.criterion_id, score]));
+  const aiScoreByCriterion = new Map(aiScores.map((score) => [score.criterion_id, score]));
   const editableContent = comment.content.slice(0, MAX_EDITABLE_COMMENT_LENGTH);
   const commentWasTruncated = comment.content.length > MAX_EDITABLE_COMMENT_LENGTH;
+  const notionMetadata = readNotionResultMetadata(comment.metadata);
+  const notionPageUrl = notionMetadata.pageUrl;
+  const notionLastEdited = notionMetadata.lastEditedAt;
+  const isRevision = notionMetadata.isRevision;
 
   return (
-    <Card>
+    <Card id={`comment-${comment.id}`} className="scroll-mt-24">
       <CardHeader>
         <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-start">
           <div>
             <CardTitle className="text-base">{comment.student_name || "이름 없는 댓글"}</CardTitle>
             <CardDescription>{new Date(comment.created_at).toLocaleString("ko-KR")}</CardDescription>
+            {notionPageUrl ? <a href={notionPageUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block text-xs font-medium text-indigo-700 hover:underline">Notion 원본 보기{isRevision ? " · 수정본" : ""}{notionLastEdited ? ` · ${new Date(notionLastEdited).toLocaleDateString("ko-KR")}` : ""}</a> : null}
           </div>
           {evaluation ? (
             <span className="rounded-md bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
@@ -85,10 +96,23 @@ export function CommentEvaluationCard({
           <p className="text-sm text-muted-foreground">루브릭 기준을 추가하면 평가를 저장할 수 있습니다.</p>
         ) : (
           <div className="space-y-4">
+            {aiEvaluation ? (
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4">
+                <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+                  <div><p className="font-semibold text-indigo-950">AI 평가 초안</p><p className="text-xs text-indigo-700">{aiEvaluation.model_name} · 확신도 {Math.round((aiEvaluation.confidence ?? 0) * 100)}%</p></div>
+                  <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-indigo-700">총점 {aiEvaluation.total_score ?? 0}</span>
+                </div>
+                {aiEvaluation.review_reasons.length > 0 ? <div className="mt-3 flex flex-wrap gap-2">{aiEvaluation.review_reasons.map((reason) => <span key={reason} className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-900">{reason}</span>)}</div> : null}
+                <div className="mt-4 grid gap-3 md:grid-cols-2">{criteria.map((criterion) => { const aiScore = aiScoreByCriterion.get(criterion.id); return <div key={criterion.id} className="rounded-lg border border-indigo-100 bg-white p-3"><div className="flex justify-between gap-2"><p className="text-sm font-medium">{criterion.label}</p><span className="text-sm font-semibold">{aiScore?.score ?? "-"}/{criterion.max_score}</span></div><p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-muted-foreground">{aiScore?.rationale || "근거 없음"}</p></div>; })}</div>
+                <p className="mt-4 text-sm leading-6"><span className="font-medium">종합 피드백:</span> {aiEvaluation.feedback || "없음"}</p>
+                <p className="mt-2 text-sm leading-6"><span className="font-medium">평가 포워드:</span> {aiEvaluation.evaluation_forward || "없음"}</p>
+              </div>
+            ) : null}
             <form action={generateAiEvaluation}>
               <input type="hidden" name="project_id" value={projectId} />
               <input type="hidden" name="comment_id" value={comment.id} />
-              <Button type="submit" variant="outline" size="sm">AI 초안 생성</Button>
+              {aiEvaluation ? <input type="hidden" name="force_ai" value="true" /> : null}
+              <Button type="submit" variant="outline" size="sm">{aiEvaluation ? "AI 초안 다시 생성" : "AI 초안 생성"}</Button>
             </form>
             <form action={saveEvaluation} className="space-y-4">
               <input type="hidden" name="project_id" value={projectId} />
@@ -96,6 +120,7 @@ export function CommentEvaluationCard({
               <div className="space-y-4">
                 {criteria.map((criterion) => {
                   const existingScore = scoreByCriterion.get(criterion.id);
+                  const suggestedScore = aiScoreByCriterion.get(criterion.id);
                   return (
                     <div key={criterion.id} className="rounded-md border border-border p-3">
                       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_120px]">
@@ -115,7 +140,7 @@ export function CommentEvaluationCard({
                           max={criterion.max_score}
                           step="0.5"
                           required
-                          defaultValue={existingScore?.score ?? ""}
+                          defaultValue={existingScore?.score ?? suggestedScore?.score ?? ""}
                           aria-label={`${criterion.label} 점수`}
                         />
                       </div>
@@ -123,7 +148,7 @@ export function CommentEvaluationCard({
                         name={`rationale_${criterion.id}`}
                         className="mt-3"
                         placeholder={`근거 또는 피드백 메모 (${criterion.max_score}점 만점)`}
-                        defaultValue={existingScore?.rationale ?? ""}
+                        defaultValue={existingScore?.rationale ?? suggestedScore?.rationale ?? ""}
                       />
                     </div>
                   );
@@ -135,10 +160,18 @@ export function CommentEvaluationCard({
                   id={`feedback_${comment.id}`}
                   name="feedback"
                   placeholder="학생에게 전달할 종합 피드백을 입력하세요."
-                  defaultValue={evaluation?.feedback ?? ""}
+                  defaultValue={evaluation?.feedback ?? aiEvaluation?.feedback ?? ""}
                 />
               </div>
-              <Button type="submit">{evaluation ? "평가 업데이트" : "평가 저장"}</Button>
+              <div className="space-y-2">
+                <Label htmlFor={`evaluation_forward_${comment.id}`}>평가 포워드</Label>
+                <Textarea id={`evaluation_forward_${comment.id}`} name="evaluation_forward" placeholder="다음 결과물에서 학생이 시도할 구체적인 한 가지 행동" defaultValue={evaluation?.evaluation_forward ?? aiEvaluation?.evaluation_forward ?? ""} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`change_reason_${comment.id}`}>교사 판단·수정 이유</Label>
+                <Textarea id={`change_reason_${comment.id}`} name="change_reason" placeholder="AI 초안과 다르게 판단한 이유 또는 이번 확정의 핵심 근거를 기록합니다." defaultValue="" />
+              </div>
+              <Button type="submit">{evaluation ? "교사 평가 재확정" : "교사 평가 확정"}</Button>
             </form>
           </div>
         )}
