@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useDeferredValue, useMemo, useState } from "react";
 import {
   ArrowRight,
+  BarChart3,
   CheckCircle2,
   ExternalLink,
   FileSearch,
@@ -302,14 +303,21 @@ export function EvaluationReviewBoard({ items }: { items: ReviewQueueItem[] }) {
 
   return (
     <div className="space-y-6">
-      <div>
-        <div className="flex items-center gap-2 text-sm font-semibold text-indigo-700">
-          <Sparkles className="size-4" aria-hidden="true" /> 과정중심 평가
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-indigo-700">
+            <Sparkles className="size-4" aria-hidden="true" /> 과정중심 평가
+          </div>
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight">교사 검토 작업대</h2>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
+            Notion에서 읽어온 원결과물과 AI 판단 근거를 비교하고, 교사가 확인할 평가부터 골라 최종 평가와 평가 포워드를 확정합니다.
+          </p>
         </div>
-        <h2 className="mt-2 text-2xl font-semibold tracking-tight">교사 검토 작업대</h2>
-        <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
-          Notion에서 읽어온 원결과물과 AI 판단 근거를 비교하고, 교사가 확인할 평가부터 골라 최종 평가와 평가 포워드를 확정합니다.
-        </p>
+        <Button asChild variant="outline" className="shrink-0">
+          <Link href="/dashboard/insights">
+            <BarChart3 className="mr-1 size-4" aria-hidden="true" /> 기준별 결과 분석
+          </Link>
+        </Button>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
