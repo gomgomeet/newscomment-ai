@@ -1,18 +1,22 @@
 import Link from "next/link";
 import { BarChart3, CheckCircle2, ListFilter, UsersRound } from "lucide-react";
 import { notFound } from "next/navigation";
+import { AssessmentPrepBanner } from "@/components/assessment-prep/prep-banner";
 import { BulkCommentForm } from "@/components/comments/bulk-comment-form";
 import { CommentForm } from "@/components/comments/comment-form";
 import { NotionCommentImportForm } from "@/components/comments/notion-comment-import-form";
 import { SourceCommentImportForm } from "@/components/comments/source-comment-import-form";
 import { CommentEvaluationList } from "@/components/evaluations/comment-evaluation-list";
-import { AssessmentWorkflowPanel } from "@/components/evaluations/assessment-workflow-panel";
 import { ProjectEditForm } from "@/components/projects/project-edit-form";
+import { generateProjectAiDrafts } from "@/app/dashboard/projects/[projectId]/evaluation/actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  buildAssessmentPrepReadiness,
+  isNotionResultMetadata,
+} from "@/lib/assessment-prep/readiness";
 import { requireUser } from "@/lib/auth/require-user";
 import { buildProjectReport } from "@/lib/evaluation-dashboard";
-import { readAssessmentSpec } from "@/lib/assessment-spec";
 import { readNotionSourceDefaults } from "@/lib/notion/project-source";
 
 export default async function ProjectDetailPage({
@@ -24,7 +28,7 @@ export default async function ProjectDetailPage({
 }) {
   const { projectId } = await params;
   const { message, notice, filter } = await searchParams;
-  const evaluationFilter = filter === "remaining" ? "remaining" : "all";
+  const initialEvaluationView = filter === "remaining" ? "remaining" : "priority";
   const { supabase, user } = await requireUser();
   const { data: project, error } = await supabase
     .from("projects")
@@ -40,7 +44,7 @@ export default async function ProjectDetailPage({
   const { data: rubric } = project.rubric_id
     ? await supabase
         .from("rubrics")
-        .select("id, title")
+        .select("id, title, generation_context")
         .eq("id", project.rubric_id)
         .eq("owner_id", user.id)
         .single()
@@ -89,7 +93,20 @@ export default async function ProjectDetailPage({
     throw new Error(evaluationsError.message);
   }
 
+  const { data: savedPrep, error: savedPrepError } = await supabase
+    .from("assessment_preps")
+    .select("*")
+    .eq("project_id", project.id)
+    .eq("owner_id", user.id)
+    .maybeSingle();
+
+  if (savedPrepError) {
+    throw new Error(savedPrepError.message);
+  }
+
   const evaluationIds = (evaluations ?? []).map((evaluation) => evaluation.id);
+  const teacherEvaluations = (evaluations ?? []).filter((evaluation) => evaluation.source === "teacher-manual");
+  const aiEvaluations = (evaluations ?? []).filter((evaluation) => evaluation.source === "ai-draft");
   const { data: scores, error: scoresError } = evaluationIds.length
     ? await supabase.from("evaluation_scores").select("*").in("evaluation_id", evaluationIds)
     : { data: [], error: null };
@@ -100,26 +117,33 @@ export default async function ProjectDetailPage({
 
   const report = buildProjectReport({
     comments: comments ?? [],
-    evaluations: evaluations ?? [],
+    evaluations: teacherEvaluations,
     criteria: criteria ?? [],
     scores: scores ?? [],
   });
   const progressPercentage = Math.round(report.completionRate * 100);
   const maxBucketCount = Math.max(...report.distribution.map((bucket) => bucket.count), 1);
-  const assessmentSpec = readAssessmentSpec(project.assessment_spec);
-  const trialCount = (evaluations ?? []).filter((evaluation) => evaluation.evaluation_stage === "trial").length;
-  const pendingReviewCount = (evaluations ?? []).filter((evaluation) => evaluation.review_status === "pending").length;
+
+  const prepReadiness = buildAssessmentPrepReadiness({
+    project,
+    rubricGenerationContext: rubric?.generation_context,
+    criterionCount: (criteria ?? []).length,
+    notionConnectionConfigured: Boolean(process.env.NOTION_API_KEY),
+    notionResultCount: (comments ?? []).filter((comment) => isNotionResultMetadata(comment.metadata)).length,
+    teacherEvaluationCount: teacherEvaluations.length,
+    assessmentPrep: savedPrep,
+  });
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px]">
       <section className="space-y-6">
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div>
-            <p className="text-sm text-muted-foreground">수업활동 상세</p>
+            <p className="text-sm text-muted-foreground">Project detail</p>
             <h2 className="text-2xl font-semibold tracking-tight">{project.title}</h2>
           </div>
           <Button asChild variant="outline">
-            <Link href="/dashboard/projects">목록으로</Link>
+            <Link href={`/dashboard/projects/${project.id}/results`}>최종결과 보기</Link>
           </Button>
         </div>
         {message ? (
@@ -132,6 +156,13 @@ export default async function ProjectDetailPage({
             <CardContent className="p-4 text-sm text-muted-foreground">{notice}</CardContent>
           </Card>
         ) : null}
+        <AssessmentPrepBanner readiness={prepReadiness} />
+        <Card className="border-indigo-200 bg-indigo-50/40">
+          <CardContent className="flex flex-col justify-between gap-4 p-5 sm:flex-row sm:items-center">
+            <div><p className="font-semibold">AI 평가 초안 일괄 만들기</p><p className="mt-1 text-sm text-muted-foreground">현재 활성 평가안으로 아직 초안이 없는 결과물을 최대 20개까지 개별 처리합니다. 한 건 실패해도 나머지는 계속됩니다.</p></div>
+            <form action={generateProjectAiDrafts}><input type="hidden" name="project_id" value={project.id} /><Button type="submit" variant="outline" disabled={!process.env.OPENAI_API_KEY || !savedPrep?.active_version_id}>미초안 전체 생성</Button></form>
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader>
             <CardTitle>수업활동 정보</CardTitle>
@@ -141,24 +172,17 @@ export default async function ProjectDetailPage({
             <p><span className="font-medium">상태:</span> {project.status}</p>
             <p><span className="font-medium">루브릭:</span> {rubric?.title || "미선택"}</p>
             <p><span className="font-medium">댓글 수:</span> {(comments ?? []).length}</p>
-            <p><span className="font-medium">평가 수:</span> {(evaluations ?? []).length}</p>
+            <p><span className="font-medium">교사 확정:</span> {teacherEvaluations.length}</p>
             <p><span className="font-medium">소스 URL:</span> {project.source_url || "미등록"}</p>
             <p><span className="font-medium">생성일:</span> {new Date(project.created_at).toLocaleString("ko-KR")}</p>
           </CardContent>
         </Card>
-        <AssessmentWorkflowPanel
-          projectId={project.id}
-          spec={assessmentSpec}
-          rubricReady={Boolean(project.rubric_id && (criteria ?? []).length > 0)}
-          trialCount={trialCount}
-          pendingReviewCount={pendingReviewCount}
-        />
         <Card>
           <CardHeader>
             <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
               <div>
                 <CardTitle>수업활동 리포트</CardTitle>
-                <CardDescription>채점 진행률, 점수 분포, 먼저 볼 학생을 한곳에 모았습니다.</CardDescription>
+                <CardDescription>교사 확정 평가 기준의 진행률, 점수 분포, 먼저 볼 학생을 모았습니다.</CardDescription>
               </div>
               <span className="rounded-md bg-muted px-2 py-1 text-sm font-medium text-muted-foreground">
                 {progressPercentage}% 완료
@@ -170,24 +194,24 @@ export default async function ProjectDetailPage({
               <div className="rounded-md border border-border p-3">
                 <UsersRound className="size-4 text-primary" aria-hidden="true" />
                 <p className="mt-3 text-2xl font-semibold">{report.commentCount}</p>
-                <p className="text-xs text-muted-foreground">가져온 댓글</p>
+                <p className="text-xs text-muted-foreground">가져온 결과물</p>
               </div>
               <div className="rounded-md border border-border p-3">
                 <CheckCircle2 className="size-4 text-primary" aria-hidden="true" />
                 <p className="mt-3 text-2xl font-semibold">{report.evaluatedCount}</p>
-                <p className="text-xs text-muted-foreground">채점 완료</p>
+                <p className="text-xs text-muted-foreground">교사 확정</p>
               </div>
               <div className="rounded-md border border-border p-3">
                 <ListFilter className="size-4 text-primary" aria-hidden="true" />
                 <p className="mt-3 text-2xl font-semibold">{report.remainingCount}</p>
-                <p className="text-xs text-muted-foreground">남은 댓글</p>
+                <p className="text-xs text-muted-foreground">남은 결과물</p>
               </div>
             </div>
             <div className="space-y-2">
               <div className="h-2 overflow-hidden rounded-full bg-muted">
                 <div className="h-full bg-primary" style={{ width: `${progressPercentage}%` }} />
               </div>
-              <p className="text-xs text-muted-foreground">30개 댓글을 며칠에 나눠 채점해도 여기서 이어갈 수 있습니다.</p>
+              <p className="text-xs text-muted-foreground">여러 날에 나눠 확정해도 이곳에서 이어갈 수 있습니다.</p>
             </div>
             {report.evaluatedCount > 0 ? (
               <div className="grid gap-6 xl:grid-cols-2">
@@ -212,29 +236,11 @@ export default async function ProjectDetailPage({
                   </div>
                 </section>
                 <section className="space-y-3">
-                  <h3 className="text-sm font-semibold">기준별 평균</h3>
-                  <div className="space-y-3">
-                    {report.criterionSummaries.slice(0, 4).map((row) => (
-                      <div key={row.criterion.id} className="space-y-1">
-                        <div className="flex items-center justify-between gap-3 text-sm">
-                          <span className="min-w-0 truncate font-medium">{row.criterion.label}</span>
-                          <span className="shrink-0 text-xs text-muted-foreground">
-                            {row.average.toFixed(1)} / {row.maxScore}
-                          </span>
-                        </div>
-                        <div className="h-2 overflow-hidden rounded-full bg-muted">
-                          <div className="h-full bg-primary" style={{ width: `${Math.round(row.percentage * 100)}%` }} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-                <section className="space-y-3">
                   <h3 className="text-sm font-semibold">먼저 볼 학생</h3>
                   <div className="space-y-2">
                     {report.priorityStudents.map((row) => (
                       <div key={row.evaluation.id} className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm">
-                        <span className="min-w-0 truncate">{row.comment?.student_name || "이름 없는 댓글"}</span>
+                        <span className="min-w-0 truncate">{row.comment?.student_name || "이름 없는 결과물"}</span>
                         <span className="shrink-0 text-xs text-muted-foreground">
                           {row.evaluation.total_score ?? 0} / {report.maxTotalScore}
                         </span>
@@ -242,28 +248,10 @@ export default async function ProjectDetailPage({
                     ))}
                   </div>
                 </section>
-                <section className="space-y-3">
-                  <h3 className="text-sm font-semibold">예시로 볼 댓글</h3>
-                  <div className="space-y-2">
-                    {report.standoutComments.map((row) => (
-                      <div key={row.evaluation.id} className="rounded-md border border-border px-3 py-2 text-sm">
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="min-w-0 truncate font-medium">{row.comment?.student_name || "이름 없는 댓글"}</span>
-                          <span className="shrink-0 text-xs text-muted-foreground">
-                            {row.evaluation.total_score ?? 0} / {report.maxTotalScore}
-                          </span>
-                        </div>
-                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
-                          {row.comment?.content || "댓글 내용을 찾을 수 없습니다."}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </section>
               </div>
             ) : (
               <div className="rounded-md border border-dashed border-border p-4 text-sm leading-6 text-muted-foreground">
-                채점을 저장하면 점수 분포와 먼저 볼 학생 목록이 표시됩니다.
+                교사 평가를 확정하면 점수 분포와 먼저 볼 학생 목록이 표시됩니다.
               </div>
             )}
           </CardContent>
@@ -278,29 +266,14 @@ export default async function ProjectDetailPage({
             </CardHeader>
           </Card>
         ) : null}
-        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-          <div>
-            <h3 className="text-lg font-semibold">댓글 채점</h3>
-            <p className="text-sm text-muted-foreground">
-              {evaluationFilter === "remaining" ? "아직 채점하지 않은 댓글만 보고 있습니다." : "AI 초안은 교사가 유지·수정·보류한 뒤 확정됩니다."}
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Button asChild size="sm" variant={evaluationFilter === "all" ? "default" : "outline"}>
-              <Link href={`/dashboard/projects/${project.id}`}>전체</Link>
-            </Button>
-            <Button asChild size="sm" variant={evaluationFilter === "remaining" ? "default" : "outline"}>
-              <Link href={`/dashboard/projects/${project.id}?filter=remaining`}>안 한 것만</Link>
-            </Button>
-          </div>
-        </div>
         <CommentEvaluationList
           projectId={project.id}
           comments={comments ?? []}
           criteria={criteria ?? []}
-          evaluations={evaluations ?? []}
+          teacherEvaluations={teacherEvaluations}
+          aiEvaluations={aiEvaluations}
           scores={scores ?? []}
-          filter={evaluationFilter}
+          initialView={initialEvaluationView}
         />
       </section>
       <aside className="space-y-4">

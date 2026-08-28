@@ -1,3 +1,7 @@
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CommentEvaluationCard } from "@/components/evaluations/comment-evaluation-card";
 import type { Database } from "@/lib/db/types";
@@ -11,17 +15,21 @@ export function CommentEvaluationList({
   projectId,
   comments,
   criteria,
-  evaluations,
+  teacherEvaluations,
+  aiEvaluations,
   scores,
-  filter = "all",
+  initialView = "priority",
 }: {
   projectId: string;
   comments: Comment[];
   criteria: Criterion[];
-  evaluations: Evaluation[];
+  teacherEvaluations: Evaluation[];
+  aiEvaluations: Evaluation[];
   scores: Score[];
-  filter?: "all" | "remaining";
+  initialView?: "all" | "remaining" | "priority";
 }) {
+  const [view, setView] = useState<"all" | "remaining" | "priority">(initialView);
+
   if (comments.length === 0) {
     return (
       <Card>
@@ -33,27 +41,59 @@ export function CommentEvaluationList({
     );
   }
 
-  const evaluatedCommentIds = new Set(evaluations.map((evaluation) => evaluation.comment_id));
-  const visibleComments =
-    filter === "remaining" ? comments.filter((comment) => !evaluatedCommentIds.has(comment.id)) : comments;
-
-  if (visibleComments.length === 0) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>남은 댓글이 없습니다</CardTitle>
-          <CardDescription>이 수업활동의 댓글은 모두 채점되었습니다.</CardDescription>
-        </CardHeader>
-      </Card>
-    );
-  }
+  const evaluatedCommentIds = new Set(teacherEvaluations.map((evaluation) => evaluation.comment_id));
+  const remainingCount = comments.filter((comment) => !evaluatedCommentIds.has(comment.id)).length;
+  const priorityCommentIds = new Set(aiEvaluations.filter((evaluation) => {
+    const teacher = teacherEvaluations.find((item) => item.comment_id === evaluation.comment_id);
+    const difference = teacher?.total_score != null && evaluation.total_score != null
+      ? Math.abs(teacher.total_score - evaluation.total_score)
+      : 0;
+    return evaluation.review_reasons.length > 0 || (evaluation.confidence ?? 0) < 0.7 || difference >= 2;
+  }).map((evaluation) => evaluation.comment_id));
+  const priorityCount = priorityCommentIds.size;
+  const visibleComments = view === "remaining"
+    ? comments.filter((comment) => !evaluatedCommentIds.has(comment.id))
+    : view === "priority"
+      ? comments.filter((comment) => priorityCommentIds.has(comment.id))
+      : comments;
 
   return (
     <div className="space-y-4">
-      {visibleComments.map((comment) => {
-        const evaluation = evaluations.find((item) => item.comment_id === comment.id);
-        const evaluationScores = evaluation
-          ? scores.filter((score) => score.evaluation_id === evaluation.id)
+      <div className="sticky top-3 z-10 flex flex-col justify-between gap-3 rounded-xl border border-border bg-card/95 p-4 shadow-sm backdrop-blur sm:flex-row sm:items-center">
+        <div>
+          <p className="font-semibold">채점 작업대</p>
+          <p className="text-sm text-muted-foreground">
+            전체 {comments.length}개 · 완료 {comments.length - remainingCount}개 · 남음 {remainingCount}개
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button type="button" size="sm" variant={view === "priority" ? "default" : "outline"} onClick={() => setView("priority")}>
+            교사 확인 우선 ({priorityCount})
+          </Button>
+          <Button type="button" size="sm" variant={view === "all" ? "default" : "outline"} onClick={() => setView("all")}>
+            전체 보기
+          </Button>
+          <Button type="button" size="sm" variant={view === "remaining" ? "default" : "outline"} onClick={() => setView("remaining")}>
+            미평가만 보기 ({remainingCount})
+          </Button>
+        </div>
+      </div>
+
+      {visibleComments.length === 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>{view === "priority" ? "지금은 우선 확인할 결과물이 없습니다" : "모든 댓글을 채점했습니다"}</CardTitle>
+            <CardDescription>전체 보기를 누르면 모든 결과물과 저장한 평가를 확인할 수 있습니다.</CardDescription>
+          </CardHeader>
+        </Card>
+      ) : visibleComments.map((comment) => {
+        const teacherEvaluation = teacherEvaluations.find((item) => item.comment_id === comment.id);
+        const aiEvaluation = aiEvaluations.find((item) => item.comment_id === comment.id);
+        const teacherScores = teacherEvaluation
+          ? scores.filter((score) => score.evaluation_id === teacherEvaluation.id)
+          : [];
+        const aiScores = aiEvaluation
+          ? scores.filter((score) => score.evaluation_id === aiEvaluation.id)
           : [];
 
         return (
@@ -62,8 +102,10 @@ export function CommentEvaluationList({
             projectId={projectId}
             comment={comment}
             criteria={criteria}
-            evaluation={evaluation}
-            scores={evaluationScores}
+            evaluation={teacherEvaluation}
+            scores={teacherScores}
+            aiEvaluation={aiEvaluation}
+            aiScores={aiScores}
           />
         );
       })}

@@ -1,6 +1,9 @@
 const NOTION_API_BASE = "https://api.notion.com/v1";
 const DEFAULT_NOTION_VERSION = "2022-06-28";
 const NOTION_PAGE_SIZE = 100;
+const MAX_BLOCK_DEPTH = 6;
+
+export type NotionContentMode = "property" | "page_body";
 
 export class NotionImportError extends Error {
   readonly availableProperties: string[];
@@ -19,6 +22,7 @@ export type NotionCommentRow = {
   page_url: string | null;
   topic: string | null;
   created_time: string | null;
+  last_edited_time: string | null;
 };
 
 export type NotionImportResult = {
@@ -213,8 +217,102 @@ function firstDataSourceId(database: Record<string, unknown>) {
   return asString(asRecord(dataSources[0])?.id) || null;
 }
 
+function blockToPlainText(block: Record<string, unknown>) {
+  const type = asString(block.type);
+  const value = asRecord(block[type]);
+  if (!value) {
+    return "";
+  }
+
+  const richText = richTextToPlainText(value.rich_text).trim();
+  if (richText) {
+    return richText;
+  }
+
+  if (type === "child_page" || type === "child_database") {
+    return asString(value.title).trim();
+  }
+
+  if (type === "equation") {
+    return asString(value.expression).trim();
+  }
+
+  if (type === "table_row" && Array.isArray(value.cells)) {
+    return value.cells.map(richTextToPlainText).map((cell) => cell.trim()).filter(Boolean).join(" | ");
+  }
+
+  if (type === "bookmark" || type === "embed" || type === "link_preview") {
+    return asString(value.url).trim();
+  }
+
+  if (type === "image" || type === "video" || type === "audio" || type === "file" || type === "pdf") {
+    const caption = richTextToPlainText(value.caption).trim();
+    return caption ? `[${type}] ${caption}` : "";
+  }
+
+  return "";
+}
+
+async function readBlockChildrenText(
+  blockId: string,
+  maxLength: number,
+  depth = 0,
+): Promise<string> {
+  if (!blockId || maxLength <= 0 || depth > MAX_BLOCK_DEPTH) {
+    return "";
+  }
+
+  const lines: string[] = [];
+  let currentLength = 0;
+  let startCursor: string | null = null;
+
+  do {
+    const query = new URLSearchParams({ page_size: String(NOTION_PAGE_SIZE) });
+    if (startCursor) {
+      query.set("start_cursor", startCursor);
+    }
+
+    const page = await notionRequest(`blocks/${blockId}/children?${query.toString()}`);
+    const results = Array.isArray(page.results) ? page.results : [];
+
+    for (const item of results) {
+      const block = asRecord(item);
+      if (!block) {
+        continue;
+      }
+
+      const ownText = blockToPlainText(block);
+      if (ownText) {
+        lines.push(ownText);
+        currentLength += ownText.length + 1;
+      }
+
+      if (block.has_children === true && currentLength < maxLength) {
+        const nestedText = await readBlockChildrenText(
+          asString(block.id),
+          maxLength - currentLength,
+          depth + 1,
+        );
+        if (nestedText) {
+          lines.push(nestedText);
+          currentLength += nestedText.length + 1;
+        }
+      }
+
+      if (currentLength >= maxLength) {
+        return lines.join("\n").slice(0, maxLength);
+      }
+    }
+
+    startCursor = page.has_more === true ? asString(page.next_cursor) || null : null;
+  } while (startCursor && currentLength < maxLength);
+
+  return lines.join("\n").slice(0, maxLength).trim();
+}
+
 export async function importCommentsFromNotionDatabase({
   databaseInput,
+  contentMode,
   contentProperty,
   studentProperty,
   topicProperty,
@@ -222,6 +320,7 @@ export async function importCommentsFromNotionDatabase({
   maxContentLength,
 }: {
   databaseInput: string;
+  contentMode: NotionContentMode;
   contentProperty: string;
   studentProperty: string;
   topicProperty: string;
@@ -240,8 +339,8 @@ export async function importCommentsFromNotionDatabase({
   const properties = asRecord(schemaSource.properties) ?? {};
   const availableProperties = Object.keys(properties);
 
-  const contentKey = findPropertyKey(properties, contentProperty);
-  if (!contentKey) {
+  const contentKey = contentMode === "property" ? findPropertyKey(properties, contentProperty) : null;
+  if (contentMode === "property" && !contentKey) {
     throw new NotionImportError(
       `Notion 데이터베이스에 "${contentProperty}" 속성이 없습니다.`,
       availableProperties,
@@ -290,7 +389,12 @@ export async function importCommentsFromNotionDatabase({
         continue;
       }
 
-      const content = propertyToPlainText(pageProperties[contentKey]).trim();
+      const pageId = asString(notionPage.id);
+      const content = contentMode === "page_body"
+        ? await readBlockChildrenText(pageId, maxContentLength)
+        : contentKey
+          ? propertyToPlainText(pageProperties[contentKey]).trim()
+          : "";
       if (!content) {
         continue;
       }
@@ -306,10 +410,11 @@ export async function importCommentsFromNotionDatabase({
       rows.push({
         student_name: studentName || null,
         content: content.slice(0, maxContentLength),
-        page_id: asString(notionPage.id),
+        page_id: pageId,
         page_url: asString(notionPage.url) || null,
         topic: topic || null,
         created_time: asString(notionPage.created_time) || null,
+        last_edited_time: asString(notionPage.last_edited_time) || null,
       });
     }
 
