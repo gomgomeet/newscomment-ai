@@ -128,30 +128,41 @@ export function buildEvaluationReviewQueue({
           : null;
       const studentMissing = !comment.student_name?.trim();
       const aiReasons = ai?.reviewReasons ?? [];
-      const evidenceConcern =
-        studentMissing ||
-        hasAnyReason(aiReasons, [/근거/i, /식별/i, /출처/i, /손상/i, /evidence/i, /source/i]);
-      const rewriteRecommended =
-        comment.content.trim().length < 40 ||
-        hasAnyReason(aiReasons, [/재작성/i, /짧/i, /불완전/i, /손상/i, /rewrite/i, /short/i]);
-      const teacherReview = teacher?.status !== "confirmed";
+      const evidenceConcern = hasAnyReason(
+        aiReasons,
+        [/근거/i, /출처/i, /손상/i, /evidence/i, /source/i],
+      );
+      const rewriteRecommended = hasAnyReason(
+        aiReasons,
+        [/재작성/i, /불완전/i, /손상/i, /rewrite/i],
+      );
       const growthReady =
-        teacher?.status === "confirmed" && Boolean(teacher.evaluationForward?.trim());
+        teacher?.status === "confirmed" &&
+        Boolean(teacher.evaluationForward?.trim()) &&
+        !studentMissing;
 
       const priorityReasons = new Set<string>();
+      const teacherResolvedAiConcern =
+        teacherEvaluation?.status === "confirmed" && Boolean(teacherEvaluation.change_reason?.trim());
       if (!teacherEvaluation) {
         priorityReasons.add(aiEvaluation ? "교사 미확정" : "채점 시작 필요");
       } else if (teacherEvaluation.status !== "confirmed") {
         priorityReasons.add("교사 재확정 필요");
       }
-      if (ai?.confidence != null && ai.confidence < 0.7) {
+      if (!teacherResolvedAiConcern && ai?.confidence != null && ai.confidence < 0.7) {
         priorityReasons.add("낮은 AI 확신도");
       }
-      if (scoreDifference != null && Math.abs(scoreDifference) >= 2) {
+      if (!teacherResolvedAiConcern && scoreDifference != null && Math.abs(scoreDifference) >= 2) {
         priorityReasons.add("교사·AI 점수 차이");
       }
       if (studentMissing) priorityReasons.add("학생 식별자 누락");
-      for (const reason of aiReasons) priorityReasons.add(reason);
+      if (teacherEvaluation?.status === "confirmed" && !teacherEvaluation.evaluation_forward?.trim()) {
+        priorityReasons.add("평가 포워드 확인");
+      }
+      if (!teacherResolvedAiConcern) {
+        for (const reason of aiReasons) priorityReasons.add(reason);
+      }
+      const teacherReview = priorityReasons.size > 0;
 
       const updatedAt = [comment.updated_at, aiEvaluation?.updated_at, teacherEvaluation?.updated_at]
         .filter((value): value is string => Boolean(value))

@@ -124,6 +124,18 @@ test("낮은 확신도와 근거 부족·재작성 사유를 선별한다", () =
   assert.ok(result[0].priorityReasons.includes("낮은 AI 확신도"));
 });
 
+test("짧은 결과물이라는 이유만으로 재작성을 권장하지 않는다", () => {
+  const result = buildEvaluationReviewQueue({
+    projects: [project()],
+    comments: [comment({ content: "짧지만 근거가 있는 답변" })],
+    evaluations: [evaluation({ review_reasons: [] })],
+    scores: [],
+    criteria: [],
+  });
+
+  assert.equal(result[0].signals.rewriteRecommended, false);
+});
+
 test("교사 확정 점수·근거와 평가 포워드를 성장 기록 준비 상태로 연결한다", () => {
   const ai = evaluation();
   const teacher = evaluation({
@@ -157,6 +169,7 @@ test("교사 확정 점수·근거와 평가 포워드를 성장 기록 준비 �
 
   assert.equal(result[0].signals.teacherReview, false);
   assert.equal(result[0].signals.growthReady, true);
+  assert.deepEqual(result[0].priorityReasons, []);
   assert.equal(result[0].scoreDifference, 2);
   assert.equal(result[0].criteria[0].aiScore, 3);
   assert.equal(result[0].criteria[0].teacherScore, 5);
@@ -173,4 +186,27 @@ test("안전하지 않은 Notion 링크는 브라우저에 전달하지 않는�
   });
 
   assert.equal(result[0].notionPageUrl, null);
+});
+
+test("교사 확정 평가에 평가 포워드가 없으면 확인 우선에 남긴다", () => {
+  const teacher = evaluation({
+    id: "evaluation-teacher",
+    source: "teacher-manual",
+    status: "confirmed",
+    confidence: null,
+    model_name: null,
+    evaluation_forward: null,
+    confirmed_at: now,
+  });
+  const result = buildEvaluationReviewQueue({
+    projects: [project()],
+    comments: [comment()],
+    evaluations: [teacher],
+    scores: [],
+    criteria: [],
+  });
+
+  assert.equal(result[0].signals.teacherReview, true);
+  assert.equal(result[0].signals.growthReady, false);
+  assert.ok(result[0].priorityReasons.includes("평가 포워드 확인"));
 });
