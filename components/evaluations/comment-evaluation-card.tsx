@@ -45,7 +45,7 @@ export function CommentEvaluationCard({
   const sourceUrl = typeof metadata.notion_page_url === "string" ? metadata.notion_page_url : null;
 
   return (
-    <Card>
+    <Card id={`evaluation-${comment.id}`} className="scroll-mt-6">
       <CardHeader>
         <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-start">
           <div>

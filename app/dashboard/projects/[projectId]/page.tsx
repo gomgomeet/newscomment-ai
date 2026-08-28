@@ -112,7 +112,7 @@ export default async function ProjectDetailPage({
             <h2 className="text-2xl font-semibold tracking-tight">{project.title}</h2>
           </div>
           <Button asChild variant="outline">
-            <Link href="/dashboard/projects">목록으로</Link>
+            <Link href={`/dashboard/projects/${project.id}/report`}>학급 리포트</Link>
           </Button>
         </div>
         {message ? (
