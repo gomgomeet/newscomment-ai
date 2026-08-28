@@ -115,7 +115,7 @@ Claude 웹은 ZIP 하나를 하나의 Custom Skill로 등록하므로 `edu-rubri
 
 - 배포 이름: **클로드 평가 데모 ZIP**
 - 파일: [`claude-evaluation-demo.zip`](../public/downloads/claude-evaluation-demo.zip)
-- Skill 이름: `claude-evaluation-demo`
+- Skill 내부 이름: `notion-evaluation-demo` (`claude`는 예약어이므로 YAML `name`에 사용하지 않음)
 - 1차시 모듈: 백워드 설계 기반 평가기준안·루브릭 설계
 - 2차시 모듈: Notion 읽기 확인 → Claude 평가 초안 → 교사 검수 → 피드백·평가 포워드 → 승인 후 결과 저장
 - Claude 웹 등록: `Customize → Skills → + → Create skill → Upload a skill`에서 ZIP을 풀지 않고 업로드한 뒤 활성화
@@ -275,5 +275,5 @@ Claude 웹은 ZIP 하나를 하나의 Custom Skill로 등록하므로 `edu-rubri
 - [`PROCESS_ASSESSMENT_SKILL_PACK.md`](PROCESS_ASSESSMENT_SKILL_PACK.md)
 - [`edu-rubric`](../skills/edu-rubric/SKILL.md)
 - [`edu-evidence-judge`](../skills/edu-evidence-judge/SKILL.md)
-- [`클로드 평가 데모`](../skills/claude-evaluation-demo/SKILL.md)
+- [`클로드 평가 데모`](../skills/notion-evaluation-demo/SKILL.md)
 - [`클로드 평가 데모 ZIP`](../public/downloads/claude-evaluation-demo.zip)

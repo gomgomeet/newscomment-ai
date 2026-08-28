@@ -118,7 +118,7 @@ Notion의 Basic Autofill은 해당 행이나 페이지 내용을 사용하며, �
 | 43~47분 | 저장 대상 URL과 현재값→새값 미리보기 | 변경 필드와 보존 필드 확인, 저장 승인 | 저장 승인 기록 |
 | 47~50분 | 승인값만 Notion에 쓰고 다시 읽기 | 결과 페이지와 저장값 재확인 | 최종 결과 페이지 |
 
-2차시의 기본 흐름은 `Notion 원본 읽기 → Claude 평가 초안 → 교사 원문 검수 → 피드백·평가 포워드 확정 → 승인 후 Notion 저장`이다. Notion AI 비교는 강사가 필요하다고 판단할 때만 선택 활동으로 실시하며, 두 AI의 점수를 평균 내거나 다수결로 확정하지 않는다. 연수 참가자에게는 1·2차시 모듈을 한데 묶은 [`클로드 평가 데모`](../skills/claude-evaluation-demo/SKILL.md)를 ZIP 하나로 배포한다.
+2차시의 기본 흐름은 `Notion 원본 읽기 → Claude 평가 초안 → 교사 원문 검수 → 피드백·평가 포워드 확정 → 승인 후 Notion 저장`이다. Notion AI 비교는 강사가 필요하다고 판단할 때만 선택 활동으로 실시하며, 두 AI의 점수를 평균 내거나 다수결로 확정하지 않는다. 연수 참가자에게는 1·2차시 모듈을 한데 묶은 [`클로드 평가 데모`](../skills/notion-evaluation-demo/SKILL.md)를 ZIP 하나로 배포한다.
 
 ### 2차시 성공 기준
 
@@ -220,9 +220,9 @@ v1은 덮어쓰지 않는다. 교사는 학생의 v2 답을 대신 쓰지 않고
 - [수행평가 기준안 생성 스킬](https://app.notion.com/p/397c5f01a4a4812b8272fd9576195f84)
 - [신문기사 댓글 AI 자동채점 스킬](https://app.notion.com/p/b63c5f01a4a483d7aff281043adc3894)
 - [교사용 Claude Skill ZIP과 Notion 연결 연수 안내](https://app.notion.com/p/3cac5f01a4a481eb97efe215c432cfd9)
-- [업로드용 통합 Claude 스킬 원문](../skills/claude-evaluation-demo/SKILL.md)
-- [1차시 평가기준안 설계 모듈](../skills/claude-evaluation-demo/references/01-rubric-design.md)
-- [2차시 평가·교사검수·Notion 저장 모듈](../skills/claude-evaluation-demo/references/02-evidence-review-and-notion.md)
+- [업로드용 통합 Claude 스킬 원문](../skills/notion-evaluation-demo/SKILL.md)
+- [1차시 평가기준안 설계 모듈](../skills/notion-evaluation-demo/references/01-rubric-design.md)
+- [2차시 평가·교사검수·Notion 저장 모듈](../skills/notion-evaluation-demo/references/02-evidence-review-and-notion.md)
 - [선택 확장｜Claude와 Notion을 MCP로 연결하기](https://app.notion.com/p/3cac5f01a4a4815b9dc3c86d27d846ee)
 - [Notion MCP 연결 공식 안내](https://developers.notion.com/guides/mcp/get-started-with-mcp)
 - [Notion MCP 보안 권고](https://developers.notion.com/guides/mcp/mcp-security-best-practices)

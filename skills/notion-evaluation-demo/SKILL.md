@@ -1,5 +1,5 @@
 ---
-name: claude-evaluation-demo
+name: notion-evaluation-demo
 description: 백워드 설계에 따라 공식 성취기준으로 평가기준안·루브릭을 먼저 만들거나, 승인된 루브릭과 익명 학생 결과물로 Claude 평가 초안을 만들고 교사 검수·피드백·평가 포워드·승인 후 Notion 결과 페이지 저장을 지원할 때 사용한다. 학생 결과물을 보고 기준을 사후 생성하거나 AI가 최종평가를 자동 확정하는 데는 사용하지 않는다.
 ---
 
