@@ -536,12 +536,13 @@ export async function saveEvaluation(formData: FormData) {
         project_id: projectId,
         comment_id: commentId,
         evaluator_id: user.id,
+        source: "teacher-manual",
         model_name: "teacher-manual",
         total_score: totalScore,
         feedback: feedback || null,
         raw_output: { source: "teacher-manual" },
       },
-      { onConflict: "comment_id,evaluator_id" },
+      { onConflict: "comment_id,evaluator_id,source" },
     )
     .select("id")
     .single();
@@ -648,12 +649,16 @@ export async function generateAiEvaluation(formData: FormData) {
         project_id: projectId,
         comment_id: commentId,
         evaluator_id: user.id,
+        source: "ai-draft",
         model_name: aiResult.model,
         total_score: totalScore,
         feedback: aiResult.feedback,
-        raw_output: rawOutput,
+        raw_output: {
+          source: "ai-draft",
+          result: rawOutput,
+        },
       },
-      { onConflict: "comment_id,evaluator_id" },
+      { onConflict: "comment_id,evaluator_id,source" },
     )
     .select("id")
     .single();

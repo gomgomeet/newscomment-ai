@@ -78,7 +78,8 @@ export default async function ProjectDetailPage({
     .from("evaluations")
     .select("*")
     .eq("project_id", project.id)
-    .eq("evaluator_id", user.id);
+    .eq("evaluator_id", user.id)
+    .eq("source", "teacher-manual");
 
   if (evaluationsError) {
     throw new Error(evaluationsError.message);

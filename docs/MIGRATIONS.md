@@ -18,6 +18,7 @@ Supabase 안에만 남는다. 그래서 "무엇을 어떤 순서로 바꿨는지
 | `004_questioning_thinking_cards` | 생각 카드 표 4개 — documents, thinking_cards, card_relations, student_questions | 챗봇 쓰면 필수 |
 | `005_questioning_cards_pgvector` | (선택) pgvector 확장 + `embedding vector(768)` 열 | **미적용 — 아래 「005를 미뤄 둔 이유」 참조** |
 | `006_generated_rubric_metadata` | rubrics에 `auto_generated`, `generation_context` 열 | 루브릭 자동 생성 쓰면 필수 |
+| `007_evaluation_sources` | evaluations에 `source` 열을 더해 교사 평가와 AI 초안을 분리 | 평가 대시보드 쓰면 필수 |
 
 ## 번호가 중요한 이유
 
@@ -48,6 +49,11 @@ where table_schema = 'public' and table_name like 'questioning%';
 select column_name, data_type from information_schema.columns
 where table_name = 'rubrics'
   and column_name in ('auto_generated', 'generation_context');
+
+-- 평가 출처 열이 생겼는지
+select column_name, data_type from information_schema.columns
+where table_name = 'evaluations'
+  and column_name = 'source';
 ```
 
 ## 003과 004를 한 번에 돌리려면
@@ -64,6 +70,10 @@ where table_name = 'rubrics'
 
 예를 들어 006을 안 돌리면 루브릭 목록은 열리지만(생성 방식이 늘 `직접 생성`으로 보임)
 **자동 생성 버튼만** `column does not exist`로 실패한다. 앱이 죽지는 않는다.
+
+007을 안 돌리면 AI 초안 생성과 교사 수동 평가 저장이 실패할 수 있다. 앱 코드는
+`evaluations.source`와 `(comment_id, evaluator_id, source)` 유일 제약을 기준으로
+두 평가를 따로 저장한다.
 
 ## 005(pgvector)를 미뤄 둔 이유
 

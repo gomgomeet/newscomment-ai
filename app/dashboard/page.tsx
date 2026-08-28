@@ -16,7 +16,8 @@ export default async function DashboardPage() {
   const { count: evaluationCount } = await supabase
     .from("evaluations")
     .select("id", { count: "exact", head: true })
-    .eq("evaluator_id", user.id);
+    .eq("evaluator_id", user.id)
+    .eq("source", "teacher-manual");
 
   return (
     <div className="space-y-6">

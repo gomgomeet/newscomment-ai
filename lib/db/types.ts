@@ -154,6 +154,7 @@ export type Database = {
           project_id: string;
           comment_id: string;
           evaluator_id: string;
+          source: "teacher-manual" | "ai-draft";
           model_name: string | null;
           total_score: number | null;
           feedback: string | null;
@@ -166,6 +167,7 @@ export type Database = {
           project_id: string;
           comment_id: string;
           evaluator_id: string;
+          source?: "teacher-manual" | "ai-draft";
           model_name?: string | null;
           total_score?: number | null;
           feedback?: string | null;
@@ -174,6 +176,7 @@ export type Database = {
           updated_at?: string;
         };
         Update: {
+          source?: "teacher-manual" | "ai-draft";
           model_name?: string | null;
           total_score?: number | null;
           feedback?: string | null;
