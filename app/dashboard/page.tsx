@@ -8,6 +8,7 @@ import {
   isNotionResultMetadata,
 } from "@/lib/assessment-prep/readiness";
 import { requireUser } from "@/lib/auth/require-user";
+import { getEvaluationNotionConnectionStatus } from "@/lib/notion/teacher-connection";
 
 function formatLastEvaluation(value: string | null) {
   if (!value) return "아직 채점을 시작하지 않았습니다";
@@ -20,7 +21,7 @@ function formatLastEvaluation(value: string | null) {
 
 export default async function DashboardPage() {
   const { supabase, user } = await requireUser();
-  const [projectsResult, commentsResult, evaluationsResult, rubricsResult, criteriaResult, prepsResult] = await Promise.all([
+  const [projectsResult, commentsResult, evaluationsResult, rubricsResult, criteriaResult, prepsResult, notionConnection] = await Promise.all([
     supabase
       .from("projects")
       .select("id, title, description, status, rubric_id, notion_source, updated_at")
@@ -38,6 +39,7 @@ export default async function DashboardPage() {
       .eq("owner_id", user.id),
     supabase.from("rubric_criteria").select("id, rubric_id"),
     supabase.from("assessment_preps").select("*").eq("owner_id", user.id),
+    getEvaluationNotionConnectionStatus({ supabase, userId: user.id }),
   ]);
 
   const queryError =
@@ -126,7 +128,7 @@ export default async function DashboardPage() {
         criterionCount: prepProject.rubric_id
           ? criterionCountByRubric.get(prepProject.rubric_id) ?? 0
           : 0,
-        notionConnectionConfigured: Boolean(process.env.NOTION_API_KEY),
+        notionConnectionConfigured: notionConnection.configured,
         notionResultCount: notionResultCountByProject.get(prepProject.id) ?? 0,
         teacherEvaluationCount: teacherEvaluationCountByProject.get(prepProject.id) ?? 0,
         assessmentPrep: savedPrep,

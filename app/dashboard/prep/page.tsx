@@ -3,15 +3,17 @@ import { ArrowRight, CheckCircle2, CircleDashed, Database, FileSearch, ShieldChe
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { openAssessmentPrep } from "@/app/dashboard/prep/actions";
+import { EvaluationNotionConnectionCard } from "@/components/notion/evaluation-notion-connection-card";
 import {
   buildAssessmentPrepReadiness,
   isNotionResultMetadata,
 } from "@/lib/assessment-prep/readiness";
 import { requireUser } from "@/lib/auth/require-user";
+import { getEvaluationNotionConnectionStatus } from "@/lib/notion/teacher-connection";
 
 export default async function AssessmentPrepPage() {
   const { supabase, user } = await requireUser();
-  const [projectsResult, rubricsResult, criteriaResult, commentsResult, evaluationsResult, prepsResult] = await Promise.all([
+  const [projectsResult, rubricsResult, criteriaResult, commentsResult, evaluationsResult, prepsResult, notionConnection] = await Promise.all([
     supabase
       .from("projects")
       .select("id, title, description, status, rubric_id, notion_source, updated_at")
@@ -32,6 +34,7 @@ export default async function AssessmentPrepPage() {
       .from("assessment_preps")
       .select("*")
       .eq("owner_id", user.id),
+    getEvaluationNotionConnectionStatus({ supabase, userId: user.id }),
   ]);
 
   const queryError = projectsResult.error
@@ -52,7 +55,7 @@ export default async function AssessmentPrepPage() {
   const criterionCountByRubric = new Map<string, number>();
   const notionResultCountByProject = new Map<string, number>();
   const teacherEvaluationCountByProject = new Map<string, number>();
-  const notionConfigured = Boolean(process.env.NOTION_API_KEY);
+  const notionConfigured = notionConnection.configured;
 
   for (const criterion of criteria) {
     criterionCountByRubric.set(
@@ -110,6 +113,8 @@ export default async function AssessmentPrepPage() {
           </Button>
         </div>
       </section>
+
+      <EvaluationNotionConnectionCard connection={notionConnection} compact />
 
       <section className="grid gap-4 md:grid-cols-3">
         <Card>

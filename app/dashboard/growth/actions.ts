@@ -5,6 +5,11 @@ import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth/require-user";
 import type { Json } from "@/lib/db/types";
 import { extractNotionDatabaseId } from "@/lib/notion/import-comments";
+import {
+  EvaluationNotionConnectionError,
+  getEvaluationNotionAccessToken,
+  getEvaluationNotionConnectionStatus,
+} from "@/lib/notion/teacher-connection";
 
 function readText(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -158,17 +163,30 @@ function notionParagraphs(content: string) {
 
 export async function exportStudentSummaryToNotion(formData: FormData) {
   const summaryId = readText(formData, "summary_id");
-  const parentInput = readText(formData, "notion_parent_page");
-  const parentPageId = extractNotionDatabaseId(parentInput);
-  if (!summaryId || !parentPageId) {
-    redirect(`/dashboard/growth/summaries/${summaryId}?message=${encodeURIComponent("저장할 Notion 상위 페이지 URL 또는 ID를 확인해 주세요.")}`);
-  }
-  const apiKey = process.env.NOTION_API_KEY;
-  if (!apiKey) {
-    redirect(`/dashboard/growth/summaries/${summaryId}?message=${encodeURIComponent(".env.local에 NOTION_API_KEY를 먼저 설정해 주세요.")}`);
-  }
+  if (!summaryId) redirect("/dashboard/growth?message=성장 기록을 찾을 수 없습니다.");
 
   const { supabase, user } = await requireUser();
+  let apiKey = "";
+  let defaultParentPageId: string | null = null;
+  try {
+    const [token, connection] = await Promise.all([
+      getEvaluationNotionAccessToken({ supabase, userId: user.id }),
+      getEvaluationNotionConnectionStatus({ supabase, userId: user.id }),
+    ]);
+    apiKey = token;
+    defaultParentPageId = connection.defaultExportParentPageId;
+  } catch (error) {
+    const message = error instanceof EvaluationNotionConnectionError
+      ? error.message
+      : "Notion 연결정보를 확인하지 못했습니다.";
+    redirect(`/dashboard/growth/summaries/${summaryId}?message=${encodeURIComponent(message)}`);
+  }
+
+  const parentInput = readText(formData, "notion_parent_page") || defaultParentPageId || "";
+  const parentPageId = extractNotionDatabaseId(parentInput);
+  if (!parentPageId) {
+    redirect(`/dashboard/growth/summaries/${summaryId}?message=${encodeURIComponent("저장할 Notion 상위 페이지 URL 또는 ID를 확인해 주세요.")}`);
+  }
   const { data: summary, error: summaryError } = await supabase
     .from("student_term_summaries")
     .select("*")
@@ -190,6 +208,7 @@ export async function exportStudentSummaryToNotion(formData: FormData) {
     redirect(`/dashboard/growth/summaries/${summaryId}?message=${encodeURIComponent("Notion 저장 기록을 시작하지 못했습니다.")}`);
   }
 
+  let exportError = "";
   try {
     const response = await fetch("https://api.notion.com/v1/pages", {
       method: "POST",
@@ -220,15 +239,18 @@ export async function exportStudentSummaryToNotion(formData: FormData) {
       completed_at: new Date().toISOString(),
       metadata: { parent_page_id: parentPageId, notion_page_id: payload?.id ?? null, notion_page_url: payload?.url ?? null },
     }).eq("id", audit.id).eq("owner_id", user.id);
-    revalidatePath(`/dashboard/growth/summaries/${summaryId}`);
-    redirect(`/dashboard/growth/summaries/${summaryId}?notice=${encodeURIComponent("교사 확정 성장 기록을 Notion 새 페이지로 저장했습니다.")}`);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Notion 페이지 저장에 실패했습니다.";
+    exportError = error instanceof Error ? error.message : "Notion 페이지 저장에 실패했습니다.";
     await supabase.from("export_audits").update({
       status: "failed",
-      error_message: message.slice(0, 500),
+      error_message: exportError.slice(0, 500),
       completed_at: new Date().toISOString(),
     }).eq("id", audit.id).eq("owner_id", user.id);
-    redirect(`/dashboard/growth/summaries/${summaryId}?message=${encodeURIComponent(message)}`);
   }
+
+  if (exportError) {
+    redirect(`/dashboard/growth/summaries/${summaryId}?message=${encodeURIComponent(exportError)}`);
+  }
+  revalidatePath(`/dashboard/growth/summaries/${summaryId}`);
+  redirect(`/dashboard/growth/summaries/${summaryId}?notice=${encodeURIComponent("교사 확정 성장 기록을 Notion 새 페이지로 저장했습니다.")}`);
 }

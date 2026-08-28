@@ -83,6 +83,40 @@ export type Database = {
         Update: Record<string, never>;
         Relationships: [];
       };
+      teacher_notion_connections: {
+        Row: {
+          owner_id: string;
+          token_ciphertext: string;
+          workspace_label: string | null;
+          bot_id: string | null;
+          capabilities: string[];
+          default_export_parent_page_id: string | null;
+          last_verified_at: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          owner_id: string;
+          token_ciphertext: string;
+          workspace_label?: string | null;
+          bot_id?: string | null;
+          capabilities?: string[];
+          default_export_parent_page_id?: string | null;
+          last_verified_at?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          token_ciphertext?: string;
+          workspace_label?: string | null;
+          bot_id?: string | null;
+          capabilities?: string[];
+          default_export_parent_page_id?: string | null;
+          last_verified_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       student_growth_records: {
         Row: {
           id: string;

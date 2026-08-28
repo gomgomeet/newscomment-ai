@@ -1,4 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { EvaluationNotionConnectionCard } from "@/components/notion/evaluation-notion-connection-card";
+import { requireUser } from "@/lib/auth/require-user";
+import { getEvaluationNotionConnectionStatus } from "@/lib/notion/teacher-connection";
 
 const setupItems = [
   "Supabase 주소와 publishable 키를 넣었다.",
@@ -20,9 +23,10 @@ const privacyItems = [
   "실제 학생 데이터를 쓰기 전에 학교 방침을 확인한다.",
 ];
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  const { supabase, user } = await requireUser();
+  const notionConnection = await getEvaluationNotionConnectionStatus({ supabase, userId: user.id });
   const hasOpenAiKey = Boolean(process.env.OPENAI_API_KEY);
-  const hasNotionKey = Boolean(process.env.NOTION_API_KEY);
 
   return (
     <div className="space-y-6">
@@ -32,6 +36,7 @@ export default function SettingsPage() {
           배포와 교사 공유 전에 확인할 운영 항목입니다.
         </p>
       </div>
+      <EvaluationNotionConnectionCard connection={notionConnection} />
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
@@ -42,7 +47,7 @@ export default function SettingsPage() {
             <p><span className="font-medium">Supabase 주소:</span> 공개 환경변수로 설정됨</p>
             <p><span className="font-medium">OpenAI 키:</span> {hasOpenAiKey ? "설정됨" : "설정 안 됨"}</p>
             <p><span className="font-medium">AI 모델:</span> {process.env.OPENAI_EVALUATION_MODEL || "gpt-5.6"}</p>
-            <p><span className="font-medium">Notion 키:</span> {hasNotionKey ? "설정됨" : "설정 안 됨"}</p>
+            <p><span className="font-medium">Notion 연결:</span> {notionConnection.configured ? notionConnection.workspaceLabel : "연결 필요"}</p>
             <p><span className="font-medium">Notion API 버전:</span> {process.env.NOTION_API_VERSION || "2022-06-28"}</p>
           </CardContent>
         </Card>

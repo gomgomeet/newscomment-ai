@@ -5,15 +5,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import type { NotionSourceDefaults } from "@/lib/notion/project-source";
+import Link from "next/link";
 
 export function NotionCommentImportForm({
   projectId,
   defaults,
   configured,
+  connectionLabel,
 }: {
   projectId: string;
   defaults: NotionSourceDefaults;
   configured: boolean;
+  connectionLabel: string | null;
 }) {
   return (
     <Card id="notion-import">
@@ -24,10 +27,13 @@ export function NotionCommentImportForm({
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {configured ? null : (
+        {configured ? (
+          <p className="mb-4 rounded-md bg-teal-50 px-3 py-2 text-xs leading-5 text-teal-900">
+            {connectionLabel || "내 Notion"} 연결을 사용합니다. 이 작업은 Notion 원본을 수정하지 않습니다.
+          </p>
+        ) : (
           <p className="mb-4 rounded-md bg-muted px-3 py-2 text-xs leading-5 text-muted-foreground">
-            서버에 <code>NOTION_API_KEY</code>가 설정되어 있지 않습니다. Notion 통합 토큰을 환경 변수에 추가한 뒤
-            사용해 주세요.
+            <Link href="/dashboard/prep#notion-connection" className="font-semibold text-indigo-700 underline">평가 준비 프렙에서 내 Notion 통합 토큰을 연결</Link>한 뒤 사용해 주세요.
           </p>
         )}
         <form action={importCommentsFromNotion} className="space-y-4">
@@ -90,7 +96,7 @@ export function NotionCommentImportForm({
           <p className="text-xs leading-5 text-muted-foreground">
             학생 이름과 기사 주제 속성은 선택 사항입니다. 비워 두면 저장하지 않습니다.
           </p>
-          <Button type="submit">Notion 결과물 읽어오기</Button>
+          <Button type="submit" disabled={!configured}>Notion 결과물 읽어오기</Button>
         </form>
       </CardContent>
     </Card>
