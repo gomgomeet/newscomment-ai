@@ -250,8 +250,8 @@ function ReviewCard({ item }: { item: ReviewQueueItem }) {
 
         <div className="flex flex-wrap gap-2">
           <Button asChild size="sm">
-            <Link href={`/dashboard/projects/${item.projectId}?view=all#comment-${item.commentId}`}>
-              평가 확인·수정 <ArrowRight className="ml-1 size-4" aria-hidden="true" />
+            <Link href={`/dashboard/projects/${item.projectId}?view=answers#comment-${item.commentId}`}>
+              문항별 교사 피드백 <ArrowRight className="ml-1 size-4" aria-hidden="true" />
             </Link>
           </Button>
           <Button asChild size="sm" variant="outline">
@@ -279,22 +279,25 @@ export function EvaluationReviewBoard({
     () => Array.from(new Map(items.map((item) => [item.projectId, item.projectTitle]))),
     [items],
   );
+  const projectItems = useMemo(
+    () => projectId === "all" ? items : items.filter((item) => item.projectId === projectId),
+    [items, projectId],
+  );
   const counts = useMemo(
     () => ({
-      priority: items.filter((item) => matchesFilter(item, "priority")).length,
-      evidence: items.filter((item) => matchesFilter(item, "evidence")).length,
-      rewrite: items.filter((item) => matchesFilter(item, "rewrite")).length,
-      growth: items.filter((item) => matchesFilter(item, "growth")).length,
-      all: items.length,
-      confirmed: items.filter((item) => item.teacher?.status === "confirmed").length,
-      aiWaiting: items.filter((item) => !item.ai).length,
+      priority: projectItems.filter((item) => matchesFilter(item, "priority")).length,
+      evidence: projectItems.filter((item) => matchesFilter(item, "evidence")).length,
+      rewrite: projectItems.filter((item) => matchesFilter(item, "rewrite")).length,
+      growth: projectItems.filter((item) => matchesFilter(item, "growth")).length,
+      all: projectItems.length,
+      confirmed: projectItems.filter((item) => item.teacher?.status === "confirmed").length,
+      aiWaiting: projectItems.filter((item) => !item.ai).length,
     }),
-    [items],
+    [projectItems],
   );
   const visibleItems = useMemo(() => {
-    return items.filter((item) => {
+    return projectItems.filter((item) => {
       if (!matchesFilter(item, filter)) return false;
-      if (projectId !== "all" && item.projectId !== projectId) return false;
       if (!deferredQuery) return true;
 
       const haystack = [
@@ -305,7 +308,7 @@ export function EvaluationReviewBoard({
       ].join(" ").toLocaleLowerCase("ko-KR");
       return haystack.includes(deferredQuery);
     });
-  }, [deferredQuery, filter, items, projectId]);
+  }, [deferredQuery, filter, projectItems]);
 
   return (
     <div className="space-y-6">
@@ -314,7 +317,7 @@ export function EvaluationReviewBoard({
           <div className="flex items-center gap-2 text-sm font-semibold text-indigo-700">
             <Sparkles className="size-4" aria-hidden="true" /> 과정중심 평가
           </div>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight">교사 검토 작업대</h2>
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight">교사 피드백</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
             Notion에서 읽어온 원결과물과 AI 판단 근거를 비교하고, 교사가 확인할 평가부터 골라 최종 평가와 평가 포워드를 확정합니다.
           </p>
@@ -348,7 +351,7 @@ export function EvaluationReviewBoard({
             </Button>
           ))}
         </div>
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_260px]">
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_260px_auto]">
           <div className="relative">
             <Label htmlFor="review-search" className="sr-only">학생·활동·결과물 검색</Label>
             <Search className="pointer-events-none absolute left-3 top-3 size-4 text-muted-foreground" aria-hidden="true" />
@@ -367,6 +370,13 @@ export function EvaluationReviewBoard({
               {projects.map(([id, title]) => <option key={id} value={id}>{title}</option>)}
             </Select>
           </div>
+          {projectId === "all" ? (
+            <Button type="button" variant="outline" disabled>문항별 교사 피드백</Button>
+          ) : (
+            <Button asChild variant="outline">
+              <Link href={`/dashboard/projects/${projectId}?view=answers`}>문항별 교사 피드백</Link>
+            </Button>
+          )}
         </div>
       </div>
 

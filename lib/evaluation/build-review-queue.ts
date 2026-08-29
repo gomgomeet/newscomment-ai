@@ -4,6 +4,7 @@ import type {
   ReviewQueueItem,
   ReviewQueueTeacherEvaluation,
 } from "@/lib/evaluation/review-queue-types";
+import { readAssessmentSurveyConfig } from "./assessment-survey-config.ts";
 import { readNotionResultMetadata } from "../notion/result-metadata.ts";
 
 type Project = Database["public"]["Tables"]["projects"]["Row"];
@@ -24,6 +25,28 @@ function keepLatest(
 
 function hasAnyReason(reasons: string[], patterns: RegExp[]) {
   return reasons.some((reason) => patterns.some((pattern) => pattern.test(reason)));
+}
+
+function criteriaForComment(project: Project, comment: Comment, criteria: Criterion[]) {
+  const metadata = comment.metadata;
+  const survey = readAssessmentSurveyConfig(project.notion_source);
+  if (
+    !survey
+    || !metadata
+    || typeof metadata !== "object"
+    || Array.isArray(metadata)
+    || metadata.source !== "assessment-survey"
+    || typeof metadata.question_number !== "number"
+  ) {
+    return criteria.map((criterion) => ({ criterion, maxScore: criterion.max_score }));
+  }
+
+  const selectedIds = new Set(survey.questionCriteria[metadata.question_number - 1] ?? []);
+  const selected = criteria.filter((criterion) => selectedIds.has(criterion.id));
+  return (selected.length > 0 ? selected : criteria).map((criterion) => ({
+    criterion,
+    maxScore: selected.length > 0 ? 4 : criterion.max_score,
+  }));
 }
 
 export function buildEvaluationReviewQueue({
@@ -81,6 +104,7 @@ export function buildEvaluationReviewQueue({
       const rubricCriteria = project.rubric_id
         ? (criteriaByRubric.get(project.rubric_id) ?? [])
         : [];
+      const appliedCriteria = criteriaForComment(project, comment, rubricCriteria);
 
       const ai: ReviewQueueAiEvaluation | null = aiEvaluation
         ? {
@@ -171,10 +195,10 @@ export function buildEvaluationReviewQueue({
           rewriteRecommended,
           growthReady,
         },
-        criteria: rubricCriteria.map((criterion) => ({
+        criteria: appliedCriteria.map(({ criterion, maxScore }) => ({
           id: criterion.id,
           label: criterion.label,
-          maxScore: criterion.max_score,
+          maxScore,
           teacherScore: teacherScores?.get(criterion.id)?.score ?? null,
           aiScore: aiScores?.get(criterion.id)?.score ?? null,
           teacherRationale: teacherScores?.get(criterion.id)?.rationale ?? null,

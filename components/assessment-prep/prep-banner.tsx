@@ -16,7 +16,7 @@ export function AssessmentPrepBanner({
             <p className="text-sm font-semibold text-indigo-700">평가 준비 프렙</p>
             <h3 className="mt-1 text-xl font-semibold">수업활동을 만들고 평가 흐름을 연결하세요.</h3>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              평가 목표와 성취기준을 정한 뒤 Notion 결과물을 읽어 평가·성장 기록으로 이어갑니다.
+              평가 목표와 성취기준을 정한 뒤 학생 배포, 자동 채점, 교사 피드백, 생기부 기록으로 이어갑니다.
             </p>
           </div>
           <Button asChild>
@@ -32,16 +32,16 @@ export function AssessmentPrepBanner({
       <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 text-sm font-semibold text-indigo-700">
-            <Workflow className="h-4 w-4" /> 평가 준비 프렙 → 평가 → 성장 기록
+            <Workflow className="h-4 w-4" /> 평가 설계 → 평가 바로 하기 → 성장 기록
           </div>
           <h3 className="mt-2 text-xl font-semibold">{readiness.projectTitle}</h3>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Notion은 학생 결과물을 읽는 입력 채널로만 사용하고, 교사 확정 평가와 누적 기록은 평가 대시보드에 보존합니다.
+            이 설계는 성취기준, 평가 목표, 루브릭을 고정하고 평가 운영 화면에서 학생 응답과 채점을 이어갑니다.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <span className="rounded-full bg-indigo-100 px-3 py-1 text-sm font-semibold text-indigo-800">
-            {readiness.completedCount}/6 완료
+            {readiness.completedCount}/{readiness.stages.length} 완료
           </span>
           <Button asChild size="sm">
             <Link href={readiness.nextStage?.href ?? "/dashboard/prep"}>

@@ -3,13 +3,22 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth/require-user";
-import type { Json } from "@/lib/db/types";
+import {
+  buildEvidenceBasedActivityRecord,
+  parseStudentRecordEvidence,
+  serializeStudentRecordEvidence,
+  type ActivitySpecialRecord,
+} from "@/lib/growth/student-records";
 import { extractNotionDatabaseId } from "@/lib/notion/import-comments";
 import {
   EvaluationNotionConnectionError,
   getEvaluationNotionAccessToken,
   getEvaluationNotionConnectionStatus,
 } from "@/lib/notion/teacher-connection";
+import {
+  generateStudentRecordWithOpenAI,
+  type StudentRecordActivityInput,
+} from "@/lib/openai/generate-student-record";
 
 function readText(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -20,9 +29,44 @@ function criterionKey(label: string) {
   return label.trim().toLowerCase().replace(/\s+/g, "-");
 }
 
+function sameIds(left: string[], right: string[]) {
+  const sortedRight = right.toSorted();
+  return left.length === right.length && left.toSorted().every((id, index) => id === sortedRight[index]);
+}
+
+function fallbackSubjectRecord(subject: string, records: ActivitySpecialRecord[]) {
+  if (records.length === 1) return records[0].recordText;
+  const evidence = records
+    .map((record) => {
+      const prefix = `${record.activityTitle}에서 `;
+      return record.recordText.startsWith(prefix) ? record.recordText.slice(prefix.length) : record.recordText;
+    })
+    .join(" 또한, ");
+  return `${subject} 교과의 여러 수업과 평가에서 ${evidence}`.slice(0, 500);
+}
+
+function studentAnswer(comment: { content: string; metadata: unknown } | undefined) {
+  if (!comment) return "";
+  const metadata = comment.metadata;
+  if (
+    metadata
+    && typeof metadata === "object"
+    && !Array.isArray(metadata)
+    && "source" in metadata
+    && metadata.source === "assessment-survey"
+    && "answer" in metadata
+    && typeof metadata.answer === "string"
+  ) {
+    return metadata.answer.trim();
+  }
+  return comment.content.trim();
+}
+
 export async function openStudentSummary(formData: FormData) {
   const studentKey = readText(formData, "student_key");
+  const requestedSubject = readText(formData, "subject");
   const periodLabel = readText(formData, "period_label") || `${new Date().getFullYear()}학년도`;
+  const regenerate = readText(formData, "regenerate") === "true";
   if (!studentKey) redirect("/dashboard/growth?message=학생 식별자를 찾을 수 없습니다.");
 
   const { supabase, user } = await requireUser();
@@ -34,10 +78,23 @@ export async function openStudentSummary(formData: FormData) {
   const projectIds = (projects ?? []).map((project) => project.id);
   if (!projectIds.length) redirect("/dashboard/growth?message=평가활동이 없습니다.");
 
+  const { data: preps, error: prepsError } = await supabase
+    .from("assessment_preps")
+    .select("project_id, grade_level, subject, achievement_standards")
+    .eq("owner_id", user.id)
+    .in("project_id", projectIds);
+  if (prepsError) redirect(`/dashboard/growth?message=${encodeURIComponent(prepsError.message)}`);
+  const prepByProjectId = new Map((preps ?? []).map((prep) => [prep.project_id, prep]));
+  const subjectForProject = (projectId: string) => prepByProjectId.get(projectId)?.subject.trim() || "교과 미설정";
+  const subject = requestedSubject || Array.from(new Set(projectIds.map(subjectForProject))).toSorted((a, b) => a.localeCompare(b, "ko"))[0];
+  if (!subject) redirect("/dashboard/growth?message=세특을 작성할 과목을 찾지 못했습니다.");
+  const subjectProjectIds = projectIds.filter((projectId) => subjectForProject(projectId) === subject);
+  if (!subjectProjectIds.length) redirect("/dashboard/growth?message=선택한 과목의 평가활동을 찾지 못했습니다.");
+
   const { data: comments, error: commentsError } = await supabase
     .from("comments")
-    .select("id, project_id, student_name, content")
-    .in("project_id", projectIds)
+    .select("id, project_id, student_name, content, metadata")
+    .in("project_id", subjectProjectIds)
     .eq("student_name", studentKey);
   if (commentsError) redirect(`/dashboard/growth?message=${encodeURIComponent(commentsError.message)}`);
   const commentIds = (comments ?? []).map((comment) => comment.id);
@@ -56,7 +113,10 @@ export async function openStudentSummary(formData: FormData) {
 
   const evaluationIds = evaluations.map((evaluation) => evaluation.id);
   const { data: scores } = await supabase.from("evaluation_scores").select("*").in("evaluation_id", evaluationIds);
-  const rubricIds = Array.from(new Set((projects ?? []).map((project) => project.rubric_id).filter(Boolean))) as string[];
+  const rubricIds = Array.from(new Set((projects ?? [])
+    .filter((project) => subjectProjectIds.includes(project.id))
+    .map((project) => project.rubric_id)
+    .filter(Boolean))) as string[];
   const { data: criteria } = rubricIds.length
     ? await supabase.from("rubric_criteria").select("*").in("rubric_id", rubricIds)
     : { data: [] };
@@ -104,32 +164,144 @@ export async function openStudentSummary(formData: FormData) {
   }
 
   const projectById = new Map((projects ?? []).map((project) => [project.id, project]));
-  const activityTitles = Array.from(new Set(evaluations.map((evaluation) => projectById.get(evaluation.project_id)?.title).filter(Boolean))) as string[];
-  const latest = evaluations.at(-1)!;
-  const draftText = evaluations.length >= 2
-    ? `${studentKey}은(는) ${activityTitles.join(", ")} 활동에서 교사가 확인한 근거를 바탕으로 학습 과정을 이어감. ${latest.feedback || "최근 결과물에서 강점과 보완점을 확인함."} 다음 활동에서는 ${latest.evaluation_forward || "확정된 평가 포워드를 적용할 필요가 있음."}`
-    : `${studentKey}은(는) ${activityTitles[0] || "평가활동"}에서 ${latest.feedback || "교사가 확인한 학습 근거를 보임."} 한 번의 근거이므로 반복적 성장으로 단정하지 않고 추가 관찰이 필요함.`;
-  const evidence: Json = {
-    project_ids: Array.from(new Set(evaluations.map((evaluation) => evaluation.project_id))),
-    comment_ids: comments?.map((comment) => comment.id) ?? [],
-    evaluation_ids: evaluationIds,
-    evidence_count: evaluations.length,
-  };
-  const { data: summary, error: summaryError } = await supabase
+  const commentById = new Map((comments ?? []).map((comment) => [comment.id, comment]));
+  const activityEvaluations = new Map<string, typeof evaluations>();
+  for (const evaluation of evaluations) {
+    const rows = activityEvaluations.get(evaluation.project_id) ?? [];
+    rows.push(evaluation);
+    activityEvaluations.set(evaluation.project_id, rows);
+  }
+
+  const activityInputs: StudentRecordActivityInput[] = Array.from(activityEvaluations.entries()).map(([projectId, rows]) => {
+    const prep = prepByProjectId.get(projectId);
+    return {
+      projectId,
+      activityTitle: projectById.get(projectId)?.title ?? "평가활동",
+      subject,
+      targetGrade: prep?.grade_level || null,
+      achievementStandards: prep?.achievement_standards ?? null,
+      evaluationIds: rows.map((evaluation) => evaluation.id),
+      answers: rows.flatMap((evaluation) => {
+        const content = studentAnswer(commentById.get(evaluation.comment_id));
+        return content ? [content] : [];
+      }),
+      teacherFeedback: rows.flatMap((evaluation) => evaluation.feedback?.trim() ? [evaluation.feedback.trim()] : []),
+      criterionEvidence: rows.flatMap((evaluation) =>
+        (scoresByEvaluation.get(evaluation.id) ?? []).flatMap((score) => {
+          const criterion = criterionById.get(score.criterion_id);
+          return criterion ? [{ criterion: criterion.label, rationale: score.rationale }] : [];
+        }),
+      ),
+    };
+  });
+
+  const { data: existingSummaries, error: existingError } = await supabase
     .from("student_term_summaries")
-    .insert({
+    .select("*")
+    .eq("owner_id", user.id)
+    .eq("student_key", studentKey)
+    .eq("period_label", periodLabel)
+    .order("updated_at", { ascending: false });
+  if (existingError) redirect(`/dashboard/growth?message=${encodeURIComponent(existingError.message)}`);
+  const existingSummary = existingSummaries?.find((summary) => parseStudentRecordEvidence(summary.evidence)?.subject === subject) ?? null;
+  if (
+    existingSummary &&
+    !regenerate &&
+    sameIds(existingSummary.included_evaluation_ids, evaluationIds) &&
+    parseStudentRecordEvidence(existingSummary.evidence)?.subject === subject
+  ) {
+    redirect(`/dashboard/growth/summaries/${existingSummary.id}`);
+  }
+
+  let activityRecords: ActivitySpecialRecord[];
+  let representativeProjectId: string | null;
+  let representativeReason: string;
+  let summaryKind: "one-time" | "cumulative";
+  let draftText: string;
+  let generationNotice = `${subject} 과목의 활동 근거와 통합 세특 AI 초안을 만들었습니다.`;
+
+  try {
+    const generated = await generateStudentRecordWithOpenAI({ studentKey, periodLabel, subject, activities: activityInputs });
+    activityRecords = activityInputs.map((activity) => {
+      const generatedRecord = generated.activityRecords.find((record) => record.projectId === activity.projectId);
+      return {
+        projectId: activity.projectId,
+        activityTitle: activity.activityTitle,
+        subject,
+        evaluationIds: activity.evaluationIds,
+        recordText: generatedRecord?.recordText || buildEvidenceBasedActivityRecord({
+          activityTitle: activity.activityTitle,
+          answerTexts: activity.answers,
+          criterionLabels: activity.criterionEvidence.map((item) => item.criterion),
+        }),
+        evidenceSummary: generatedRecord?.evidenceSummary || `교사 확정 평가 ${activity.evaluationIds.length}건`,
+        selectedAsRepresentative: generated.representativeProjectId === activity.projectId,
+        generatedBy: generatedRecord ? "ai-draft" : "evidence-draft",
+      };
+    });
+    representativeProjectId = generated.representativeProjectId;
+    representativeReason = generated.representativeReason;
+    summaryKind = generated.summaryKind;
+    draftText = generated.cumulativeRecord;
+  } catch {
+    activityRecords = activityInputs.map((activity) => ({
+      projectId: activity.projectId,
+      activityTitle: activity.activityTitle,
+      subject,
+      evaluationIds: activity.evaluationIds,
+      recordText: buildEvidenceBasedActivityRecord({
+        activityTitle: activity.activityTitle,
+        answerTexts: activity.answers,
+        criterionLabels: activity.criterionEvidence.map((item) => item.criterion),
+      }),
+      evidenceSummary: `교사 확정 평가 ${activity.evaluationIds.length}건 · 직접 답안 근거`,
+      selectedAsRepresentative: false,
+      generatedBy: "evidence-draft",
+    }));
+    const representative = activityRecords.toSorted((a, b) => b.recordText.length - a.recordText.length)[0];
+    representativeProjectId = representative?.projectId ?? null;
+    representativeReason = "직접 답안 근거가 가장 구체적인 활동을 기본 대표 기록으로 선택함.";
+    summaryKind = activityRecords.length >= 2 ? "cumulative" : "one-time";
+    activityRecords = activityRecords.map((record) => ({
+      ...record,
+      selectedAsRepresentative: record.projectId === representativeProjectId,
+    }));
+    draftText = fallbackSubjectRecord(subject, activityRecords);
+    generationNotice = `AI 연결을 사용할 수 없어 ${subject} 과목의 교사 확정 근거로 기본 세특 초안을 만들었습니다.`;
+  }
+
+  const evidence = serializeStudentRecordEvidence({
+    subject,
+    gradeLevel: activityInputs.find((activity) => activity.targetGrade)?.targetGrade ?? "",
+    activityRecords,
+    representativeProjectId,
+    representativeReason,
+    summaryKind,
+    promptVersion: "",
+    projectIds: Array.from(activityEvaluations.keys()),
+    commentIds: comments?.map((comment) => comment.id) ?? [],
+    evaluationIds,
+  });
+  const summaryValues = {
+    period_label: periodLabel,
+    included_evaluation_ids: evaluationIds,
+    evidence,
+    draft_text: draftText,
+    teacher_final_text: draftText,
+    status: "draft" as const,
+    confirmed_at: null,
+  };
+  const summaryQuery = existingSummary && existingSummary.status === "draft"
+    ? supabase.from("student_term_summaries").update(summaryValues).eq("id", existingSummary.id).eq("owner_id", user.id).select("id").single()
+    : supabase.from("student_term_summaries").insert({
       owner_id: user.id,
       student_key: studentKey,
-      period_label: periodLabel,
-      included_evaluation_ids: evaluationIds,
-      evidence,
-      draft_text: draftText,
-      teacher_final_text: draftText,
-    })
-    .select("id")
-    .single();
+      ...summaryValues,
+    }).select("id").single();
+  const { data: summary, error: summaryError } = await summaryQuery;
   if (summaryError || !summary) redirect(`/dashboard/growth?message=${encodeURIComponent(summaryError?.message || "종합 기록을 만들지 못했습니다.")}`);
-  redirect(`/dashboard/growth/summaries/${summary.id}`);
+  revalidatePath("/dashboard/growth");
+  redirect(`/dashboard/growth/summaries/${summary.id}?notice=${encodeURIComponent(generationNotice)}`);
 }
 
 export async function saveStudentSummary(formData: FormData) {
@@ -145,7 +317,7 @@ export async function saveStudentSummary(formData: FormData) {
   }).eq("id", summaryId).eq("owner_id", user.id);
   if (error) redirect(`/dashboard/growth/summaries/${summaryId}?message=${encodeURIComponent(error.message)}`);
   revalidatePath(`/dashboard/growth/summaries/${summaryId}`);
-  redirect(`/dashboard/growth/summaries/${summaryId}?notice=${encodeURIComponent(confirm ? "교사 최종 문장을 확정했습니다. 이제 PDF 작성에 사용할 수 있습니다." : "종합 기록 초안을 저장했습니다.")}`);
+  redirect(`/dashboard/growth/summaries/${summaryId}?notice=${encodeURIComponent(confirm ? "과목별 세특을 교사 최종 문장으로 확정했습니다." : "과목별 세특 초안을 저장했습니다.")}`);
 }
 
 function notionRichText(content: string) {
@@ -197,6 +369,8 @@ export async function exportStudentSummaryToNotion(formData: FormData) {
   if (summaryError || !summary) {
     redirect(`/dashboard/growth/summaries/${summaryId}?message=${encodeURIComponent("교사가 확정한 성장 기록만 Notion에 저장할 수 있습니다.")}`);
   }
+  const recordEvidence = parseStudentRecordEvidence(summary.evidence);
+  const subject = recordEvidence?.subject || "교과";
   const { data: audit, error: auditError } = await supabase.from("export_audits").insert({
     owner_id: user.id,
     summary_id: summary.id,
@@ -220,12 +394,12 @@ export async function exportStudentSummaryToNotion(formData: FormData) {
       body: JSON.stringify({
         parent: { page_id: parentPageId },
         properties: {
-          title: { title: notionRichText(`${summary.student_key} · ${summary.period_label} 성장 기록`) },
+          title: { title: notionRichText(`${summary.student_key} · ${subject} · ${summary.period_label} 세특`) },
         },
         children: [
           { object: "block", type: "heading_2", heading_2: { rich_text: notionRichText("교사 확정 문장") } },
           ...notionParagraphs(summary.teacher_final_text),
-          { object: "block", type: "heading_2", heading_2: { rich_text: notionRichText("근거 기반 초안") } },
+          { object: "block", type: "heading_2", heading_2: { rich_text: notionRichText(`${subject} 통합 초안`) } },
           ...notionParagraphs(summary.draft_text),
           { object: "block", type: "paragraph", paragraph: { rich_text: notionRichText(`평가 근거 ${summary.included_evaluation_ids.length}건 · 대시보드에서 ${new Date().toLocaleString("ko-KR")} 내보냄`) } },
         ],

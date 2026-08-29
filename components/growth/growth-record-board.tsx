@@ -1,172 +1,224 @@
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, BookOpenCheck, Sparkles, UserRoundCheck } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ArrowRight, CheckCircle2, ChevronDown, FilePenLine, Sparkles } from "lucide-react";
 import { openStudentSummary } from "@/app/dashboard/growth/actions";
-import type { GrowthRecordActivity, GrowthRecordStudent } from "@/lib/growth/aggregate-growth-records";
+import { Button } from "@/components/ui/button";
+import type {
+  GrowthRecordActivity,
+  GrowthRecordActivitySpecial,
+  GrowthRecordStudent,
+} from "@/lib/growth/aggregate-growth-records";
+import type { ActivitySpecialRecord, StudentRecordSummaryPreview } from "@/lib/growth/student-records";
 
-function formatPercentage(value: number | null) {
-  return value == null ? "-" : `${Math.round(value)}%`;
+type DisplayActivityRecord = GrowthRecordActivitySpecial & {
+  generatedBy: ActivitySpecialRecord["generatedBy"];
+};
+
+type SubjectRecordGroup = {
+  studentKey: string;
+  subject: string;
+  records: DisplayActivityRecord[];
+};
+
+function subjectRecordKey(studentKey: string, subject: string) {
+  return `${studentKey}\u0000${subject}`;
+}
+
+function activityRecordKey(studentKey: string, subject: string, projectId: string) {
+  return `${subjectRecordKey(studentKey, subject)}\u0000${projectId}`;
 }
 
 export function GrowthRecordBoard({
   activities,
+  activitySpecialRecords,
   students,
+  summaries,
   reviewStudentCount,
   unnamedResultCount,
+  message,
+  notice,
 }: {
   activities: GrowthRecordActivity[];
+  activitySpecialRecords: GrowthRecordActivitySpecial[];
   students: GrowthRecordStudent[];
+  summaries: StudentRecordSummaryPreview[];
   reviewStudentCount: number;
   unnamedResultCount: number;
+  message?: string;
+  notice?: string;
 }) {
+  const summaryByStudentSubject = new Map(
+    summaries.map((summary) => [subjectRecordKey(summary.studentKey, summary.evidence.subject), summary]),
+  );
+  const activityRecordByKey = new Map<string, DisplayActivityRecord>();
+
+  for (const record of activitySpecialRecords) {
+    activityRecordByKey.set(activityRecordKey(record.studentKey, record.subject, record.projectId), {
+      ...record,
+      generatedBy: "evidence-draft",
+    });
+  }
+
+  for (const summary of summaries) {
+    for (const record of summary.evidence.activityRecords) {
+      const subject = record.subject || summary.evidence.subject;
+      const key = activityRecordKey(summary.studentKey, subject, record.projectId);
+      const fallback = activityRecordByKey.get(key);
+      activityRecordByKey.set(key, {
+        studentKey: summary.studentKey,
+        projectId: record.projectId,
+        activityTitle: record.activityTitle,
+        subject,
+        gradeLevel: fallback?.gradeLevel ?? summary.evidence.gradeLevel,
+        evaluationIds: record.evaluationIds,
+        confirmedAt: fallback?.confirmedAt ?? summary.updatedAt,
+        recordText: record.recordText,
+        evidenceSummary: record.evidenceSummary,
+        generatedBy: record.generatedBy,
+      });
+    }
+  }
+
+  const subjectGroups = new Map<string, SubjectRecordGroup>();
+  for (const record of activityRecordByKey.values()) {
+    const key = subjectRecordKey(record.studentKey, record.subject);
+    const group = subjectGroups.get(key) ?? {
+      studentKey: record.studentKey,
+      subject: record.subject,
+      records: [],
+    };
+    group.records.push(record);
+    subjectGroups.set(key, group);
+  }
+  const displayGroups = Array.from(subjectGroups.values()).toSorted((a, b) => {
+    const studentOrder = a.studentKey.localeCompare(b.studentKey, "ko");
+    return studentOrder !== 0 ? studentOrder : a.subject.localeCompare(b.subject, "ko");
+  });
+
   return (
-    <div className="mx-auto max-w-7xl space-y-8">
-      <section className="overflow-hidden rounded-2xl border border-teal-900/10 bg-[linear-gradient(135deg,#f0fdfa_0%,#ffffff_62%,#eff6ff_100%)] p-6 sm:p-8">
-        <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
-          <div className="max-w-3xl">
-            <p className="text-sm font-semibold text-teal-700">과정중심평가 누적 보기</p>
-            <h2 className="mt-2 text-3xl font-semibold tracking-tight">성장 기록 보드(생기부)</h2>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              평가활동별 결과를 모아 교사가 먼저 살펴볼 학생과 기준을 찾습니다. 현재는 동일한 학생 표기를 기준으로 활동을 연결합니다.
-            </p>
+    <div className="mx-auto max-w-7xl space-y-6">
+      <section className="border-b border-border pb-5">
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+          <div>
+            <p className="text-sm font-semibold text-teal-700">교사 확정 평가 누적</p>
+            <h2 className="mt-1 text-2xl font-semibold">과목별 세특 기록</h2>
           </div>
           <Button asChild variant="outline">
-            <Link href="/dashboard/projects">평가활동 열기 <ArrowRight className="h-4 w-4" /></Link>
+            <Link href="/dashboard/evaluation">평가 보드 <ArrowRight className="h-4 w-4" /></Link>
           </Button>
         </div>
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard icon={UserRoundCheck} label="누적 학생" value={students.length} tone="teal" />
-        <SummaryCard icon={BookOpenCheck} label="평가활동" value={activities.length} tone="blue" />
-        <SummaryCard icon={AlertTriangle} label="교사 확인 우선" value={reviewStudentCount} tone="amber" />
-        <SummaryCard icon={Sparkles} label="식별자 확인 필요" value={unnamedResultCount} tone="slate" />
+      {message ? <div className="rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">{message}</div> : null}
+      {notice ? <div className="rounded-md border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-900">{notice}</div> : null}
+
+      <section className="grid overflow-hidden rounded-md border bg-card sm:grid-cols-2 lg:grid-cols-4">
+        <Metric label="학생" value={students.length} />
+        <Metric label="과목별 기록" value={displayGroups.length} />
+        <Metric label="확인 우선" value={reviewStudentCount} />
+        <Metric label="이름 확인 필요" value={unnamedResultCount} />
       </section>
 
-      {students.length === 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>아직 누적할 평가 결과가 없습니다</CardTitle>
-            <CardDescription>학생 식별자가 있는 댓글 평가를 저장하면 활동별·학생별 성장 기록이 이곳에 표시됩니다.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button asChild><Link href="/dashboard/projects">첫 평가 시작하기</Link></Button>
-          </CardContent>
-        </Card>
+      {displayGroups.length === 0 ? (
+        <section className="rounded-md border bg-card p-6">
+          <h3 className="font-semibold">아직 작성할 세특 근거가 없습니다</h3>
+          <p className="mt-2 text-sm text-muted-foreground">교사가 확정한 평가가 생기면 학생별·과목별 활동 근거가 표시됩니다.</p>
+          <Button asChild className="mt-4"><Link href="/dashboard/evaluation">평가 시작하기</Link></Button>
+        </section>
       ) : (
-        <>
-          <section className="space-y-4">
-            <div>
-              <h3 className="text-xl font-semibold tracking-tight">교사 확인 우선</h3>
-              <p className="mt-1 text-sm text-muted-foreground">근거·피드백·점수 상태를 기준으로 먼저 볼 학생을 선별했습니다.</p>
+        <section className="space-y-3">
+          <div>
+            <h3 className="text-lg font-semibold">학생별·과목별 통합 세특</h3>
+            <p className="mt-1 text-sm text-muted-foreground">같은 과목의 활동 근거만 모아 한 문장으로 종합합니다.</p>
+          </div>
+          <div className="overflow-hidden rounded-md border bg-card">
+            <div className="hidden grid-cols-[120px_100px_minmax(260px,0.9fr)_minmax(360px,1.2fr)_120px] gap-4 border-b bg-muted/50 px-4 py-3 text-xs font-semibold text-muted-foreground lg:grid">
+              <span>이름</span><span>과목</span><span>활동 근거</span><span>과목별 통합 세특</span><span className="text-right">작업</span>
             </div>
-            <div className="grid gap-4 lg:grid-cols-2">
-              {students.filter((student) => student.reviewReasons.length > 0).slice(0, 6).map((student) => (
-                <StudentReviewCard key={student.studentKey} student={student} />
-              ))}
-            </div>
-          </section>
-
-          <section className="space-y-4">
-            <div>
-              <h3 className="text-xl font-semibold tracking-tight">학생별 누적 기록</h3>
-              <p className="mt-1 text-sm text-muted-foreground">여러 활동의 평가를 같은 학생 표기 기준으로 묶었습니다.</p>
-            </div>
-            <div className="overflow-hidden rounded-xl border border-border bg-card">
-              <div className="hidden grid-cols-[minmax(140px,1fr)_80px_90px_90px_minmax(140px,1fr)_minmax(160px,1.2fr)] gap-4 border-b border-border bg-muted/50 px-5 py-3 text-xs font-semibold text-muted-foreground md:grid">
-                <span>학생</span><span>활동</span><span>평균</span><span>변화</span><span>강점 기준</span><span>다음 평가 포워드</span>
-              </div>
-              {students.map((student) => (
-                <div key={student.studentKey} className="grid gap-3 border-b border-border px-5 py-4 [content-visibility:auto] [contain-intrinsic-size:auto_84px] last:border-b-0 md:grid-cols-[minmax(140px,1fr)_80px_90px_90px_minmax(140px,1fr)_minmax(160px,1.2fr)] md:items-center">
+            {displayGroups.map((group) => {
+              const summary = summaryByStudentSubject.get(subjectRecordKey(group.studentKey, group.subject));
+              const records = group.records.toSorted((a, b) => b.confirmedAt.localeCompare(a.confirmedAt));
+              const integratedText = summary
+                ? (summary.status === "confirmed" ? summary.teacherFinalText : summary.draftText)
+                : "아직 과목별 통합 세특 초안을 만들지 않았습니다.";
+              return (
+                <div key={subjectRecordKey(group.studentKey, group.subject)} className="grid gap-4 border-b px-4 py-4 last:border-b-0 lg:grid-cols-[120px_100px_minmax(260px,0.9fr)_minmax(360px,1.2fr)_120px] lg:items-start">
                   <div>
-                    <p className="font-semibold">{student.studentKey}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">최근 · {student.latestActivityTitle}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold">{group.studentKey}</p>
+                      {summary?.status === "confirmed" ? <CheckCircle2 className="h-4 w-4 text-teal-600" aria-label="교사 확정" /> : null}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground lg:hidden">{group.subject}</p>
                   </div>
-                  <p className="text-sm"><span className="md:hidden text-muted-foreground">활동 </span>{student.activityCount}개</p>
-                  <p className="text-sm font-semibold">{formatPercentage(student.averagePercentage)}</p>
-                  <p className={`text-sm font-semibold ${(student.changePercentage ?? 0) > 0 ? "text-teal-700" : (student.changePercentage ?? 0) < 0 ? "text-amber-800" : "text-muted-foreground"}`}>{student.changePercentage == null ? "-" : `${student.changePercentage > 0 ? "+" : ""}${Math.round(student.changePercentage)}%p`}</p>
-                  <p className="text-sm text-muted-foreground">{student.strongestCriterion ?? "근거 없음"}</p>
-                  <div><p className="text-sm text-indigo-800">{student.latestEvaluationForward ?? "아직 없음"}</p><form action={openStudentSummary} className="mt-2"><input type="hidden" name="student_key" value={student.studentKey} /><Button size="sm" variant="ghost">종합 기록 작성</Button></form></div>
+                  <p className="hidden text-sm font-semibold lg:block">{group.subject}</p>
+                  <details className="group">
+                    <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium text-teal-800">
+                      <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" /> 활동 {records.length}개
+                    </summary>
+                    <div className="mt-3 space-y-3 border-l-2 border-teal-200 pl-3">
+                      {records.map((record) => (
+                        <div key={record.projectId}>
+                          <p className="text-sm font-semibold">{record.activityTitle}</p>
+                          <p className="mt-1 text-sm leading-6 text-muted-foreground">{record.recordText}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{record.evidenceSummary}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                  <div>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${summary?.status === "confirmed" ? "bg-teal-50 text-teal-700" : "bg-muted text-muted-foreground"}`}>
+                      {summary?.status === "confirmed" ? "교사 확정" : summary ? "초안" : "미작성"}
+                    </span>
+                    <p className="mt-2 text-sm leading-6">{integratedText}</p>
+                  </div>
+                  <div className="flex justify-end">
+                    {summary ? (
+                      <Button asChild size="sm" variant="outline"><Link href={`/dashboard/growth/summaries/${summary.id}`}><FilePenLine className="h-4 w-4" /> 수정</Link></Button>
+                    ) : (
+                      <CreateSummaryButton studentKey={group.studentKey} subject={group.subject} />
+                    )}
+                  </div>
                 </div>
-              ))}
-            </div>
-          </section>
-        </>
+              );
+            })}
+          </div>
+        </section>
       )}
 
-      <section className="space-y-4">
-        <div>
-          <h3 className="text-xl font-semibold tracking-tight">평가활동별 현황</h3>
-          <p className="mt-1 text-sm text-muted-foreground">완료율과 취약 기준을 확인하고 원평가로 이동합니다.</p>
-        </div>
-        <div className="grid gap-4 lg:grid-cols-2">
-          {activities.map((activity) => <ActivityCard key={activity.id} activity={activity} />)}
+      <section className="space-y-3">
+        <h3 className="text-lg font-semibold">평가활동 현황</h3>
+        <div className="overflow-hidden rounded-md border bg-card">
+          {activities.map((activity) => (
+            <div key={activity.id} className="grid gap-2 border-b px-4 py-3 last:border-b-0 sm:grid-cols-[minmax(220px,1fr)_100px_100px_120px_100px] sm:items-center">
+              <p className="font-medium">{activity.title}</p>
+              <p className="text-sm text-muted-foreground">{activity.subject}</p>
+              <p className="text-sm text-muted-foreground">{activity.completionPercentage}% 완료</p>
+              <p className="text-sm text-muted-foreground">확인 우선 {activity.reviewCount}건</p>
+              <Button asChild size="sm" variant="ghost"><Link href={`/dashboard/projects/${activity.id}?view=answers`}>교사 피드백</Link></Button>
+            </div>
+          ))}
         </div>
       </section>
-
-      <Card className="border-dashed">
-        <CardHeader>
-          <CardTitle className="text-base">다음 확장</CardTitle>
-          <CardDescription>
-            교사가 확정한 평가 포워드와 활동 간 변화가 누적됩니다. 학교 양식 PDF 기반 종합 기록 작성과 내보내기는 작성 도우미에서 이어집니다.
-          </CardDescription>
-        </CardHeader>
-      </Card>
     </div>
   );
 }
 
-function SummaryCard({ icon: Icon, label, value, tone }: { icon: typeof UserRoundCheck; label: string; value: number; tone: "teal" | "blue" | "amber" | "slate" }) {
-  const tones = {
-    teal: "bg-teal-50 text-teal-700",
-    blue: "bg-blue-50 text-blue-700",
-    amber: "bg-amber-50 text-amber-700",
-    slate: "bg-slate-100 text-slate-700",
-  };
+function Metric({ label, value }: { label: string; value: number }) {
   return (
-    <Card><CardContent className="flex items-center gap-4 p-5"><span className={`rounded-xl p-3 ${tones[tone]}`}><Icon className="h-5 w-5" /></span><div><p className="text-sm text-muted-foreground">{label}</p><p className="text-2xl font-semibold">{value}</p></div></CardContent></Card>
+    <div className="border-b px-4 py-3 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 text-xl font-semibold">{value}</p>
+    </div>
   );
 }
 
-function StudentReviewCard({ student }: { student: GrowthRecordStudent }) {
+function CreateSummaryButton({ studentKey, subject }: { studentKey: string; subject: string }) {
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-3">
-          <div><CardTitle className="text-lg">{student.studentKey}</CardTitle><CardDescription className="mt-1">{student.latestActivityTitle} · 누적 {student.activityCount}개 활동</CardDescription></div>
-          <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">평균 {formatPercentage(student.averagePercentage)}</span>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex flex-wrap gap-2">{student.reviewReasons.map((reason) => <span key={reason} className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs text-amber-900">{reason}</span>)}</div>
-        <div className="grid gap-2 text-sm sm:grid-cols-2"><p><span className="text-muted-foreground">강점 기준</span><br />{student.strongestCriterion ?? "확인 필요"}</p><p><span className="text-muted-foreground">살펴볼 기준</span><br />{student.needsAttentionCriterion ?? "확인 필요"}</p></div>
-        <p className="line-clamp-2 rounded-lg bg-muted/60 p-3 text-sm leading-6 text-muted-foreground">{student.latestFeedback || "아직 저장된 종합 피드백이 없습니다."}</p>
-        <p className="rounded-lg border border-indigo-100 bg-indigo-50/60 p-3 text-sm leading-6 text-indigo-950"><span className="font-medium">다음 평가 포워드 · </span>{student.latestEvaluationForward || "아직 확정된 평가 포워드가 없습니다."}</p>
-        <form action={openStudentSummary}><input type="hidden" name="student_key" value={student.studentKey} /><Button type="submit" size="sm" variant="outline">성장 근거·세특 작성 열기</Button></form>
-      </CardContent>
-    </Card>
-  );
-}
-
-function ActivityCard({ activity }: { activity: GrowthRecordActivity }) {
-  return (
-    <Card>
-      <CardHeader className="pb-3"><div className="flex items-start justify-between gap-3"><div><CardTitle className="text-lg">{activity.title}</CardTitle><CardDescription className="mt-1">댓글 {activity.commentCount} · 평가 {activity.evaluatedCount} · 확인 우선 {activity.reviewCount}</CardDescription></div><span className="rounded-full bg-teal-50 px-2.5 py-1 text-xs font-semibold text-teal-700">{activity.completionPercentage}% 완료</span></div></CardHeader>
-      <CardContent className="space-y-4">
-        <div
-          className="h-2 overflow-hidden rounded-full bg-muted"
-          role="progressbar"
-          aria-label={`${activity.title} 평가 완료율`}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={activity.completionPercentage}
-        >
-          <div className="h-full rounded-full bg-primary" style={{ width: `${activity.completionPercentage}%` }} />
-        </div>
-        <div className="flex flex-col justify-between gap-3 text-sm sm:flex-row sm:items-center"><div><span className="text-muted-foreground">평균 </span>{formatPercentage(activity.averagePercentage)}<span className="ml-3 text-muted-foreground">취약 기준 </span>{activity.weakestCriterion ?? "아직 없음"}</div><Button asChild size="sm" variant="outline"><Link href={`/dashboard/projects/${activity.id}`}>평가 열기</Link></Button></div>
-        {activity.forwardSamples.length > 0 ? <div className="rounded-lg bg-indigo-50/60 p-3"><p className="text-xs font-semibold text-indigo-800">이 활동의 다음 지도 포인트</p><ul className="mt-2 space-y-1 text-sm text-indigo-950">{activity.forwardSamples.map((forward) => <li key={forward}>· {forward}</li>)}</ul></div> : null}
-      </CardContent>
-    </Card>
+    <form action={openStudentSummary}>
+      <input type="hidden" name="student_key" value={studentKey} />
+      <input type="hidden" name="subject" value={subject} />
+      <Button type="submit" size="sm">
+        <Sparkles className="h-4 w-4" /> 통합하기
+      </Button>
+    </form>
   );
 }

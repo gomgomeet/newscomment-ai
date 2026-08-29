@@ -141,9 +141,9 @@ export default async function DashboardPage() {
         <div className="flex flex-col justify-between gap-6 sm:flex-row sm:items-end">
           <div className="max-w-2xl">
             <p className="text-sm font-medium text-teal-100">오늘의 평가 보드</p>
-            <h2 className="mt-2 text-3xl font-semibold tracking-tight">남은 댓글부터 이어서 살펴보세요.</h2>
+            <h2 className="mt-2 text-3xl font-semibold tracking-tight">남은 평가부터 이어서 살펴보세요.</h2>
             <p className="mt-3 text-sm leading-6 text-teal-50/80">
-              전체 댓글 {totalComments}개 중 {totalEvaluated}개를 채점했고, {totalRemaining}개가 남았습니다.
+              전체 결과물 {totalComments}개 중 {totalEvaluated}개를 평가했고, {totalRemaining}개가 남았습니다.
             </p>
           </div>
           <Button asChild className="bg-white text-teal-800 hover:bg-teal-50">
@@ -172,7 +172,7 @@ export default async function DashboardPage() {
         <Card>
           <CardContent className="flex items-center gap-4 p-5">
             <span className="rounded-xl bg-amber-50 p-3 text-amber-700"><ClipboardList className="h-5 w-5" /></span>
-            <div><p className="text-sm text-muted-foreground">남은 댓글</p><p className="text-2xl font-semibold">{totalRemaining}</p></div>
+            <div><p className="text-sm text-muted-foreground">남은 평가</p><p className="text-2xl font-semibold">{totalRemaining}</p></div>
           </CardContent>
         </Card>
       </section>

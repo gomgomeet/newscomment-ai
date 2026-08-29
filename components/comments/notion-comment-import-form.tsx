@@ -12,21 +12,20 @@ export function NotionCommentImportForm({
   defaults,
   configured,
   connectionLabel,
+  returnTo = "project",
+  variant = "card",
 }: {
   projectId: string;
   defaults: NotionSourceDefaults;
   configured: boolean;
   connectionLabel: string | null;
+  returnTo?: "project" | "evaluation";
+  variant?: "card" | "section";
 }) {
-  return (
-    <Card id="notion-import">
-      <CardHeader>
-        <CardTitle>Notion 결과물 읽어오기</CardTitle>
-        <CardDescription>
-          학생이 작성한 데이터베이스 속성 또는 각 페이지 본문을 읽어 평가할 결과물로 가져옵니다. Notion 원본은 수정하지 않습니다.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
+  const fieldId = (name: string) => `${name}-${projectId}`;
+  const contentPropertyDefault = defaults.content_property || "답변";
+  const content = (
+    <>
         {configured ? (
           <p className="mb-4 rounded-md bg-teal-50 px-3 py-2 text-xs leading-5 text-teal-900">
             {connectionLabel || "내 Notion"} 연결을 사용합니다. 이 작업은 Notion 원본을 수정하지 않습니다.
@@ -37,11 +36,36 @@ export function NotionCommentImportForm({
           </p>
         )}
         <form action={importCommentsFromNotion} className="space-y-4">
-          <input type="hidden" name="project_id" value={projectId} />
+          <select name="project_id" defaultValue={projectId} className="hidden" aria-hidden="true" tabIndex={-1}>
+            <option value={projectId}>{projectId}</option>
+          </select>
           <div className="space-y-2">
-            <Label htmlFor="notion_database">Notion 데이터베이스 URL</Label>
+            <Label htmlFor={fieldId("response_collection_url")}>학생용 질문지·수정 링크</Label>
             <Input
-              id="notion_database"
+              id={fieldId("response_collection_url")}
+              name="response_collection_url"
+              type="url"
+              defaultValue={defaults.response_collection_url}
+              placeholder="Google Form, 보드 학생 링크, Notion 제출 링크"
+            />
+            <p className="text-xs leading-5 text-muted-foreground">
+              학생에게 배포하는 링크를 저장합니다. QR이나 수업 안내 자료에는 이 링크를 사용합니다.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor={fieldId("source_page_url")}>Notion 수업/연수 원본 페이지</Label>
+            <Input
+              id={fieldId("source_page_url")}
+              name="source_page_url"
+              type="url"
+              defaultValue={defaults.source_page_url}
+              placeholder="https://www.notion.so/..."
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor={fieldId("notion_database")}>Notion 데이터베이스 URL</Label>
+            <Input
+              id={fieldId("notion_database")}
               name="notion_database"
               defaultValue={defaults.database_url}
               placeholder="https://www.notion.so/workspace/1a2b3c..."
@@ -52,8 +76,8 @@ export function NotionCommentImportForm({
             </p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="content_mode">결과물이 작성된 위치</Label>
-            <Select id="content_mode" name="content_mode" defaultValue={defaults.content_mode}>
+            <Label htmlFor={fieldId("content_mode")}>결과물이 작성된 위치</Label>
+            <Select id={fieldId("content_mode")} name="content_mode" defaultValue={defaults.content_mode}>
               <option value="property">데이터베이스 속성</option>
               <option value="page_body">각 학생 페이지 본문</option>
             </Select>
@@ -62,11 +86,11 @@ export function NotionCommentImportForm({
             </p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="content_property">결과물 내용 속성</Label>
+            <Label htmlFor={fieldId("content_property")}>결과물 내용 속성</Label>
             <Input
-              id="content_property"
+              id={fieldId("content_property")}
               name="content_property"
-              defaultValue={defaults.content_property}
+              defaultValue={contentPropertyDefault}
               placeholder="댓글 또는 결과물"
             />
             <p className="text-xs leading-5 text-muted-foreground">
@@ -75,18 +99,18 @@ export function NotionCommentImportForm({
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="student_property">학생 이름 속성</Label>
+              <Label htmlFor={fieldId("student_property")}>학생 이름 속성</Label>
               <Input
-                id="student_property"
+                id={fieldId("student_property")}
                 name="student_property"
                 defaultValue={defaults.student_property}
                 placeholder="이름"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="topic_property">기사 주제 속성</Label>
+              <Label htmlFor={fieldId("topic_property")}>기사 주제 속성</Label>
               <Input
-                id="topic_property"
+                id={fieldId("topic_property")}
                 name="topic_property"
                 defaultValue={defaults.topic_property}
                 placeholder="주제"
@@ -96,8 +120,35 @@ export function NotionCommentImportForm({
           <p className="text-xs leading-5 text-muted-foreground">
             학생 이름과 기사 주제 속성은 선택 사항입니다. 비워 두면 저장하지 않습니다.
           </p>
-          <Button type="submit" disabled={!configured}>Notion 결과물 읽어오기</Button>
+          <Button type="submit" name="return_to" value={returnTo} disabled={!configured}>Notion 결과물 읽어오기</Button>
         </form>
+    </>
+  );
+
+  if (variant === "section") {
+    return (
+      <section id={`notion-import-${projectId}`} className="rounded-md border bg-background p-4">
+        <div className="mb-4">
+          <h3 className="text-sm font-semibold">Notion 결과물 읽어오기</h3>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            학생이 작성한 데이터베이스 속성 또는 각 페이지 본문을 읽어 평가할 결과물로 가져옵니다. Notion 원본은 수정하지 않습니다.
+          </p>
+        </div>
+        {content}
+      </section>
+    );
+  }
+
+  return (
+    <Card id="notion-import">
+      <CardHeader>
+        <CardTitle>Notion 결과물 읽어오기</CardTitle>
+        <CardDescription>
+          학생이 작성한 데이터베이스 속성 또는 각 페이지 본문을 읽어 평가할 결과물로 가져옵니다. Notion 원본은 수정하지 않습니다.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {content}
       </CardContent>
     </Card>
   );

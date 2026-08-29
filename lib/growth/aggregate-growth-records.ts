@@ -1,14 +1,17 @@
 import type { Database } from "@/lib/db/types";
+import { buildEvidenceBasedActivityRecord } from "@/lib/growth/student-records";
 
 type Project = Database["public"]["Tables"]["projects"]["Row"];
 type Comment = Database["public"]["Tables"]["comments"]["Row"];
 type Evaluation = Database["public"]["Tables"]["evaluations"]["Row"];
 type Score = Database["public"]["Tables"]["evaluation_scores"]["Row"];
 type Criterion = Database["public"]["Tables"]["rubric_criteria"]["Row"];
+type AssessmentPrep = Database["public"]["Tables"]["assessment_preps"]["Row"];
 
 export type GrowthRecordActivity = {
   id: string;
   title: string;
+  subject: string;
   commentCount: number;
   evaluatedCount: number;
   completionPercentage: number;
@@ -21,6 +24,7 @@ export type GrowthRecordActivity = {
 export type GrowthRecordStudent = {
   studentKey: string;
   activityCount: number;
+  subjectCount: number;
   evaluationCount: number;
   averagePercentage: number | null;
   strongestCriterion: string | null;
@@ -31,6 +35,18 @@ export type GrowthRecordStudent = {
   latestEvaluationForward: string | null;
   changePercentage: number | null;
   reviewReasons: string[];
+};
+
+export type GrowthRecordActivitySpecial = {
+  studentKey: string;
+  projectId: string;
+  activityTitle: string;
+  subject: string;
+  gradeLevel: string;
+  evaluationIds: string[];
+  confirmedAt: string;
+  recordText: string;
+  evidenceSummary: string;
 };
 
 type CriterionAggregate = { label: string; totalPercentage: number; count: number };
@@ -45,6 +61,25 @@ function average(values: number[]) {
 
 function normalizeStudentKey(value: string | null) {
   return value?.trim().replace(/\s+/g, " ") || null;
+}
+
+function projectSubject(prep: AssessmentPrep | undefined) {
+  return prep?.subject.trim() || "교과 미설정";
+}
+
+function studentAnswer(comment: Comment | undefined) {
+  if (!comment) return "";
+  const metadata = comment.metadata;
+  if (
+    metadata
+    && typeof metadata === "object"
+    && !Array.isArray(metadata)
+    && metadata.source === "assessment-survey"
+    && typeof metadata.answer === "string"
+  ) {
+    return metadata.answer.trim();
+  }
+  return comment.content.trim();
 }
 
 function addCriterionScore(
@@ -83,16 +118,19 @@ export function aggregateGrowthRecords({
   evaluations,
   scores,
   criteria,
+  preps,
 }: {
   projects: Project[];
   comments: Comment[];
   evaluations: Evaluation[];
   scores: Score[];
   criteria: Criterion[];
+  preps: AssessmentPrep[];
 }) {
   const projectById = new Map(projects.map((project) => [project.id, project]));
   const commentById = new Map(comments.map((comment) => [comment.id, comment]));
   const criterionById = new Map(criteria.map((criterion) => [criterion.id, criterion]));
+  const prepByProjectId = new Map(preps.map((prep) => [prep.project_id, prep]));
   const scoresByEvaluation = new Map<string, Score[]>();
 
   for (const score of scores) {
@@ -148,6 +186,7 @@ export function aggregateGrowthRecords({
     return {
       id: project.id,
       title: project.title,
+      subject: projectSubject(prepByProjectId.get(project.id)),
       commentCount: projectComments.length,
       evaluatedCount: evaluatedCommentIds.size,
       completionPercentage:
@@ -166,6 +205,7 @@ export function aggregateGrowthRecords({
   });
 
   const studentBuckets = new Map<string, Evaluation[]>();
+  const activityBuckets = new Map<string, { studentKey: string; projectId: string; evaluations: Evaluation[] }>();
   let unnamedResultCount = 0;
   for (const evaluation of evaluations) {
     const studentKey = normalizeStudentKey(commentById.get(evaluation.comment_id)?.student_name ?? null);
@@ -176,7 +216,50 @@ export function aggregateGrowthRecords({
     const rows = studentBuckets.get(studentKey) ?? [];
     rows.push(evaluation);
     studentBuckets.set(studentKey, rows);
+
+    const activityBucketKey = `${studentKey}\u0000${evaluation.project_id}`;
+    const activityBucket = activityBuckets.get(activityBucketKey) ?? {
+      studentKey,
+      projectId: evaluation.project_id,
+      evaluations: [],
+    };
+    activityBucket.evaluations.push(evaluation);
+    activityBuckets.set(activityBucketKey, activityBucket);
   }
+
+  const activitySpecialRecords: GrowthRecordActivitySpecial[] = Array.from(activityBuckets.values()).map((bucket) => {
+    const criterionLabels = bucket.evaluations.flatMap((evaluation) =>
+      (scoresByEvaluation.get(evaluation.id) ?? []).flatMap((score) => {
+        const criterion = criterionById.get(score.criterion_id);
+        return criterion ? [criterion.label] : [];
+      }),
+    );
+    const answerTexts = bucket.evaluations.flatMap((evaluation) => {
+      const content = studentAnswer(commentById.get(evaluation.comment_id));
+      return content ? [content] : [];
+    });
+    const uniqueCriteria = Array.from(new Set(criterionLabels));
+    const activityTitle = projectById.get(bucket.projectId)?.title ?? "평가활동";
+    const prep = prepByProjectId.get(bucket.projectId);
+
+    return {
+      studentKey: bucket.studentKey,
+      projectId: bucket.projectId,
+      activityTitle,
+      subject: projectSubject(prep),
+      gradeLevel: prep?.grade_level.trim() || "",
+      evaluationIds: bucket.evaluations.map((evaluation) => evaluation.id),
+      confirmedAt: bucket.evaluations
+        .map((evaluation) => evaluation.confirmed_at ?? evaluation.updated_at)
+        .toSorted()
+        .at(-1) ?? "",
+      recordText: buildEvidenceBasedActivityRecord({ activityTitle, answerTexts, criterionLabels: uniqueCriteria }),
+      evidenceSummary: `교사 확정 답안 ${bucket.evaluations.length}건${uniqueCriteria.length > 0 ? ` · ${uniqueCriteria.slice(0, 3).join(" · ")}` : ""}`,
+    };
+  }).toSorted((a, b) => {
+    const studentOrder = a.studentKey.localeCompare(b.studentKey, "ko");
+    return studentOrder !== 0 ? studentOrder : b.confirmedAt.localeCompare(a.confirmedAt);
+  });
 
   const students: GrowthRecordStudent[] = Array.from(studentBuckets.entries()).map(([studentKey, rows]) => {
     const sortedRows = rows.toSorted((a, b) => b.updated_at.localeCompare(a.updated_at));
@@ -202,6 +285,7 @@ export function aggregateGrowthRecords({
     return {
       studentKey,
       activityCount: new Set(rows.map((evaluation) => evaluation.project_id)).size,
+      subjectCount: new Set(rows.map((evaluation) => projectSubject(prepByProjectId.get(evaluation.project_id)))).size,
       evaluationCount: rows.length,
       averagePercentage: average(percentages),
       strongestCriterion: extremes.strongest,
@@ -224,6 +308,7 @@ export function aggregateGrowthRecords({
 
   return {
     activities: activities.toSorted((a, b) => b.reviewCount - a.reviewCount),
+    activitySpecialRecords,
     students,
     reviewStudentCount: students.filter((student) => student.reviewReasons.length > 0).length,
     unnamedResultCount,
