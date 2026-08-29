@@ -1,7 +1,7 @@
 import type { Json } from "@/lib/db/types";
 
 export type AssessmentPrepStage = {
-  key: "context" | "standards" | "rubric" | "notion" | "guidance" | "sample";
+  key: "context" | "standards" | "rubric";
   label: string;
   description: string;
   complete: boolean;
@@ -99,16 +99,6 @@ export function buildAssessmentPrepReadiness({
   const selectedStandards = savedStandards.length > 0
     ? savedStandards
     : readSelectedStandardCodes(rubricGenerationContext);
-  const notionSource = asRecord(project.notion_source);
-  const prepNotionConfig = asRecord(assessmentPrep?.notion_config);
-  const hasNotionMapping = hasText(
-    typeof prepNotionConfig?.database_url === "string"
-      ? prepNotionConfig.database_url
-      : typeof notionSource?.database_url === "string"
-        ? notionSource.database_url
-        : "",
-  );
-
   const prepHref = assessmentPrep ? `/dashboard/prep/${assessmentPrep.id}` : `/dashboard/prep#project-${project.id}`;
   const stages: AssessmentPrepStage[] = [
     {
@@ -135,37 +125,6 @@ export function buildAssessmentPrepReadiness({
       label: "평가 기준",
       description: "실제 결과물에서 관찰할 기준과 배점을 확인합니다.",
       complete: Boolean(project.rubric_id) && criterionCount > 0,
-      href: prepHref,
-    },
-    {
-      key: "notion",
-      label: "Notion 읽기",
-      description: notionConnectionConfigured
-        ? notionResultCount > 0
-          ? `학생 결과물 위치가 연결되어 있고 ${notionResultCount}개를 읽었습니다.`
-          : "학생 결과물 데이터베이스와 읽기 위치를 연결합니다."
-        : "서버의 Notion 읽기 연결을 먼저 설정합니다.",
-      complete: notionConnectionConfigured && hasNotionMapping,
-      href: prepHref,
-    },
-    {
-      key: "guidance",
-      label: "학생 안내·안전",
-      description: "학생 안내와 개인정보·AI 사용 규칙을 확인합니다.",
-      complete: Boolean(
-        assessmentPrep
-        && hasText(assessmentPrep.student_guidance)
-        && hasText(assessmentPrep.safety_rules),
-      ),
-      href: prepHref,
-    },
-    {
-      key: "sample",
-      label: "샘플 시험 평가",
-      description: teacherEvaluationCount > 0
-        ? `예시 적용을 점검합니다. 현재 교사 평가 ${teacherEvaluationCount}건이 있습니다.`
-        : "예시 결과물로 기준 적용을 점검합니다.",
-      complete: Boolean(assessmentPrep && hasText(assessmentPrep.sample_evaluation_notes)),
       href: prepHref,
     },
   ];

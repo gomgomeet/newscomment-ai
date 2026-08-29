@@ -16,6 +16,7 @@ import {
 } from "@/lib/assessment-prep/readiness";
 import { requireUser } from "@/lib/auth/require-user";
 import { projectStatusLabels } from "@/lib/constants/project-status";
+import { readAssessmentSurveyConfig } from "@/lib/evaluation/assessment-survey";
 import { readNotionSourceDefaults } from "@/lib/notion/project-source";
 import { getEvaluationNotionConnectionStatus } from "@/lib/notion/teacher-connection";
 
@@ -29,7 +30,7 @@ export default async function ProjectDetailPage({
   const { projectId } = await params;
   const { message, notice, view } = await searchParams;
   const initialEvaluationView =
-    view === "all" || view === "remaining" || view === "priority" ? view : "priority";
+    view === "answers" ? "all" : view === "all" || view === "remaining" || view === "priority" ? view : "priority";
   const { supabase, user } = await requireUser();
   const notionConnectionPromise = getEvaluationNotionConnectionStatus({ supabase, userId: user.id });
   const { data: project, error } = await supabase
@@ -42,6 +43,8 @@ export default async function ProjectDetailPage({
   if (error || !project) {
     notFound();
   }
+
+  const assessmentSurvey = readAssessmentSurveyConfig(project.notion_source);
 
   const { data: rubric } = project.rubric_id
     ? await supabase
@@ -106,6 +109,36 @@ export default async function ProjectDetailPage({
     throw new Error(savedPrepError.message);
   }
 
+  const { data: activePrepVersion, error: activePrepVersionError } = savedPrep?.active_version_id
+    ? await supabase
+        .from("assessment_prep_versions")
+        .select("rubric_id")
+        .eq("id", savedPrep.active_version_id)
+        .eq("prep_id", savedPrep.id)
+        .eq("project_id", project.id)
+        .maybeSingle()
+    : { data: null, error: null };
+
+  if (activePrepVersionError) {
+    throw new Error(activePrepVersionError.message);
+  }
+
+  const evaluationRubricId = activePrepVersion?.rubric_id ?? project.rubric_id;
+  const { data: evaluationCriteria, error: evaluationCriteriaError } = !evaluationRubricId
+    ? { data: [], error: null }
+    : evaluationRubricId === project.rubric_id
+      ? { data: criteria ?? [], error: null }
+      : await supabase
+        .from("rubric_criteria")
+        .select("*")
+        .eq("rubric_id", evaluationRubricId)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true });
+
+  if (evaluationCriteriaError) {
+    throw new Error(evaluationCriteriaError.message);
+  }
+
   const evaluationIds = (evaluations ?? []).map((evaluation) => evaluation.id);
   const teacherEvaluations = (evaluations ?? []).filter((evaluation) => evaluation.source === "teacher-manual");
   const aiEvaluations = (evaluations ?? []).filter((evaluation) => evaluation.source === "ai-draft");
@@ -127,6 +160,53 @@ export default async function ProjectDetailPage({
     teacherEvaluationCount: teacherEvaluations.length,
     assessmentPrep: savedPrep,
   });
+
+  if (view === "answers") {
+    const assessmentAnswers = (comments ?? []).filter((comment) => (
+      comment.metadata
+      && typeof comment.metadata === "object"
+      && !Array.isArray(comment.metadata)
+      && comment.metadata.source === "assessment-survey"
+    ));
+
+    return (
+      <div className="mx-auto max-w-6xl space-y-6">
+        <header className="flex flex-col justify-between gap-4 border-b pb-5 sm:flex-row sm:items-end">
+          <div>
+            <p className="text-sm font-semibold text-teal-700">온라인 평가지 답안</p>
+            <h2 className="mt-1 text-2xl font-semibold tracking-tight">{project.title}</h2>
+            <p className="mt-2 text-sm text-muted-foreground">문항별 답안 {assessmentAnswers.length}개</p>
+          </div>
+          <Button asChild variant="outline">
+            <Link href="/dashboard/evaluation">평가 바로 하기로</Link>
+          </Button>
+        </header>
+        {message ? (
+          <Card className="border-destructive">
+            <CardContent className="p-4 text-sm text-destructive">{message}</CardContent>
+          </Card>
+        ) : null}
+        {notice ? (
+          <Card className="border-teal-200 bg-teal-50">
+            <CardContent className="p-4 text-sm text-teal-900">{notice}</CardContent>
+          </Card>
+        ) : null}
+        <CommentEvaluationList
+          projectId={project.id}
+          comments={assessmentAnswers}
+          criteria={evaluationCriteria ?? []}
+          teacherEvaluations={teacherEvaluations}
+          aiEvaluations={aiEvaluations}
+          scores={scores ?? []}
+          initialView="all"
+          answerMode
+          questionCriteria={assessmentSurvey?.questionCriteria ?? []}
+          questionRubrics={assessmentSurvey?.questionRubrics ?? []}
+          questionTeacherGuidance={assessmentSurvey?.questionTeacherGuidance ?? []}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px]">
@@ -181,11 +261,14 @@ export default async function ProjectDetailPage({
         <CommentEvaluationList
           projectId={project.id}
           comments={comments ?? []}
-          criteria={criteria ?? []}
+          criteria={evaluationCriteria ?? []}
           teacherEvaluations={teacherEvaluations}
           aiEvaluations={aiEvaluations}
           scores={scores ?? []}
           initialView={initialEvaluationView}
+          questionCriteria={assessmentSurvey?.questionCriteria ?? []}
+          questionRubrics={assessmentSurvey?.questionRubrics ?? []}
+          questionTeacherGuidance={assessmentSurvey?.questionTeacherGuidance ?? []}
         />
       </section>
       <aside className="space-y-4">

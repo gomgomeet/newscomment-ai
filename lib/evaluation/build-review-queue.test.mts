@@ -210,3 +210,44 @@ test("교사 확정 평가에 평가 포워드가 없으면 확인 우선에 남
   assert.equal(result[0].signals.growthReady, false);
   assert.ok(result[0].priorityReasons.includes("평가 포워드 확인"));
 });
+
+test("온라인 평가지 답안에는 해당 문항에서 저장한 평가 요소와 4점 배점을 적용한다", () => {
+  const selectedCriterion = criterion({ id: "criterion-selected", label: "중심 내용 파악" });
+  const otherCriterion = criterion({ id: "criterion-other", label: "근거 있는 생각 표현", sort_order: 1 });
+  const result = buildEvaluationReviewQueue({
+    projects: [project({
+      notion_source: {
+        assessment_survey: {
+          version_id: "version-1",
+          title: "중심 생각 쓰기 평가지",
+          prompt: "중심 생각을 쓰세요.",
+          prompts: ["중심 생각을 쓰세요."],
+          question_criteria: [[selectedCriterion.id]],
+          question_rubrics: [{
+            [selectedCriterion.id]: {
+              "4": "핵심 내용을 정확하게 파악한다.",
+              "3": "핵심 내용을 대체로 파악한다.",
+              "2": "핵심 내용 파악이 일부 부족하다.",
+              "1": "핵심 내용을 거의 파악하지 못한다.",
+            },
+          }],
+        },
+      },
+    })],
+    comments: [comment({
+      metadata: {
+        source: "assessment-survey",
+        question_number: 1,
+        survey_prompt: "중심 생각을 쓰세요.",
+      },
+    })],
+    evaluations: [evaluation()],
+    scores: [score({ criterion_id: selectedCriterion.id, score: 4 })],
+    criteria: [selectedCriterion, otherCriterion],
+  });
+
+  assert.equal(result[0].criteria.length, 1);
+  assert.equal(result[0].criteria[0].id, selectedCriterion.id);
+  assert.equal(result[0].criteria[0].maxScore, 4);
+  assert.equal(result[0].criteria[0].aiScore, 4);
+});

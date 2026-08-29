@@ -87,7 +87,7 @@ export default async function InsightsPage() {
         </p>
         <p className="mt-2 text-sm">
           <Link href="/dashboard/compare" className="font-medium text-primary hover:underline">
-            교사 검토 작업대 열기
+            교사 피드백 열기
           </Link>
           <span className="mx-2 text-muted-foreground">·</span>
           <Link href="/dashboard/growth" className="font-medium text-primary hover:underline">

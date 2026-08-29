@@ -1,6 +1,8 @@
 import type { Json } from "@/lib/db/types";
 
 export type NotionSourceDefaults = {
+  source_page_url: string;
+  response_collection_url: string;
   database_url: string;
   content_mode: "property" | "page_body";
   content_property: string;
@@ -9,6 +11,8 @@ export type NotionSourceDefaults = {
 };
 
 const EMPTY_DEFAULTS: NotionSourceDefaults = {
+  source_page_url: "",
+  response_collection_url: "",
   database_url: "",
   content_mode: "property",
   content_property: "",
@@ -29,6 +33,8 @@ export function readNotionSourceDefaults(value: Json): NotionSourceDefaults {
   const contentMode = read("content_mode");
 
   return {
+    source_page_url: read("source_page_url"),
+    response_collection_url: read("response_collection_url"),
     database_url: read("database_url"),
     content_mode: contentMode === "page_body" ? "page_body" : "property",
     content_property: read("content_property"),

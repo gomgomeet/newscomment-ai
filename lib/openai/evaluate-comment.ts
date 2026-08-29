@@ -1,6 +1,25 @@
 import type { Database } from "@/lib/db/types";
 
+export { AI_EVALUATION_PROMPT_VERSION } from "@/lib/evaluation/ai-evaluation-version";
+
 type Criterion = Database["public"]["Tables"]["rubric_criteria"]["Row"];
+
+export type RubricScoreLevels = Record<"4" | "3" | "2" | "1", string>;
+
+const EVALUATION_AUTOMATION_GUIDELINES = [
+  "Treat the provided rubric as the teacher-approved rubric. Do not create, replace, or reinterpret competing criteria.",
+  "Evaluate the student's answer against the assessment material, question, achievement standard, goal, and rubric.",
+  "When a criterion includes score_levels, choose exactly one of the listed 4, 3, 2, or 1 point levels by matching the student's observable evidence to that descriptor. Do not use the database rubric maximum or invent an intermediate score.",
+  "Return one score for every provided criterion and no scores for criteria that were not provided for this question.",
+  "When teacher_guidance is provided, treat it as an authoritative calibration for this question and apply it consistently to both scores and narrative feedback while staying within the supplied score levels.",
+  "For every criterion, quote a short exact phrase from the student's answer before assigning a score. Never invent evidence and do not score generously when evidence is absent.",
+  "Use the assessment source internally to check understanding, but keep student-facing feedback focused on the student's answer.",
+  "Write three or four concise Korean sentences at the provided target grade level: praise one observable strength, explain one improvement, and include a usable example sentence.",
+  "Write evaluation_forward as one friendly next challenge ending in '~해 보면 어떨까요?'.",
+  "Do not add generic caveats such as 'the original text was not provided' or 'accuracy is difficult to verify'. When source material is empty, evaluate only observable features of the answer without apologizing for missing context.",
+  "Lower confidence and add a review reason when the answer is too short, weakly related, lacks direct evidence, falls near a score boundary, or is difficult to distinguish between two levels.",
+  "This is an AI draft for teacher review. Never present the score or feedback as the teacher's final decision.",
+].join(" ");
 
 export type AiEvaluationResult = {
   model: string;
@@ -94,6 +113,12 @@ export async function evaluateCommentWithOpenAI({
   criteria,
   evaluationGoal,
   achievementStandards,
+  assessmentTitle,
+  assessmentSourceText,
+  assessmentPrompt,
+  targetGrade,
+  criterionScoreLevels,
+  teacherGuidance,
 }: {
   projectTitle: string;
   rubricTitle: string;
@@ -101,6 +126,12 @@ export async function evaluateCommentWithOpenAI({
   criteria: Criterion[];
   evaluationGoal?: string;
   achievementStandards?: unknown;
+  assessmentTitle?: string;
+  assessmentSourceText?: string;
+  assessmentPrompt?: string;
+  targetGrade?: string;
+  criterionScoreLevels?: Record<string, RubricScoreLevels>;
+  teacherGuidance?: string;
 }): Promise<AiEvaluationResult> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -120,8 +151,7 @@ export async function evaluateCommentWithOpenAI({
       input: [
         {
           role: "system",
-          content:
-            "You help teachers draft evidence-grounded evaluations. Find an exact short quote from the student work before assigning each score. Never invent evidence. Score conservatively against the provided rubric. Return Korean feedback. If evidence is weak, lower confidence and add a review reason. The teacher makes the final decision.",
+          content: EVALUATION_AUTOMATION_GUIDELINES,
         },
         {
           role: "user",
@@ -129,13 +159,19 @@ export async function evaluateCommentWithOpenAI({
             project_title: projectTitle,
             rubric_title: rubricTitle,
             comment,
+            assessment_title: assessmentTitle || null,
+            assessment_source_text: assessmentSourceText?.slice(0, 50000) || null,
+            assessment_prompt: assessmentPrompt || null,
+            target_grade: targetGrade || null,
+            teacher_guidance: teacherGuidance || null,
             evaluation_goal: evaluationGoal || null,
             achievement_standards: achievementStandards ?? null,
             criteria: criteria.map((criterion) => ({
               criterion_id: criterion.id,
               label: criterion.label,
               description: criterion.description,
-              max_score: criterion.max_score,
+              max_score: criterionScoreLevels?.[criterion.id] ? 4 : criterion.max_score,
+              score_levels: criterionScoreLevels?.[criterion.id] ?? null,
             })),
           }),
         },
@@ -172,6 +208,10 @@ export async function evaluateCommentWithOpenAI({
                     "결과물이 너무 짧거나 손상됨",
                     "학생 식별자 누락",
                     "기존 교사 평가와 큰 차이",
+                    "평가지 연결 불명확",
+                    "답안이 주제와 관련이 약함",
+                    "영역별 점수 차이가 큼",
+                    "두 수준 사이 판단 필요",
                   ],
                 },
               },

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AssessmentPrepEditor } from "@/components/assessment-prep/prep-editor";
+import { AssessmentPrepOverview } from "@/components/assessment-prep/prep-overview";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { buildAssessmentPrepReadiness, isNotionResultMetadata } from "@/lib/assessment-prep/readiness";
@@ -12,10 +13,10 @@ export default async function AssessmentPrepDetailPage({
   searchParams,
 }: {
   params: Promise<{ prepId: string }>;
-  searchParams: Promise<{ message?: string; notice?: string }>;
+  searchParams: Promise<{ message?: string; notice?: string; mode?: string }>;
 }) {
   const { prepId } = await params;
-  const { message, notice } = await searchParams;
+  const { message, notice, mode } = await searchParams;
   const { supabase, user } = await requireUser();
 
   const { data: prep, error: prepError } = await supabase
@@ -64,18 +65,27 @@ export default async function AssessmentPrepDetailPage({
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex justify-end"><Button asChild variant="ghost"><Link href="/dashboard/prep">평가 준비 목록으로</Link></Button></div>
+      <div className="flex justify-end"><Button asChild variant="ghost"><Link href="/dashboard/prep">평가 설계 목록으로</Link></Button></div>
       {message ? <Card className="border-destructive"><CardContent className="p-4 text-sm text-destructive">{message}</CardContent></Card> : null}
       {notice ? <Card className="border-teal-200 bg-teal-50"><CardContent className="p-4 text-sm text-teal-900">{notice}</CardContent></Card> : null}
-      <AssessmentPrepEditor
-        prep={prep}
-        project={project}
-        rubric={rubricResult.data}
-        criteria={criteriaResult.data ?? []}
-        versions={versionsResult.data ?? []}
-        readiness={readiness}
-        notionConnection={notionConnection}
-      />
+      {mode === "edit" ? (
+        <AssessmentPrepEditor
+          prep={prep}
+          project={project}
+          rubric={rubricResult.data}
+          criteria={criteriaResult.data ?? []}
+          versions={versionsResult.data ?? []}
+          readiness={readiness}
+          notionConnection={notionConnection}
+        />
+      ) : (
+        <AssessmentPrepOverview
+          prep={prep}
+          project={project}
+          rubric={rubricResult.data}
+          criteria={criteriaResult.data ?? []}
+        />
+      )}
     </div>
   );
 }

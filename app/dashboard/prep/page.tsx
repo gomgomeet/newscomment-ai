@@ -1,147 +1,62 @@
 import Link from "next/link";
-import { ArrowRight, CheckCircle2, CircleDashed, Database, FileSearch, ShieldCheck } from "lucide-react";
+import { ArrowRight, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { openAssessmentPrep } from "@/app/dashboard/prep/actions";
-import { EvaluationNotionConnectionCard } from "@/components/notion/evaluation-notion-connection-card";
-import {
-  buildAssessmentPrepReadiness,
-  isNotionResultMetadata,
-} from "@/lib/assessment-prep/readiness";
+import { createNewAssessmentPrep, openAssessmentPrep } from "@/app/dashboard/prep/actions";
+import { DeleteAssessmentPrepButton } from "@/components/assessment-prep/prep-list-actions";
 import { requireUser } from "@/lib/auth/require-user";
-import { getEvaluationNotionConnectionStatus } from "@/lib/notion/teacher-connection";
 
-export default async function AssessmentPrepPage() {
+export default async function AssessmentPrepPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ message?: string; notice?: string }>;
+}) {
+  const { message, notice } = await searchParams;
   const { supabase, user } = await requireUser();
-  const [projectsResult, rubricsResult, criteriaResult, commentsResult, evaluationsResult, prepsResult, notionConnection] = await Promise.all([
+  const [projectsResult, rubricsResult, prepsResult] = await Promise.all([
     supabase
       .from("projects")
-      .select("id, title, description, status, rubric_id, notion_source, updated_at")
+      .select("id, title, description, status, rubric_id, notion_source, created_at, updated_at")
       .eq("owner_id", user.id)
       .order("updated_at", { ascending: false }),
     supabase
       .from("rubrics")
-      .select("id, title, generation_context")
+      .select("id, title")
       .eq("owner_id", user.id),
-    supabase.from("rubric_criteria").select("id, rubric_id"),
-    supabase.from("comments").select("id, project_id, metadata"),
-    supabase
-      .from("evaluations")
-      .select("id, project_id")
-      .eq("evaluator_id", user.id)
-      .eq("source", "teacher-manual"),
     supabase
       .from("assessment_preps")
       .select("*")
       .eq("owner_id", user.id),
-    getEvaluationNotionConnectionStatus({ supabase, userId: user.id }),
   ]);
 
   const queryError = projectsResult.error
     ?? rubricsResult.error
-    ?? criteriaResult.error
-    ?? commentsResult.error
-    ?? evaluationsResult.error
     ?? prepsResult.error;
   if (queryError) throw new Error(queryError.message);
 
   const projects = projectsResult.data ?? [];
   const rubrics = rubricsResult.data ?? [];
-  const criteria = criteriaResult.data ?? [];
-  const comments = commentsResult.data ?? [];
-  const evaluations = evaluationsResult.data ?? [];
   const prepByProjectId = new Map((prepsResult.data ?? []).map((prep) => [prep.project_id, prep]));
   const rubricById = new Map(rubrics.map((rubric) => [rubric.id, rubric]));
-  const criterionCountByRubric = new Map<string, number>();
-  const notionResultCountByProject = new Map<string, number>();
-  const teacherEvaluationCountByProject = new Map<string, number>();
-  const notionConfigured = notionConnection.configured;
-
-  for (const criterion of criteria) {
-    criterionCountByRubric.set(
-      criterion.rubric_id,
-      (criterionCountByRubric.get(criterion.rubric_id) ?? 0) + 1,
-    );
-  }
-
-  for (const comment of comments) {
-    if (isNotionResultMetadata(comment.metadata)) {
-      notionResultCountByProject.set(
-        comment.project_id,
-        (notionResultCountByProject.get(comment.project_id) ?? 0) + 1,
-      );
-    }
-  }
-
-  for (const evaluation of evaluations) {
-    teacherEvaluationCountByProject.set(
-      evaluation.project_id,
-      (teacherEvaluationCountByProject.get(evaluation.project_id) ?? 0) + 1,
-    );
-  }
 
   const rows = projects.map((project) => {
     const rubric = project.rubric_id ? rubricById.get(project.rubric_id) : null;
     const prep = prepByProjectId.get(project.id) ?? null;
-    const readiness = buildAssessmentPrepReadiness({
-      project,
-      rubricGenerationContext: rubric?.generation_context,
-      criterionCount: project.rubric_id ? criterionCountByRubric.get(project.rubric_id) ?? 0 : 0,
-      notionConnectionConfigured: notionConfigured,
-      notionResultCount: notionResultCountByProject.get(project.id) ?? 0,
-      teacherEvaluationCount: teacherEvaluationCountByProject.get(project.id) ?? 0,
-      assessmentPrep: prep,
-    });
-
-    return { project, rubric, prep, readiness };
+    return { project, rubric, prep };
   });
 
   return (
-    <div className="mx-auto max-w-7xl space-y-8">
-      <section className="overflow-hidden rounded-2xl border border-indigo-900/10 bg-[linear-gradient(135deg,#eef2ff_0%,#ffffff_58%,#ecfeff_100%)] p-6 sm:p-8">
-        <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
-          <div className="max-w-3xl">
-            <p className="text-sm font-semibold text-indigo-700">평가 준비 프렙</p>
-            <h2 className="mt-2 text-3xl font-semibold tracking-tight">준비 기준이 평가와 성장 기록까지 이어집니다.</h2>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              성취기준·평가 목표·루브릭을 먼저 확인하고, Notion의 학생 결과물을 읽어 교사 평가와 성장 기록 보드에 연결합니다.
-              Notion 원본에는 평가 결과를 자동으로 덮어쓰지 않습니다.
-            </p>
-          </div>
-          <Button asChild>
-            <Link href="/dashboard/projects">수업활동 관리 <ArrowRight className="h-4 w-4" /></Link>
-          </Button>
-        </div>
-      </section>
-
-      <EvaluationNotionConnectionCard connection={notionConnection} compact />
-
-      <section className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardContent className="flex gap-4 p-5">
-            <span className="rounded-xl bg-indigo-50 p-3 text-indigo-700"><FileSearch className="h-5 w-5" /></span>
-            <div><p className="font-semibold">1. 평가 기준 준비</p><p className="mt-1 text-sm text-muted-foreground">목표·성취기준·관찰 기준을 고정합니다.</p></div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex gap-4 p-5">
-            <span className="rounded-xl bg-blue-50 p-3 text-blue-700"><Database className="h-5 w-5" /></span>
-            <div><p className="font-semibold">2. Notion 결과물 읽기</p><p className="mt-1 text-sm text-muted-foreground">속성 또는 학생 페이지 본문을 가져옵니다.</p></div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex gap-4 p-5">
-            <span className="rounded-xl bg-teal-50 p-3 text-teal-700"><ShieldCheck className="h-5 w-5" /></span>
-            <div><p className="font-semibold">3. 교사 확정·누적</p><p className="mt-1 text-sm text-muted-foreground">교사 판단만 성장 기록에 반영합니다.</p></div>
-          </CardContent>
-        </Card>
-      </section>
-
+    <div className="mx-auto max-w-7xl space-y-6">
       <section className="space-y-4">
-        <div>
-          <h3 className="text-xl font-semibold tracking-tight">수업활동별 연결 상태</h3>
-          <p className="mt-1 text-sm text-muted-foreground">미완료 단계부터 이어서 설정할 수 있습니다.</p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-xl font-semibold">평가 설계</h2>
+          <form action={createNewAssessmentPrep}>
+            <Button type="submit"><Plus className="h-4 w-4" /> 새 평가 설계</Button>
+          </form>
         </div>
+
+        {message ? <Card className="border-destructive"><CardContent className="p-4 text-sm text-destructive">{message}</CardContent></Card> : null}
+        {notice ? <Card className="border-teal-200 bg-teal-50"><CardContent className="p-4 text-sm text-teal-900">{notice}</CardContent></Card> : null}
 
         {rows.length === 0 ? (
           <Card>
@@ -152,52 +67,50 @@ export default async function AssessmentPrepPage() {
             <CardContent><Button asChild><Link href="/dashboard/projects">첫 수업활동 만들기</Link></Button></CardContent>
           </Card>
         ) : (
-          <div className="grid gap-4 lg:grid-cols-2">
-            {rows.map(({ project, rubric, prep, readiness }) => (
-              <Card key={project.id} id={`project-${project.id}`} className="scroll-mt-24 overflow-hidden">
-                <CardHeader>
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <CardTitle>{project.title}</CardTitle>
-                      <CardDescription className="mt-1">
-                        {rubric?.title ?? "연결된 루브릭 없음"} · {project.status}
-                      </CardDescription>
+          <div className="grid gap-3 lg:grid-cols-2">
+            {rows.map(({ project, rubric, prep }) => (
+              <Card key={project.id} id={`project-${project.id}`} className="relative overflow-hidden transition-colors hover:border-teal-300 hover:bg-teal-50/30">
+                {prep ? (
+                  <>
+                    <div className="absolute right-3 top-3 z-10">
+                      <DeleteAssessmentPrepButton prepId={prep.id} title={project.title} />
                     </div>
-                    <span className="rounded-full bg-indigo-50 px-3 py-1 text-sm font-semibold text-indigo-700">
-                      {readiness.completedCount}/6
-                    </span>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {readiness.stages.map((stage) => (
-                      <Link key={stage.key} href={stage.href} className="flex gap-2 rounded-lg border p-3 hover:border-indigo-300">
-                        {stage.complete
-                          ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-teal-600" />
-                          : <CircleDashed className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />}
-                        <span><span className="text-sm font-medium">{stage.label}</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{stage.description}</span></span>
-                      </Link>
-                    ))}
-                  </div>
-                  {readiness.selectedStandards.length > 0 ? (
-                    <p className="text-xs text-muted-foreground">연결 성취기준 · {readiness.selectedStandards.join(", ")}</p>
-                  ) : null}
-                  <div className="flex justify-end">
-                    {prep ? (
-                      <Button asChild size="sm" variant="outline">
-                        <Link href={`/dashboard/prep/${prep.id}`}>
-                          {readiness.completedCount === 6 ? "평가 준비안 열기" : `${readiness.nextStage?.label ?? "평가 준비"} 이어서 하기`}
-                          <ArrowRight className="h-4 w-4" />
-                        </Link>
-                      </Button>
-                    ) : (
-                      <form action={openAssessmentPrep}>
-                        <input type="hidden" name="project_id" value={project.id} />
-                        <Button size="sm">이 수업의 평가 준비 시작 <ArrowRight className="h-4 w-4" /></Button>
-                      </form>
-                    )}
-                  </div>
-                </CardContent>
+                    <Link href={`/dashboard/prep/${prep.id}`} className="block h-full p-5 pr-14 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <div className="flex h-full flex-col justify-between gap-5">
+                      <div>
+                        <CardTitle className="text-lg">{project.title}</CardTitle>
+                        <CardDescription className="mt-2 line-clamp-2 leading-6">
+                          {project.description || prep.lesson_context || "저장된 평가 설계 내용을 확인합니다."}
+                        </CardDescription>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4 text-sm">
+                        <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
+                          <span>{new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium" }).format(new Date(project.created_at))}</span>
+                          <span>{[prep.grade_level, prep.subject].filter(Boolean).join(" · ") || "설계 작성 중"}</span>
+                          {rubric ? <span className="rounded-md bg-teal-50 px-2 py-1 font-medium text-teal-800">루브릭 완료</span> : null}
+                        </div>
+                        <span className="inline-flex items-center gap-1 font-semibold text-teal-800">
+                          설계 내용 보기 <ArrowRight className="h-4 w-4" />
+                        </span>
+                      </div>
+                    </div>
+                    </Link>
+                  </>
+                ) : (
+                  <form action={openAssessmentPrep} className="h-full">
+                    <input type="hidden" name="project_id" value={project.id} />
+                    <button type="submit" className="flex h-full w-full flex-col justify-between gap-5 p-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                      <div>
+                        <CardTitle className="text-lg">{project.title}</CardTitle>
+                        <CardDescription className="mt-2 line-clamp-2 leading-6">{project.description || "새 평가 설계를 시작합니다."}</CardDescription>
+                      </div>
+                      <div className="flex w-full items-center justify-between border-t pt-4 text-sm">
+                        <span className="text-muted-foreground">설계 전</span>
+                        <span className="inline-flex items-center gap-1 font-semibold text-teal-800">평가 설계 시작 <ArrowRight className="h-4 w-4" /></span>
+                      </div>
+                    </button>
+                  </form>
+                )}
               </Card>
             ))}
           </div>
