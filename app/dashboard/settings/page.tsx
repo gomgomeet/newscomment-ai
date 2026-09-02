@@ -1,6 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EvaluationNotionConnectionCard } from "@/components/notion/evaluation-notion-connection-card";
 import { requireUser } from "@/lib/auth/require-user";
+import { getAiDraftProviderStatus } from "@/lib/evaluation/ai-draft-provider";
 import { getEvaluationNotionConnectionStatus } from "@/lib/notion/teacher-connection";
 
 const setupItems = [
@@ -26,7 +27,7 @@ const privacyItems = [
 export default async function SettingsPage() {
   const { supabase, user } = await requireUser();
   const notionConnection = await getEvaluationNotionConnectionStatus({ supabase, userId: user.id });
-  const hasOpenAiKey = Boolean(process.env.OPENAI_API_KEY);
+  const aiDraftProvider = getAiDraftProviderStatus();
 
   return (
     <div className="space-y-6">
@@ -45,8 +46,8 @@ export default async function SettingsPage() {
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <p><span className="font-medium">Supabase 주소:</span> 공개 환경변수로 설정됨</p>
-            <p><span className="font-medium">OpenAI 키:</span> {hasOpenAiKey ? "설정됨" : "설정 안 됨"}</p>
-            <p><span className="font-medium">AI 모델:</span> {process.env.OPENAI_EVALUATION_MODEL || "gpt-5.6"}</p>
+            <p><span className="font-medium">AI 초안 제공자:</span> {aiDraftProvider.configured ? aiDraftProvider.label : "설정 안 됨"}</p>
+            <p><span className="font-medium">AI 모델:</span> {aiDraftProvider.model}</p>
             <p><span className="font-medium">Notion 연결:</span> {notionConnection.configured ? notionConnection.workspaceLabel : "연결 필요"}</p>
             <p><span className="font-medium">Notion API 버전:</span> {process.env.NOTION_API_VERSION || "2022-06-28"}</p>
           </CardContent>

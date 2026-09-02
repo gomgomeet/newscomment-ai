@@ -1,21 +1,11 @@
-import type { Database } from "@/lib/db/types";
+import {
+  AI_DRAFT_REVIEW_REASONS,
+  isEvaluationPayload,
+  type AiEvaluationInput,
+  type AiEvaluationResult,
+} from "@/lib/evaluation/ai-draft-contract";
 
-type Criterion = Database["public"]["Tables"]["rubric_criteria"]["Row"];
-
-export type AiEvaluationResult = {
-  model: string;
-  feedback: string;
-  evaluation_forward: string;
-  confidence: number;
-  review_reasons: string[];
-  scores: {
-    criterion_id: string;
-    score: number;
-    evidence_quote: string;
-    rationale: string;
-  }[];
-  raw: unknown;
-};
+export const DEFAULT_OPENAI_EVALUATION_MODEL = "gpt-5.6";
 
 function extractOutputText(response: { output_text?: unknown; output?: unknown }) {
   if (typeof response.output_text === "string") {
@@ -49,44 +39,6 @@ function extractOutputText(response: { output_text?: unknown; output?: unknown }
   return null;
 }
 
-function isEvaluationPayload(value: unknown): value is Omit<AiEvaluationResult, "model" | "raw"> {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const payload = value as {
-    feedback?: unknown;
-    evaluation_forward?: unknown;
-    confidence?: unknown;
-    review_reasons?: unknown;
-    scores?: unknown;
-  };
-  return (
-    typeof payload.feedback === "string" &&
-    typeof payload.evaluation_forward === "string" &&
-    typeof payload.confidence === "number" &&
-    payload.confidence >= 0 &&
-    payload.confidence <= 1 &&
-    Array.isArray(payload.review_reasons) &&
-    payload.review_reasons.every((reason) => typeof reason === "string") &&
-    Array.isArray(payload.scores) &&
-    payload.scores.every((score) => {
-      if (typeof score !== "object" || score === null) {
-        return false;
-      }
-
-      const item = score as { criterion_id?: unknown; score?: unknown; evidence_quote?: unknown; rationale?: unknown };
-      return (
-        typeof item.criterion_id === "string" &&
-        typeof item.score === "number" &&
-        Number.isFinite(item.score) &&
-        typeof item.evidence_quote === "string" &&
-        typeof item.rationale === "string"
-      );
-    })
-  );
-}
-
 export async function evaluateCommentWithOpenAI({
   projectTitle,
   rubricTitle,
@@ -94,20 +46,13 @@ export async function evaluateCommentWithOpenAI({
   criteria,
   evaluationGoal,
   achievementStandards,
-}: {
-  projectTitle: string;
-  rubricTitle: string;
-  comment: string;
-  criteria: Criterion[];
-  evaluationGoal?: string;
-  achievementStandards?: unknown;
-}): Promise<AiEvaluationResult> {
+}: AiEvaluationInput): Promise<AiEvaluationResult> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY가 설정되어 있지 않습니다.");
   }
 
-  const model = process.env.OPENAI_EVALUATION_MODEL || "gpt-5.6";
+  const model = process.env.OPENAI_EVALUATION_MODEL || DEFAULT_OPENAI_EVALUATION_MODEL;
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -165,14 +110,7 @@ export async function evaluateCommentWithOpenAI({
                 type: "array",
                 items: {
                   type: "string",
-                  enum: [
-                    "근거 부족",
-                    "루브릭 기준 간 모순",
-                    "점수 경계에 가까움",
-                    "결과물이 너무 짧거나 손상됨",
-                    "학생 식별자 누락",
-                    "기존 교사 평가와 큰 차이",
-                  ],
+                  enum: [...AI_DRAFT_REVIEW_REASONS],
                 },
               },
               scores: {
