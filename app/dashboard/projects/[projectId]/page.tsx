@@ -16,6 +16,7 @@ import {
 } from "@/lib/assessment-prep/readiness";
 import { requireUser } from "@/lib/auth/require-user";
 import { projectStatusLabels } from "@/lib/constants/project-status";
+import { getAiDraftProviderStatus } from "@/lib/evaluation/ai-draft-provider";
 import { readNotionSourceDefaults } from "@/lib/notion/project-source";
 import { getEvaluationNotionConnectionStatus } from "@/lib/notion/teacher-connection";
 
@@ -128,6 +129,7 @@ export default async function ProjectDetailPage({
     assessmentPrep: savedPrep,
   });
 
+  const aiDraftProvider = getAiDraftProviderStatus();
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px]">
       <section className="space-y-6">
@@ -151,7 +153,7 @@ export default async function ProjectDetailPage({
         <Card className="border-indigo-200 bg-indigo-50/40">
           <CardContent className="flex flex-col justify-between gap-4 p-5 sm:flex-row sm:items-center">
             <div><p className="font-semibold">AI 평가 초안 일괄 만들기</p><p className="mt-1 text-sm text-muted-foreground">현재 활성 평가안으로 아직 초안이 없는 결과물을 최대 20개까지 개별 처리합니다. 한 건 실패해도 나머지는 계속됩니다.</p></div>
-            <form action={generateProjectAiDrafts}><input type="hidden" name="project_id" value={project.id} /><Button type="submit" variant="outline" disabled={!process.env.OPENAI_API_KEY || !savedPrep?.active_version_id}>미초안 전체 생성</Button></form>
+            <form action={generateProjectAiDrafts}><input type="hidden" name="project_id" value={project.id} /><Button type="submit" variant="outline" disabled={!aiDraftProvider.configured || !savedPrep?.active_version_id}>미초안 전체 생성</Button></form>
           </CardContent>
         </Card>
         <Card>

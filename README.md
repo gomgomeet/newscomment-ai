@@ -8,7 +8,7 @@
 | 경로 | `/dashboard/*` | `/questioning-board`(교사) · `/questioning-chatbot`(학생) |
 | 로그인 | 필요 — Google 로그인 또는 이메일/비밀번호 | 없음. 교사는 주소로, 학생은 수업 코드로 들어간다 |
 | 저장 위치 | Supabase Postgres (RLS) | 교사 개인 Notion + Supabase |
-| 쓰는 AI | OpenAI (평가 초안, 선택) | Gemini (대화) |
+| 쓰는 AI | Claude 또는 OpenAI (평가 초안, 선택) | Gemini (대화) |
 | 코드량 | 약 3,800줄 | 약 15,800줄 |
 
 두 도구는 **서로 코드를 거의 참조하지 않는다.** 평가 대시보드는 질문 챗봇 코드를 한 줄도 부르지 않고, 반대 방향은 Notion URL에서 데이터베이스 ID를 뽑는 함수 하나뿐이다. 데이터베이스 표도 겹치지 않는다.
@@ -44,7 +44,7 @@ Google 제공자를 켜기 전에도 버튼은 보이지만, 누르면 오류 �
 
 ### 채점
 
-교사가 기준별로 직접 점수를 매긴다. `OPENAI_API_KEY`가 있으면 **AI 초안**을 만들어 참고할 수 있다. 저장 주체는 언제나 교사다.
+교사가 기준별로 직접 점수를 매긴다. `ANTHROPIC_API_KEY`(Claude) 또는 `OPENAI_API_KEY`가 있으면 **AI 초안**을 만들어 참고할 수 있다. 저장 주체는 언제나 교사다.
 
 AI 초안과 교사 수동 평가는 `evaluations.source`로 분리해 저장한다. `/dashboard/compare`에서 미평가 결과물까지 포함해 원문·기준별 근거·점수 차이·평가 포워드를 나란히 보고, 교사가 확인할 결과부터 선별해 최종 판단을 남긴다.
 
@@ -91,6 +91,7 @@ AI 초안과 교사 수동 평가는 `evaluations.source`로 분리해 저장한
 - shadcn/ui 스타일의 로컬 컴포넌트
 - `@supabase/ssr` 기반 Supabase Auth
 - RLS가 적용된 Supabase Postgres
+- Claude API (`@anthropic-ai/sdk`, 평가 초안, 선택 — 기본 모델 `claude-fable-5-1`)
 - OpenAI Responses API (평가 초안, 선택)
 - Gemini API (질문 챗봇)
 
@@ -137,7 +138,11 @@ EVALUATION_SECRET_ENCRYPTION_KEY=        # 16자 이상의 서버 전용 임의 
 ### 선택
 
 ```text
-OPENAI_API_KEY=                          # 평가 대시보드의 `AI 초안 생성` 버튼에만 쓰인다
+AI_EVALUATION_PROVIDER=                  # 비우면 키가 있는 쪽을 쓴다(Claude 우선). anthropic | openai
+ANTHROPIC_API_KEY=                       # 평가 대시보드의 `AI 초안 생성` 버튼에만 쓰인다
+ANTHROPIC_EVALUATION_MODEL=claude-fable-5-1
+ANTHROPIC_EVALUATION_EFFORT=             # 선택. low | medium | high(기본) | xhigh | max
+OPENAI_API_KEY=                          # Claude 대신 OpenAI로 초안을 만들 때
 OPENAI_EVALUATION_MODEL=gpt-5.6
 GEMINI_API_KEY=                          # 서버 기본 키. 교사별 키만 쓸 거면 없어도 된다
 GEMINI_QUESTIONING_MODEL=gemini-2.5-flash
@@ -147,7 +152,7 @@ NOTION_API_KEY=                          # 선택: 단일 사용자/시연용 �
 NOTION_API_VERSION=2022-06-28
 ```
 
-수동 평가는 OpenAI 키 없이 된다. 학생 대화는 기본이 **로컬 제공자**이고, 외부 제공자는 학교나 기관이 약관·개인정보 처리·대상 연령을 확인한 뒤에만 켠다.
+수동 평가는 AI 키 없이 된다. Claude 초안은 Fable 5.1의 구조화 출력과 프롬프트 캐시(루브릭 컨텍스트를 system 블록에 고정)를 쓰고, 안전 분류기가 거절하면 서버 쪽 대체 모델(`fallbacks: "default"`)로 재시도한다. 학생 대화는 기본이 **로컬 제공자**이고, 외부 제공자는 학교나 기관이 약관·개인정보 처리·대상 연령을 확인한 뒤에만 켠다.
 
 ---
 

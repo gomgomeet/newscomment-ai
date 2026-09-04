@@ -14,7 +14,7 @@ import {
   EvaluationNotionConnectionError,
   getEvaluationNotionAccessToken,
 } from "@/lib/notion/teacher-connection";
-import { evaluateCommentWithOpenAI } from "@/lib/openai/evaluate-comment";
+import { evaluateCommentDraft } from "@/lib/evaluation/ai-draft-provider";
 
 const MAX_COMMENT_LENGTH = 5000;
 const MAX_BULK_TEXT_LENGTH = 250000;
@@ -716,7 +716,7 @@ export async function generateAiEvaluation(formData: FormData) {
 
   let aiResult;
   try {
-    aiResult = await evaluateCommentWithOpenAI({
+    aiResult = await evaluateCommentDraft({
       projectTitle: project.title,
       rubricTitle: rubric.title,
       comment: comment.content,
@@ -851,7 +851,7 @@ export async function generateProjectAiDrafts(formData: FormData) {
   let failed = 0;
   for (const comment of targets) {
     try {
-      const aiResult = await evaluateCommentWithOpenAI({
+      const aiResult = await evaluateCommentDraft({
         projectTitle: project.title,
         rubricTitle: rubric.title,
         comment: comment.content,
