@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "skills:package": "node scripts/package-skills.mjs",
     "test:evaluation-review": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --experimental-strip-types lib/evaluation/build-review-queue.test.mts",
     "eval:questioning": "node scripts/run-questioning-dialogue-eval.mjs --suite=all",
     "eval:questioning:development": "node scripts/run-questioning-dialogue-eval.mjs --suite=development",
