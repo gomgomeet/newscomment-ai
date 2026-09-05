@@ -193,3 +193,11 @@ Codex가 배포(버전 18)·실제 AI 발화 15개·공개 웹앱 30탭·교사 
 **Codex 한 줄 (다음 PR)** — `Code.js submitTurn`의 호출을 `decidePhase(history, safeMessage, phaseSettingsFor_(material), { currentRelated: analysis.relatedQuestion })`로. 이 한 줄이 들어가야 지시어 이어 묻기·제목 수치 질문이 국면 집계에도 반영된다. 그리고 `GAS-6단계-검증-배포.md`를 `docs/`로.
 
 **남은 관찰 — 응답 시간.** 30명이 동시에 보내면 중앙값 22초, p95 41초다. 교실에서는 길다. 손볼 곳 순서: ① `AIService`의 `reasoningEffort: 'low'`를 `'minimal'`로(구조화 출력만 필요) ② 조립 프롬프트의 최근 대화 6턴 → 4턴, 근거 3 → 2 ③ 수업 운영에서 "한 번에 다 보내기"를 피하고 자기 속도로 보내게 함(실제 수업은 동시에 30명이 누르지 않는다) ④ 그래도 길면 `AI_MODEL`을 더 빠른 모델로. 규칙 경로(AI 꺼짐)는 1초 안팎이므로 시연 전에 AI 응답 시간을 한 번 재 본다.
+
+### 머지 뒤 후속 (PR #55 병합 다음 · 2026-09-05)
+
+`main`에서 새로 낸 작은 PR. 6단계에서 남긴 둘을 닫고 응답 시간의 첫 손잡이를 돌렸다.
+
+- `Code.js`: `decidePhase(…, { currentRelated: analysis.relatedQuestion })` — 지시어 이어 묻기·제목 수치 질문이 국면 집계에도 들어간다. e2e ⑬으로 확인(잔반이 뭐예요? → "이 글에서는 어떤 뜻이야" → 2개 더 → 4번째에 2국면).
+- `AIService.js`: 추론 강도를 `CONFIG.AI_REASONING_EFFORT`로(기본 **minimal**, 전에는 코드에 `low` 고정), 최근 대화 기본 6 → **4턴**. 조립은 구조화 출력 한 번이라 최소 추론이면 충분하다. **실측은 아직이다** — 이 환경엔 API 키가 없다. 기존 시트는 CONFIG 값이 남아 있으므로 `AI_REASONING_EFFORT` 행을 넣거나 `AI_MAX_HISTORY_TURNS`를 4로 바꿔야 적용된다. 교사 미리보기 99-*로 30탭을 다시 돌려 중앙값·p95를 견준다(`scripts/check-gas-browser.cjs`, 예약 번호는 99-631부터).
+- `GAS-6단계-검증-배포.md` → `docs/`.

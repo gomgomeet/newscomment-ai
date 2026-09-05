@@ -408,7 +408,7 @@ function submitTurn(payload) {
   const ruleAnalysis = analyzeStudentTurn_({ message: safeMessage, action: action, material: material, history: history });
   const analysis = ruleAnalysis;
   const plan = selectNextMove_({ guard: guard, analysis: analysis, material: material, history: history });
-  const decision = decidePhase(history, safeMessage, phaseSettingsFor_(material));
+  const decision = decidePhase(history, safeMessage, phaseSettingsFor_(material), { currentRelated: analysis.relatedQuestion });
   plan.isClosing = plan.isClosing || Boolean(decision.closing);
   if (plan.isClosing) plan.primaryMove = 'close';
   // 입력 안전 정책과 종료는 국면 질문보다 우선한다.

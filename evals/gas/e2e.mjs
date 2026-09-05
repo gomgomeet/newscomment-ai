@@ -179,6 +179,17 @@ const related = ['잔반이 뭐예요?', '선택 배식이 뭐예요?', '왜 잔
   record('⑫ 어형이 바뀐 지문 질문 → 딴소리 아님·관련 질문', turns(b)[0].studentMove !== 'small_talk' && turns(b)[0].relatedQuestion === true, `move=${turns(b)[0].studentMove} related=${turns(b)[0].relatedQuestion} "${r.reply.slice(0, 80)}"`);
 }
 
+// ---------- 6c. 지시어로 이어 묻기("이 글에서는 어떤 뜻이야")도 관련 질문으로 세어 4번째에 2국면 ----------
+{
+  const b = start('3-8'); let r;
+  r = send(b, '잔반이 뭐예요?');
+  r = send(b, '이 글에서는 어떤 뜻이야');
+  const contextual = turns(b).filter((t) => t.speaker === 'student')[1];
+  r = send(b, '선택 배식이 뭐예요?');
+  r = send(b, '왜 잔반이 줄었어요?');
+  record('⑬ 지시어 이어 묻기 → 관련 질문으로 집계, 4번째에 2국면', contextual.relatedQuestion === true && r.phase === 2 && r.managedKind === 'comprehension_medium', `contextual.related=${contextual.relatedQuestion} phase=${r.phase} kind=${r.managedKind}`);
+}
+
 // ---------- 7. 반 하나(30명) 두 턴씩 → TURNS 행 60, 세션 섞임 없음 ----------
 {
   const before = run(`getRowsAsObjects_('TURNS')`).length;

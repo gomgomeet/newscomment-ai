@@ -24,7 +24,7 @@
 
 | 시트 | 열 |
 | --- | --- |
-| `CONFIG` | `key` `value` `description` — 키 11개: `APP_NAME` `GREETING_MESSAGE` `SUBJECT` `MAX_INPUT_LENGTH` `MIN_RELEVANCE_SCORE` `MAX_RETRIEVAL_RESULTS` `SHOW_EVIDENCE` `AI_ENABLED` `AI_MODEL` `AI_MAX_OUTPUT_TOKENS` `AI_MAX_HISTORY_TURNS` `STUDENT_WEB_APP_URL` `LESSON_CODE` |
+| `CONFIG` | `key` `value` `description` — 키 11개: `APP_NAME` `GREETING_MESSAGE` `SUBJECT` `MAX_INPUT_LENGTH` `MIN_RELEVANCE_SCORE` `MAX_RETRIEVAL_RESULTS` `SHOW_EVIDENCE` `AI_ENABLED` `AI_MODEL` `AI_REASONING_EFFORT`(기본 minimal) `AI_MAX_OUTPUT_TOKENS` `AI_MAX_HISTORY_TURNS`(기본 4) `STUDENT_WEB_APP_URL` `LESSON_CODE` |
 | `MATERIALS` | `materialId` `title` `grade` `gradeCode` `standard` `standardCode` `text` `startQuestion` `active` `version` `sourceHash` `status` `activityMode` |
 | `CHUNKS` | `chunkId` `materialId` `chunkOrder` `content` `keywords` `sourceLocation` `version` `sourceHash` `status` `active` |
 | `VOCABULARY_LIBRARY` | `vocabularyId` `term` `normalizedTerm` `easyDefinition` `exampleText` `wordGroup` `sourceId` `version` `sourceHash` `status` `active` |

@@ -76,7 +76,8 @@ function getOpenAIApiKey_() {
 
 function getAISettings_(config) {
   return { enabled: isTruthy_(config.AI_ENABLED), model: String(config.AI_MODEL || OPENAI_TERRA_MODEL_),
-    reasoningEffort: 'low', maxHistoryTurns: Math.max(0, Math.min(10, Number(config.AI_MAX_HISTORY_TURNS || 6))),
+    reasoningEffort: normalizeReasoningEffort_(config.AI_REASONING_EFFORT),
+    maxHistoryTurns: Math.max(0, Math.min(10, Number(config.AI_MAX_HISTORY_TURNS || 4))),
     maxOutputTokens: Math.max(200, Math.min(4000, Number(config.AI_MAX_OUTPUT_TOKENS || 1500))) };
 }
 
@@ -283,7 +284,7 @@ function callOpenAIJson_(request) {
     model: request.model,
     instructions: request.instructions,
     input: request.input,
-    reasoning: { effort: request.reasoningEffort || 'low' },
+    reasoning: { effort: request.reasoningEffort || 'minimal' },
     max_output_tokens: Number(request.maxOutputTokens || 500),
     store: false,
     text: {
