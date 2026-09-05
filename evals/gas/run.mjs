@@ -67,7 +67,7 @@ const spreadsheet = {
 vm.createContext(context);
 
 // ---------- .gs 읽기 ----------
-const files = readdirSync(gasDir).filter((f) => f.endsWith('.gs')).sort();
+const files = readdirSync(gasDir).filter((f) => f.endsWith('.gs') || f.endsWith('.js')).sort();
 const results = [];
 function record(name, status, detail = '') { results.push({ name, status, detail }); }
 
