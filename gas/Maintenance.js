@@ -142,3 +142,7 @@ function isGreetingOrSmallTalk_(text) {
 if (typeof isTruthy_ !== 'function') {
   function isTruthy_(v) { return v === true || /^(true|1|yes|y|예|참)$/i.test(String(v).trim()); }
 }
+
+/** 편집기 실행 버튼은 인수를 못 넘긴다 — 적용용 래퍼. */
+function phase0CleanupPreview() { return phase0Cleanup(false); }
+function phase0CleanupApply() { return phase0Cleanup(true); }
