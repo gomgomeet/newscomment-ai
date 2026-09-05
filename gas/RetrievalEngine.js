@@ -22,27 +22,8 @@ function getRetrievalCorpus_(botId, material, config) {
   const materialId = String(material.materialId || '');
   const version = String(material.version || 'v1');
   const sourceHash = String(material.sourceHash || makeMaterialSourceHash_(material));
-  const revision = PropertiesService.getScriptProperties()
-    .getProperty('RAG_CACHE_REVISION') || '1';
-  const cacheScope = typeof requestSpreadsheet_ !== 'undefined' && requestSpreadsheet_ ? requestSpreadsheet_.getId() : '';
-  const cacheKey = 'rag-v3:' + makeContentHash_([cacheScope, revision, botId, materialId, version, sourceHash].join(':'));
-  const cache = CacheService.getScriptCache();
-  const cached = readPartitionedCache_(cache, cacheKey);
-  if (cached) {
-    try {
-      return JSON.parse(cached);
-    } catch (error) {
-      console.warn('검색 캐시를 다시 만듭니다.', error);
-    }
-  }
-
   const corpus = {
-    cards: getActiveCards_(material).filter(function (card) {
-      const botMatches = !card.botId || card.botId === botId;
-      const materialMatches = !card.materialId || card.materialId === materialId;
-      const versionMatches = !card.version || card.version === version;
-      return botMatches && materialMatches && versionMatches && card.studentMove !== 'ask_definition';
-    }),
+    cards: getActiveCards_(material),
     vocabulary: getApprovedVocabularyEntries_().filter(function (entry) {
       return String(entry.sourceId || '') === materialId &&
         String(entry.version || 'v1') === version && (!entry.sourceHash || String(entry.sourceHash) === sourceHash);
@@ -50,42 +31,7 @@ function getRetrievalCorpus_(botId, material, config) {
     chunks: getApprovedMaterialChunks_(materialId, version),
     knowledge: getApprovedKnowledgeItems_(material)
   };
-  const seconds = Math.max(30, Math.min(21600, Number(config.RETRIEVAL_CACHE_SECONDS || 300)));
-  const serialized = JSON.stringify(corpus);
-  writePartitionedCache_(cache, cacheKey, serialized, seconds);
   return corpus;
-}
-
-function readPartitionedCache_(cache, key) {
-  try {
-    const manifest = JSON.parse(cache.get(key) || 'null');
-    if (!manifest || !Number.isInteger(manifest.count) || manifest.count < 1 || manifest.count > 100) return null;
-    let text = '';
-    for (let index = 0; index < manifest.count; index += 1) {
-      const part = cache.get(key + ':' + manifest.id + ':' + index);
-      if (part === null || part === undefined) return null;
-      text += JSON.parse(part);
-    }
-    return text;
-  } catch (error) { return null; }
-}
-
-function writePartitionedCache_(cache, key, text, seconds) {
-  // JSON으로 각 조각을 감싸 서로게이트 문자도 손실 없이 복원합니다.
-  const count = Math.ceil(text.length / 12000);
-  if (!count || count > 100) return;
-  try {
-    const id = Utilities.getUuid();
-    for (let index = 0; index < count; index += 1) {
-      cache.put(key + ':' + id + ':' + index, JSON.stringify(text.slice(index * 12000, (index + 1) * 12000)), seconds);
-    }
-    cache.put(key, JSON.stringify({ id: id, count: count }), seconds);
-  } catch (error) { console.warn('검색 캐시 저장을 생략합니다.'); }
-}
-
-function bumpRetrievalCacheRevision_() {
-  PropertiesService.getScriptProperties()
-    .setProperty('RAG_CACHE_REVISION', String(new Date().getTime()));
 }
 
 function rankEvidenceCandidates_(

@@ -73,7 +73,7 @@ function gradeIndex_(gradeCode) {
 function getApprovedVocabularyEntries_() {
   return getRowsAsObjects_('VOCABULARY_LIBRARY').filter(function (row) {
     return isTruthy_(row.active) && isApprovedStatus_(row.status) &&
-      isTruthy_(row.teacherApproved) && String(row.term || '').trim() &&
+      String(row.term || '').trim() &&
       String(row.easyDefinition || '').trim();
   });
 }
@@ -85,43 +85,13 @@ function syncTeacherGlossaryVocabulary_(material, glossary) {
     return Object.assign(makeVocabularyRow_(material, item.term, item.definition, policy, '교사 직접 입력'), { wordGroup: item.group || '' });
   });
   syncManagedSheetRows_(sheet, function (row) {
-    return String(row.sourceId) === String(material.materialId) &&
-      ['교사 직접 입력', '승인된 사전카드 이관'].indexOf(String(row.sourceLocation)) >= 0;
+    return String(row.sourceId) === String(material.materialId);
   }, function (row) { return String(row.version || 'v1') + '|' + normalizeVocabularyTerm_(row.term); }, rows);
   // 이전 사전카드는 이관 후 비활성화만 하며, 새 카드를 생성하지 않습니다.
   syncManagedSheetRows_(getSpreadsheet_().getSheetByName('CARDS'), function (row) {
     return String(row.materialId) === String(material.materialId) && String(row.teacherNote) === '교사 입력 웹앱 사전카드';
   }, function (row) { return String(row.cardId); }, []);
   PropertiesService.getScriptProperties().setProperty('GLOSSARY_STORE_' + material.materialId, 'v2');
-  return rows.length;
-}
-
-function backfillVocabularyFromApprovedCards_(spreadsheet) {
-  const sheet = spreadsheet.getSheetByName('VOCABULARY_LIBRARY');
-  const existing = getRowsAsObjects_('VOCABULARY_LIBRARY');
-  const materials = getRowsAsObjects_('MATERIALS');
-  const rows = [];
-  getRowsAsObjects_('CARDS').forEach(function (card) {
-    if (String(card.studentMove) !== 'ask_definition' || !isTruthy_(card.active) ||
-        !isApprovedStatus_(card.status)) return;
-    const parsed = parseVocabularyEvidence_(card.evidenceText, card.keywords);
-    if (!parsed.term || !parsed.definition) return;
-    const material = materials.find(function (item) {
-      return String(item.materialId) === String(card.materialId || card.sourceId || '');
-    });
-    if (!material) return;
-    const policy = getGradePolicy_(material.gradeCode || material.grade);
-    if (!policy.supported) return;
-    const normalizedTerm = normalizeVocabularyTerm_(parsed.term);
-    const duplicate = existing.concat(rows).some(function (item) {
-      return normalizeVocabularyTerm_(item.term || item.normalizedTerm) === normalizedTerm &&
-        String(item.targetGradeCode || '') === policy.targetCode &&
-        String(item.sourceId || '') === String(material.materialId || '');
-    });
-    if (duplicate) return;
-    rows.push(makeVocabularyRow_(material, parsed.term, parsed.definition, policy, '승인된 사전카드 이관'));
-  });
-  appendObjectsToSheet_(sheet, rows);
   return rows.length;
 }
 
@@ -182,7 +152,7 @@ function renderVocabularyDefinition_(entry) {
   if (entry.exampleText) {
     text += ' 지문에서는 “' + shortenEvidence_(entry.exampleText, 100) + '”처럼 쓰였어요.';
   }
-  return text + ' 이제 이 뜻을 넣어 문장을 다시 읽어 볼까요?';
+  return text;
 }
 
 function parseVocabularyEvidence_(evidenceText, keywords) {

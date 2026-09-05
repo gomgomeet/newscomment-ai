@@ -2,7 +2,7 @@ function selectNextMove_(context) {
   const analysis = context.analysis;
   const history = context.history || [];
 
-  if (context.guard.blocked) {
+  if (context.guard.blocked || analysis.studentMove === 'safety') {
     return makePlan_({
       primaryMove: 'safety_redirect',
       hintLevel: 0,
@@ -10,10 +10,18 @@ function selectNextMove_(context) {
       teacherInterventionFlag: true,
       expectsStudentReply: true,
       isClosing: false,
-      reasonCode: context.guard.reason
+      reasonCode: context.guard.reason || 'SAFETY_REQUEST'
     });
   }
 
+  if (['greeting', 'small_talk', 'repair'].indexOf(analysis.studentMove) >= 0) {
+    return makePlan_({ primaryMove: 'receive', hintLevel: 0, sourceStatus: 'out_of_scope',
+      expectsStudentReply: false, reasonCode: analysis.studentMove.toUpperCase() });
+  }
+  if (analysis.studentMove === 'ask_fact') {
+    return makePlan_({ primaryMove: 'answer', hintLevel: 0, sourceStatus: 'supported',
+      expectsStudentReply: false, reasonCode: 'FACT_REQUEST' });
+  }
   if (analysis.studentMove === 'close') {
     return makePlan_({
       primaryMove: 'close',
@@ -63,7 +71,7 @@ function selectNextMove_(context) {
       hintLevel: 0,
       sourceStatus: 'supported',
       teacherInterventionFlag: false,
-      expectsStudentReply: true,
+      expectsStudentReply: false,
       isClosing: false,
       reasonCode: 'DEFINITION_REQUEST'
     });
@@ -82,7 +90,7 @@ function selectNextMove_(context) {
   }
 
   return makePlan_({
-    primaryMove: 'check_evidence',
+    primaryMove: ['attempt_answer', 'give_evidence'].indexOf(analysis.studentMove) >= 0 ? 'check_evidence' : 'receive',
     hintLevel: 1,
     sourceStatus: analysis.passageEcho ? 'supported' : 'source_insufficient',
     teacherInterventionFlag: false,

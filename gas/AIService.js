@@ -23,9 +23,7 @@ function setOpenAIApiKey() {
   }
   PropertiesService.getScriptProperties().setProperty(OPENAI_API_KEY_PROPERTY_, key);
   setConfigValue_('AI_ENABLED', 'TRUE');
-  setConfigValue_('AI_ROUTING_MODE', 'terra_only');
-  setConfigValue_('AI_MODEL_QUALITY', OPENAI_TERRA_MODEL_);
-  setConfigValue_('AI_REASONING_EFFORT', 'low');
+  setConfigValue_('AI_MODEL', OPENAI_TERRA_MODEL_);
   ui.alert(
     'API 키를 안전하게 저장하고 Terra(gpt-5.6-terra)를 적용했습니다. ' +
     '이제 질문 챗봇 메뉴의 2번 AI 연결 테스트를 실행해 주세요.'
@@ -47,7 +45,7 @@ function testOpenAIConnection() {
     throw new Error('먼저 시트 메뉴에서 OpenAI API 키를 설정해 주세요.');
   }
   const result = callOpenAIJson_({
-    model: settings.qualityModel,
+    model: settings.model,
     reasoningEffort: settings.reasoningEffort,
     maxOutputTokens: 80,
     schemaName: 'connection_test',
@@ -77,16 +75,9 @@ function getOpenAIApiKey_() {
 }
 
 function getAISettings_(config) {
-  const mode = String(config.AI_ROUTING_MODE || 'terra_only').toLowerCase();
-  return {
-    enabled: isTruthy_(config.AI_ENABLED),
-    routingMode: mode === 'hybrid' ? 'hybrid' : 'terra_only',
-    fastModel: String(config.AI_MODEL_FAST || 'gpt-5.6-luna'),
-    qualityModel: String(config.AI_MODEL_QUALITY || OPENAI_TERRA_MODEL_),
-    reasoningEffort: normalizeReasoningEffort_(config.AI_REASONING_EFFORT),
-    maxHistoryTurns: Math.max(0, Math.min(10, Number(config.AI_MAX_HISTORY_TURNS || 6))),
-    maxOutputTokens: Math.max(200, Math.min(1200, Number(config.AI_MAX_OUTPUT_TOKENS || 500)))
-  };
+  return { enabled: isTruthy_(config.AI_ENABLED), model: String(config.AI_MODEL || OPENAI_TERRA_MODEL_),
+    reasoningEffort: 'low', maxHistoryTurns: Math.max(0, Math.min(10, Number(config.AI_MAX_HISTORY_TURNS || 6))),
+    maxOutputTokens: Math.max(200, Math.min(4000, Number(config.AI_MAX_OUTPUT_TOKENS || 1500))) };
 }
 
 function normalizeReasoningEffort_(value) {
@@ -115,105 +106,6 @@ function setConfigValues_(updates, preparedSpreadsheet) {
   if (changed) sheet.getRange(1, 1, rows.length, rows[0].length).setValues(rows);
 }
 
-function enrichStudentAnalysisWithAI_(input) {
-  const settings = getAISettings_(input.config || {});
-  const fallback = {
-    analysis: input.ruleAnalysis,
-    status: settings.enabled ? 'missing_key' : 'disabled',
-    model: '',
-    originalQuery: input.message,
-    rewrittenQuery: input.message,
-    analysisNote: ''
-  };
-  if (!settings.enabled || !getOpenAIApiKey_()) return fallback;
-  if (input.ruleAnalysis.studentMove === 'close') {
-    fallback.status = 'skipped_close';
-    return fallback;
-  }
-
-  const model = selectAIModel_('analysis', settings, input.ruleAnalysis, null, input.history);
-  const historyText = buildRecentHistoryText_(input.history, settings.maxHistoryTurns);
-  const materialText = shortenForAI_(input.material.text, 3500);
-  const schema = {
-    type: 'object',
-    properties: {
-      studentMove: {
-        type: 'string',
-        enum: [
-          'attempt_answer', 'request_hint', 'express_uncertainty', 'ask_definition',
-          'revise', 'ask_fact', 'give_evidence', 'close'
-        ]
-      },
-      knowledgeState: {
-        type: 'string',
-        enum: ['unobserved', 'partial', 'demonstrated', 'misconception']
-      },
-      stateConfidence: { type: 'string', enum: ['high', 'medium', 'low'] },
-      activeConcept: { type: 'string' },
-      rewrittenQuery: { type: 'string' },
-      misconceptionDetected: { type: 'boolean' },
-      reasonGiven: { type: 'boolean' },
-      analysisNote: { type: 'string' }
-    },
-    required: [
-      'studentMove', 'knowledgeState', 'stateConfidence', 'activeConcept',
-      'rewrittenQuery', 'misconceptionDetected', 'reasonGiven', 'analysisNote'
-    ],
-    additionalProperties: false
-  };
-  const prompt = [
-    '교사 제공 자료 제목: ' + input.material.title,
-    '교사 제공 자료 본문: ' + materialText,
-    '시작 질문: ' + input.material.startQuestion,
-    '최근 대화:\n' + (historyText || '(첫 발화)'),
-    '현재 학생 발화: ' + input.message,
-    '규칙 기반 1차 분석: ' + JSON.stringify(input.ruleAnalysis),
-    '버튼 동작: ' + String(input.action || 'message')
-  ].join('\n\n');
-
-  try {
-    const result = callOpenAIJson_({
-      model: model,
-      reasoningEffort: settings.reasoningEffort,
-      maxOutputTokens: settings.maxOutputTokens,
-      schemaName: 'student_turn_analysis',
-      schema: schema,
-      instructions: [
-        '한국어 교육용 질문 챗봇의 발화 분석기입니다.',
-        '최종 답변이나 새로운 사실을 만들지 말고 분류와 검색 질의 재구성만 하세요.',
-        'rewrittenQuery는 현재 발화가 독립적이면 그대로 유지하고, 대명사나 생략이 있으면 최근 대화의 개념을 보충하세요.',
-        '교사 제공 자료 밖의 지식은 사용하지 마세요.',
-        '버튼 동작이 hint이면 도움 요청으로, close이면 종료로 우선 해석하세요.'
-      ].join(' '),
-      input: prompt
-    });
-    const value = result.value;
-    const analysis = Object.assign({}, input.ruleAnalysis, {
-      studentMove: input.action === 'hint' ? 'request_hint' : value.studentMove,
-      knowledgeState: value.knowledgeState,
-      stateConfidence: value.stateConfidence,
-      activeConcept: String(value.activeConcept || ''),
-      rewrittenQuery: String(value.rewrittenQuery || input.message).trim() || input.message,
-      misconceptionDetected: Boolean(value.misconceptionDetected),
-      reasonGiven: Boolean(value.reasonGiven),
-      aiAnalysisNote: String(value.analysisNote || '')
-    });
-    return {
-      analysis: analysis,
-      status: 'ok',
-      model: result.model || model,
-      originalQuery: input.message,
-      rewrittenQuery: analysis.rewrittenQuery,
-      analysisNote: analysis.aiAnalysisNote
-    };
-  } catch (error) {
-    console.warn('AI 분석을 건너뛰고 규칙 분석을 사용합니다: ' + safeAIErrorMessage_(error));
-    fallback.status = 'analysis_fallback';
-    fallback.model = model;
-    return fallback;
-  }
-}
-
 function composeResponseWithAI_(input) {
   const settings = getAISettings_(input.config || {});
   const fallback = {
@@ -223,7 +115,7 @@ function composeResponseWithAI_(input) {
     usedEvidenceIds: []
   };
   if (!settings.enabled || !getOpenAIApiKey_()) return fallback;
-  if (input.plan.primaryMove === 'safety_redirect' || input.plan.primaryMove === 'close') {
+  if (input.plan.primaryMove === 'safety_redirect' || input.plan.primaryMove === 'close' || ['greeting', 'small_talk', 'repair'].indexOf(input.analysis.studentMove) >= 0) {
     fallback.status = 'skipped_policy';
     return fallback;
   }
@@ -234,9 +126,7 @@ function composeResponseWithAI_(input) {
     fallback.status = 'skipped_no_evidence';
     return fallback;
   }
-  const model = selectAIModel_(
-    'compose', settings, input.analysis, input.retrieval, input.history
-  );
+  const model = settings.model;
   const allowedIds = evidence.map(function (item) { return item.id; });
   const schema = {
     type: 'object',
@@ -261,10 +151,10 @@ function composeResponseWithAI_(input) {
       hintLevel: input.plan.hintLevel,
       reasonCode: input.plan.reasonCode
     }),
-    '규칙형 기본 응답: ' + input.baseResponse.text,
+    '최근 대화: ' + stripEvidenceLocations_(buildRecentHistoryText_(input.history, settings.maxHistoryTurns)),
     '사용 가능한 승인 근거:\n' + (evidence.length
       ? evidence.map(function (item) {
-          return '[' + item.id + '] ' + item.text + ' (' + item.location + ')';
+          return '[' + item.id + '] ' + stripEvidenceLocations_(item.text);
         }).join('\n')
       : '(없음)'),
     '허용된 근거 ID: ' + JSON.stringify(allowedIds)
@@ -280,14 +170,18 @@ function composeResponseWithAI_(input) {
       instructions: [
         '한국어 교육용 질문 챗봇의 응답 편집기입니다.',
         '정책 엔진이 선택한 primaryMove와 hintLevel을 절대 바꾸지 마세요.',
+        '사실·낱말 질문에는 답만 하고 되묻지 마세요. 자료 구간 번호나 괄호 안 같은 위치 표현은 쓰지 마세요.',
         '학생의 시도를 짧게 관찰하고, 필요하면 승인 근거에 기반한 단서를 준 뒤, 학생이 다음에 할 행동 한 가지만 분명히 제시하세요.',
         '승인 근거 밖의 사실을 추가하지 마세요. 사용한 근거 ID만 usedEvidenceIds에 넣으세요.',
-        '정답을 바로 공개하지 말고 초등·중등 학생이 이해할 수 있는 2~4문장으로 작성하세요.'
+        '학생이 물은 것에는 승인 근거로 먼저 답하고 초등·중등 학생이 이해할 수 있는 2~4문장으로 작성하세요.'
       ].join(' '),
       input: prompt
     });
     const value = result.value;
-    const reply = String(value.reply || '').trim();
+    let reply = stripEvidenceLocations_(String(value.reply || '')).trim();
+    if (['ask_fact', 'ask_definition'].indexOf(input.analysis.studentMove) >= 0) {
+      reply = reply.replace(/[^.!?。？]*[?？]/g, '').trim();
+    }
     const usedEvidenceIds = Array.isArray(value.usedEvidenceIds)
       ? value.usedEvidenceIds.map(String).filter(Boolean)
       : [];
@@ -314,20 +208,6 @@ function composeResponseWithAI_(input) {
   }
 }
 
-function selectAIModel_(phase, settings, analysis, retrieval, history) {
-  if (settings.routingMode === 'terra_only') return settings.qualityModel;
-  if (phase === 'analysis') return settings.fastModel;
-  const confidence = String(analysis.stateConfidence || 'medium');
-  const evidenceConfidence = retrieval ? String(retrieval.confidence || 'none') : 'none';
-  const recentHints = countRecentHintTurns_(history);
-  const needsTerra = confidence === 'low' ||
-    Boolean(analysis.misconceptionDetected) ||
-    recentHints >= 2 ||
-    evidenceConfidence === 'low' ||
-    (analysis.studentMove === 'ask_fact' && evidenceConfidence === 'none');
-  return needsTerra ? settings.qualityModel : settings.fastModel;
-}
-
 function strategyConfidenceForPlan_(analysis, plan) {
   if (plan.primaryMove === 'safety_redirect' || plan.primaryMove === 'close') return 'high';
   if (String(analysis.stateConfidence || '') === 'low') return 'low';
@@ -335,13 +215,8 @@ function strategyConfidenceForPlan_(analysis, plan) {
   return 'medium';
 }
 
-function countRecentHintTurns_(history) {
-  return (history || []).slice(-8).filter(function (turn) {
-    return turn.speaker === 'bot' && Number(turn.hintLevel || 0) > 0;
-  }).length;
-}
-
 function buildRecentHistoryText_(history, maxTurns) {
+  if (maxTurns <= 0) return '';
   return (history || []).slice(-maxTurns).map(function (turn) {
     const role = turn.speaker === 'student' ? '학생' : '챗봇';
     return role + ': ' + shortenForAI_(turn.text, 500);
@@ -482,3 +357,5 @@ function shortenForAI_(text, maxLength) {
 function safeAIErrorMessage_(error) {
   return String(error && error.message ? error.message : error).slice(0, 300);
 }
+
+function stripEvidenceLocations_(text) { return String(text || '').replace(/자료\s*구간\s*\d+|구간\s*\d+|괄호\s*안/g, '').trim(); }

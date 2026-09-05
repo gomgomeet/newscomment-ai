@@ -6,6 +6,7 @@ function guardStudentInput_(message) {
   const blocked = tooLong || blockedPattern.test(message);
 
   let safeText = message
+    .replace(/(?:내|제)\s*이름(?:은|이)?\s*[가-힣]{2,4}/g, '[이름 가림]')
     .replace(/01[016789][- ]?\d{3,4}[- ]?\d{4}/g, '[전화번호 가림]')
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[이메일 가림]')
     .replace(/\d{6}[- ]?[1-4]\d{6}/g, '[주민번호 가림]');
@@ -23,13 +24,24 @@ function analyzeStudentTurn_(input) {
   const compact = message.replace(/\s+/g, '');
   const action = String(input.action || 'message');
 
+  const passageWords = contentWords_(input.material.text);
+  const answerWords = contentWords_(message);
+  const passageEcho = answerWords.some(function (word) { return passageWords.indexOf(word) >= 0; });
   let studentMove = 'attempt_answer';
-  if (action === 'close' || /(그만|끝낼|마칠|이제됐)/.test(compact)) {
+  if (/(이름|전화|연락처|대필|대신써|대신작성|숙제해줘|[가-힣]{2,4}입니다)/.test(compact)) {
+    studentMove = 'safety';
+  } else if (/(왜자꾸물어|그냥설명만|질문하지마|답만해)/.test(compact)) {
+    studentMove = 'repair';
+  } else if (/^(안녕(?:하세요)?|하이|고마워(?:요)?|감사합니다)[.!?？~]*$/.test(compact)) {
+    studentMove = 'greeting';
+  } else if (action === 'close' || /(그만|끝낼|마칠|이제됐)/.test(compact)) {
     studentMove = 'close';
   } else if (action === 'hint' || /(힌트|도와|모르겠|어려워)/.test(compact)) {
     studentMove = /모르겠|확실하지|헷갈/.test(compact)
       ? 'express_uncertainty'
       : 'request_hint';
+  } else if (!passageEcho) {
+    studentMove = 'small_talk';
   } else if (isDefinitionQuestion_(message)) {
     studentMove = 'ask_definition';
   } else if (/(고칠|다시생각|아까와다르게|정정)/.test(compact)) {
@@ -38,12 +50,6 @@ function analyzeStudentTurn_(input) {
     studentMove = 'ask_fact';
   }
 
-  const passageWords = contentWords_(input.material.text);
-  const answerWords = contentWords_(message);
-  const overlap = answerWords.filter(function (word) {
-    return passageWords.indexOf(word) >= 0;
-  });
-  const passageEcho = overlap.length > 0;
   const reasonGiven = /(때문|까닭|이유|왜냐|그래서|덕분|으니|니까)/.test(message);
 
   if (
@@ -58,6 +64,7 @@ function analyzeStudentTurn_(input) {
     studentMove: studentMove,
     attempted: message.replace(/[\s.!?~]/g, '').length >= 2,
     passageEcho: passageEcho,
+    relatedQuestion: passageEcho && ['ask_fact', 'ask_definition'].indexOf(studentMove) >= 0,
     reasonGiven: reasonGiven,
     feedbackUptake: studentMove === 'revise' ? 'revised' : 'not_observed',
     helpSeeking:

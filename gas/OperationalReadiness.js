@@ -26,8 +26,8 @@ function getOperationalReadiness_() {
     return String(entry.sourceId || '') === String(material.materialId || '') &&
       String(entry.version || 'v1') === String(material.version || 'v1');
   }) : [];
-  const externalSources = material ? getApprovedExternalSources_(material) : [];
-  const drafts = material ? getRowsAsObjects_('KNOWLEDGE_ITEMS').filter(function (row) {
+  const externalSources = [];
+  const drafts = material ? getRowsAsObjects_('KNOWLEDGE').filter(function (row) {
     return String(row.materialId || '') === String(material.materialId || '') &&
       String(row.version || 'v1') === String(material.version || 'v1') &&
       String(row.sourceHash || '') === sourceHash &&
@@ -60,16 +60,8 @@ function getOperationalReadiness_() {
       '승인 지식이 없어 원문 구간 중심으로만 응답합니다.'
     ),
     makeOperationalCheck_(
-      'research_sources', '조사학습 승인 자료',
-      !material || material.activityMode !== 'research' || externalSources.length > 0,
-      'block',
-      material && material.activityMode === 'research'
-        ? externalSources.length + '개 승인 자료' : '생각 나누기 모드',
-      '조사학습 모드에는 교사가 승인한 외부 자료를 한 개 이상 등록해 주세요.'
-    ),
-    makeOperationalCheck_(
       'ai', 'AI 연결', aiSettings.enabled && apiKeyConfigured, 'warn',
-      aiSettings.routingMode + ' · ' + aiSettings.qualityModel,
+      aiSettings.model,
       'AI가 꺼져 있어 규칙·RAG 안전 응답으로 운영됩니다.'
     ),
     makeOperationalCheck_(
@@ -105,11 +97,9 @@ function getOperationalReadiness_() {
     ai: {
       enabled: aiSettings.enabled,
       keyConfigured: apiKeyConfigured,
-      routingMode: aiSettings.routingMode,
-      fastModel: aiSettings.fastModel,
-      qualityModel: aiSettings.qualityModel,
-      estimatedCallsPerStudentTurn: aiSettings.enabled && apiKeyConfigured ? 2 : 0,
-      estimatedKnowledgePackCalls: aiSettings.enabled && apiKeyConfigured ? '1~2' : '0'
+      model: aiSettings.model,
+      estimatedCallsPerStudentTurn: aiSettings.enabled && apiKeyConfigured ? 1 : 0,
+      estimatedKnowledgePackCalls: aiSettings.enabled && apiKeyConfigured ? '1' : '0'
     },
     studentUrlConfigured: Boolean(studentUrl),
     checks: checks
@@ -124,28 +114,6 @@ function runOperationalReadinessCheck(teacherAccessToken) {
   }
   const report = getOperationalReadiness_();
   const spreadsheet = getSpreadsheet_();
-  appendObjectsToSheet_(spreadsheet.getSheetByName('OPERATION_CHECKS'), [{
-    timestamp: new Date(),
-    level: report.level,
-    canStartClass: report.canStartClass,
-    blockerCount: report.blockerCount,
-    warningCount: report.warningCount,
-    materialId: report.materialId,
-    gradeCode: report.gradeCode,
-    approvedChunkCount: report.approvedChunkCount,
-    approvedKnowledgeCount: report.approvedKnowledgeCount,
-    approvedVocabularyCount: report.approvedVocabularyCount,
-    approvedExternalSourceCount: report.approvedExternalSourceCount,
-    draftKnowledgeCount: report.draftKnowledgeCount,
-    openReviewCount: report.openReviewCount,
-    aiEnabled: report.ai.enabled,
-    apiKeyConfigured: report.ai.keyConfigured,
-    routingMode: report.ai.routingMode,
-    fastModel: report.ai.fastModel,
-    qualityModel: report.ai.qualityModel,
-    studentUrlConfigured: report.studentUrlConfigured,
-    detailsJson: JSON.stringify(report.checks)
-  }]);
   spreadsheet.toast(
     report.canStartClass
       ? '수업 시작 가능 · 주의 ' + report.warningCount + '개'

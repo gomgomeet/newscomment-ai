@@ -18,6 +18,12 @@ function renderResponse_(context) {
     );
   }
 
+  if (['greeting', 'small_talk', 'repair'].indexOf(analysis.studentMove) >= 0) {
+    const messages = { greeting: '반가워요. 지문을 읽고 궁금한 점을 말해 주세요.',
+      small_talk: '이 활동에서는 지문에 나온 내용으로 함께 이야기해요.',
+      repair: '알겠어요. 되묻지 않고 궁금한 내용부터 설명할게요.' };
+    return makeResponseResult_(messages[analysis.studentMove], 'out_of_scope', [], [], []);
+  }
   const selectedVocabulary = analysis.studentMove === 'ask_definition' &&
       (retrieval.vocabulary || []).length > 0 ? retrieval.vocabulary[0] : null;
   const selectedKnowledge = (retrieval.knowledge || []).filter(function (item) {
@@ -63,7 +69,7 @@ function renderResponse_(context) {
     text =
       '교사가 제공한 자료에서 관련 근거를 찾았어요. “' +
       shortenEvidence_(retrieval.chunks[0].content, 150) +
-      '” 이 부분이 질문과 어떻게 연결되는지 자기 말로 설명해 볼까요?';
+      '”';
   } else {
     text = fallbackResponse_(plan, material);
   }
@@ -79,14 +85,13 @@ function renderResponse_(context) {
   const citedVocabularyIds = usedVocabulary ? [usedVocabulary.vocabularyId] : [];
   const validatedVocabularyIds = usedVocabulary && usedVocabulary.easyDefinition &&
       isApprovedStatus_(usedVocabulary.status) && isTruthy_(usedVocabulary.active) &&
-      isTruthy_(usedVocabulary.teacherApproved)
+      Boolean(usedVocabulary.easyDefinition)
     ? [usedVocabulary.vocabularyId]
     : [];
   const citedKnowledgeIds = usedKnowledge ? [usedKnowledge.knowledgeId] : [];
   const validatedKnowledgeIds = usedKnowledge && usedKnowledge.evidenceQuote &&
       isApprovedStatus_(usedKnowledge.status) && isTruthy_(usedKnowledge.active) &&
       usedKnowledge.materialId === material.materialId &&
-      usedKnowledge.version === material.version &&
       usedKnowledge.sourceHash === material.sourceHash
     ? [usedKnowledge.knowledgeId]
     : [];
@@ -121,7 +126,7 @@ function buildEvidenceItems_(selectedVocabulary, selectedKnowledge, selectedCard
       id: selectedKnowledge.knowledgeId,
       kind: 'knowledge',
       label: '교사 승인 지식: ' + selectedKnowledge.title,
-      location: selectedKnowledge.sourceLocation || material.sourceLabel,
+      location: evidenceLocation_(selectedKnowledge),
       excerpt: shortenEvidence_(selectedKnowledge.evidenceQuote, 180),
       url: material.sourceUrl || ''
     });
@@ -142,7 +147,7 @@ function buildEvidenceItems_(selectedVocabulary, selectedKnowledge, selectedCard
       id: chunk.chunkId,
       kind: 'material',
       label: chunk.sourceLabel || material.sourceLabel || material.title,
-      location: chunk.sourceLocation || '',
+      location: evidenceLocation_(chunk),
       excerpt: shortenEvidence_(chunk.content, 180),
       url: material.sourceUrl || ''
     });
@@ -173,28 +178,20 @@ function renderAIUsedEvidence_(reply, usedIds, retrieval, material) {
         items.forEach(function (item) { evidence.push(item); });
       });
     });
-  return makeResponseResult_(reply, evidence.length ? 'supported' : 'source_insufficient',
+  const locations = Array.from(new Set(evidence.map(function (item) { return item.location; }).filter(Boolean)));
+  const groundedReply = reply + (locations.length ? '\n근거: ' + locations.join(' · ') : '');
+  return makeResponseResult_(groundedReply, evidence.length ? 'supported' : 'source_insufficient',
     selected.cards, selected.cards, evidence, selected.vocabulary, selected.vocabulary,
     selected.knowledge, selected.knowledge);
 }
 
-function renderKnowledgeDefinition_(knowledge) {
-  const explanation = String(knowledge.easyExplanation || knowledge.content || '').trim();
-  return explanation + ' 지문의 근거 문장도 함께 확인해 볼까요?';
-}
+function renderKnowledgeDefinition_(knowledge) { return String(knowledge.easyExplanation || knowledge.content || '').trim(); }
 
-function renderKnowledgeFact_(knowledge) {
-  const content = String(knowledge.content || knowledge.easyExplanation || '').trim();
-  if (String(knowledge.knowledgeType || '') === 'relation') {
-    return '자료의 근거를 바탕으로 추론하면, ' + content +
-      ' 이 추론이 맞는지 근거 문장과 연결해 확인해 볼까요?';
-  }
-  return '교사가 승인한 자료에서는 ' + content +
-    ' 근거 문장과 연결해 자기 말로 한 번 더 설명해 볼까요?';
-}
+function renderKnowledgeFact_(knowledge) { return (knowledge.knowledgeType === 'relation' ? '자료의 근거를 바탕으로 추론하면, ' : '') + String(knowledge.content || knowledge.easyExplanation || '').trim(); }
 
 function fallbackResponse_(plan, material) {
   const fallback = {
+    answer: '현재 승인된 자료에서는 답을 확인하기 어려워요. 선생님 확인 목록에 남길게요.',
     receive: '근거를 더해 생각을 표현했군요. 처음 생각과 무엇이 달라졌는지 말해 볼까요?',
     clarify: plan.sourceStatus === 'source_insufficient'
       ? '교사가 승인한 어휘 자료에서 바로 확인할 수 없는 낱말이에요. 어려운 낱말을 다시 적어 주면 선생님이 확인할 수 있게 남겨 둘게요.'
@@ -235,4 +232,10 @@ function replaceCardVariables_(text, material) {
     .replace(/\{title\}/g, material.title)
     .replace(/\{startQuestion\}/g, material.startQuestion)
     .replace(/\{sourceLabel\}/g, material.sourceLabel || material.title);
+}
+
+function evidenceLocation_(row) {
+  const match = /-(\d+)$/.exec(String(row.chunkId || ''));
+  const order = Number(row.chunkOrder || (match && match[1]) || 0);
+  return order > 0 ? '자료 구간 ' + order : '';
 }

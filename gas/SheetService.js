@@ -1,106 +1,120 @@
 const QUESTION_BOT_HEADERS_ = {
-  CONFIG: ['key', 'value', 'description'],
-  MATERIALS: [
-    'materialId', 'title', 'grade', 'standard', 'text', 'startQuestion', 'active',
-    'version', 'sourceLabel', 'sourceUrl', 'status', 'approvedAt', 'gradeCode',
-    'explanationGradeCode', 'activityMode'
+  "CONFIG": [
+    "key",
+    "value",
+    "description"
   ],
-  MATERIAL_CHUNKS: [
-    'chunkId', 'materialId', 'chunkOrder', 'content', 'keywords', 'sourceLabel',
-    'sourceLocation', 'version', 'status', 'active', 'contentHash', 'updatedAt'
+  "MATERIALS": [
+    "materialId",
+    "title",
+    "grade",
+    "gradeCode",
+    "standard",
+    "standardCode",
+    "text",
+    "startQuestion",
+    "active",
+    "version",
+    "sourceHash",
+    "status",
+    "activityMode"
   ],
-  CARDS: [
-    'cardId', 'botId', 'studentMove', 'condition', 'primaryMove', 'hintLevel',
-    'response', 'active', 'teacherNote', 'materialId', 'title', 'questionPatterns',
-    'keywords', 'sourceId', 'sourceLocation', 'evidenceText', 'version', 'status',
-    'reliability', 'updatedAt', 'generationId', 'cardType', 'validationStatus',
-    'teacherCheck', 'teacherDecision', 'approvedAt', 'sourceHash', 'glossaryGroup'
+  "CHUNKS": [
+    "chunkId",
+    "materialId",
+    "chunkOrder",
+    "content",
+    "keywords",
+    "sourceLocation",
+    "version",
+    "sourceHash",
+    "status",
+    "active"
   ],
-  VOCABULARY_LIBRARY: [
-    'vocabularyId', 'term', 'normalizedTerm', 'targetGradeCode',
-    'explanationGradeCode', 'easyDefinition', 'exampleText', 'questionPatterns',
-    'sourceId', 'sourceLabel', 'sourceLocation', 'sourceUrl', 'status', 'active',
-    'teacherApproved', 'reliability', 'version', 'updatedAt', 'sourceHash', 'wordGroup'
+  "VOCABULARY_LIBRARY": [
+    "vocabularyId",
+    "term",
+    "normalizedTerm",
+    "easyDefinition",
+    "exampleText",
+    "wordGroup",
+    "sourceId",
+    "version",
+    "sourceHash",
+    "status",
+    "active"
   ],
-  KNOWLEDGE_ITEMS: [
-    'knowledgeId', 'materialId', 'version', 'sourceHash', 'knowledgeType',
-    'title', 'content', 'easyExplanation', 'gradeCode', 'explanationGradeCode',
-    'keywords', 'evidenceQuote', 'chunkId', 'sourceLocation', 'status', 'active',
-    'teacherNote', 'generationId', 'promptVersion', 'analysisModel',
-    'validationStatus', 'teacherDecision', 'createdAt', 'approvedAt', 'updatedAt'
+  "KNOWLEDGE": [
+    "knowledgeId",
+    "materialId",
+    "knowledgeType",
+    "title",
+    "content",
+    "easyExplanation",
+    "evidenceQuote",
+    "chunkId",
+    "sourceHash",
+    "status",
+    "active"
   ],
-  SOURCE_LIBRARY: [
-    'sourceId', 'materialId', 'version', 'sourceHash', 'title', 'sourceType',
-    'url', 'sourceName', 'publishedAt', 'checkedAt', 'allowedScope', 'note',
-    'status', 'active', 'teacherApproved', 'contentHash', 'updatedAt'
+  "CARDS": [
+    "cardId",
+    "studentMove",
+    "primaryMove",
+    "hintLevel",
+    "response",
+    "questionPatterns",
+    "materialId",
+    "sourceHash",
+    "status",
+    "active"
   ],
-  BOARD: [
-    'scenarioId', 'studentUtterance', 'studentMove', 'knowledgeState', 'teacherGoal',
-    'primaryMove', 'hintLevel', 'response', 'acceptanceCriteria', 'testStatus'
+  "TURNS": [
+    "timestamp",
+    "sessionId",
+    "studentCode",
+    "turnNo",
+    "speaker",
+    "text",
+    "studentMove",
+    "primaryMove",
+    "hintLevel",
+    "sourceStatus",
+    "evidenceIds",
+    "aiStatus",
+    "decisionReason",
+    "phase",
+    "managedKind",
+    "responseScore",
+    "relatedQuestion",
+    "isPreview"
   ],
-  SESSIONS: [
-    'startedAt', 'sessionId', 'studentCode', 'botId', 'materialId', 'status',
-    'policyVersion', 'endedAt', 'materialVersion', 'materialSourceHash'
+  "REVIEW_QUEUE": [
+    "createdAt",
+    "reviewId",
+    "studentCode",
+    "question",
+    "reasonCode",
+    "candidateIds",
+    "count",
+    "status",
+    "teacherDecision",
+    "reviewedAt"
   ],
-  TURNS: [
-    'timestamp', 'sessionId', 'studentCode', 'turnNo', 'speaker', 'text',
-    'studentMove', 'primaryMove', 'hintLevel', 'sourceStatus', 'reasonGiven',
-    'passageEcho', 'feedbackUptake', 'interventionFlag', 'policyVersion',
-    'retrievedCardIds', 'retrievedChunkIds', 'retrievedVocabularyIds',
-    'retrievedKnowledgeIds', 'citedCardIds', 'validatedCardIds',
-    'citedVocabularyIds', 'validatedVocabularyIds', 'citedKnowledgeIds',
-    'validatedKnowledgeIds', 'retrievedExternalSourceIds',
-    'citedExternalSourceIds', 'validatedExternalSourceIds',
-    'evidenceLabels', 'retrievalConfidence', 'reviewId', 'aiEnabled',
-    'aiAnalysisModel', 'aiResponseModel', 'aiStatus', 'stateConfidence',
-    'activeConcept', 'rewrittenQuery', 'misconceptionDetected', 'aiUsedEvidenceIds'
-  ],
-  RETRIEVAL_LOG: [
-    'timestamp', 'sessionId', 'turnNo', 'materialId', 'query', 'queryTokens',
-    'retrievedCardIds', 'retrievedChunkIds', 'retrievedVocabularyIds',
-    'retrievedKnowledgeIds', 'retrievedExternalSourceIds',
-    'topScore', 'scoreGap', 'ambiguityFlag', 'confidence', 'outcome',
-    'policyVersion', 'originalQuery', 'rewrittenQuery', 'strategyConfidence',
-    'evidenceConfidence', 'stateConfidence', 'aiAnalysisModel', 'aiResponseModel',
-    'aiStatus', 'decisionReason'
-  ],
-  REVIEW_QUEUE: [
-    'createdAt', 'lastSeenAt', 'reviewId', 'sessionId', 'studentCode', 'materialId',
-    'question', 'reasonCode', 'topScore', 'candidateCardIds', 'candidateChunkIds',
-    'candidateVocabularyIds', 'candidateKnowledgeIds', 'candidateExternalSourceIds',
-    'occurrenceKey', 'count', 'status', 'teacherDecision', 'reviewedAt', 'version', 'sourceHash', 'studentMove'
-  ],
-  AI_GENERATION_LOG: [
-    'createdAt', 'runId', 'materialId', 'version', 'sourceHash', 'model',
-    'promptVersion', 'status', 'proposedCount', 'approvedCount', 'rejectedCount',
-    'inputTokens', 'outputTokens', 'responseId', 'errorMessage', 'updatedAt',
-    'generationMode', 'targetCardCount', 'dictionaryTarget', 'sourceChunkCount',
-    'elapsedMs', 'fallbackReason'
-  ],
-  EVALUATION_LOG: [
-    'timestamp', 'runId', 'policyVersion', 'totalCases', 'passedCases',
-    'ragScore', 'legacyScore', 'factAccuracyRate', 'vocabularyLevelRate',
-    'inferenceLabelRate', 'evidenceMatchRate', 'answerLengthRate',
-    'ragElapsedMs', 'legacyElapsedMs', 'ragPrepItems', 'legacyPrepItems',
-    'detailsJson'
-  ],
-  OPERATION_CHECKS: [
-    'timestamp', 'level', 'canStartClass', 'blockerCount', 'warningCount',
-    'materialId', 'gradeCode', 'approvedChunkCount', 'approvedKnowledgeCount',
-    'approvedVocabularyCount', 'approvedExternalSourceCount', 'draftKnowledgeCount', 'openReviewCount',
-    'aiEnabled', 'apiKeyConfigured', 'routingMode', 'fastModel', 'qualityModel',
-    'studentUrlConfigured', 'detailsJson'
+  "DASHBOARD": [
+    "studentCode",
+    "questionCount",
+    "relatedQuestionCount",
+    "comprehensionBest",
+    "standardBest",
+    "opinionScore",
+    "moreToExplore",
+    "reachedDifficulty",
+    "teacherNote"
   ]
 };
 
 let requestSpreadsheet_ = null;
-let requestMetrics_ = null;
-
-function waitForMeasuredLock_(lock, milliseconds) {
-  const started = Date.now();
-  try { lock.waitLock(milliseconds); }
-  finally { if (requestMetrics_) { requestMetrics_.lockWaitMs += Date.now() - started; requestMetrics_.lockCalls += 1; } }
-}
 
 function flushAndReleaseLock_(lock) {
   try { SpreadsheetApp.flush(); }
@@ -154,152 +168,9 @@ function ensureSheetHeaders_(sheet, expectedHeaders) {
 }
 
 function seedSampleData_(spreadsheet) {
-  upsertConfigDefaults_(spreadsheet, [
-    ['APP_NAME', '질문이', '학생 화면에 표시할 챗봇 이름'],
-    ['SUBJECT', '국어', '학생 화면에 표시할 교과'],
-    ['STUDENT_WEB_APP_URL', '', '현재 학생용 /exec 배포 주소. 여러 배포가 있으면 명시적으로 지정'],
-    ['BOT_ID', 'question-bot-01', '챗봇 구분 ID'],
-    ['POLICY_VERSION', 'ai-rag-router-v1', '대화·검색 정책 버전'],
-    ['GREETING_MESSAGE', '안녕! 나는 {appName}야. 함께 지문을 읽고 질문을 나눠 보자.', '챗봇 첫 인사. {appName} 사용 가능'],
-    ['INTRO_MESSAGE', '지문을 읽고 먼저 자기 생각을 말해 보세요. 어려우면 힌트를 요청할 수 있어요.', '첫 안내 문구'],
-    ['ASK_NICKNAME', 'TRUE', '학생에게 화면용 이름·별명을 물을지 여부'],
-    ['NICKNAME_PROMPT', '대화에서 사용할 이름이나 별명을 알려 주세요. 건너뛰어도 괜찮아요.', '이름·별명 입력 안내'],
-    ['MAX_INPUT_LENGTH', '500', '학생 입력 최대 글자 수'],
-    ['MIN_RELEVANCE_SCORE', '3', '검색 후보가 되기 위한 최소 관련도'],
-    ['MAX_RETRIEVAL_RESULTS', '3', '카드와 자료 구간별 최대 검색 수'],
-    ['RETRIEVAL_CACHE_SECONDS', '300', '승인 자료 검색 캐시 유지 시간(초)'],
-    ['SHOW_EVIDENCE', 'TRUE', '학생 화면의 근거 보기 표시 여부'],
-    ['AI_ENABLED', 'FALSE', 'OpenAI API 사용 여부. 키 설정 메뉴 실행 시 TRUE'],
-    ['AI_ROUTING_MODE', 'terra_only', '연수: terra_only, 운영: hybrid'],
-    ['AI_MODEL_FAST', 'gpt-5.6-luna', '일반 분류·재구성용 저비용 모델'],
-    ['AI_MODEL_QUALITY', 'gpt-5.6-terra', '오개념·모호성·응답 조립용 모델'],
-    ['AI_REASONING_EFFORT', 'low', 'AI 추론 강도: none|minimal|low|medium|high|xhigh'],
-    ['AI_MAX_HISTORY_TURNS', '6', 'AI에 전달할 최근 대화 턴 수'],
-    ['AI_MAX_OUTPUT_TOKENS', '500', 'AI 호출당 최대 출력 토큰'],
-    ['AI_CARD_GENERATION_MODE', 'fast', '카드 생성: fast=Luna 우선, quality=Terra 고정'],
-    ['AI_CARD_MAX_COUNT', '9', '자료 길이에 따라 조절되는 AI 카드 수의 상한'],
-    ['AI_CARD_REASONING_EFFORT', 'none', 'Luna 빠른 카드 생성의 추론 강도'],
-    ['AI_CARD_SOURCE_CHAR_LIMIT', '7000', '카드 생성 요청에 포함할 원문 글자 수 상한'],
-    ['AI_CARD_TERRA_FALLBACK', 'TRUE', 'Luna 실패 또는 유효 카드 0개일 때 Terra로 한 번 보완'],
-    ['KNOWLEDGE_PACK_MAX_ITEMS', '24', '지문 전체 분석에서 저장할 지식 항목 수 상한']
-  ]);
-
-  const materialSheet = spreadsheet.getSheetByName('MATERIALS');
-  if (materialSheet.getLastRow() === 1) {
-    appendObjectsToSheet_(materialSheet, [{
-      materialId: 'MAT-001',
-      title: '먹을 만큼 골라 담아요',
-      grade: '초등 5~6학년',
-      gradeCode: 'E5',
-      explanationGradeCode: 'E4',
-      standard: '글의 주장과 근거를 구분하고 자기 생각을 근거와 함께 표현한다.',
-      text: '푸른초등학교는 급식 잔반을 줄이기 위해 학생들이 반찬의 양을 조금, 보통, 많이 가운데 직접 고르게 했다. 한 달 뒤 하루 세 통이 넘던 잔반이 한 통 반으로 줄었다. 학교는 먹을 만큼 선택하는 습관이 음식 낭비를 줄이는 데 도움이 되었다고 설명했다.',
-      startQuestion: '학교의 어떤 변화가 잔반을 줄이는 데 도움이 되었을까요?',
-      active: true,
-      version: 'v1',
-      sourceLabel: '교사 제공 수업 지문',
-      sourceUrl: '',
-      status: 'approved',
-      approvedAt: new Date()
-    }]);
-  }
-
-  const cardSheet = spreadsheet.getSheetByName('CARDS');
-  if (cardSheet.getLastRow() === 1) {
-    const common = {
-      botId: 'question-bot-01', materialId: 'MAT-001', sourceId: 'MAT-001',
-      sourceLocation: '교사 제공 수업 지문', version: 'v1', status: 'approved',
-      reliability: 'A', active: true, updatedAt: new Date()
-    };
-    appendObjectsToSheet_(cardSheet, [
-      Object.assign({}, common, {
-        cardId: 'C001', studentMove: 'request_hint', primaryMove: 'offer_clue', hintLevel: 1,
-        response: '먼저 결과가 달라진 문장을 찾아볼까요?', teacherNote: '위치만 안내',
-        title: '1단계 위치 힌트', questionPatterns: '힌트가 필요해요|어디를 읽어야 하나요', keywords: '힌트|결과|문장'
-      }),
-      Object.assign({}, common, {
-        cardId: 'C002', studentMove: 'request_hint', primaryMove: 'offer_clue', hintLevel: 2,
-        response: '지문에서 “한 달 뒤”가 들어간 문장과 그 앞 문장을 이어서 읽어 보세요.', teacherNote: '관련 문장 안내',
-        title: '2단계 문장 힌트', questionPatterns: '힌트를 더 주세요|조금 더 알려 주세요', keywords: '한 달 뒤|앞 문장|잔반'
-      }),
-      Object.assign({}, common, {
-        cardId: 'C003', studentMove: 'request_hint', primaryMove: 'offer_clue', hintLevel: 3,
-        response: '“학교는 ___을 바꾸었고, 그 결과 ___이 달라졌다.” 틀로 말해 볼까요?', teacherNote: '문장 틀',
-        title: '3단계 문장 틀', questionPatterns: '더 구체적인 힌트|정말 모르겠어요', keywords: '학교|바꾸다|결과'
-      }),
-      Object.assign({}, common, {
-        cardId: 'C004', studentMove: 'attempt_answer', primaryMove: 'check_evidence', hintLevel: 1,
-        response: '그렇게 생각한 근거를 지문의 어느 문장에서 찾았나요?', teacherNote: '근거 확인',
-        title: '근거 확인', questionPatterns: '제 생각에는|때문인 것 같아요', keywords: '근거|지문|문장'
-      }),
-      Object.assign({}, common, {
-        cardId: 'C005', studentMove: 'give_evidence', primaryMove: 'check_evidence', hintLevel: 1,
-        response: '근거를 찾았네요. 그 문장이 네 생각과 어떻게 이어지는지도 말해 볼까요?', teacherNote: '이유 연결',
-        title: '근거와 이유 연결', questionPatterns: '글에 나와요|지문에 적혀 있어요', keywords: '근거|이유|연결'
-      }),
-      Object.assign({}, common, {
-        cardId: 'C006', studentMove: 'revise', primaryMove: 'receive', hintLevel: 0,
-        response: '근거를 반영해 생각을 고쳤군요. 처음 답과 무엇이 달라졌는지 한 가지만 말해 주세요.', teacherNote: '수정 인정',
-        title: '수정 인정', questionPatterns: '답을 고칠게요|다시 생각했어요', keywords: '수정|고치다|다시'
-      }),
-      Object.assign({}, common, {
-        cardId: 'C007', studentMove: 'express_uncertainty', primaryMove: 'offer_clue', hintLevel: 1,
-        response: '괜찮아요. 먼저 학교가 바꾼 방법을 나타내는 낱말을 찾아볼까요?', teacherNote: '불확실성 지원',
-        title: '불확실성 지원', questionPatterns: '모르겠어요|헷갈려요', keywords: '모르다|헷갈리다|방법'
-      }),
-      Object.assign({}, common, {
-        cardId: 'C008', studentMove: 'close', primaryMove: 'close', hintLevel: 0,
-        response: '오늘 말한 생각은 여기까지 저장할게요. 참여해 줘서 고마워요.', teacherNote: '추가 질문 없음',
-        title: '대화 종료', questionPatterns: '그만할래요|마칠게요', keywords: '종료|그만|마치다'
-      }),
-      Object.assign({}, common, {
-        cardId: 'C009', studentMove: 'ask_fact', primaryMove: 'check_evidence', hintLevel: 1,
-        response: '교사가 제공한 자료에서는 반찬 양을 직접 고른 변화와 잔반 감소가 함께 제시됩니다. 두 내용을 이어 주는 문장을 찾아 말해 볼까요?',
-        teacherNote: '자료 기반 사실 질문', title: '선택 배식과 잔반 감소',
-        questionPatterns: '왜 잔반이 줄었나요|무엇이 잔반을 줄였나요|학교가 무엇을 바꾸었나요',
-        keywords: '잔반|반찬 양|직접 고르다|선택 배식',
-        evidenceText: '학생들이 반찬의 양을 직접 고르게 한 뒤 잔반이 한 통 반으로 줄었다.'
-      }),
-      Object.assign({}, common, {
-        cardId: 'C010', studentMove: 'ask_definition', condition: 'teacher_glossary',
-        primaryMove: 'clarify', hintLevel: 0,
-        response: '“잔반”의 뜻은 ‘먹고 남은 음식’이에요. 이제 지문에서 “잔반”이 사용된 부분을 다시 읽어 볼까요?',
-        teacherNote: '교사 입력 웹앱 사전카드', title: '낱말 뜻: 잔반',
-        questionPatterns: '잔반 뜻|잔반이 뭐예요|잔반은 무엇인가요|잔반의 의미',
-        keywords: '잔반', evidenceText: '잔반: 먹고 남은 음식'
-      })
-    ]);
-  }
-
-  backfillLegacyCardMetadata_(spreadsheet);
-  ensureStarterDefinitionCard_(spreadsheet);
-  backfillVocabularyFromApprovedCards_(spreadsheet);
-}
-
-function ensureStarterDefinitionCard_(spreadsheet) {
-  const materialRows = getRowsAsObjects_('MATERIALS');
-  const starter = materialRows.find(function (row) {
-    return String(row.materialId) === 'MAT-001' && String(row.text || '').indexOf('잔반') >= 0;
-  });
-  if (!starter) return;
-  const cards = getRowsAsObjects_('CARDS');
-  const exists = cards.some(function (row) {
-    return String(row.cardId) === 'C010' ||
-      (String(row.studentMove) === 'ask_definition' && String(row.keywords).indexOf('잔반') >= 0);
-  });
-  if (exists) return;
-  appendObjectsToSheet_(spreadsheet.getSheetByName('CARDS'), [{
-    cardId: 'C010', botId: 'question-bot-01', studentMove: 'ask_definition',
-    condition: 'teacher_glossary', primaryMove: 'clarify', hintLevel: 0,
-    response: '“잔반”의 뜻은 ‘먹고 남은 음식’이에요. 이제 지문에서 “잔반”이 사용된 부분을 다시 읽어 볼까요?',
-    active: true, teacherNote: '교사 입력 웹앱 사전카드',
-    materialId: 'MAT-001', title: '낱말 뜻: 잔반',
-    questionPatterns: '잔반 뜻|잔반이 뭐예요|잔반은 무엇인가요|잔반의 의미',
-    keywords: '잔반', sourceId: 'MAT-001',
-    sourceLocation: '교사 사전카드', evidenceText: '잔반: 먹고 남은 음식',
-    version: String(starter.version || 'v1'), status: 'approved', reliability: 'A',
-    updatedAt: new Date()
-  }]);
+  upsertConfigDefaults_(spreadsheet, Object.keys(LIGHT_CONFIG_DEFAULTS_).map(function (key) {
+    return [key, LIGHT_CONFIG_DEFAULTS_[key], '수업 설정'];
+  }));
 }
 
 function validateTeacherSetupPayload_(payload) {
@@ -333,58 +204,19 @@ function validateTeacherSetupPayload_(payload) {
     if (item.definition.length > 300) throw new Error('사전카드 뜻은 300자 이내로 입력해 주세요.');
   });
 
-  const activityMode = text(materialInput.activityMode || 'discussion').toLowerCase();
-  if (['discussion', 'research'].indexOf(activityMode) < 0) {
-    throw new Error('수업 모드는 생각 나누기 또는 조사학습 중에서 선택해 주세요.');
-  }
-  const externalSources = (Array.isArray(payload.externalSources) ? payload.externalSources : [])
-    .map(function (item) {
-      return {
-        sourceId: text(item && item.sourceId),
-        title: text(item && item.title),
-        url: text(item && item.url),
-        sourceName: text(item && item.sourceName),
-        publishedAt: text(item && item.publishedAt),
-        checkedAt: text(item && item.checkedAt),
-        allowedScope: text(item && item.allowedScope),
-        note: text(item && item.note),
-        teacherApproved: Boolean(item && item.teacherApproved)
-      };
-    })
-    .filter(function (item) {
-      return item.title || item.url || item.sourceName || item.allowedScope || item.note;
-    });
-  if (externalSources.length > 10) {
-    throw new Error('조사 자료는 수업당 10개까지 등록할 수 있습니다.');
-  }
-  externalSources.forEach(function (item) {
-    if (!item.title || !item.url || !item.sourceName || !item.checkedAt || !item.allowedScope) {
-      throw new Error('조사 자료에는 제목, 주소, 출처, 확인일, 허용 범위를 모두 입력해 주세요.');
-    }
-    if (!/^https?:\/\//i.test(item.url)) {
-      throw new Error('조사 자료 주소는 http:// 또는 https://로 시작해야 합니다.');
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(item.checkedAt)) {
-      throw new Error('조사 자료 확인일은 YYYY-MM-DD 형식으로 입력해 주세요.');
-    }
-    if (item.title.length > 160 || item.sourceName.length > 120 ||
-        item.allowedScope.length > 500 || item.note.length > 500) {
-      throw new Error('조사 자료 입력값이 허용 길이를 넘었습니다.');
-    }
-  });
-
+  const activityMode = 'discussion';
+  const externalSources = [];
   return {
     appName: required(payload.appName, '챗봇 이름', 40),
     subject: text(payload.subject).slice(0, 40),
     greetingMessage: required(payload.greetingMessage, '첫 인사', 240),
-    introMessage: required(payload.introMessage, '활동 안내', 400),
-    askNickname: Boolean(payload.askNickname),
-    nicknamePrompt: required(payload.nicknamePrompt, '이름·별명 안내', 200),
+
     material: {
       materialId: text(materialInput.materialId),
       title: required(materialInput.title, '주제', 120),
       grade: required(materialInput.grade, '학년', 60),
       standard: required(materialInput.standard, '성취기준', 500),
+      standardCode: text(materialInput.standardCode),
       text: materialText,
       startQuestion: required(materialInput.startQuestion, '시작 질문', 300),
       version: text(materialInput.version) || 'v1',
@@ -422,6 +254,7 @@ function saveActiveMaterial_(materialInput) {
     gradeCode: gradePolicy.targetCode,
     explanationGradeCode: gradePolicy.explanationCode,
     standard: materialInput.standard,
+    standardCode: materialInput.standardCode || '',
     text: materialInput.text,
     startQuestion: materialInput.startQuestion,
     active: true,
@@ -433,42 +266,17 @@ function saveActiveMaterial_(materialInput) {
     activityMode: materialInput.activityMode || 'discussion'
   };
 
+  rowObject.sourceHash = makeMaterialSourceHash_(rowObject);
   syncManagedSheetRows_(sheet, function () { return true; }, function (row) { return String(row.materialId); }, [rowObject]);
   return getActiveMaterial_();
 }
 
 function getTeacherGlossaryEntries_(materialId, version) {
-  if (!materialId) return [];
-  const legacy = getRowsAsObjects_('CARDS')
-    .filter(function (row) {
-      return isTruthy_(row.active) && isApprovedStatus_(row.status) &&
-        String(row.studentMove) === 'ask_definition' &&
-        String(row.teacherNote) === '교사 입력 웹앱 사전카드' &&
-        String(row.materialId) === String(materialId) &&
-        (!version || String(row.version || 'v1') === String(version));
-    })
-    .map(function (row) {
-      const evidence = String(row.evidenceText || '');
-      const separator = evidence.indexOf(':');
-      return {
-        term: separator > 0 ? evidence.slice(0, separator).trim() : String(row.keywords || '').split('|')[0],
-        definition: separator > 0 ? evidence.slice(separator + 1).trim() : '',
-        group: String(row.glossaryGroup || '')
-      };
-    })
-    .filter(function (item) { return item.term && item.definition; });
-  const entries = getApprovedVocabularyEntries_().filter(function (row) {
-    return String(row.sourceId) === String(materialId) && (!version || String(row.version || 'v1') === String(version)) &&
-      ['교사 직접 입력', '승인된 사전카드 이관'].indexOf(String(row.sourceLocation)) >= 0;
-  });
-  if (!entries.length) return PropertiesService.getScriptProperties().getProperty('GLOSSARY_STORE_' + materialId) === 'v2' ? [] : legacy;
-  return entries.map(function (row) {
-    const old = legacy.find(function (item) { return normalizeVocabularyTerm_(item.term) === normalizeVocabularyTerm_(row.term); });
-    return { term: row.term, definition: row.easyDefinition, group: row.wordGroup || (old && old.group) || '' };
-  });
+  return getApprovedVocabularyEntries_().filter(function (row) {
+    return String(row.sourceId) === String(materialId) && (!version || String(row.version || 'v1') === String(version));
+  }).map(function (row) { return { term: row.term, definition: row.easyDefinition, group: row.wordGroup || '' }; });
 }
 
-// 같은 관리 항목을 갱신하고, 삭제·중복 항목은 비활성화합니다. 변경 시에만 한 번에 기록합니다.
 function syncManagedSheetRows_(sheet, isManaged, keyFor, desired) {
   const values = sheet.getDataRange().getValues();
   const headers = values[0].map(String);
@@ -519,33 +327,6 @@ function upsertConfigDefaults_(spreadsheet, defaults) {
   });
 }
 
-function backfillLegacyCardMetadata_(spreadsheet) {
-  const material = getActiveMaterial_();
-  const sheet = spreadsheet.getSheetByName('CARDS');
-  if (sheet.getLastRow() < 2) return;
-  const headers = getHeaderMap_(sheet);
-  const values = sheet.getDataRange().getValues();
-  const fillValues = {
-    materialId: material.materialId,
-    title: '교사 검토 대화 카드',
-    sourceId: material.materialId,
-    sourceLocation: material.sourceLabel || material.title,
-    version: material.version,
-    status: 'approved',
-    reliability: 'A'
-  };
-
-  Object.keys(fillValues).forEach(function (field) {
-    const column = headers[field];
-    if (!column) return;
-    for (let rowIndex = 1; rowIndex < values.length; rowIndex += 1) {
-      if (!values[rowIndex][column - 1]) {
-        sheet.getRange(rowIndex + 1, column).setValue(fillValues[field]);
-      }
-    }
-  });
-}
-
 function readConfig_() {
   return getRowsAsObjects_('CONFIG').reduce(function (result, row) {
     if (row.key) result[String(row.key)] = String(row.value);
@@ -566,17 +347,9 @@ function getActiveMaterial_() {
 }
 
 function ensureRuntimeSchema_() {
-  const schemaVersion = 'review-supplements-v3';
-  const properties = PropertiesService.getScriptProperties();
-  if (properties.getProperty('RUNTIME_SCHEMA_VERSION') === schemaVersion) return;
-  const lock = LockService.getScriptLock();
-  lock.waitLock(20000);
-  try {
-    if (properties.getProperty('RUNTIME_SCHEMA_VERSION') === schemaVersion) return;
-    ensureWorkbookStructure_(getSpreadsheet_());
-    properties.setProperty('RUNTIME_SCHEMA_VERSION', schemaVersion);
-  } finally {
-    lock.releaseLock();
+  const ss = getSpreadsheet_();
+  if (!ss.getSheetByName('CHUNKS') || !ss.getSheetByName('KNOWLEDGE')) {
+    throw new Error('교사 메뉴에서 경량화 시트 전환을 먼저 실행해 주세요.');
   }
 }
 
@@ -623,14 +396,14 @@ function materialFromRow_(row) {
       row.explanationGradeCode || getGradePolicy_(row.grade).explanationCode || ''
     ),
     standard: String(row.standard || ''),
+    standardCode: String(row.standardCode || ''),
     text: String(row.text || ''),
     startQuestion: String(row.startQuestion || ''),
     version: String(row.version || 'v1'),
     sourceLabel: String(row.sourceLabel || row.title || '교사 제공 자료'),
     sourceUrl: String(row.sourceUrl || ''),
     status: String(row.status || 'approved'),
-    activityMode: String(row.activityMode || 'discussion') === 'research'
-      ? 'research' : 'discussion'
+    activityMode: String(row.activityMode || 'discussion')
   };
   material.sourceHash = makeMaterialSourceHash_(material);
   return material;
@@ -676,36 +449,12 @@ function validateTeacherMaterial_() {
 }
 
 function getActiveCards_(material) {
-  const currentMaterial = material || getActiveMaterial_();
-  const currentSourceHash = String(
-    currentMaterial.sourceHash || makeMaterialSourceHash_(currentMaterial)
-  );
-  return getRowsAsObjects_('CARDS')
-    .filter(function (row) {
-      if (!isTruthy_(row.active) || !isApprovedStatus_(row.status)) return false;
-      if (!isGeneratedCardRow_(row)) return true;
-      return Boolean(String(row.sourceHash || '')) &&
-        String(row.materialId || '') === String(currentMaterial.materialId || '') &&
-        String(row.version || 'v1') === String(currentMaterial.version || 'v1') &&
-        String(row.sourceHash) === currentSourceHash;
-    })
-    .map(function (row) {
-      return {
-        cardId: String(row.cardId || ''), botId: String(row.botId || ''),
-        studentMove: String(row.studentMove || ''), condition: String(row.condition || ''),
-        primaryMove: String(row.primaryMove || ''), hintLevel: Number(row.hintLevel || 0),
-        response: String(row.response || ''), teacherNote: String(row.teacherNote || ''),
-        materialId: String(row.materialId || ''),
-        title: String(row.title || row.teacherNote || row.cardId || ''),
-        questionPatterns: String(row.questionPatterns || ''), keywords: String(row.keywords || ''),
-        sourceId: String(row.sourceId || ''), sourceLocation: String(row.sourceLocation || ''),
-        evidenceText: String(row.evidenceText || ''), version: String(row.version || 'v1'),
-        sourceHash: String(row.sourceHash || ''), generationId: String(row.generationId || ''),
-        cardType: String(row.cardType || ''),
-        status: String(row.status || 'approved'),
-        reliability: String(row.reliability || 'B').toUpperCase()
-      };
-    });
+  const current = material || getActiveMaterial_();
+  return getRowsAsObjects_('CARDS').filter(function (row) {
+    return isTruthy_(row.active) && isApprovedStatus_(row.status) &&
+      !/^(DEF-|AI-|C00[1-9]$|C010$)/i.test(String(row.cardId)) &&
+      String(row.materialId) === String(current.materialId) && String(row.sourceHash) === String(current.sourceHash);
+  }).map(function (row) { return Object.assign({}, row, { hintLevel: Number(row.hintLevel || 0), version: current.version }); });
 }
 
 function isGeneratedCardRow_(row) {
@@ -714,10 +463,12 @@ function isGeneratedCardRow_(row) {
 }
 
 function getApprovedMaterialChunks_(materialId, version) {
-  return getRowsAsObjects_('MATERIAL_CHUNKS')
+  const current = getRowsAsObjects_('MATERIALS').find(function (row) { return String(row.materialId) === String(materialId); });
+  const sourceHash = current ? materialFromRow_(current).sourceHash : '';
+  return getRowsAsObjects_('CHUNKS')
     .filter(function (row) {
       return isTruthy_(row.active) && isApprovedStatus_(row.status) &&
-        String(row.materialId) === String(materialId) &&
+        String(row.materialId) === String(materialId) && Boolean(sourceHash) && String(row.sourceHash) === sourceHash &&
         (!version || String(row.version || 'v1') === String(version));
     })
     .map(function (row) {
@@ -726,7 +477,7 @@ function getApprovedMaterialChunks_(materialId, version) {
         chunkOrder: Number(row.chunkOrder || 0), content: String(row.content || ''),
         keywords: String(row.keywords || ''),
         sourceLabel: String(row.sourceLabel || '교사 제공 자료'),
-        sourceLocation: String(row.sourceLocation || ''), version: String(row.version || 'v1'),
+        sourceLocation: evidenceLocation_(row), sourceHash: String(row.sourceHash || ''), version: String(row.version || 'v1'),
         status: String(row.status || 'approved')
       };
     });
@@ -737,21 +488,21 @@ function syncMaterialChunks_() {
   const materialRows = getRowsAsObjects_('MATERIALS').filter(function (row) {
     return isTruthy_(row.active) && isApprovedStatus_(row.status);
   });
-  const chunkSheet = spreadsheet.getSheetByName('MATERIAL_CHUNKS');
+  const chunkSheet = spreadsheet.getSheetByName('CHUNKS');
   const chunkHeaders = getHeaderMap_(chunkSheet);
-  const existingRows = getRowsAsObjects_('MATERIAL_CHUNKS');
+  const existingRows = getRowsAsObjects_('CHUNKS');
   const rowsToAppend = [];
 
   materialRows.forEach(function (material) {
     const materialId = String(material.materialId || 'MAT');
     const version = String(material.version || 'v1');
-    const contentHash = makeContentHash_(String(material.text || ''));
+    const contentHash = makeMaterialSourceHash_(materialFromRow_(material));
     const sameVersionRows = existingRows.filter(function (row) {
       return String(row.materialId) === materialId &&
         String(row.version || 'v1') === version && isTruthy_(row.active);
     });
     const isCurrent = sameVersionRows.some(function (row) {
-      return String(row.contentHash || '') === contentHash;
+      return String(row.sourceHash || '') === contentHash;
     });
     if (isCurrent) return;
 
@@ -761,7 +512,7 @@ function syncMaterialChunks_() {
       }
     });
 
-    splitMaterialText_(String(material.text || ''), 220).forEach(function (content, index) {
+    splitMaterialText_(stripCaptions_(String(material.text || '')), 220).forEach(function (content, index) {
       rowsToAppend.push({
         chunkId: makeChunkId_(materialId, version, index + 1),
         materialId: materialId,
@@ -773,7 +524,7 @@ function syncMaterialChunks_() {
         version: version,
         status: 'approved',
         active: true,
-        contentHash: contentHash,
+        sourceHash: contentHash,
         updatedAt: new Date()
       });
     });
@@ -833,194 +584,59 @@ function makeMaterialSourceHash_(material) {
   ].map(function (item) { return String(item || ''); }).join('\n'));
 }
 
-function createSession_(session) {
-  const lock = LockService.getScriptLock();
-  waitForMeasuredLock_(lock, 30000);
+function getActiveSessionContext_(sessionId, selector) {
+  const material = getLessonMaterial_(selector);
+  const prefix = encodeURIComponent(material.materialId) + ':';
+  if (String(sessionId).indexOf(prefix) !== 0) throw new Error('수업 정보가 다릅니다. 화면을 새로고침해 주세요.');
+  const studentCode = normalizeStudentCode_(String(sessionId).slice(prefix.length));
+  return { material: material, session: { sessionId: sessionId, studentCode: studentCode } };
+}
+
+function appendTurn_(turn) { appendConversationTurns_([turn]); }
+
+function appendConversationTurns_(turns) {
+  const lock = LockService.getScriptLock(); lock.waitLock(30000);
   try {
-  appendObjectsToSheet_(getSpreadsheet_().getSheetByName('SESSIONS'), [{
-    startedAt: new Date(), sessionId: session.sessionId, studentCode: session.studentCode,
-    botId: session.botId, materialId: session.materialId, status: 'active',
-    policyVersion: session.policyVersion, endedAt: '',
-    materialVersion: session.materialVersion || '',
-    materialSourceHash: session.materialSourceHash || ''
-  }]);
+    const sheet = getSpreadsheet_().getSheetByName('TURNS');
+    const history = getSessionTurns_(turns[0].sessionId);
+    const lastNo = history.reduce(function (max, row) { return Math.max(max, Number(row.turnNo || 0)); }, 0);
+    appendObjectsToSheet_(sheet, turns.map(function (turn, index) {
+      return Object.assign({}, turn, { timestamp: new Date(), turnNo: lastNo + index + 1,
+        evidenceIds: serializeIdList_(turn.evidenceIds), isPreview: Boolean(turn.isPreview) });
+    }));
   } finally { flushAndReleaseLock_(lock); }
 }
 
-function getActiveSessionContext_(sessionId) {
-  const session = getRowsAsObjects_('SESSIONS').slice().reverse().find(function (row) {
-    return String(row.sessionId || '') === String(sessionId || '');
-  });
-  if (!session || String(session.status || '').toLowerCase() !== 'active') {
-    throw new Error('활성 대화 세션이 아닙니다. 화면을 새로고침해 주세요.');
-  }
-  if (!String(session.materialVersion || '') || !String(session.materialSourceHash || '')) {
-    throw new Error('이전 형식의 세션입니다. 안전한 자료 확인을 위해 화면을 새로고침해 주세요.');
-  }
-  return {
-    session: session,
-    material: getLessonMaterial_({
-      lessonId: session.materialId,
-      version: session.materialVersion,
-      sourceHash: session.materialSourceHash
-    })
-  };
-}
-
-function closeSession_(sessionId) {
-  const sheet = getSpreadsheet_().getSheetByName('SESSIONS');
-  const headers = getHeaderMap_(sheet);
-  const values = sheet.getDataRange().getValues();
-  for (let index = values.length - 1; index >= 1; index -= 1) {
-    if (String(values[index][headers.sessionId - 1]) === String(sessionId)) {
-      sheet.getRange(index + 1, headers.status).setValue('closed');
-      sheet.getRange(index + 1, headers.endedAt).setValue(new Date());
-      return;
-    }
-  }
-}
-
-function appendTurn_(turn) {
-  const lock = LockService.getScriptLock();
-  waitForMeasuredLock_(lock, 30000);
-  try {
-    appendObjectsToSheet_(getSpreadsheet_().getSheetByName('TURNS'), [{
-      timestamp: new Date(), sessionId: turn.sessionId, studentCode: turn.studentCode,
-      turnNo: turn.turnNo, speaker: turn.speaker, text: turn.text,
-      studentMove: turn.studentMove || '', primaryMove: turn.primaryMove || '',
-      hintLevel: Number(turn.hintLevel || 0), sourceStatus: turn.sourceStatus || '',
-      reasonGiven: turn.reasonGiven ? 1 : 0, passageEcho: turn.passageEcho ? 1 : 0,
-      feedbackUptake: turn.feedbackUptake || '',
-      interventionFlag: turn.interventionFlag ? 1 : 0,
-      policyVersion: turn.policyVersion || '',
-      retrievedCardIds: serializeIdList_(turn.retrievedCardIds),
-      retrievedChunkIds: serializeIdList_(turn.retrievedChunkIds),
-      retrievedVocabularyIds: serializeIdList_(turn.retrievedVocabularyIds),
-      retrievedKnowledgeIds: serializeIdList_(turn.retrievedKnowledgeIds),
-      citedCardIds: serializeIdList_(turn.citedCardIds),
-      validatedCardIds: serializeIdList_(turn.validatedCardIds),
-      citedVocabularyIds: serializeIdList_(turn.citedVocabularyIds),
-      validatedVocabularyIds: serializeIdList_(turn.validatedVocabularyIds),
-      citedKnowledgeIds: serializeIdList_(turn.citedKnowledgeIds),
-      validatedKnowledgeIds: serializeIdList_(turn.validatedKnowledgeIds),
-      retrievedExternalSourceIds: serializeIdList_(turn.retrievedExternalSourceIds),
-      citedExternalSourceIds: serializeIdList_(turn.citedExternalSourceIds),
-      validatedExternalSourceIds: serializeIdList_(turn.validatedExternalSourceIds),
-      evidenceLabels: serializeIdList_(turn.evidenceLabels),
-      retrievalConfidence: turn.retrievalConfidence || '', reviewId: turn.reviewId || '',
-      aiEnabled: turn.aiEnabled ? 1 : 0,
-      aiAnalysisModel: turn.aiAnalysisModel || '',
-      aiResponseModel: turn.aiResponseModel || '',
-      aiStatus: turn.aiStatus || '', stateConfidence: turn.stateConfidence || '',
-      activeConcept: turn.activeConcept || '', rewrittenQuery: turn.rewrittenQuery || '',
-      misconceptionDetected: turn.misconceptionDetected ? 1 : 0,
-      aiUsedEvidenceIds: serializeIdList_(turn.aiUsedEvidenceIds)
-    }]);
-  } finally {
-    flushAndReleaseLock_(lock);
-  }
-}
-
-function appendRetrievalLog_(log) {
-  const lock = LockService.getScriptLock();
-  waitForMeasuredLock_(lock, 30000);
-  try {
-    appendObjectsToSheet_(getSpreadsheet_().getSheetByName('RETRIEVAL_LOG'), [{
-      timestamp: new Date(), sessionId: log.sessionId, turnNo: log.turnNo,
-      materialId: log.materialId, query: log.query,
-      queryTokens: serializeIdList_(log.queryTokens),
-      retrievedCardIds: serializeIdList_(log.retrievedCardIds),
-      retrievedChunkIds: serializeIdList_(log.retrievedChunkIds),
-      retrievedVocabularyIds: serializeIdList_(log.retrievedVocabularyIds),
-      retrievedKnowledgeIds: serializeIdList_(log.retrievedKnowledgeIds),
-      retrievedExternalSourceIds: serializeIdList_(log.retrievedExternalSourceIds),
-      topScore: Number(log.topScore || 0), scoreGap: Number(log.scoreGap || 0),
-      ambiguityFlag: log.ambiguous ? 1 : 0, confidence: log.confidence || 'none',
-      outcome: log.outcome || '', policyVersion: log.policyVersion || '',
-      originalQuery: log.originalQuery || log.query || '',
-      rewrittenQuery: log.rewrittenQuery || log.query || '',
-      strategyConfidence: log.strategyConfidence || '',
-      evidenceConfidence: log.evidenceConfidence || log.confidence || 'none',
-      stateConfidence: log.stateConfidence || '',
-      aiAnalysisModel: log.aiAnalysisModel || '', aiResponseModel: log.aiResponseModel || '',
-      aiStatus: log.aiStatus || '', decisionReason: log.decisionReason || ''
-    }]);
-  } finally {
-    flushAndReleaseLock_(lock);
-  }
-}
-
 function upsertReviewItem_(item) {
-  const lock = LockService.getScriptLock();
-  waitForMeasuredLock_(lock, 30000);
+  const lock = LockService.getScriptLock(); lock.waitLock(30000);
   try {
     const sheet = getSpreadsheet_().getSheetByName('REVIEW_QUEUE');
-    const headers = getHeaderMap_(sheet);
-    const values = sheet.getDataRange().getValues();
-    for (let index = 1; index < values.length; index += 1) {
-      const sameKey = String(values[index][headers.occurrenceKey - 1]) === String(item.occurrenceKey);
-      const isOpen = String(values[index][headers.status - 1] || 'open').toLowerCase() === 'open';
-      const sameSource = String(values[index][headers.sourceHash - 1] || '') === String(item.sourceHash || '') &&
-        String(values[index][headers.version - 1] || '') === String(item.version || '');
-      if (sameKey && isOpen && sameSource) {
-        sheet.getRange(index + 1, headers.lastSeenAt).setValue(new Date());
-        sheet.getRange(index + 1, headers.count)
-          .setValue(Number(values[index][headers.count - 1] || 1) + 1);
-        sheet.getRange(index + 1, headers.topScore).setValue(Number(item.topScore || 0));
-        sheet.getRange(index + 1, headers.candidateCardIds)
-          .setValue(serializeIdList_(item.candidateCardIds));
-        sheet.getRange(index + 1, headers.candidateChunkIds)
-          .setValue(serializeIdList_(item.candidateChunkIds));
-        if (headers.candidateVocabularyIds) {
-          sheet.getRange(index + 1, headers.candidateVocabularyIds)
-            .setValue(serializeIdList_(item.candidateVocabularyIds));
-        }
-        if (headers.candidateKnowledgeIds) {
-          sheet.getRange(index + 1, headers.candidateKnowledgeIds)
-            .setValue(serializeIdList_(item.candidateKnowledgeIds));
-        }
-        if (headers.candidateExternalSourceIds) {
-          sheet.getRange(index + 1, headers.candidateExternalSourceIds)
-            .setValue(serializeIdList_(item.candidateExternalSourceIds));
-        }
-        return String(values[index][headers.reviewId - 1]);
-      }
+    const scope = reviewScope_({ sourceHash: item.sourceHash });
+    const existing = getRowsAsObjects_('REVIEW_QUEUE').find(function (row) {
+      return String(row.reviewId).indexOf(scope) === 0 && row.status === 'open' &&
+        makeReviewOccurrenceKey_(item.materialId, row.question) === item.occurrenceKey;
+    });
+    const candidateIds = [].concat(item.candidateCardIds || [], item.candidateChunkIds || [],
+      item.candidateVocabularyIds || [], item.candidateKnowledgeIds || []);
+    if (existing) {
+      const h = getHeaderMap_(sheet);
+      sheet.getRange(existing.__rowNumber, h.count).setValue(Number(existing.count || 1) + 1);
+      sheet.getRange(existing.__rowNumber, h.candidateIds).setValue(serializeIdList_(candidateIds));
+      return String(existing.reviewId);
     }
-
-    const reviewId = 'REV-' + Utilities.getUuid().toUpperCase();
-    appendObjectsToSheet_(sheet, [{
-      createdAt: new Date(), lastSeenAt: new Date(), reviewId: reviewId,
-      sessionId: item.sessionId, studentCode: item.studentCode, materialId: item.materialId,
-      question: item.question, reasonCode: item.reasonCode,
-      topScore: Number(item.topScore || 0),
-      candidateCardIds: serializeIdList_(item.candidateCardIds),
-      candidateChunkIds: serializeIdList_(item.candidateChunkIds),
-      candidateVocabularyIds: serializeIdList_(item.candidateVocabularyIds),
-      candidateKnowledgeIds: serializeIdList_(item.candidateKnowledgeIds),
-      candidateExternalSourceIds: serializeIdList_(item.candidateExternalSourceIds),
-      occurrenceKey: item.occurrenceKey, count: 1, status: 'open',
-      teacherDecision: '', reviewedAt: '', version: item.version || '', sourceHash: item.sourceHash || '', studentMove: item.studentMove || ''
-    }]);
-    return reviewId;
-  } finally {
-    flushAndReleaseLock_(lock);
-  }
+    const id = scope + Utilities.getUuid();
+    appendObjectsToSheet_(sheet, [{ createdAt: new Date(), reviewId: id, studentCode: item.studentCode,
+      question: item.question, reasonCode: item.reasonCode, candidateIds: serializeIdList_(candidateIds),
+      count: 1, status: 'open', teacherDecision: '', reviewedAt: '' }]);
+    return id;
+  } finally { flushAndReleaseLock_(lock); }
 }
 
+function reviewScope_(material) { return 'REV-' + String(material.sourceHash) + '-'; }
+
 function getSessionTurns_(sessionId) {
-  return getRowsAsObjects_('TURNS')
-    .filter(function (row) { return String(row.sessionId) === String(sessionId); })
-    .map(function (row) {
-      return {
-        timestamp: row.timestamp, speaker: String(row.speaker || ''), text: String(row.text || ''),
-        studentMove: String(row.studentMove || ''), primaryMove: String(row.primaryMove || ''),
-        hintLevel: Number(row.hintLevel || 0), interventionFlag: isTruthy_(row.interventionFlag),
-        stateConfidence: String(row.stateConfidence || ''),
-        activeConcept: String(row.activeConcept || ''),
-        rewrittenQuery: String(row.rewrittenQuery || ''),
-        misconceptionDetected: isTruthy_(row.misconceptionDetected)
-      };
-    });
+  return getRowsAsObjects_('TURNS').filter(function (row) { return String(row.sessionId) === String(sessionId); })
+    .sort(function (a, b) { return Number(a.turnNo) - Number(b.turnNo); });
 }
 
 function getRowsAsObjects_(sheetName) {
@@ -1076,4 +692,72 @@ function serializeIdList_(values) {
   if (!values) return '';
   if (!Array.isArray(values)) return String(values);
   return values.filter(Boolean).join('|');
+}
+
+const LIGHT_CONFIG_DEFAULTS_ = { APP_NAME: '질문이', GREETING_MESSAGE: '안녕! 나는 {appName}야.', SUBJECT: '국어',
+  MAX_INPUT_LENGTH: '500', MIN_RELEVANCE_SCORE: '3', MAX_RETRIEVAL_RESULTS: '3', SHOW_EVIDENCE: 'TRUE',
+  AI_ENABLED: 'FALSE', AI_MODEL: 'gpt-5.6-terra', AI_MAX_OUTPUT_TOKENS: '1500', AI_MAX_HISTORY_TURNS: '6',
+  STUDENT_WEB_APP_URL: '', LESSON_CODE: '' };
+
+function normalizeStudentCode_(value) {
+  const match = /^(\d{1,2})\s*-\s*(\d{1,3})$/.exec(String(value || '').trim());
+  if (!match || Number(match[1]) < 1 || Number(match[2]) < 1) throw new Error('반-번호를 입력해 주세요. 예: 3-12');
+  return Number(match[1]) + '-' + Number(match[2]);
+}
+
+// 명시적 전환: 전체 사본을 만든 다음 머리글로 재배열한다. 미사용 시트는 보관한다.
+function migrateLightweightWorkbook() {
+  requireTeacherMenuContext_();
+  const ss = getSpreadsheet_();
+  const lock = LockService.getScriptLock(); lock.waitLock(30000);
+  try {
+    ss.copy(ss.getName() + ' · 경량화 전 백업 · ' + new Date().toISOString());
+    migrateLightweightWorkbook_(ss);
+    SpreadsheetApp.flush();
+    Logger.log('경량화 시트 전환 완료. 기존 미사용 시트는 보관하며 새 코드는 읽거나 쓰지 않습니다.');
+  } finally { flushAndReleaseLock_(lock); }
+}
+
+function migrateLightweightWorkbook_(ss) {
+  const aliases = { CHUNKS: 'MATERIAL_CHUNKS', KNOWLEDGE: 'KNOWLEDGE_ITEMS' };
+  const sourceRows = {};
+  Object.keys(QUESTION_BOT_HEADERS_).forEach(function (name) {
+    const target = ss.getSheetByName(name);
+    const legacy = ss.getSheetByName(aliases[name] || name);
+    const sheet = target && target.getLastRow() > 1 ? target : legacy || target;
+    const values = sheet && sheet.getLastRow() ? sheet.getDataRange().getValues() : [];
+    sourceRows[name] = values.slice(1).map(function (valuesRow) {
+      const row = {}; values[0].forEach(function (key, i) { row[String(key)] = valuesRow[i]; }); return row;
+    });
+  });
+  const materials = sourceRows.MATERIALS.map(materialFromRow_);
+  Object.keys(QUESTION_BOT_HEADERS_).forEach(function (name) {
+    const headers = QUESTION_BOT_HEADERS_[name];
+    let rows = sourceRows[name];
+    if (name === 'CONFIG') {
+      const config = {}; rows.forEach(function (row) { config[row.key] = row.value; });
+      rows = Object.keys(LIGHT_CONFIG_DEFAULTS_).map(function (key) { return { key: key,
+        value: config[key] !== undefined ? config[key] : key === 'AI_MODEL' ? (config.AI_MODEL_QUALITY || LIGHT_CONFIG_DEFAULTS_[key]) : LIGHT_CONFIG_DEFAULTS_[key],
+        description: '수업 설정' }; });
+    }
+    rows = rows.map(function (row) {
+      if (name === 'MATERIALS') row.sourceHash = makeMaterialSourceHash_(materialFromRow_(row));
+      if (name === 'CHUNKS' && !row.sourceHash) {
+        const material = materials.find(function (m) { return m.materialId === String(row.materialId) && m.version === String(row.version || 'v1'); });
+        // 이전 원문 해시가 맞는 구간만 현재 자료에 연결한다. 캡션 정리 결과는 유지한다.
+        if (material && row.contentHash === makeContentHash_(material.text)) row.sourceHash = material.sourceHash;
+      }
+      if (name === 'TURNS' && !row.evidenceIds) row.evidenceIds = [row.aiUsedEvidenceIds, row.validatedKnowledgeIds, row.validatedVocabularyIds, row.validatedCardIds].filter(Boolean).join('|');
+      if (name === 'REVIEW_QUEUE') {
+        if (row.sourceHash && String(row.reviewId).indexOf(reviewScope_(row)) !== 0) row.reviewId = reviewScope_(row) + row.reviewId;
+        if (!row.candidateIds) row.candidateIds = [row.candidateCardIds,row.candidateChunkIds,row.candidateVocabularyIds,row.candidateKnowledgeIds].filter(Boolean).join('|');
+      }
+      return row;
+    });
+    const sheet = ss.getSheetByName(name) || ss.insertSheet(name);
+    sheet.clearContents();
+    sheet.getRange(1, 1, rows.length + 1, headers.length).setValues([headers].concat(rows.map(function (row) {
+      return headers.map(function (h) { return row[h] === undefined ? '' : row[h]; });
+    })));
+  });
 }

@@ -1,3 +1,22 @@
+function runLightweightCopyCheck() {
+  requireTeacherMenuContext_();
+  const copy = getSpreadsheet_().copy('질문 챗봇 · 경량화 전환 검증 · ' + new Date().toISOString());
+  try {
+    requestSpreadsheet_ = copy;
+    migrateLightweightWorkbook_(copy);
+    const material = getActiveMaterial_();
+    const start = getBootstrapData({}, '99-999');
+    const report = { schema: Object.keys(QUESTION_BOT_HEADERS_).length,
+      chunks: getApprovedMaterialChunks_(material.materialId, material.version).length,
+      knowledge: getApprovedKnowledgeItems_(material).length,
+      vocabulary: getTeacherGlossaryEntries_(material.materialId, material.version).length,
+      session: start.sessionId === encodeURIComponent(material.materialId) + ':99-999' };
+    if (!report.chunks || !report.session) throw new Error('복사본 전환 검증 실패');
+    Logger.log(JSON.stringify(report));
+    return report;
+  } finally { requestSpreadsheet_ = null; }
+}
+
 function runSmokeTests() {
   if (typeof SpreadsheetApp !== 'undefined') requireTeacherMenuContext_();
   const material = {
@@ -169,7 +188,7 @@ function runSmokeTests() {
       sourceStatus: 'source_insufficient',
       reasonCode: 'EVIDENCE_GAP'
     },
-    analysis: { studentMove: 'ask_fact' },
+    analysis: { studentMove: 'ask_fact', relatedQuestion: true },
     material: {
       materialId: 'MAT-001', version: 'v1', title: '예시 자료',
       sourceLabel: '교사 제공 자료', sourceUrl: ''
@@ -183,7 +202,7 @@ function runSmokeTests() {
       responseResult.text !== testCards[0].response ? 'PASS' : 'FAIL') +
       ' - 사실 질문은 카드 완성 답변 대신 원문 근거 사용'
   );
-  const factAIEvidence = buildAIEvidenceContext_(retrieval, material, { studentMove: 'ask_fact' });
+  const factAIEvidence = buildAIEvidenceContext_(retrieval, material, { studentMove: 'ask_fact', relatedQuestion: true });
   results.push(
     (factAIEvidence.some(function (item) { return item.id === 'CHK-001'; }) &&
       !factAIEvidence.some(function (item) { return item.id === 'RELEVANT'; }) ? 'PASS' : 'FAIL') +
@@ -192,7 +211,7 @@ function runSmokeTests() {
   results.push(
     (shouldQueueReview_(
       { blocked: false },
-      { studentMove: 'ask_fact' },
+      { studentMove: 'ask_fact', relatedQuestion: true },
       { isClosing: false, sourceStatus: 'source_insufficient' },
       emptyRetrievalResult_()
     ) ? 'PASS' : 'FAIL') +
@@ -257,7 +276,7 @@ function runSmokeTests() {
   results.push(
     (shouldQueueReview_(
       { blocked: false },
-      { studentMove: 'ask_definition' },
+      { studentMove: 'ask_definition', relatedQuestion: true },
       { isClosing: false, sourceStatus: 'supported' },
       emptyRetrievalResult_()
     ) ? 'PASS' : 'FAIL') +
@@ -283,7 +302,7 @@ function runSmokeTests() {
   );
   const cardOnlyDefinitionResponse = renderResponse_({
     plan: { primaryMove: 'clarify', hintLevel: 0, sourceStatus: 'supported' },
-    analysis: { studentMove: 'ask_definition' },
+    analysis: { studentMove: 'ask_definition', relatedQuestion: true },
     material: material,
     retrieval: cardOnlyDefinitionRetrieval
   });
@@ -291,39 +310,27 @@ function runSmokeTests() {
     (cardOnlyDefinitionResponse.sourceStatus === 'source_insufficient' &&
       cardOnlyDefinitionResponse.text.indexOf('이 답변은 사용하면 안 됩니다.') < 0 &&
       shouldQueueReview_(
-        { blocked: false }, { studentMove: 'ask_definition' },
+        { blocked: false }, { studentMove: 'ask_definition', relatedQuestion: true },
         { isClosing: false, sourceStatus: 'supported' }, cardOnlyDefinitionRetrieval
       ) ? 'PASS' : 'FAIL') +
       ' - 뜻 질문은 예전 카드 답변을 사용하지 않고 검토 큐 등록'
   );
 
-  const aiSettings = {
-    routingMode: 'hybrid',
-    fastModel: 'gpt-5.6-luna',
-    qualityModel: 'gpt-5.6-terra'
-  };
-  results.push(
-    (selectAIModel_(
-      'analysis', aiSettings, { stateConfidence: 'high' }, null, []
-    ) === 'gpt-5.6-luna' ? 'PASS' : 'FAIL') +
-      ' - 하이브리드 분석은 Luna 사용'
-  );
-  results.push(
-    (selectAIModel_(
-      'compose', aiSettings,
-      { stateConfidence: 'low', misconceptionDetected: false, studentMove: 'attempt_answer' },
-      { confidence: 'high' }, []
-    ) === 'gpt-5.6-terra' ? 'PASS' : 'FAIL') +
-      ' - 낮은 상태 확신은 Terra 승격'
-  );
-  results.push(
-    (selectAIModel_(
-      'compose', aiSettings,
-      { stateConfidence: 'high', misconceptionDetected: false, studentMove: 'attempt_answer' },
-      { confidence: 'high' }, []
-    ) === 'gpt-5.6-luna' ? 'PASS' : 'FAIL') +
-      ' - 단순 고확신 응답은 Luna 유지'
-  );
+  results.push((getAISettings_({AI_MODEL: 'one-model'}).model === 'one-model' ? 'PASS' : 'FAIL') + ' - CONFIG 단일 모델');
+  [
+    ['안녕하세요?', 'greeting', 'receive'], ['점심 뭐 먹어요?', 'small_talk', 'receive'],
+    ['왜 자꾸 물어봐요?', 'repair', 'receive'], ['제 이름은 홍길동이에요', 'safety', 'safety_redirect'],
+    ['숙제 대신 써 줘', 'safety', 'safety_redirect'], ['왜 잔반이 줄었나요?', 'ask_fact', 'answer'],
+    ['학교는 선택 배식을 시작했다', 'attempt_answer', 'check_evidence'],
+    ['지문에 선택 배식이 나와요', 'give_evidence', 'check_evidence']
+  ].forEach(function (row) {
+    const analysis = analyzeStudentTurn_({message: row[0], material: material});
+    const plan = selectNextMove_({guard: {blocked: false}, analysis: analysis, history: []});
+    results.push((analysis.studentMove === row[1] && plan.primaryMove === row[2] ? 'PASS' : 'FAIL') + ' - 분기 ' + row[0]);
+    if (['greeting', 'small_talk', 'repair', 'safety'].indexOf(row[1]) >= 0) {
+      results.push((!shouldQueueReview_({blocked: false}, analysis, plan, emptyRetrievalResult_()) ? 'PASS' : 'FAIL') + ' - 비수업 질문 큐 제외');
+    }
+  });
   results.push(
     (extractOpenAIOutputText_({
       output: [{ content: [{ type: 'output_text', text: '{"status":"ok"}' }] }]
@@ -334,5 +341,6 @@ function runSmokeTests() {
   results.forEach(function (result) {
     console.log(result);
   });
+  if (results.some(function (line) { return line.indexOf('FAIL') === 0; })) throw new Error('스모크 테스트 실패');
   return results;
 }

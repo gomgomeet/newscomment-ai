@@ -46,24 +46,9 @@ function generateKnowledgePackDrafts(teacherAccessToken, materialId, forceRefres
   const chunks = getApprovedMaterialChunks_(material.materialId, material.version);
   if (chunks.length === 0) throw new Error('지식팩을 만들 승인 원문 구간이 없습니다.');
   const generationId = 'KGEN-' + Utilities.getUuid().replace(/-/g, '').slice(-12).toUpperCase();
-  const primaryModel = settings.routingMode === 'terra_only'
-    ? settings.qualityModel
-    : settings.fastModel;
-  let activeModel = primaryModel;
-  let usedFallback = false;
-  let result;
-  try {
-    result = callOpenAIJson_(makeKnowledgePackRequest_(
-      material, chunks, primaryModel, settings, config
-    ));
-  } catch (error) {
-    if (primaryModel === settings.qualityModel) throw error;
-    activeModel = settings.qualityModel;
-    usedFallback = true;
-    result = callOpenAIJson_(makeKnowledgePackRequest_(
-      material, chunks, activeModel, settings, config
-    ));
-  }
+  const activeModel = settings.model;
+  const usedFallback = false;
+  const result = callOpenAIJson_(makeKnowledgePackRequest_(material, chunks, activeModel, settings, config));
 
   let proposed = Array.isArray(result.value && result.value.items)
     ? result.value.items
@@ -72,26 +57,11 @@ function generateKnowledgePackDrafts(teacherAccessToken, materialId, forceRefres
     proposed, material, chunks, generationId, result.model || activeModel
   );
   let rejectedCount = validated.rejectedCount;
-  if (validated.items.length === 0 &&
-      primaryModel !== settings.qualityModel && !usedFallback) {
-    activeModel = settings.qualityModel;
-    usedFallback = true;
-    result = callOpenAIJson_(makeKnowledgePackRequest_(
-      material, chunks, activeModel, settings, config
-    ));
-    proposed = Array.isArray(result.value && result.value.items)
-      ? result.value.items
-      : [];
-    validated = validateKnowledgeItemBatch_(
-      proposed, material, chunks, generationId, result.model || activeModel
-    );
-    rejectedCount += validated.rejectedCount;
-  }
   if (validated.items.length === 0) {
     throw new Error('원문 근거 검증을 통과한 지식 항목이 없습니다.');
   }
   appendObjectsToSheet_(
-    spreadsheet.getSheetByName('KNOWLEDGE_ITEMS'),
+    spreadsheet.getSheetByName('KNOWLEDGE'),
     validated.items
   );
   return {
@@ -150,7 +120,7 @@ function makeKnowledgePackRequest_(material, chunks, model, settings, config) {
   });
   return {
     model: model,
-    reasoningEffort: model === settings.fastModel ? 'none' : settings.reasoningEffort,
+    reasoningEffort: settings.reasoningEffort,
     // 대화 한 턴의 출력 상한으로 지문 전체 JSON을 제한하면 중간에 잘립니다.
     maxOutputTokens: 1200 + maxItems * 500,
     schemaName: 'teacher_knowledge_pack_drafts',
@@ -257,9 +227,9 @@ function normalizeKnowledgeItem_(candidate, material, chunks, generationId, mode
 
 function getKnowledgeItemsForRun_(generationId) {
   if (!generationId) return [];
-  return getRowsAsObjects_('KNOWLEDGE_ITEMS')
+  return getRowsAsObjects_('KNOWLEDGE')
     .filter(function (row) {
-      return String(row.generationId || '') === String(generationId);
+      return knowledgeGenerationId_(row) === String(generationId);
     })
     .map(mapKnowledgeItemRow_);
 }
@@ -275,14 +245,13 @@ function getLatestKnowledgePack_(material) {
   const sourceHash = String(
     currentMaterial.sourceHash || makeMaterialSourceHash_(currentMaterial)
   );
-  const rows = getRowsAsObjects_('KNOWLEDGE_ITEMS').filter(function (row) {
+  const rows = getRowsAsObjects_('KNOWLEDGE').filter(function (row) {
     return String(row.materialId || '') === String(currentMaterial.materialId) &&
-      String(row.version || 'v1') === String(currentMaterial.version || 'v1') &&
       String(row.sourceHash || '') === sourceHash &&
-      (String(row.promptVersion || '') === KNOWLEDGE_PACK_PROMPT_VERSION_ || String(row.status) === 'approved');
+      ['draft', 'approved'].indexOf(String(row.status)) >= 0;
   });
   if (rows.length === 0) return { generationId: '', items: [] };
-  const generationId = String(rows[rows.length - 1].generationId || '');
+  const generationId = knowledgeGenerationId_(rows[rows.length - 1]);
   return {
     generationId: generationId,
     items: getKnowledgeItemsForRun_(generationId)
@@ -290,18 +259,16 @@ function getLatestKnowledgePack_(material) {
 }
 
 function findReusableKnowledgePack_(material, sourceHash) {
-  const rows = getRowsAsObjects_('KNOWLEDGE_ITEMS').filter(function (row) {
+  const rows = getRowsAsObjects_('KNOWLEDGE').filter(function (row) {
     const status = String(row.status || '');
     return String(row.materialId || '') === String(material.materialId || '') &&
-      String(row.version || 'v1') === String(material.version || 'v1') &&
       String(row.sourceHash || '') === String(sourceHash || '') &&
-      String(row.promptVersion || '') === KNOWLEDGE_PACK_PROMPT_VERSION_ &&
       status !== 'rejected' && status !== 'archived';
   });
   if (rows.length === 0) return null;
   const latest = rows[rows.length - 1];
   return {
-    generationId: String(latest.generationId || ''),
+    generationId: knowledgeGenerationId_(latest),
     analysisModel: String(latest.analysisModel || '')
   };
 }
@@ -319,10 +286,10 @@ function approveKnowledgePackDrafts(teacherAccessToken, payload) {
   const chunks = getApprovedMaterialChunks_(material.materialId, material.version);
   const editMap = {};
   edits.forEach(function (item) { editMap[String(item.knowledgeId || '')] = item; });
-  const sheet = getSpreadsheet_().getSheetByName('KNOWLEDGE_ITEMS');
+  const sheet = getSpreadsheet_().getSheetByName('KNOWLEDGE');
   const headers = getHeaderMap_(sheet);
-  const candidates = getRowsAsObjects_('KNOWLEDGE_ITEMS').filter(function (row) {
-    return String(row.generationId || '') === generationId &&
+  const candidates = getRowsAsObjects_('KNOWLEDGE').filter(function (row) {
+    return knowledgeGenerationId_(row) === generationId &&
       editMap[String(row.knowledgeId || '')];
   });
   if (candidates.length !== edits.length) {
@@ -334,7 +301,6 @@ function approveKnowledgePackDrafts(teacherAccessToken, payload) {
       throw new Error('이미 처리된 지식 항목이 포함되어 있습니다.');
     }
     if (String(row.materialId || '') !== String(material.materialId || '') ||
-        String(row.version || 'v1') !== String(material.version || 'v1') ||
         !String(row.sourceHash || '') || String(row.sourceHash) !== sourceHash) {
       throw new Error('현재 지문과 다른 지식팩 초안입니다. 다시 분석해 주세요.');
     }
@@ -367,7 +333,7 @@ function approveKnowledgePackDrafts(teacherAccessToken, payload) {
         }
       });
     });
-    bumpRetrievalCacheRevision_();
+
   } finally {
     lock.releaseLock();
   }
@@ -387,11 +353,11 @@ function discardKnowledgePackDrafts(teacherAccessToken, payload) {
   if (!generationId || knowledgeIds.length === 0) {
     throw new Error('폐기할 지식팩 초안이 없습니다.');
   }
-  const sheet = getSpreadsheet_().getSheetByName('KNOWLEDGE_ITEMS');
+  const sheet = getSpreadsheet_().getSheetByName('KNOWLEDGE');
   const headers = getHeaderMap_(sheet);
   let rejectedCount = 0;
-  getRowsAsObjects_('KNOWLEDGE_ITEMS').forEach(function (row) {
-    if (String(row.generationId || '') !== generationId ||
+  getRowsAsObjects_('KNOWLEDGE').forEach(function (row) {
+    if (knowledgeGenerationId_(row) !== generationId ||
         knowledgeIds.indexOf(String(row.knowledgeId || '')) < 0 ||
         String(row.status || '') !== 'draft') return;
     const updates = {
@@ -418,11 +384,10 @@ function getApprovedKnowledgeItems_(material) {
   const sourceHash = String(
     currentMaterial.sourceHash || makeMaterialSourceHash_(currentMaterial)
   );
-  return getRowsAsObjects_('KNOWLEDGE_ITEMS')
+  return getRowsAsObjects_('KNOWLEDGE')
     .filter(function (row) {
       return isTruthy_(row.active) && isApprovedStatus_(row.status) &&
         String(row.materialId || '') === String(currentMaterial.materialId || '') &&
-        String(row.version || 'v1') === String(currentMaterial.version || 'v1') &&
         String(row.sourceHash || '') === sourceHash;
     })
     .map(mapKnowledgeItemRow_);
@@ -430,12 +395,12 @@ function getApprovedKnowledgeItems_(material) {
 
 function archiveStaleKnowledgeItems_(material) {
   const spreadsheet = getSpreadsheet_();
-  const sheet = spreadsheet.getSheetByName('KNOWLEDGE_ITEMS');
+  const sheet = spreadsheet.getSheetByName('KNOWLEDGE');
   if (!sheet || sheet.getLastRow() < 2) return 0;
   const headers = getHeaderMap_(sheet);
   const sourceHash = String(material.sourceHash || makeMaterialSourceHash_(material));
   let archivedCount = 0;
-  getRowsAsObjects_('KNOWLEDGE_ITEMS').forEach(function (row) {
+  getRowsAsObjects_('KNOWLEDGE').forEach(function (row) {
     if (!row.__rowNumber || !isTruthy_(row.active) ||
         String(row.materialId || '') !== String(material.materialId || '') ||
         String(row.sourceHash || '') === sourceHash) return;
@@ -465,17 +430,66 @@ function mapKnowledgeItemRow_(row) {
     easyExplanation: String(row.easyExplanation || ''),
     gradeCode: String(row.gradeCode || ''),
     explanationGradeCode: String(row.explanationGradeCode || ''),
-    keywords: String(row.keywords || ''),
+    keywords: String(row.keywords || contentWords_(row.title + ' ' + row.content).slice(0, 5).join('|')),
     evidenceQuote: String(row.evidenceQuote || ''),
     chunkId: String(row.chunkId || ''),
-    sourceLocation: String(row.sourceLocation || ''),
+    sourceLocation: evidenceLocation_(row),
     status: String(row.status || 'draft'),
     active: isTruthy_(row.active),
     teacherNote: String(row.teacherNote || ''),
-    generationId: String(row.generationId || ''),
+    generationId: knowledgeGenerationId_(row),
     promptVersion: String(row.promptVersion || ''),
     analysisModel: String(row.analysisModel || ''),
     validationStatus: String(row.validationStatus || ''),
     teacherDecision: String(row.teacherDecision || '')
   };
 }
+
+function findGeneratedEvidence_(chunkId, quote, chunks) {
+  const requestedId = String(chunkId || '').trim();
+  const normalizedQuote = normalizeCardText_(quote);
+  const exactChunk = (chunks || []).find(function (chunk) {
+    return String(chunk.chunkId) === requestedId &&
+      normalizeCardText_(chunk.content).indexOf(normalizedQuote) >= 0;
+  });
+  const matchingChunk = exactChunk || (chunks || []).find(function (chunk) {
+    return normalizeCardText_(chunk.content).indexOf(normalizedQuote) >= 0;
+  });
+  if (!matchingChunk) throw new Error('인용 근거가 교사 원문에 없습니다.');
+  return {
+    chunkId: matchingChunk.chunkId,
+    sourceLocation: matchingChunk.sourceLocation || matchingChunk.sourceLabel || '교사 제공 자료'
+  };
+}
+
+function validateCardText_(value, label, maxLength) {
+  const result = String(value || '').trim();
+  if (!result) throw new Error(label + '이(가) 비어 있습니다.');
+  if (result.length > maxLength) throw new Error(label + ' 길이가 제한을 넘었습니다.');
+  if (/<\s*\/?\s*(script|iframe|object|embed|style)|javascript\s*:|on\w+\s*=/i.test(result)) {
+    throw new Error(label + '에 허용되지 않은 코드가 있습니다.');
+  }
+  return result;
+}
+
+function normalizeCardStringList_(value, maxItems, maxLength, label) {
+  const source = Array.isArray(value) ? value : String(value || '').split('|');
+  const seen = {};
+  const result = source.map(function (item) {
+    return validateCardText_(item, label, maxLength);
+  }).filter(function (item) {
+    const key = normalizeCardText_(item);
+    if (!key || seen[key]) return false;
+    seen[key] = true;
+    return true;
+  }).slice(0, maxItems);
+  if (result.length === 0) throw new Error(label + '이(가) 없습니다.');
+  return result;
+}
+
+function normalizeCardText_(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+
+function knowledgeGenerationId_(row) { return String(row.generationId || ('KGEN-' + String(row.knowledgeId || '').replace(/^KN-/, '').replace(/-\d+$/, ''))); }

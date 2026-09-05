@@ -67,13 +67,13 @@
           <div class="conversation-area">
             <div id="messages" class="messages" aria-live="polite" aria-label="대화 내용"></div>
 
-            <section id="onboarding" class="onboarding" hidden aria-labelledby="nickname-prompt">
-              <p id="nickname-prompt"></p>
-              <label for="nickname-input">대화에서 사용할 이름·별명(선택)</label>
-              <input id="nickname-input" maxlength="20" autocomplete="off" placeholder="예: 별빛 독자">
+            <section id="onboarding" class="onboarding" hidden aria-labelledby="student-code-prompt">
+              <p id="student-code-prompt"></p>
+              <label for="student-code-input">반-번호(필수)</label>
+              <input id="student-code-input" maxlength="6" autocomplete="off" placeholder="예: 3-12">
               <div class="button-row">
                 <button type="button" id="start-button" class="primary-button">대화 시작</button>
-                <button type="button" id="skip-name-button" class="secondary-button">이름 없이 시작</button>
+
               </div>
               <small>이 이름은 이 화면에서만 사용하며 Google Sheet에는 저장하지 않습니다.</small>
             </section>

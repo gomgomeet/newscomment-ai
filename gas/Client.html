@@ -3,7 +3,6 @@
     sessionId: '',
     studentCode: '',
     bootstrapData: null,
-    nickname: '',
     ready: false,
     busy: false,
     closed: false,
@@ -33,10 +32,9 @@
     elements.progress = document.getElementById('learning-progress');
     elements.messages = document.getElementById('messages');
     elements.onboarding = document.getElementById('onboarding');
-    elements.nicknamePrompt = document.getElementById('nickname-prompt');
-    elements.nicknameInput = document.getElementById('nickname-input');
+    elements.studentCodePrompt = document.getElementById('student-code-prompt');
+    elements.studentCodeInput = document.getElementById('student-code-input');
     elements.startButton = document.getElementById('start-button');
-    elements.skipNameButton = document.getElementById('skip-name-button');
     elements.status = document.getElementById('status');
     elements.form = document.getElementById('chat-form');
     elements.input = document.getElementById('message-input');
@@ -65,17 +63,14 @@
       }
     });
     elements.input.addEventListener('input', resizeComposerInput);
-    elements.nicknameInput.addEventListener('keydown', function (event) {
+    elements.studentCodeInput.addEventListener('keydown', function (event) {
       if (event.key === 'Enter' && !event.isComposing) {
         event.preventDefault();
-        beginConversation(elements.nicknameInput.value);
+        beginConversation(elements.studentCodeInput.value);
       }
     });
     elements.startButton.addEventListener('click', function () {
-      beginConversation(elements.nicknameInput.value);
-    });
-    elements.skipNameButton.addEventListener('click', function () {
-      beginConversation('');
+      beginConversation(elements.studentCodeInput.value);
     });
     elements.definitionButton.addEventListener('click', function () {
       preparePrompt('___이(가) 뭐예요?', '___');
@@ -135,32 +130,28 @@
       label: '첫 인사',
       move: 'welcome'
     });
-    if (data.askNickname) {
-      elements.nicknamePrompt.textContent = data.nicknamePrompt;
-      elements.onboarding.hidden = false;
-      setBusy(false, '이름·별명은 선택 사항이에요.');
-      elements.nicknameInput.focus();
-    } else {
-      beginConversation('');
-    }
+    elements.studentCodePrompt.textContent = '반-번호를 입력해 주세요. 이름은 입력하지 않아요.';
+    elements.onboarding.hidden = false;
+    setBusy(false, '예: 3반 12번 → 3-12');
+    try { elements.studentCodeInput.value = sessionStorage.getItem('student-code:' + data.material.materialId) || ''; } catch (error) {}
+    elements.studentCodeInput.focus();
   }
 
-  function beginConversation(nickname) {
-    if (state.ready || !state.bootstrapData) return;
-    state.nickname = String(nickname || '').trim().slice(0, 20);
-    state.ready = true;
-    elements.onboarding.hidden = true;
-    const welcome = state.nickname ? state.nickname + '님, 반가워요!\n\n' : '';
-    const intro = state.activityMode === 'research'
-      ? '궁금한 것을 조사 가능한 질문으로 좁히고, 선생님이 승인한 자료에서 근거를 찾아봐요.'
-      : state.bootstrapData.introMessage;
-    addMessage(
-      'bot',
-      welcome + intro + '\n\n' + state.bootstrapData.material.startQuestion,
-        { label: state.activityMode === 'research' ? '탐구 시작 질문' : '시작 질문', move: 'question' }
-    );
-    setBusy(false, '먼저 자기 생각을 말해 보세요.');
-    elements.input.focus();
+  function beginConversation(studentCode) {
+    if (state.ready || state.busy || !state.bootstrapData) return;
+    if (!/^\d{1,2}-\d{1,3}$/.test(String(studentCode || '').trim())) { showError({message: '반-번호를 입력해 주세요. 예: 3-12'}); return; }
+    setBusy(true, '이전 대화를 확인하고 있어요.');
+    google.script.run.withFailureHandler(showError).withSuccessHandler(function (data) {
+      state.sessionId = data.sessionId; state.studentCode = data.studentCode; state.ready = true;
+      state.lessonSelector = data.lesson; state.closed = data.isClosing;
+      elements.studentCode.textContent = '반-번호 · ' + data.studentCode;
+      elements.onboarding.hidden = true;
+      try { sessionStorage.setItem('student-code:' + data.material.materialId, data.studentCode); } catch (error) {}
+      (data.history || []).forEach(function (turn) { addMessage(turn.speaker, turn.text, {move: turn.primaryMove}); });
+      if (!data.history.length) addMessage('bot', data.introMessage, {label: '활동 시작'});
+      setBusy(false, data.isClosing ? '마친 대화입니다.' : '궁금한 점을 물어보세요.');
+      if (data.isClosing) disableComposer(); else elements.input.focus();
+    }).getBootstrapData(state.lessonSelector, studentCode);
   }
 
   function sendTurn(action, message) {
@@ -209,6 +200,7 @@
       .submitTurn({
         sessionId: state.sessionId,
         studentCode: state.studentCode,
+        lesson: state.lessonSelector,
         message: message,
         action: action === 'message' && state.activityMode === 'research' && /조사하고 싶어요/.test(message)
           ? 'research' : action
@@ -219,6 +211,7 @@
     if (result.researchGuidance) return '승인 조사 자료 안내';
     if (result.teacherInterventionFlag) return '선생님 확인 예정';
     const labels = {
+      answer: '질문에 대한 답',
       clarify: '낱말 뜻과 문장 확인',
       offer_clue: '생각 힌트 ' + Math.max(1, Number(result.hintLevel || 1)) + '단계',
       check_evidence: '근거 확인',
@@ -242,7 +235,7 @@
     icon.textContent = role === 'student' ? '나' : responseIcon_(detail.move);
     const label = document.createElement('span');
     label.textContent = role === 'student'
-      ? (state.nickname || detail.label || '나')
+      ? (state.studentCode || detail.label || '나')
       : (detail.label || (state.bootstrapData && state.bootstrapData.appName) || '질문이');
     labelRow.appendChild(icon);
     labelRow.appendChild(label);

@@ -58,10 +58,9 @@ function onOpen() {
     .addItem('고급. 수업 자료 적용 및 점검', 'applyTeacherMaterial')
     .addItem('고급. 미해결 질문 검토', 'openReviewQueue')
     .addSeparator()
+    .addItem('관리. 경량화 시트 전환(백업 포함)', 'migrateLightweightWorkbook')
     .addItem('관리. 스모크 테스트', 'runSmokeTests')
-    .addItem('관리. 학년별 RAG 평가', 'runRagEvaluationSuite')
     .addItem('관리. 운영 준비 점검', 'runOperationalReadinessCheck')
-    .addItem('관리. 동시 접속 시험', 'showClassroomLoadTest')
     .addItem('관리. OpenAI API 키 삭제', 'clearOpenAIApiKey')
     .addToUi();
 }
@@ -84,7 +83,7 @@ function setupProjectForSpreadsheet_(spreadsheet) {
   ensureWorkbookStructure_(spreadsheet);
   seedSampleData_(spreadsheet);
   const chunkCount = syncMaterialChunks_();
-  bumpRetrievalCacheRevision_();
+
   spreadsheet.toast(
     '초기 설정이 완료되었습니다. 자료 구간 ' + chunkCount + '개를 새로 만들었습니다.',
     '질문 챗봇',
@@ -101,7 +100,7 @@ function refreshMaterialIndex() {
   const spreadsheet = getSpreadsheet_();
   ensureWorkbookStructure_(spreadsheet);
   const chunkCount = syncMaterialChunks_();
-  bumpRetrievalCacheRevision_();
+
   spreadsheet.toast(
     chunkCount > 0
       ? '교사 자료 구간 ' + chunkCount + '개를 갱신했습니다.'
@@ -191,7 +190,7 @@ function applyTeacherMaterial() {
   ensureWorkbookStructure_(spreadsheet);
   const material = validateTeacherMaterial_();
   const chunkCount = syncMaterialChunks_();
-  bumpRetrievalCacheRevision_();
+
   spreadsheet.toast(
     '적용 완료: ' + material.grade + ' · ' + material.title +
       ' / 새 검색 구간 ' + chunkCount + '개',
@@ -235,56 +234,20 @@ function include_(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
-function getBootstrapData(lessonSelector) {
+function getBootstrapData(lessonSelector, studentCode) {
   ensureRuntimeSchema_();
   const config = readConfig_();
   const material = getLessonMaterial_(lessonSelector);
-  const sessionId = Utilities.getUuid();
-  const studentCode = '익명-' + sessionId.slice(0, 4).toUpperCase();
-
-  createSession_({
-    sessionId: sessionId,
-    studentCode: studentCode,
-    botId: config.BOT_ID || 'question-bot-01',
-    materialId: material.materialId,
-    materialVersion: material.version,
-    materialSourceHash: material.sourceHash,
-    policyVersion: config.POLICY_VERSION || 'ai-rag-router-v1'
-  });
-
-  return {
-    appName: config.APP_NAME || '질문이',
-    subject: config.SUBJECT || '',
-    greetingMessage: formatGreetingMessage_(
-      config.GREETING_MESSAGE || '안녕! 나는 {appName}야. 함께 지문을 읽고 질문을 나눠 보자.',
-      config.APP_NAME || '질문이'
-    ),
-    introMessage:
-      config.INTRO_MESSAGE ||
-      '지문을 읽고 먼저 자기 생각을 말해 보세요. 어려우면 힌트를 요청할 수 있어요.',
-    askNickname: config.ASK_NICKNAME === undefined
-      ? true
-      : isTruthy_(config.ASK_NICKNAME),
-    nicknamePrompt:
-      config.NICKNAME_PROMPT ||
-      '대화에서 사용할 이름이나 별명을 알려 주세요. 건너뛰어도 괜찮아요.',
-    sessionId: sessionId,
-    studentCode: studentCode,
-    material: material,
-    activityMode: material.activityMode,
-    externalSources: getApprovedExternalSources_(material).map(function (source) {
-      return {
-        sourceId: source.sourceId, title: source.title, url: source.url,
-        sourceName: source.sourceName, checkedAt: source.checkedAt,
-        allowedScope: source.allowedScope
-      };
-    }),
-    lesson: {
-      lessonId: material.materialId,
-      version: material.version,
-      sourceHash: material.sourceHash
-    }
-  };
+  const code = studentCode ? normalizeStudentCode_(studentCode) : '';
+  const sessionId = code ? encodeURIComponent(material.materialId) + ':' + code : '';
+  const history = sessionId ? getSessionTurns_(sessionId) : [];
+  return { appName: config.APP_NAME || '질문이', subject: config.SUBJECT || '',
+    greetingMessage: formatGreetingMessage_(config.GREETING_MESSAGE || '안녕! 나는 {appName}야.', config.APP_NAME || '질문이'),
+    introMessage: '지문을 읽고 궁금한 점을 물어보세요.', sessionId: sessionId, studentCode: code,
+    material: material, activityMode: 'discussion', history: history.map(function (row) {
+      return { speaker: row.speaker, text: row.text, primaryMove: row.primaryMove, turnNo: row.turnNo };
+    }), isClosing: history.length > 0 && history[history.length - 1].primaryMove === 'close',
+    lesson: { lessonId: material.materialId, version: material.version, sourceHash: material.sourceHash } };
 }
 
 function formatGreetingMessage_(message, appName) {
@@ -293,6 +256,7 @@ function formatGreetingMessage_(message, appName) {
 
 function getTeacherSetupData(teacherAccessToken) {
   assertTeacherAccess_(teacherAccessToken);
+  ensureRuntimeSchema_();
   const spreadsheet = getSpreadsheet_();
   ensureWorkbookStructure_(spreadsheet);
   const config = readConfig_();
@@ -313,31 +277,15 @@ function getTeacherSetupData(teacherAccessToken) {
     greetingMessage:
       config.GREETING_MESSAGE ||
       '안녕! 나는 {appName}야. 함께 지문을 읽고 질문을 나눠 보자.',
-    introMessage:
-      config.INTRO_MESSAGE ||
-      '지문을 읽고 먼저 자기 생각을 말해 보세요. 어려우면 힌트를 요청할 수 있어요.',
-    askNickname: config.ASK_NICKNAME === undefined
-      ? true
-      : isTruthy_(config.ASK_NICKNAME),
-    nicknamePrompt:
-      config.NICKNAME_PROMPT ||
-      '대화에서 사용할 이름이나 별명을 알려 주세요. 건너뛰어도 괜찮아요.',
     material: material,
     glossary: getTeacherGlossaryEntries_(material.materialId, material.version),
     pendingReviews: getPendingSupplementReviews_(material),
-    externalSources: getTeacherExternalSources_(material),
-    cardDrafts: getLatestTeacherGeneratedCards_(material.materialId, material.version),
     knowledgeDrafts: getLatestKnowledgePack_(material),
     ai: {
       configured: Boolean(getOpenAIApiKey_()),
       enabled: aiSettings.enabled,
-      model: aiSettings.qualityModel,
-      knowledgeGenerationModel: aiSettings.routingMode === 'terra_only'
-        ? aiSettings.qualityModel : aiSettings.fastModel,
-      cardGenerationMode: String(config.AI_CARD_GENERATION_MODE || 'fast'),
-      cardGenerationModel: String(config.AI_CARD_GENERATION_MODE || 'fast').toLowerCase() === 'quality'
-        ? aiSettings.qualityModel
-        : aiSettings.fastModel
+      model: aiSettings.model,
+      knowledgeGenerationModel: aiSettings.model
     },
     studentUrl: getStudentWebAppUrl_(material),
     readiness: getOperationalReadiness_()
@@ -346,13 +294,11 @@ function getTeacherSetupData(teacherAccessToken) {
 
 function getPendingSupplementReviews_(material) {
   const rows = getRowsAsObjects_('REVIEW_QUEUE').filter(function (row) {
-    return String(row.status) === 'open' && String(row.materialId) === String(material.materialId) &&
-      String(row.version) === String(material.version) && Boolean(row.sourceHash) &&
-      String(row.sourceHash) === String(material.sourceHash);
+    return row.status === 'open' && String(row.reviewId).indexOf(reviewScope_(material)) === 0;
   }).sort(function (a, b) { return Number(b.count || 1) - Number(a.count || 1); });
   return { total: rows.length, items: rows.slice(0, 10).map(function (row) {
     return { reviewId: String(row.reviewId), question: String(row.question), count: Number(row.count || 1),
-      canSupplement: String(row.studentMove) === 'ask_definition' };
+      canSupplement: isDefinitionQuestion_(row.question) };
   }) };
 }
 
@@ -365,12 +311,10 @@ function resolveSupplementReview(teacherAccessToken, payload) {
     const material = getActiveMaterial_();
     const row = getRowsAsObjects_('REVIEW_QUEUE').find(function (item) { return String(item.reviewId) === String(payload.reviewId); });
     if (!row || String(row.status) !== 'open') throw new Error('이미 처리되었거나 찾을 수 없는 질문입니다. 화면을 다시 열어 주세요.');
-    if (!row.sourceHash || String(row.materialId) !== String(material.materialId) ||
-        String(row.version) !== String(material.version) || String(row.sourceHash) !== String(material.sourceHash) ||
-        String(payload.sourceHash) !== String(material.sourceHash)) throw new Error('자료가 변경되었습니다. 현재 자료의 질문을 다시 확인해 주세요.');
+    if (String(row.reviewId).indexOf(reviewScope_(material)) !== 0 || String(payload.sourceHash) !== String(material.sourceHash)) throw new Error('자료가 변경되었습니다. 현재 자료의 질문을 다시 확인해 주세요.');
     let supplement = null;
     if (payload.action === 'supplement') {
-      if (String(row.studentMove) !== 'ask_definition') throw new Error('낱말 뜻 질문에만 보충 풀이를 저장할 수 있습니다.');
+      if (!isDefinitionQuestion_(row.question)) throw new Error('낱말 뜻 질문에만 보충 풀이를 저장할 수 있습니다.');
       const term = String(payload.term || '').trim();
       const definition = String(payload.definition || '').trim();
       const group = String(payload.group || '').trim();
@@ -383,10 +327,9 @@ function resolveSupplementReview(teacherAccessToken, payload) {
         requireSupportedGrade_(material.gradeCode || material.grade), '교사 직접 입력'), { wordGroup: group });
       syncManagedSheetRows_(getSpreadsheet_().getSheetByName('VOCABULARY_LIBRARY'), function (item) {
         return String(item.sourceId) === String(material.materialId) && String(item.version) === String(material.version) &&
-          normalizeVocabularyTerm_(item.term) === normalized &&
-          ['교사 직접 입력', '승인된 사전카드 이관'].indexOf(String(item.sourceLocation)) >= 0;
+          normalizeVocabularyTerm_(item.term) === normalized;
       }, function () { return normalized; }, [vocabulary]);
-      bumpRetrievalCacheRevision_();
+
       supplement = { term: term, definition: definition, group: group };
     } else if (payload.action !== 'reviewed') throw new Error('처리 방법을 확인해 주세요.');
     const sheet = getSpreadsheet_().getSheetByName('REVIEW_QUEUE');
@@ -397,7 +340,7 @@ function resolveSupplementReview(teacherAccessToken, payload) {
     updated[headers.indexOf('reviewedAt')] = new Date();
     sheet.getRange(row.__rowNumber, 1, 1, headers.length).setValues([updated]);
     return { supplement: supplement, pendingReviews: getPendingSupplementReviews_(material) };
-  } finally { lock.releaseLock(); }
+  } finally { flushAndReleaseLock_(lock); }
 }
 
 function saveTeacherSetup(teacherAccessToken, payload) {
@@ -409,14 +352,13 @@ function saveTeacherSetup(teacherAccessToken, payload) {
     const spreadsheet = getSpreadsheet_();
     ensureWorkbookStructure_(spreadsheet);
     setConfigValues_({ APP_NAME: normalized.appName, SUBJECT: normalized.subject,
-      GREETING_MESSAGE: normalized.greetingMessage, INTRO_MESSAGE: normalized.introMessage,
-      ASK_NICKNAME: normalized.askNickname ? 'TRUE' : 'FALSE', NICKNAME_PROMPT: normalized.nicknamePrompt }, spreadsheet);
+      GREETING_MESSAGE: normalized.greetingMessage }, spreadsheet);
     const material = saveActiveMaterial_(normalized.material);
     archiveStaleKnowledgeItems_(material);
     const vocabularyCount = syncTeacherGlossaryVocabulary_(material, normalized.glossary);
-    const externalSourceCount = replaceTeacherExternalSources_(material, normalized.externalSources);
+    const externalSourceCount = 0;
     const chunkCount = syncMaterialChunks_();
-    bumpRetrievalCacheRevision_();
+
     return {
       ok: true,
       message: '저장되었습니다. 학생 앱 새로고침부터 바로 반영됩니다.',
@@ -424,12 +366,13 @@ function saveTeacherSetup(teacherAccessToken, payload) {
       title: material.title,
       glossaryCount: normalized.glossary.length,
       vocabularyCount: vocabularyCount,
+      sourceHash: material.sourceHash,
       externalSourceCount: externalSourceCount,
       newChunkCount: chunkCount,
       studentUrl: getStudentWebAppUrl_(material)
     };
   } finally {
-    lock.releaseLock();
+    flushAndReleaseLock_(lock);
   }
 }
 
@@ -449,252 +392,56 @@ function getStudentWebAppUrl_(material) {
 }
 
 function submitTurn(payload) {
-  if (!payload || !payload.sessionId) {
-    throw new Error('세션 정보가 없습니다. 화면을 새로고침해 주세요.');
-  }
-
+  if (!payload || !payload.sessionId) throw new Error('반-번호를 입력하고 활동을 시작해 주세요.');
+  ensureRuntimeSchema_();
   const config = readConfig_();
-  const sessionContext = getActiveSessionContext_(payload.sessionId);
-  const material = sessionContext.material;
-  const sessionStudentCode = String(sessionContext.session.studentCode || '익명');
+  const context = getActiveSessionContext_(payload.sessionId, payload.lesson);
+  const material = context.material;
   const history = getSessionTurns_(payload.sessionId);
+  if (history.length && history[history.length - 1].primaryMove === 'close') throw new Error('이미 마친 대화입니다.');
   const action = String(payload.action || 'message');
-  const rawMessage = String(payload.message || '').trim();
-  const fallbackMessage =
-    action === 'hint'
-      ? '힌트가 필요해요.'
-      : action === 'close'
-      ? '이제 대화를 마칠게요.'
-      : action === 'research'
-      ? '조사 질문과 검색어를 만들고 싶어요.'
-      : '';
-  const message = rawMessage || fallbackMessage;
-
-  if (!message) {
-    throw new Error('학생의 생각을 입력해 주세요.');
-  }
-
+  const message = String(payload.message || (action === 'hint' ? '힌트가 필요해요.' : action === 'close' ? '이제 대화를 마칠게요.' : '')).trim();
+  if (!message) throw new Error('질문이나 생각을 입력해 주세요.');
   const guard = guardStudentInput_(message);
   const safeMessage = guard.safeText;
-  const ruleAnalysis = analyzeStudentTurn_({
-    message: safeMessage,
-    action: action,
-    material: material,
-    history: history
-  });
-  const aiAnalysisResult = enrichStudentAnalysisWithAI_({
-    message: safeMessage,
-    action: action,
-    ruleAnalysis: ruleAnalysis,
-    material: material,
-    history: history,
-    config: config
-  });
-  const analysis = aiAnalysisResult.analysis;
-
-  const turnNumber = history.length + 1;
-  appendTurn_({
-    sessionId: payload.sessionId,
-    studentCode: sessionStudentCode,
-    turnNo: turnNumber,
-    speaker: 'student',
-    text: safeMessage,
-    studentMove: analysis.studentMove,
-    primaryMove: '',
-    hintLevel: 0,
-    sourceStatus: '',
-    reasonGiven: analysis.reasonGiven,
-    passageEcho: analysis.passageEcho,
-    feedbackUptake: analysis.feedbackUptake,
-    interventionFlag: guard.blocked,
-    policyVersion: config.POLICY_VERSION || 'ai-rag-router-v1',
-    aiEnabled: isTruthy_(config.AI_ENABLED),
-    aiAnalysisModel: aiAnalysisResult.model,
-    aiResponseModel: '',
-    aiStatus: 'analysis:' + aiAnalysisResult.status,
-    stateConfidence: analysis.stateConfidence || '',
-    activeConcept: analysis.activeConcept || '',
-    rewrittenQuery: aiAnalysisResult.rewrittenQuery,
-    misconceptionDetected: Boolean(analysis.misconceptionDetected),
-    aiUsedEvidenceIds: []
-  });
-
-  const plan = selectNextMove_({
-    guard: guard,
-    analysis: analysis,
-    material: material,
-    history: history
-  });
-  const retrievalQuery = analysis.studentMove === 'ask_definition' ? safeMessage : (aiAnalysisResult.rewrittenQuery || safeMessage);
-  const retrieval = retrieveApprovedEvidence_({
-    query: retrievalQuery,
-    botId: config.BOT_ID || 'question-bot-01',
-    plan: plan,
-    analysis: analysis,
-    material: material,
-    config: config
-  });
-  let baseResponse = renderResponse_({
-    plan: plan,
-    analysis: analysis,
-    material: material,
-    retrieval: retrieval
-  });
-  const useResearchBoundary = material.activityMode === 'research' &&
-    (action === 'research' || baseResponse.sourceStatus === 'source_insufficient');
-  if (useResearchBoundary) {
-    baseResponse = buildResearchGuidance_(safeMessage, material);
-    retrieval.retrievedExternalSourceIds = baseResponse.retrievedExternalSourceIds || [];
-  }
-  const aiComposeResult = useResearchBoundary
-    ? {
-        responseResult: baseResponse,
-        status: 'skipped_research_boundary',
-        model: '',
-        usedEvidenceIds: baseResponse.validatedExternalSourceIds || []
-      }
-    : composeResponseWithAI_({
-        message: safeMessage,
-        plan: plan,
-        analysis: analysis,
-        material: material,
-        retrieval: retrieval,
-        history: history,
-        config: config,
-        baseResponse: baseResponse
-      });
+  const ruleAnalysis = analyzeStudentTurn_({ message: safeMessage, action: action, material: material, history: history });
+  const analysis = ruleAnalysis;
+  const plan = selectNextMove_({ guard: guard, analysis: analysis, material: material, history: history });
+  const retrieval = retrieveApprovedEvidence_({ query: safeMessage, analysis: analysis, plan: plan, material: material, config: config });
+  const baseResponse = renderResponse_({ plan: plan, analysis: analysis, material: material, retrieval: retrieval });
+  const aiComposeResult = composeResponseWithAI_({ message: safeMessage, plan: plan, analysis: analysis,
+    material: material, retrieval: retrieval, history: history, config: config, baseResponse: baseResponse });
   const responseResult = aiComposeResult.responseResult;
-
   let reviewId = '';
-  let queuedReviewReasonCode = '';
-  const researchNeedsReview = useResearchBoundary &&
-    responseResult.sourceStatus === 'source_insufficient';
-  if (researchNeedsReview || shouldQueueReview_(guard, analysis, plan, retrieval)) {
-    queuedReviewReasonCode = researchNeedsReview
-      ? 'NO_APPROVED_RESEARCH_SOURCE'
-      : getReviewReasonCode_(analysis, plan, retrieval);
-    reviewId = upsertReviewItem_({
-      sessionId: payload.sessionId,
-      studentCode: sessionStudentCode,
-      materialId: material.materialId,
-      question: safeMessage,
-      reasonCode: queuedReviewReasonCode,
-      version: material.version,
-      sourceHash: material.sourceHash,
-      studentMove: analysis.studentMove,
-      topScore: retrieval.topScore,
-      candidateCardIds: retrieval.retrievedCardIds,
-      candidateChunkIds: retrieval.retrievedChunkIds,
-      candidateVocabularyIds: retrieval.retrievedVocabularyIds,
-      candidateKnowledgeIds: retrieval.retrievedKnowledgeIds,
-      candidateExternalSourceIds: retrieval.retrievedExternalSourceIds,
-      occurrenceKey: makeReviewOccurrenceKey_(material.materialId, safeMessage)
-    });
+  const reason = getReviewReasonCode_(analysis, plan, retrieval);
+  if (shouldQueueReview_(guard, analysis, plan, retrieval)) {
+    reviewId = upsertReviewItem_({ studentCode: context.session.studentCode, materialId: material.materialId,
+      question: safeMessage, reasonCode: reason, sourceHash: material.sourceHash,
+      candidateCardIds: retrieval.retrievedCardIds, candidateChunkIds: retrieval.retrievedChunkIds,
+      candidateVocabularyIds: retrieval.retrievedVocabularyIds, candidateKnowledgeIds: retrieval.retrievedKnowledgeIds,
+      occurrenceKey: makeReviewOccurrenceKey_(material.materialId, safeMessage) });
   }
-
-  appendRetrievalLog_({
-    sessionId: payload.sessionId,
-    turnNo: turnNumber,
-    materialId: material.materialId,
-    query: retrievalQuery,
-    originalQuery: safeMessage,
-    rewrittenQuery: aiAnalysisResult.rewrittenQuery || safeMessage,
-    queryTokens: retrieval.queryTokens,
-    retrievedCardIds: retrieval.retrievedCardIds,
-    retrievedChunkIds: retrieval.retrievedChunkIds,
-    retrievedVocabularyIds: retrieval.retrievedVocabularyIds,
-    retrievedKnowledgeIds: retrieval.retrievedKnowledgeIds,
-    retrievedExternalSourceIds: retrieval.retrievedExternalSourceIds,
-    topScore: retrieval.topScore,
-    scoreGap: retrieval.scoreGap,
-    ambiguous: retrieval.ambiguous,
-    confidence: retrieval.confidence,
-    evidenceConfidence: retrieval.confidence,
-    strategyConfidence: strategyConfidenceForPlan_(analysis, plan),
-    stateConfidence: analysis.stateConfidence || '',
-    aiAnalysisModel: aiAnalysisResult.model,
-    aiResponseModel: aiComposeResult.model,
-    aiStatus: 'analysis:' + aiAnalysisResult.status + '|compose:' + aiComposeResult.status,
-    decisionReason: reviewId
-      ? queuedReviewReasonCode
-      : plan.reasonCode || '',
-    outcome: reviewId
-      ? 'review_queued'
-      : responseResult.evidence.length > 0
-      ? 'grounded'
-      : plan.primaryMove === 'safety_redirect'
-      ? 'blocked'
-      : 'dialogue_only',
-    policyVersion: config.POLICY_VERSION || 'ai-rag-router-v1'
-  });
-
-  appendTurn_({
-    sessionId: payload.sessionId,
-    studentCode: sessionStudentCode,
-    turnNo: turnNumber + 1,
-    speaker: 'bot',
-    text: responseResult.text,
-    studentMove: '',
-    primaryMove: plan.primaryMove,
-    hintLevel: plan.hintLevel,
-    sourceStatus: responseResult.sourceStatus,
-    reasonGiven: false,
-    passageEcho: false,
-    feedbackUptake: '',
-    interventionFlag: plan.teacherInterventionFlag || Boolean(reviewId),
-    policyVersion: config.POLICY_VERSION || 'ai-rag-router-v1',
-    retrievedCardIds: retrieval.retrievedCardIds,
-    retrievedChunkIds: retrieval.retrievedChunkIds,
-    retrievedVocabularyIds: retrieval.retrievedVocabularyIds,
-    retrievedKnowledgeIds: retrieval.retrievedKnowledgeIds,
-    retrievedExternalSourceIds: retrieval.retrievedExternalSourceIds,
-    citedCardIds: responseResult.citedCardIds,
-    validatedCardIds: responseResult.validatedCardIds,
-    citedVocabularyIds: responseResult.citedVocabularyIds,
-    validatedVocabularyIds: responseResult.validatedVocabularyIds,
-    citedKnowledgeIds: responseResult.citedKnowledgeIds,
-    validatedKnowledgeIds: responseResult.validatedKnowledgeIds,
-    citedExternalSourceIds: responseResult.citedExternalSourceIds,
-    validatedExternalSourceIds: responseResult.validatedExternalSourceIds,
-    evidenceLabels: responseResult.evidence.map(function (item) {
-      return item.label + (item.location ? ' · ' + item.location : '');
-    }),
-    retrievalConfidence: retrieval.confidence,
-    reviewId: reviewId,
-    aiEnabled: isTruthy_(config.AI_ENABLED),
-    aiAnalysisModel: aiAnalysisResult.model,
-    aiResponseModel: aiComposeResult.model,
-    aiStatus: 'analysis:' + aiAnalysisResult.status + '|compose:' + aiComposeResult.status,
-    stateConfidence: analysis.stateConfidence || '',
-    activeConcept: analysis.activeConcept || '',
-    rewrittenQuery: aiAnalysisResult.rewrittenQuery || safeMessage,
-    misconceptionDetected: Boolean(analysis.misconceptionDetected),
-    aiUsedEvidenceIds: aiComposeResult.usedEvidenceIds
-  });
-
-  if (plan.isClosing) {
-    closeSession_(payload.sessionId);
-  }
-
-  return {
-    reply: responseResult.text,
-    primaryMove: plan.primaryMove,
-    hintLevel: plan.hintLevel,
-    sourceStatus: responseResult.sourceStatus,
-    teacherInterventionFlag: plan.teacherInterventionFlag || Boolean(reviewId),
-    expectsStudentReply: plan.expectsStudentReply,
-    isClosing: plan.isClosing,
-    retrievalConfidence: retrieval.confidence,
-    aiStatus: 'analysis:' + aiAnalysisResult.status + '|compose:' + aiComposeResult.status,
-    aiModel: aiComposeResult.model || aiAnalysisResult.model || '',
-    evidence: isTruthy_(config.SHOW_EVIDENCE) ? responseResult.evidence : [],
-    reviewQueued: Boolean(reviewId),
-    researchGuidance: useResearchBoundary
-  };
+  const aiStatus = 'compose:' + aiComposeResult.status;
+  // 한 쌍을 한 번의 잠금과 쓰기로 저장하여 발화와 답변이 따로 누락되지 않게 한다.
+  const common = { sessionId: payload.sessionId, studentCode: context.session.studentCode, isPreview: false };
+  appendConversationTurns_([
+    Object.assign({}, common, { speaker: 'student', text: safeMessage, studentMove: analysis.studentMove,
+      relatedQuestion: analysis.relatedQuestion, aiStatus: 'rule' }),
+    Object.assign({}, common, { speaker: 'bot', text: responseResult.text, primaryMove: plan.primaryMove,
+      hintLevel: plan.hintLevel, sourceStatus: responseResult.sourceStatus,
+      evidenceIds: responseResult.evidence.map(function (item) { return item.id; }),
+      aiStatus: aiStatus, decisionReason: reviewId ? reason : plan.reasonCode })
+  ]);
+  return { reply: responseResult.text, primaryMove: plan.primaryMove, hintLevel: plan.hintLevel,
+    sourceStatus: responseResult.sourceStatus, teacherInterventionFlag: plan.teacherInterventionFlag || Boolean(reviewId),
+    expectsStudentReply: plan.expectsStudentReply, isClosing: plan.isClosing, retrievalConfidence: retrieval.confidence,
+    aiStatus: aiStatus, aiModel: aiComposeResult.model || '',
+    evidence: isTruthy_(config.SHOW_EVIDENCE) ? responseResult.evidence : [], reviewQueued: Boolean(reviewId) };
 }
 
 function shouldQueueReview_(guard, analysis, plan, retrieval) {
-  if (guard.blocked || plan.isClosing) return false;
+  if (guard.blocked || plan.isClosing || !analysis.relatedQuestion ||
+      ['ask_fact', 'ask_definition'].indexOf(analysis.studentMove) < 0) return false;
   const hasVocabularyEvidence = (retrieval.vocabulary || []).some(function (entry) {
     return Boolean(entry.easyDefinition);
   });
