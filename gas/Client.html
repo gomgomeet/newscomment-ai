@@ -1,0 +1,454 @@
+<script>
+  const state = {
+    sessionId: '',
+    studentCode: '',
+    bootstrapData: null,
+    nickname: '',
+    ready: false,
+    busy: false,
+    closed: false,
+    progressStep: 1,
+    materialFontStep: 1,
+    activityMode: 'discussion',
+    lessonSelector: { lessonId: '', version: '', sourceHash: '' }
+  };
+
+  const elements = {};
+
+  window.addEventListener('load', function () {
+    elements.appName = document.getElementById('app-name');
+    elements.activityModeLabel = document.getElementById('activity-mode-label');
+    elements.chatKicker = document.getElementById('chat-kicker');
+    elements.subjectChip = document.getElementById('subject-chip');
+    elements.studentCode = document.getElementById('student-code');
+    elements.materialPanel = document.getElementById('material-panel');
+    elements.chatPanel = document.getElementById('chat-panel');
+    elements.materialTitle = document.getElementById('material-title');
+    elements.materialMeta = document.getElementById('material-meta');
+    elements.materialStandard = document.getElementById('material-standard');
+    elements.materialText = document.getElementById('material-text');
+    elements.materialHighlightStatus = document.getElementById('material-highlight-status');
+    elements.fontSmaller = document.getElementById('font-smaller');
+    elements.fontLarger = document.getElementById('font-larger');
+    elements.progress = document.getElementById('learning-progress');
+    elements.messages = document.getElementById('messages');
+    elements.onboarding = document.getElementById('onboarding');
+    elements.nicknamePrompt = document.getElementById('nickname-prompt');
+    elements.nicknameInput = document.getElementById('nickname-input');
+    elements.startButton = document.getElementById('start-button');
+    elements.skipNameButton = document.getElementById('skip-name-button');
+    elements.status = document.getElementById('status');
+    elements.form = document.getElementById('chat-form');
+    elements.input = document.getElementById('message-input');
+    elements.definitionButton = document.getElementById('definition-button');
+    elements.researchButton = document.getElementById('research-button');
+    elements.hintButton = document.getElementById('hint-button');
+    elements.evidenceButton = document.getElementById('evidence-button');
+    elements.reviseButton = document.getElementById('revise-button');
+    elements.closeButton = document.getElementById('close-button');
+    elements.quickActions = document.getElementById('quick-actions');
+    elements.mobileTabs = Array.from(document.querySelectorAll('.mobile-tab'));
+    state.lessonSelector = {
+      lessonId: document.body.dataset.lessonId || '',
+      version: document.body.dataset.lessonVersion || '',
+      sourceHash: document.body.dataset.lessonSource || ''
+    };
+
+    elements.form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      sendTurn('message', elements.input.value.trim());
+    });
+    elements.input.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+        event.preventDefault();
+        sendTurn('message', elements.input.value.trim());
+      }
+    });
+    elements.input.addEventListener('input', resizeComposerInput);
+    elements.nicknameInput.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter' && !event.isComposing) {
+        event.preventDefault();
+        beginConversation(elements.nicknameInput.value);
+      }
+    });
+    elements.startButton.addEventListener('click', function () {
+      beginConversation(elements.nicknameInput.value);
+    });
+    elements.skipNameButton.addEventListener('click', function () {
+      beginConversation('');
+    });
+    elements.definitionButton.addEventListener('click', function () {
+      preparePrompt('___이(가) 뭐예요?', '___');
+    });
+    elements.researchButton.addEventListener('click', function () {
+      preparePrompt('___에 대해 조사하고 싶어요.', '___');
+    });
+    elements.hintButton.addEventListener('click', function () {
+      sendTurn('hint', '힌트가 필요해요.');
+    });
+    elements.evidenceButton.addEventListener('click', function () {
+      preparePrompt('지문에서 “___” 부분을 근거로 찾았어요.', '___');
+    });
+    elements.reviseButton.addEventListener('click', function () {
+      preparePrompt('다시 생각해 보니 ___', '___');
+    });
+    elements.closeButton.addEventListener('click', function () {
+      sendTurn('close', '이제 대화를 마칠게요.');
+    });
+    elements.fontSmaller.addEventListener('click', function () { adjustMaterialFont(-1); });
+    elements.fontLarger.addEventListener('click', function () { adjustMaterialFont(1); });
+    elements.mobileTabs.forEach(function (tab) {
+      tab.addEventListener('click', function () { switchPanel(tab.dataset.panel); });
+    });
+
+    setBusy(true, '활동을 준비하고 있어요.');
+    google.script.run
+      .withSuccessHandler(startApp)
+      .withFailureHandler(showError)
+      .getBootstrapData(state.lessonSelector);
+  });
+
+  function startApp(data) {
+    state.bootstrapData = data;
+    state.activityMode = data.activityMode === 'research' ? 'research' : 'discussion';
+    state.sessionId = data.sessionId;
+    state.studentCode = data.studentCode;
+    elements.appName.textContent = data.appName;
+    elements.activityModeLabel.textContent = state.activityMode === 'research' ? '조사학습' : '생각 나누기';
+    elements.chatKicker.textContent = data.appName + '와 대화하기';
+    elements.subjectChip.textContent = state.activityMode === 'research'
+      ? (data.subject ? data.subject + ' · 조사학습' : '조사학습')
+      : (data.subject || '생각 나누기');
+    elements.studentCode.textContent = '활동 코드 · ' + String(data.studentCode || '').replace(/^익명-/, '');
+    elements.materialTitle.textContent = data.material.title;
+    elements.materialMeta.textContent = [data.subject, data.material.grade].filter(Boolean).join(' · ');
+    elements.materialStandard.textContent = data.material.standard || '지문을 읽고 생각과 근거를 나누어 봅니다.';
+    elements.researchButton.hidden = state.activityMode !== 'research';
+    if (state.activityMode === 'research') {
+      document.getElementById('progress-label-1').textContent = '질문';
+      document.getElementById('progress-label-2').textContent = '자료';
+      document.getElementById('progress-label-3').textContent = '정리';
+    }
+    renderMaterialText();
+    updateProgress(1);
+    addMessage('bot', data.greetingMessage || ('안녕! 나는 ' + data.appName + '야.'), {
+      label: '첫 인사',
+      move: 'welcome'
+    });
+    if (data.askNickname) {
+      elements.nicknamePrompt.textContent = data.nicknamePrompt;
+      elements.onboarding.hidden = false;
+      setBusy(false, '이름·별명은 선택 사항이에요.');
+      elements.nicknameInput.focus();
+    } else {
+      beginConversation('');
+    }
+  }
+
+  function beginConversation(nickname) {
+    if (state.ready || !state.bootstrapData) return;
+    state.nickname = String(nickname || '').trim().slice(0, 20);
+    state.ready = true;
+    elements.onboarding.hidden = true;
+    const welcome = state.nickname ? state.nickname + '님, 반가워요!\n\n' : '';
+    const intro = state.activityMode === 'research'
+      ? '궁금한 것을 조사 가능한 질문으로 좁히고, 선생님이 승인한 자료에서 근거를 찾아봐요.'
+      : state.bootstrapData.introMessage;
+    addMessage(
+      'bot',
+      welcome + intro + '\n\n' + state.bootstrapData.material.startQuestion,
+        { label: state.activityMode === 'research' ? '탐구 시작 질문' : '시작 질문', move: 'question' }
+    );
+    setBusy(false, '먼저 자기 생각을 말해 보세요.');
+    elements.input.focus();
+  }
+
+  function sendTurn(action, message) {
+    if (state.busy || state.closed || !state.ready || !state.sessionId) return;
+    if (!message) {
+      elements.status.textContent = '생각이나 질문을 먼저 적어 주세요.';
+      elements.input.focus();
+      return;
+    }
+    if (message.indexOf('___') >= 0) {
+      elements.status.textContent = '밑줄 부분을 궁금한 낱말이나 내 생각으로 바꿔 주세요.';
+      elements.input.focus();
+      return;
+    }
+
+    addMessage('student', message, {
+      label: action === 'hint' ? '힌트를 부탁했어요' : '내 생각'
+    });
+    elements.input.value = '';
+    resizeComposerInput();
+    setBusy(true, '지문과 대화카드를 살펴보고 있어요.');
+
+    google.script.run
+      .withSuccessHandler(function (result) {
+        addMessage('bot', result.reply, {
+          label: responseLabel_(result),
+          move: result.primaryMove,
+          evidence: result.evidence || []
+        });
+        updateProgressFromResult(result);
+        state.closed = result.isClosing;
+        const nextStatus = result.isClosing
+          ? '오늘 생각 나누기를 마쳤어요.'
+          : result.reviewQueued
+          ? '자료에서 확인하기 어려운 질문이라 선생님 확인 목록에 남겼어요.'
+          : '계속 생각을 이어 가 보세요.';
+        setBusy(false, nextStatus);
+        if (result.isClosing) disableComposer();
+        else elements.input.focus();
+      })
+      .withFailureHandler(function (error) {
+        if (!elements.input.value) elements.input.value = message;
+        resizeComposerInput();
+        showError(error);
+      })
+      .submitTurn({
+        sessionId: state.sessionId,
+        studentCode: state.studentCode,
+        message: message,
+        action: action === 'message' && state.activityMode === 'research' && /조사하고 싶어요/.test(message)
+          ? 'research' : action
+      });
+  }
+
+  function responseLabel_(result) {
+    if (result.researchGuidance) return '승인 조사 자료 안내';
+    if (result.teacherInterventionFlag) return '선생님 확인 예정';
+    const labels = {
+      clarify: '낱말 뜻과 문장 확인',
+      offer_clue: '생각 힌트 ' + Math.max(1, Number(result.hintLevel || 1)) + '단계',
+      check_evidence: '근거 확인',
+      receive: '생각 다듬기',
+      close: '활동 마무리',
+      safety_redirect: '안전 안내'
+    };
+    return labels[result.primaryMove] || '대화 이어가기';
+  }
+
+  function addMessage(role, text, options) {
+    const detail = options || {};
+    const item = document.createElement('article');
+    item.className = 'message ' + role;
+
+    const labelRow = document.createElement('div');
+    labelRow.className = 'message-label';
+    const icon = document.createElement('span');
+    icon.className = 'message-label-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = role === 'student' ? '나' : responseIcon_(detail.move);
+    const label = document.createElement('span');
+    label.textContent = role === 'student'
+      ? (state.nickname || detail.label || '나')
+      : (detail.label || (state.bootstrapData && state.bootstrapData.appName) || '질문이');
+    labelRow.appendChild(icon);
+    labelRow.appendChild(label);
+
+    const body = document.createElement('div');
+    body.className = 'message-body';
+    body.textContent = text;
+    item.appendChild(labelRow);
+    item.appendChild(body);
+
+    if (role === 'bot' && Array.isArray(detail.evidence) && detail.evidence.length > 0) {
+      item.appendChild(buildEvidencePanel_(detail.evidence));
+    }
+    elements.messages.appendChild(item);
+    elements.messages.scrollTop = elements.messages.scrollHeight;
+  }
+
+  function responseIcon_(move) {
+    return ({
+      welcome: '안', question: '?', clarify: '가', offer_clue: '💡',
+      check_evidence: '🔎', receive: '✓', close: '✓', safety_redirect: '!'
+    })[move] || '질';
+  }
+
+  function buildEvidencePanel_(evidence) {
+    const details = document.createElement('details');
+    details.className = 'evidence-panel';
+    const summary = document.createElement('summary');
+    summary.textContent = '확인한 교사 자료 · ' + evidence.length + '개';
+    details.appendChild(summary);
+
+    const list = document.createElement('ul');
+    list.className = 'evidence-list';
+    evidence.forEach(function (item) {
+      const listItem = document.createElement('li');
+      listItem.className = 'evidence-item';
+      const label = document.createElement('strong');
+      label.textContent = item.label || '교사 제공 자료';
+      listItem.appendChild(label);
+      if (item.location) {
+        const location = document.createElement('div');
+        location.className = 'evidence-location';
+        location.textContent = item.location;
+        listItem.appendChild(location);
+      }
+      const excerpt = document.createElement('p');
+      excerpt.textContent = '“' + (item.excerpt || '') + '”';
+      listItem.appendChild(excerpt);
+
+      const actions = document.createElement('div');
+      actions.className = 'evidence-actions';
+      if (item.excerpt && item.kind !== 'external_source') {
+        const findButton = document.createElement('button');
+        findButton.type = 'button';
+        findButton.textContent = '지문에서 보기';
+        findButton.addEventListener('click', function () {
+          highlightMaterialEvidence(item.excerpt);
+        });
+        actions.appendChild(findButton);
+      }
+      if (item.url) {
+        const link = document.createElement('a');
+        link.href = item.url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = '원문 열기';
+        actions.appendChild(link);
+      }
+      listItem.appendChild(actions);
+      list.appendChild(listItem);
+    });
+    details.appendChild(list);
+    return details;
+  }
+
+  function preparePrompt(template, marker) {
+    if (!state.ready || state.busy || state.closed) return;
+    if (elements.input.value.trim() && elements.input.value.indexOf('___') < 0) {
+      elements.status.textContent = '작성 중인 내용을 먼저 보내거나 지운 뒤 빠른 질문을 눌러 주세요.';
+      elements.input.focus();
+      return;
+    }
+    elements.input.value = template;
+    resizeComposerInput();
+    elements.input.focus();
+    const start = template.indexOf(marker);
+    if (start >= 0) elements.input.setSelectionRange(start, start + marker.length);
+  }
+
+  function updateProgressFromResult(result) {
+    let step = state.progressStep;
+    if (result.researchGuidance) step = Math.max(step, 2);
+    if (result.primaryMove === 'receive' || result.isClosing) step = 3;
+    else if (result.primaryMove === 'check_evidence') step = Math.max(step, 2);
+    updateProgress(step);
+  }
+
+  function updateProgress(step) {
+    state.progressStep = Math.max(state.progressStep, Number(step || 1));
+    Array.from(elements.progress.querySelectorAll('li')).forEach(function (item) {
+      const itemStep = Number(item.dataset.step);
+      item.classList.toggle('done', itemStep < state.progressStep);
+      item.classList.toggle('current', itemStep === state.progressStep);
+      if (itemStep === state.progressStep) item.setAttribute('aria-current', 'step');
+      else item.removeAttribute('aria-current');
+    });
+  }
+
+  function switchPanel(panelName) {
+    const showMaterial = panelName === 'material';
+    elements.materialPanel.classList.toggle('active', showMaterial);
+    elements.chatPanel.classList.toggle('active', !showMaterial);
+    elements.mobileTabs.forEach(function (tab) {
+      const selected = tab.dataset.panel === panelName;
+      tab.classList.toggle('active', selected);
+      tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+    });
+  }
+
+  function renderMaterialText(highlightRange) {
+    const text = state.bootstrapData && state.bootstrapData.material
+      ? String(state.bootstrapData.material.text || '')
+      : '';
+    elements.materialText.textContent = '';
+    if (!highlightRange) {
+      elements.materialText.textContent = text;
+      return null;
+    }
+    elements.materialText.appendChild(document.createTextNode(text.slice(0, highlightRange.start)));
+    const mark = document.createElement('mark');
+    mark.textContent = text.slice(highlightRange.start, highlightRange.end);
+    mark.tabIndex = -1;
+    elements.materialText.appendChild(mark);
+    elements.materialText.appendChild(document.createTextNode(text.slice(highlightRange.end)));
+    return mark;
+  }
+
+  function highlightMaterialEvidence(excerpt) {
+    const text = String(state.bootstrapData.material.text || '');
+    const needle = String(excerpt || '').replace(/…$/, '').trim();
+    const parts = needle.split(/\s+/).filter(Boolean).map(escapeRegExp_);
+    let match = null;
+    try {
+      match = parts.length ? new RegExp(parts.join('\\s+')).exec(text) : null;
+    } catch (error) {
+      match = null;
+    }
+    if (!match) {
+      elements.materialHighlightStatus.textContent = '이 근거는 사전카드이거나 지문 밖의 교사 승인 설명입니다.';
+      switchPanel('material');
+      elements.materialText.focus();
+      return;
+    }
+    const mark = renderMaterialText({ start: match.index, end: match.index + match[0].length });
+    elements.materialHighlightStatus.textContent = '지문에서 근거 문장을 강조했습니다.';
+    switchPanel('material');
+    window.setTimeout(function () {
+      if (mark) {
+        mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        mark.focus();
+      }
+    }, 40);
+  }
+
+  function escapeRegExp_(value) {
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function adjustMaterialFont(delta) {
+    const sizes = ['1rem', '1.08rem', '1.2rem', '1.34rem'];
+    state.materialFontStep = Math.max(0, Math.min(sizes.length - 1, state.materialFontStep + delta));
+    elements.materialText.style.fontSize = sizes[state.materialFontStep];
+    elements.materialHighlightStatus.textContent = '지문 글자 크기를 조절했습니다.';
+  }
+
+  function resizeComposerInput() {
+    elements.input.style.height = 'auto';
+    elements.input.style.height = Math.min(150, Math.max(64, elements.input.scrollHeight)) + 'px';
+  }
+
+  function setBusy(busy, message) {
+    state.busy = busy;
+    elements.status.textContent = message || '';
+    elements.status.classList.toggle('busy', busy);
+    Array.from(elements.form.querySelectorAll('button,textarea')).forEach(function (control) {
+      control.disabled = busy || state.closed || !state.ready;
+    });
+    Array.from(elements.quickActions.querySelectorAll('button')).forEach(function (control) {
+      control.disabled = busy || state.closed || !state.ready;
+    });
+    Array.from(elements.onboarding.querySelectorAll('button,input')).forEach(function (control) {
+      control.disabled = busy || state.ready;
+    });
+  }
+
+  function disableComposer() {
+    Array.from(elements.form.querySelectorAll('button,textarea')).forEach(function (control) {
+      control.disabled = true;
+    });
+    Array.from(elements.quickActions.querySelectorAll('button')).forEach(function (control) {
+      control.disabled = true;
+    });
+  }
+
+  function showError(error) {
+    const message = error && error.message ? error.message : '잠시 문제가 생겼어요. 다시 시도해 주세요.';
+    setBusy(false, message);
+  }
+</script>

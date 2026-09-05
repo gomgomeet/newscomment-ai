@@ -1,0 +1,26 @@
+<!doctype html><html lang="ko"><head><base target="_top"><meta charset="utf-8">
+<style>body{font:16px/1.6 sans-serif;padding:20px;color:#17324d}button,input,select,textarea{font:inherit;padding:8px;margin:5px}textarea{display:block;width:90%}button{cursor:pointer}pre{white-space:pre-wrap;background:#f3f6fa;padding:12px}#status{font-weight:bold}</style></head>
+<body data-token="<?= teacherAccessToken ?>">
+<h1>학급 동시 접속 시험</h1>
+<p>수업 시트를 복사해 시험 기록을 분리합니다. 현재 AI 설정으로 실제 API를 호출합니다. 한 학생은 시작 후 질문 1개를 보냅니다.</p>
+<label>전체 시험 인원 <select id="count"><option>3</option><option>10</option><option>30</option></select></label>
+<label>시험 질문<textarea id="questions" rows="3">정책은 무슨 뜻인가요?
+고추장을 만들 때 어떤 재료를 섞었나요?
+정체성이라는 말은 무슨 뜻이에요?</textarea></label>
+<button id="prepare">복사본으로 새 시험 준비</button><button id="current">현재 시험 불러오기</button>
+<p id="run">준비 전</p>
+<label>이 화면의 시작 번호 <select id="offset"><option value="0">1번부터</option><option value="10">11번부터</option><option value="20">21번부터</option></select></label>
+<button id="start" disabled>이 화면에서 최대 10명 시작</button><button id="report" disabled>전체 결과 확인</button>
+<p>30명 시험은 같은 교사 시트를 3개 탭에서 열고, 첫 탭에서 시험을 준비한 뒤 나머지 탭에서 현재 시험을 불러오세요. 각 탭에서 1·11·21번부터 시작합니다.</p>
+<p id="status" role="status"></p><pre id="output"></pre>
+<script>
+const token=document.body.dataset.token;let run=null;let report=null;const el=id=>document.getElementById(id);
+function error(e){el('status').textContent=e.message||String(e);el('prepare').disabled=false;}
+function loaded(data){run=data;el('run').textContent='시험 '+data.runId+' · '+data.count+'명 · AI '+(data.aiEnabled?data.model:'사용 안 함');el('start').disabled=false;el('report').disabled=false;el('prepare').disabled=false;el('status').textContent='준비 완료';}
+el('prepare').onclick=()=>{el('prepare').disabled=true;el('start').disabled=true;el('status').textContent='시험용 복사본을 준비하고 있습니다.';google.script.run.withSuccessHandler(loaded).withFailureHandler(error).prepareClassroomLoadTest(token,Number(el('count').value),el('questions').value);};
+el('current').onclick=()=>google.script.run.withSuccessHandler(loaded).withFailureHandler(error).getCurrentClassroomLoadTest(token);
+el('start').onclick=()=>{el('start').disabled=true;const offset=Number(el('offset').value);const count=Math.max(0,Math.min(10,run.count-offset));let finished=0;el('output').textContent='';el('status').textContent=count+'명 요청 중';
+const done=(index,value)=>{finished++;el('output').textContent+=JSON.stringify({index:index,result:value})+'\n';el('status').textContent=finished+'/'+count+'명 응답 수신';};
+for(let i=offset;i<offset+count;i++){const started=Date.now();google.script.run.withSuccessHandler(value=>done(i,{...value,clientElapsedMs:Date.now()-started})).withFailureHandler(e=>done(i,{transportError:e.message||String(e),clientElapsedMs:Date.now()-started})).runClassroomLoadStudent(token,run.runId,i);}};
+el('report').onclick=()=>{el('status').textContent='저장 기록과 결과 확인 중';google.script.run.withSuccessHandler(data=>{report=data;el('output').textContent=JSON.stringify(data,null,2);el('status').textContent=data.completed+'/'+data.expected+'명 완료 · 응답 성공 '+data.success+' · 기록 오류 '+data.integrityErrors.length;}).withFailureHandler(error).getClassroomLoadReport(token,run.runId);};
+</script></body></html>

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <base target="_top">
+    <meta charset="UTF-8">
+    <style>
+      :root { --ink:#172033; --muted:#64748b; --line:#dbe3ec; --blue:#2563eb; --soft:#eff6ff; }
+      * { box-sizing:border-box; }
+      body { margin:0; color:var(--ink); font:14px/1.5 Arial,"Noto Sans KR",sans-serif; background:#f7f9fc; }
+      main { max-width:1180px; margin:auto; padding:22px; }
+      h1 { margin:0 0 4px; font-size:25px; } h2 { margin:0 0 12px; font-size:18px; }
+      .muted { color:var(--muted); }
+      .summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(135px,1fr)); gap:10px; margin:18px 0; }
+      .metric,.panel { border:1px solid var(--line); border-radius:13px; background:white; }
+      .metric { padding:13px; } .metric strong { display:block; color:var(--blue); font-size:24px; }
+      .panel { margin:14px 0; padding:17px; }
+      .toolbar { display:flex; flex-wrap:wrap; gap:9px; align-items:center; justify-content:space-between; }
+      button { min-height:40px; padding:8px 13px; border:1px solid var(--blue); border-radius:9px; color:white; background:var(--blue); font:inherit; font-weight:700; cursor:pointer; }
+      button:focus-visible { outline:3px solid #f97316; outline-offset:2px; }
+      .review-list { display:grid; gap:8px; padding:0; list-style:none; }
+      .review-item { padding:10px; border-left:4px solid #f59e0b; background:#fffbeb; }
+      .review-item strong { margin-right:7px; }
+      .table-wrap { overflow:auto; } table { width:100%; min-width:980px; border-collapse:collapse; }
+      th,td { padding:8px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+      th { position:sticky; top:0; background:var(--soft); } .empty { padding:18px; color:var(--muted); text-align:center; }
+      @media (max-width:760px) { .summary { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    </style>
+  </head>
+  <body data-teacher-access-token="<?= teacherAccessToken ?>">
+    <main>
+      <div class="toolbar">
+        <div><h1>질문 챗봇 운영 대시보드</h1><p id="material-title" class="muted">자료를 불러오는 중입니다.</p></div>
+        <button id="download-csv" type="button">Excel용 CSV 내려받기</button>
+      </div>
+      <section class="summary" aria-label="운영 요약">
+        <div class="metric"><span>활동 학생</span><strong id="student-count">0</strong></div>
+        <div class="metric"><span>학생 발화</span><strong id="turn-count">0</strong></div>
+        <div class="metric"><span>근거 응답률</span><strong id="grounded-rate">0%</strong></div>
+        <div class="metric"><span>검토 대기</span><strong id="review-count">0</strong></div>
+        <div class="metric"><span>RAG 평가</span><strong id="evaluation-score">0점</strong></div>
+        <div class="metric"><span>승인 지식</span><strong id="knowledge-count">0</strong></div>
+        <div class="metric"><span>미승인 초안</span><strong id="draft-count">0</strong></div>
+        <div class="metric"><span>최근 AI 오류</span><strong id="error-count">0</strong></div>
+      </section>
+      <section class="panel"><h2>우선 확인할 질문</h2><ul id="review-list" class="review-list"></ul></section>
+      <section class="panel"><h2>최근 AI 생성 오류</h2><ul id="issue-list" class="review-list"></ul></section>
+      <section class="panel">
+        <h2>익명 활동 코드별 형성평가</h2>
+        <p class="muted">자동 점수는 초안입니다. 교사가 대화와 수업 맥락을 확인해 최종 판단합니다.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>학교_반_번호</th><th>자료 연결</th><th>근거 확인</th><th>질문 확장</th><th>수정·성찰</th><th>총점</th><th>점수 근거</th><th>세특용 피드백</th></tr></thead>
+          <tbody id="student-rows"></tbody>
+        </table></div>
+      </section>
+      <p id="status" class="muted" role="status" aria-live="polite"></p>
+    </main>
+    <script>
+      const teacherAccessToken = document.body.dataset.teacherAccessToken || '';
+      const byId = function (id) { return document.getElementById(id); };
+      window.addEventListener('load', function () {
+        byId('download-csv').addEventListener('click', downloadCsv);
+        google.script.run.withSuccessHandler(renderDashboard).withFailureHandler(showError).getTeacherDashboardData(teacherAccessToken);
+      });
+      function renderDashboard(data) {
+        const summary = data.summary || {}; const material = data.material || {};
+        byId('material-title').textContent = (material.title || '활성 자료 없음') + ' · ' + (material.gradeCode || '') + ' · ' + (material.version || '');
+        byId('student-count').textContent = Number(summary.studentCount || 0);
+        byId('turn-count').textContent = Number(summary.studentTurnCount || 0);
+        byId('grounded-rate').textContent = Number(summary.groundedRate || 0) + '%';
+        byId('review-count').textContent = Number(summary.openReviewCount || 0);
+        byId('evaluation-score').textContent = Number(summary.evaluationScore || 0) + '점';
+        byId('knowledge-count').textContent = Number(summary.approvedKnowledgeCount || 0);
+        byId('draft-count').textContent = Number(summary.draftKnowledgeCount || 0);
+        byId('error-count').textContent = Number(summary.recentErrorCount || 0);
+        renderReviews(data.reviews || []); renderIssues(data.generationIssues || []); renderStudents(data.students || []);
+        byId('status').textContent = '대시보드를 갱신했습니다.';
+      }
+      function renderReviews(rows) {
+        const list = byId('review-list'); list.textContent = '';
+        if (!rows.length) {
+          const empty = document.createElement('li'); empty.className = 'empty';
+          empty.textContent = '현재 검토 대기 질문이 없습니다.'; list.appendChild(empty); return;
+        }
+        rows.forEach(function (row) {
+          const item = document.createElement('li'); item.className = 'review-item';
+          const priority = document.createElement('strong'); priority.textContent = row.priority + ' · ' + row.studentCode;
+          const question = document.createElement('span'); question.textContent = row.question + ' (' + Number(row.count || 1) + '회)';
+          item.appendChild(priority); item.appendChild(question); list.appendChild(item);
+        });
+      }
+      function renderIssues(rows) {
+        const list = byId('issue-list'); list.textContent = '';
+        if (!rows.length) {
+          const empty = document.createElement('li'); empty.className = 'empty';
+          empty.textContent = '최근 AI 생성 오류가 없습니다.'; list.appendChild(empty); return;
+        }
+        rows.forEach(function (row) {
+          const item = document.createElement('li'); item.className = 'review-item';
+          const context = document.createElement('strong');
+          context.textContent = (row.model || '모델 미상') + (row.generationMode ? ' · ' + row.generationMode : '');
+          const message = document.createElement('span'); message.textContent = row.message;
+          item.appendChild(context); item.appendChild(message); list.appendChild(item);
+        });
+      }
+      function renderStudents(rows) {
+        const body = byId('student-rows'); body.textContent = '';
+        rows.forEach(function (row) {
+          const tr = document.createElement('tr');
+          [row.studentCode, row.standardMaterialConnection, row.evidenceCheck, row.questionTypeExpansion,
+            row.revisionReflection, row.total, row.scoreBasis, row.feedback].forEach(function (value) {
+            const td = document.createElement('td'); td.textContent = value == null ? '' : String(value); tr.appendChild(td);
+          });
+          body.appendChild(tr);
+        });
+      }
+      function downloadCsv() {
+        byId('status').textContent = '평가 기록 파일을 준비하는 중입니다.';
+        google.script.run.withSuccessHandler(function (file) {
+          const blob = new Blob([file.content], { type: file.mimeType }); const url = URL.createObjectURL(blob);
+          const anchor = document.createElement('a'); anchor.href = url; anchor.download = file.filename;
+          document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
+          byId('status').textContent = Number(file.rowCount || 0) + '명의 평가 기록을 내려받았습니다.';
+        }).withFailureHandler(showError).exportTeacherEvaluationCsv(teacherAccessToken);
+      }
+      function showError(error) { byId('status').textContent = error && error.message ? error.message : '대시보드를 불러오지 못했습니다.'; }
+    </script>
+  </body>
+</html>
