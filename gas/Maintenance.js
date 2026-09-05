@@ -28,7 +28,7 @@ function phase0Cleanup(apply) {
   } else report.push('카드 시트를 찾지 못함');
 
   // 2) 사진 설명·바이라인을 청크 본문에서 제거 — "… 모습. /정예준 기자" 같은 조각
-  const chunks = findSheetByHeaders_(ss, ['chunkId', 'content']);
+  const chunks = findSheetByHeaders_(ss, ['chunkId', 'chunkOrder', 'content']);
   if (chunks) {
     const n = updateRows_(chunks, function (row) {
       if (!isTruthy_(row.active)) return null;
