@@ -129,7 +129,8 @@ function signalContentWordSet_(text) {
 
 function signalLessonWords_(settings) {
   var words = (settings.words || []).map(function (e) { return String(e.term || e || ''); });
-  return words.concat(signalContentWords_(settings.passage || ''));
+  var concepts = (settings.keyConcepts || []).map(String);
+  return concepts.concat(words, signalContentWords_(settings.passage || ''));
 }
 
 function signalHasLessonWord_(text, settings) {

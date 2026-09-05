@@ -6,7 +6,7 @@
 
 - 원본은 이 저장소의 `gas/`다. Apps Script 편집기에서 직접 고친 것은 원본이 아니다.
 - 배포는 `clasp push`로만 한다. `.clasp.json`(스크립트 ID)은 커밋하고 `.clasprc.json`(로그인 토큰)은 커밋하지 않는다.
-- 푸시 전에 `node evals/gas/run.mjs`가 초록이어야 한다.
+- 푸시 전에 `npm run eval:gas`(점검 발화)와 `npm run eval:gas:parity`(웹앱 원본과 49회기 동일성)가 초록이어야 한다.
 
 ## 2. 파일 소유
 
@@ -54,15 +54,18 @@ responseResult.text = enforceManagedQuestion(responseResult.text, decision);
 ```javascript
 /** history: TURNS 행 배열(시간순), 각 행 {speaker:'student'|'bot', text, studentMove?, managedKind?}
  *  message: 이번 학생 발화(가린 뒤)
- *  settings: { passage, standard, standardCode, memo, words:[{term, definition}], gradeCode } */
+ *  settings: { passage, title, standard, standardCode, memo, words:[{term, definition}], keyConcepts:[], gradeCode } */
 function decidePhase(history, message, settings)
 // → { phase: 1|2, managedQuestion: string, allowQuestion: boolean,
-//     kind: ''|'b1'|'b2'|'comprehension_medium'|'comprehension_followup'|'standard'|'opinion'|'done',
-//     difficulty: '하'|'중'|'상', feedback: string, lastScore: number|null, relatedQuestion: boolean }
+//     kind: ''|'b1'|'b2'|'explain_sentence'|'comprehension_medium'|'comprehension_followup'|'standard'|'opinion'|'done',
+//     difficulty: '하'|'중'|'상', feedback: string, lastScore: number|null, relatedQuestion: boolean, closing: boolean }
+//   explain_sentence = "이 문장 무슨 말인지 모르겠어요" — 풀이가 먼저, 이 턴에는 관리 질문 없음
+//   closing = 학생이 마치겠다고 함. Codex 쪽 plan.isClosing 과 OR 로 합친다
 
 function buildTaskLine(decision)                       // → '[지금 할 일] …' 한 줄
 function enforceManagedQuestion(text, decision)        // → 물음표를 걷고 상태기 질문 하나만 남긴 text
 function phaseSettingsFor_(material)                   // → settings (MATERIALS·VOCABULARY_LIBRARY에서)
+function phaseSummaryFor_(history, settings)           // → DASHBOARD 학생별 행: {questionCount, relatedQuestionCount, comprehensionBest, standardBest, opinionScore, moreToExplore, reachedDifficulty, phase}
 
 // Signals.gs
 function buildStandardTargets(standard, memo)          // → [{key,label,behavior,markers,askTemplate}] ≤2

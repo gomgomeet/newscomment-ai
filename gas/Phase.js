@@ -25,6 +25,7 @@ var PHASE_COMPREHENSION_HIGH_PROMPT = '글에 나온 결과와 그 까닭을 구
 var PHASE_NO_DIFFICULTY_ = /^(없어요?|없습니다|괜찮아요?|아니요?|딱히\s*없어요?|모르겠어요?)[.\s!]*$/;
 var PHASE_CLOSING_ = /(그만|끝낼|끝날|마칠|마무리|이제\s*됐|안녕히|잘\s*가|바이바이|다\s*했)/;
 var PHASE_REPAIR_ = /(왜\s*자꾸|자꾸\s*물어|그만\s*물어|질문이\s*너무|부담스러|부담돼|재촉|싫다고|안\s*된다고|계속\s*틀렸|또\s*근거|제가\s*다\s*찾|내가\s*다\s*찾|설명만|양쪽\s*다\s*맞다고만)/;
+var PHASE_SENTENCE_DIFFICULTY_ = /(이\s*문장|문장이|문장을|이\s*부분|이해하기\s*어려|어려워|무슨\s*말인지)/;
 var PHASE_SAFETY_ = /(전화번호|주소|비밀번호|주민번호|사진|실명|내\s*이름|제\s*이름|이름은|답\s*다\s*써|그대로\s*써|대신\s*써|대필|수행평가\s*답|숙제\s*해|정답\s*알려)/;
 
 // ---------------------------------------------------------------------------
@@ -45,6 +46,30 @@ function phaseSourceSentences_(settings) {
     .split(/(?<=[.!?])\s+|\n+/)
     .map(function (s) { return s.replace(/<decimal>/g, '.').trim(); })
     .filter(function (s) { return s.length >= 12 && !/[?？]$/.test(s) && !/기자\s*$/.test(s); });
+}
+
+/** 학생이 따온 문장이 지문에 있으면 그 문장, 없으면 학생 말에 통째로 든 지문 문장 */
+function phaseQuotedOrMatchingSentence_(turn, settings) {
+  var m = /[“‘"']([^”’"']{10,})[”’"']/.exec(turn);
+  var quoted = m && m[1] ? m[1].trim() : '';
+  var candidates = phaseSourceSentences_(settings);
+  var key = function (v) { return String(v).replace(/[^가-힣A-Za-z0-9]/g, ''); };
+  if (quoted) {
+    var q = key(quoted);
+    var belongs = candidates.some(function (s) { var k = key(s); return k.indexOf(q) >= 0 || q.indexOf(k) >= 0; });
+    return belongs ? quoted : '';
+  }
+  var compact = String(turn).replace(/\s+/g, '');
+  var sorted = candidates.slice().sort(function (a, b) { return b.length - a.length; });
+  for (var i = 0; i < sorted.length; i++) {
+    if (compact.indexOf(sorted[i].replace(/\s+/g, '')) >= 0) return sorted[i];
+  }
+  return '';
+}
+
+/** "이 문장 무슨 말인지 모르겠어요" — 문장 풀이가 먼저다. 이 턴에는 관리 질문을 붙이지 않는다. */
+function phaseIsSentenceDifficulty_(turn, settings) {
+  return PHASE_SENTENCE_DIFFICULTY_.test(turn) && Boolean(phaseQuotedOrMatchingSentence_(turn, settings));
 }
 
 function phaseSupportSentence_(settings) {
@@ -161,6 +186,12 @@ function decidePhase(history, message, settings) {
 
   if (protectedMove) {
     base.allowQuestion = false;
+    return base;
+  }
+
+  // 어려운 문장 풀이 요청 — 풀이가 먼저. 관리 질문은 다음 턴에.
+  if (phaseIsSentenceDifficulty_(current, settings)) {
+    base.kind = 'explain_sentence';
     return base;
   }
 

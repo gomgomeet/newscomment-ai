@@ -73,9 +73,9 @@ gas/CONTRACT.md 와 docs/구글시트-챗봇-경량화-제안.md 를 먼저 읽�
 Phase.js·Signals.js·Maintenance.js·evals/gas/ 는 만지지 마. 푸시 전에 node evals/gas/run.mjs 초록 확인, clasp push 뒤 runSmokeTests().
 ```
 
-### 4단계. Claude Code — `Phase.gs`·`Signals.gs` (하루)
+### 4단계. Claude Code — `Phase.js`·`Signals.js` (완료 · 2026-09-05)
 
-`lib/questioning-conversation-phase.ts`·`lib/questioning-target-signals.ts`를 타입만 걷어 이식. `npm run eval:gas`의 SKIP이 모두 PASS가 되면 끝. 49회기 회귀는 `scripts/run-questioning-dialogue-eval.mjs --engine=gas` 갈래를 더해 웹앱과 국면·질문 순서가 같은지 본다.
+`gas/Phase.js`·`gas/Signals.js`로 이식했다. `npm run eval:gas` PASS 35 · SKIP 0. `npm run eval:gas:parity`가 웹앱 원본(TS)과 GAS 이식본을 49회기 207턴에서 턴마다 견줘 국면·질문 종류·질문 문구·집계 불일치 0. (`scripts/run-questioning-dialogue-eval.mjs`는 Next 서버가 있어야 돌아 여기서는 대신 parity로 확인한다.)
 
 ### 5단계. Codex — 접점 세 줄 끼우기 (한 시간)
 
