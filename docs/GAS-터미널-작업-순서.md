@@ -73,6 +73,54 @@ gas/CONTRACT.md 와 docs/구글시트-챗봇-경량화-제안.md 를 먼저 읽�
 Phase.js·Signals.js·Maintenance.js·evals/gas/ 는 만지지 마. 푸시 전에 node evals/gas/run.mjs 초록 확인, clasp push 뒤 runSmokeTests().
 ```
 
+### 3단계 검토 결과 (2026-09-05, 커밋 `a884573`)
+
+**잘 된 것** — 지시문 7항목 중 6개가 그대로 들어갔다.
+
+| 항목 | 확인 |
+| --- | --- |
+| 분석 AI 호출 제거, 조립 한 번 | `submitTurn`이 `analyzeStudentTurn_` 결과를 바로 쓴다. `enrichStudentAnalysisWithAI_`·`selectAIModel_` 삭제 |
+| 모델 하나 | `CONFIG.AI_MODEL`, 토큰 기본 1500 |
+| 답 먼저 | `ask_fact → 'answer'`, `check_evidence`는 `attempt_answer`·`give_evidence`만. 조립 지시문 "승인 근거로 먼저 답하고", 사실·낱말 질문의 되묻기는 코드가 걷음 |
+| 위치는 코드가 | 프롬프트에서 위치 제거(`stripEvidenceLocations_`), `evidenceLocation_`이 `chunkOrder`로 "근거: 자료 구간 N"을 붙임 |
+| 시트·열 | 9장(`CONFIG` `MATERIALS` `CHUNKS` `VOCABULARY_LIBRARY` `KNOWLEDGE` `CARDS` `TURNS` `REVIEW_QUEUE` `DASHBOARD`), `TURNS` 18열에 `phase`·`managedKind`·`responseScore`·`relatedQuestion`·`isPreview` 포함. 캐시·카드 생성·외부 자료·부하 테스트·평가·준비도 시트 삭제(−3,305줄) |
+| 반-번호 세션 | `sessionId = materialId:반-번호`, 새로고침하면 이전 대화 복원, 마친 대화는 잠금. 이름 입력칸 제거 |
+| 검토 큐 | `relatedQuestion`인 사실·낱말 질문만 |
+| 심판 | `npm run eval:gas` PASS 31 · `eval:gas:parity` 207턴 불일치 0 · `scripts/test-gas-lightweight.cjs` 전부 PASS. `Phase.js`·`Signals.js`·`evals/gas/` 미변경 |
+
+**막아야 할 것 — `analyzeStudentTurn_`의 `small_talk`·`safety` 판정이 너무 넓다.** 49회기 207턴에 새 분류기를 돌리면:
+
+| 분류 | 건수 | 잘못 잡힌 예 |
+| --- | --- | --- |
+| `small_talk` | **92 (44%)** | "제목 보고 학생들이 급식을 더 많이 먹은 줄 알았어요." · "먹을 만큼 골라서 그런 것 같아요." · "결과요." · **"없어요."**(B1 답) · "왜 그렇게 됐어요?" |
+| `safety` | 4 | "원인은 선택 배식**입니다**" · "교실 전화번호를 알려 두는 방법도 있네요."(기사 내용) |
+
+원인: `!passageEcho`(지문 낱말이 하나도 없음)면 무조건 `small_talk`. 학생의 **답**(2국면 의견·예측·"없어요")은 지문 낱말이 없는 게 정상이라 전부 잡힌다. 그러면 5단계에서 2국면 답마다 "이 활동에서는 지문에 나온 내용으로 함께 이야기해요."가 나가고 점수도 안 매겨진다. `safety`는 `[가-힣]{2,4}입니다`와 맨 `이름|전화`가 문제.
+
+같은 207턴에 아래 규칙을 적용하면 `small_talk` 23(모두 질문), `safety` 2(실제 개인정보)로 준다.
+
+**Codex 보완 지시문 (3단계 마무리, 작은 PR 하나)**
+
+```
+gas/EvidenceEngine.js analyzeStudentTurn_ 만 고쳐. 순서:
+1. safety: 명시적 표현만 — /((?:내|제)\s*이름은|전화번호는|연락처는|주민번호|비밀번호|대필|대신\s*써|숙제\s*해\s*줘|정답\s*알려\s*줘)/.
+   `[가-힣]{2,4}입니다`와 맨 `이름|전화`는 뺀다.
+2. repair, greeting: 지금 그대로.
+3. small_talk: '질문'이면서 지문과 무관할 때만 — isStudentQuestion(message) && !isPassageRelatedQuestion(message, phaseSettingsFor_(material)).
+   (Signals.js 공개 함수. 질문이 아닌 발화는 small_talk로 두지 않는다 — 2국면 답이다.)
+4. 나머지는 기존 순서(close → hint → ask_definition → revise → ask_fact → attempt_answer/give_evidence).
+5. relatedQuestion = isPassageRelatedQuestion(message, settings) && ['ask_fact','ask_definition'].indexOf(studentMove) >= 0
+   ("왜 그렇게 됐어요?"처럼 지시어만 있는 까닭 질문도 관련 질문으로 센다.)
+scripts/test-gas-lightweight.cjs 의 분기 케이스에 "없어요."→attempt_answer, "원인은 선택 배식입니다"→attempt_answer,
+"제목 보고 더 먹은 줄 알았어요."→attempt_answer, "점심 뭐 먹어요?"→small_talk 를 더한다.
+푸시 전 npm run eval:gas · eval:gas:parity · node scripts/test-gas-lightweight.cjs.
+```
+
+**작은 것 (5단계에 같이)**
+
+- `getBootstrapData`가 `isPreview: false`를 고정한다. 교사 미리보기(`99-999` 같은 예약 번호)는 `isPreview: true`로 적어 `DASHBOARD`에서 빠지게.
+- `ResponseRenderer`가 답 끝에 `\n근거: 자료 구간 N`을 붙인다. 좋다. 다만 `enforceManagedQuestion`이 물음표 문장을 걷을 때 이 줄은 남도록, 5단계에서 근거 줄은 **후처리 뒤에** 붙인다.
+
 ### 4단계. Claude Code — `Phase.js`·`Signals.js` (완료 · 2026-09-05)
 
 `gas/Phase.js`·`gas/Signals.js`로 이식했다. `npm run eval:gas` PASS 35 · SKIP 0. `npm run eval:gas:parity`가 웹앱 원본(TS)과 GAS 이식본을 49회기 207턴에서 턴마다 견줘 국면·질문 종류·질문 문구·집계 불일치 0. (`scripts/run-questioning-dialogue-eval.mjs`는 Next 서버가 있어야 돌아 여기서는 대신 parity로 확인한다.)
