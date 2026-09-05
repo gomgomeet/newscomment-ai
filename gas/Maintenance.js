@@ -46,7 +46,7 @@ function phase0Cleanup(apply) {
     const wanted = { ASK_NICKNAME: 'FALSE', AI_MAX_OUTPUT_TOKENS: '1500' };
     const n = updateRows_(config, function (row) {
       const key = String(row.key || '');
-      if (!(key in wanted) || String(row.value) === wanted[key]) return null;
+      if (!(key in wanted) || String(row.value).toUpperCase() === String(wanted[key]).toUpperCase()) return null;
       return { value: wanted[key] };
     }, apply);
     report.push('CONFIG 변경: ' + n + '개');
