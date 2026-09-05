@@ -17,6 +17,38 @@ function runLightweightCopyCheck() {
   } finally { requestSpreadsheet_ = null; }
 }
 
+function runPhaseIntegrationCopyCheck() {
+  requireTeacherMenuContext_();
+  const copy = getSpreadsheet_().copy('질문 챗봇 · 5단계 접점 검증 · ' + new Date().toISOString());
+  try {
+    requestSpreadsheet_ = copy;
+    migrateLightweightWorkbook_(copy);
+    setConfigValue_('AI_ENABLED', 'FALSE', copy);
+    const material = getActiveMaterial_();
+    const settings = phaseSettingsFor_(material);
+    const query = contentWords_(material.text).map(function (word) { return word + ' 무엇인가요?'; })
+      .find(function (text) { return isPassageRelatedQuestion(text, settings) &&
+        analyzeStudentTurn_({message: text, material: material}).studentMove === 'ask_definition'; });
+    if (!query) throw new Error('현재 자료에서 검사 질문을 만들지 못했습니다.');
+    const start = getBootstrapData({}, '99-998');
+    const send = function (message) { return submitTurn({sessionId: start.sessionId, lesson: start.lesson, message: message}); };
+    let fourth;
+    for (let index = 0; index < 4; index += 1) fourth = send(query);
+    const bot = getSessionTurns_(start.sessionId).slice(-1)[0];
+    if (fourth.managedKind !== 'comprehension_medium' || Number(bot.phase) !== 2 ||
+        (fourth.reply.match(/[?？]/g) || []).length !== 1 || !isTruthy_(bot.relatedQuestion)) {
+      throw new Error('4번째 관련 질문 접점 또는 저장 검증 실패');
+    }
+    const repair = send('왜 자꾸 물어봐요?');
+    const close = send('그만할래요');
+    if (/[?？]/.test(repair.reply + close.reply) || !close.isClosing) throw new Error('설명만 요청·종료 검증 실패');
+    const report = {phase: Number(bot.phase), managedKind: bot.managedKind,
+      turns: getSessionTurns_(start.sessionId).length, repairNoQuestion: true, closed: true};
+    Logger.log(JSON.stringify(report));
+    return report;
+  } finally { requestSpreadsheet_ = null; }
+}
+
 function runSmokeTests() {
   if (typeof SpreadsheetApp !== 'undefined') requireTeacherMenuContext_();
   const material = {

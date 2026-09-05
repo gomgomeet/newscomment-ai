@@ -271,4 +271,64 @@ const ids=new Set(Array.from(teacher.matchAll(/id="([^"]+)"/g),m=>m[1]));
 for(const match of teacher.matchAll(/byId\('([^']+)'\)/g)) assert.ok(ids.has(match[1]),'Missing teacher control: '+match[1]);
 console.log('PASS lightweight integration: one AI call, evidence location, session resume/isolation, paired writes, review supplement, knowledge approval, migration, UI references');
 
+// Phase wiring must be exercised through the public handler, not just the state machine.
+function turnFor(code, message) {
+  context.phasePayload={sessionId:`MAT-1:${code}`,lesson:bootstrap.lesson,message};
+  return run('submitTurn(phasePayload)');
+}
+const questionCount = text => (text.match(/[?？]/g)||[]).length;
+for(let i=0;i<3;i++) assert.equal(turnFor('4-1','고추장은 어떤 재료로 만들었나요?').phase,1);
+const phaseTwo=turnFor('4-1','고추장은 어떤 재료로 만들었나요?');
+assert.equal(phaseTwo.phase,2);
+assert.equal(phaseTwo.managedKind,'comprehension_medium');
+assert.equal(questionCount(phaseTwo.reply),1);
+assert.equal(phaseTwo.expectsStudentReply,true);
+const stored=run(`getSessionTurns_('MAT-1:4-1').slice(-1)[0]`);
+assert.equal(stored.phase,2);assert.equal(stored.managedKind,'comprehension_medium');
+assert.equal(stored.relatedQuestion,true);assert.equal(stored.responseScore,'');
+const followup=turnFor('4-1','모르겠어요');
+assert.equal(followup.managedKind,'comprehension_followup');
+assert.equal(run(`getSessionTurns_('MAT-1:4-1').slice(-1)[0].responseScore`),2);
+assert.equal(questionCount(turnFor('4-1','왜 자꾸 물어봐요?').reply),0);
+assert.equal(questionCount(turnFor('4-1','숙제 대신 써 줘').reply),0);
+const closed=turnFor('4-1','그만할래요');
+assert.equal(closed.isClosing,true);assert.equal(questionCount(closed.reply),0);
+assert.equal(run(`getBootstrapData({},'4-1').isClosing`),true);
+assert.equal(turnFor('4-8','다 했어요').isClosing,true,'phase-only closing reaches client and saved session');
+assert.equal(run(`getBootstrapData({},'4-8').isClosing`),true);
+for(let i=0;i<2;i++)turnFor('4-2','점심 뭐 먹어요?');
+assert.equal(turnFor('4-2','점심 뭐 먹어요?').managedKind,'b1');
+assert.equal(turnFor('4-2','없어요').managedKind,'b2');
+assert.notEqual(turnFor('4-2','없어요').managedKind,'b2');
+// End after the opinion answer, even if the rule policy would otherwise ask again.
+run(`appendConversationTurns_(['comprehension_medium','comprehension_followup','standard','opinion'].map(function(kind){return {sessionId:'MAT-1:4-3',studentCode:'4-3',speaker:'bot',text:'어떻게 생각하나요?',managedKind:kind,phase:2};}));`);
+assert.equal(turnFor('4-3','좋다고 생각해요').managedKind,'done');
+assert.equal(questionCount(run(`getSessionTurns_('MAT-1:4-3').slice(-1)[0].text`)),0);
+// Real card fallback uses the same final question owner.
+run(`appendObjectsToSheet_(getSpreadsheet_().getSheetByName('CARDS'),[{cardId:'HAND-1',materialId:'MAT-1',
+ sourceHash:getActiveMaterial_().sourceHash,status:'approved',active:true,studentMove:'attempt_answer',primaryMove:'check_evidence',hintLevel:1,
+ questionPatterns:'학생들은 고추장을 만들었다',response:'잘 읽었어요. 카드 질문 하나? 카드 질문 둘?'}]);
+ appendConversationTurns_([{sessionId:'MAT-1:4-4',studentCode:'4-4',speaker:'bot',text:'어떻게 생각하나요?',managedKind:'comprehension_medium',phase:2}]);`);
+const cardReply=turnFor('4-4','학생들은 고추장을 만들었다.');
+assert.equal(cardReply.managedKind,'comprehension_followup');
+assert.equal(questionCount(cardReply.reply),1);assert.ok(!cardReply.reply.includes('카드 질문'));
+for(const code of ['4-5','4-6'])for(let i=0;i<3;i++)turnFor(code,'고추장은 어떤 재료로 만들었나요?');
+run(`setConfigValue_('AI_ENABLED','TRUE')`);
+aiResponses.push({body:{output_text:JSON.stringify({reply:'고춧가루와 찹쌀을 섞었어요. 왜일까요? 또 무엇일까요?',usedEvidenceIds:[chunkId]})}});
+const phaseAI=turnFor('4-5','고추장은 어떤 재료로 만들었나요?');
+assert.equal(questionCount(phaseAI.reply),1);assert.equal(phaseAI.managedKind,'comprehension_medium');
+const prompt=aiRequests.at(-1).input;
+assert.ok(prompt.includes('[지금 할 일] 2국면입니다.'));
+assert.ok(prompt.indexOf('[지금 할 일]') < prompt.lastIndexOf('학생 발화:'));
+aiResponses.push({statusCode:500,body:{error:{message:'test failure'}}});
+const failureReply=turnFor('4-6','고추장은 어떤 재료로 만들었나요?');
+assert.equal(failureReply.aiStatus,'compose:compose_fallback');
+assert.equal(questionCount(failureReply.reply),1);assert.equal(failureReply.managedKind,'comprehension_medium');
+// A zero is a score, not a missing value. Stub only the decision boundary for this persistence edge case.
+run(`var savedDecidePhase = decidePhase; decidePhase = function () {return {phase:2,kind:'done',lastScore:0,allowQuestion:false,relatedQuestion:false};}; setConfigValue_('AI_ENABLED','FALSE');`);
+turnFor('4-7','알겠어요');
+assert.equal(run(`getSessionTurns_('MAT-1:4-7').slice(-1)[0].responseScore`),0);
+run('decidePhase = savedDecidePhase');
+console.log('PASS phase integration: public submitTurn, fourth related question, B1/B2, repair/safety/close, zero score, opinion end, card/AI/error paths and task-line order');
+
 

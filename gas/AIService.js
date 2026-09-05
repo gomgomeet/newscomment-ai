@@ -138,7 +138,6 @@ function composeResponseWithAI_(input) {
     additionalProperties: false
   };
   const prompt = [
-    '학생 발화: ' + input.message,
     '학생 상태: ' + JSON.stringify({
       studentMove: input.analysis.studentMove,
       knowledgeState: input.analysis.knowledgeState,
@@ -157,7 +156,9 @@ function composeResponseWithAI_(input) {
           return '[' + item.id + '] ' + stripEvidenceLocations_(item.text);
         }).join('\n')
       : '(없음)'),
-    '허용된 근거 ID: ' + JSON.stringify(allowedIds)
+    '허용된 근거 ID: ' + JSON.stringify(allowedIds),
+    String(input.taskLine || ''),
+    '학생 발화: ' + input.message
   ].join('\n\n');
 
   try {

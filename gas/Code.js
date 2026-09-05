@@ -407,10 +407,22 @@ function submitTurn(payload) {
   const ruleAnalysis = analyzeStudentTurn_({ message: safeMessage, action: action, material: material, history: history });
   const analysis = ruleAnalysis;
   const plan = selectNextMove_({ guard: guard, analysis: analysis, material: material, history: history });
+  const decision = decidePhase(history, safeMessage, phaseSettingsFor_(material));
+  plan.isClosing = plan.isClosing || Boolean(decision.closing);
+  if (plan.isClosing) plan.primaryMove = 'close';
+  // 입력 안전 정책과 종료는 국면 질문보다 우선한다.
+  if (plan.isClosing || plan.primaryMove === 'safety_redirect') {
+    decision.allowQuestion = false;
+    decision.managedQuestion = '';
+    decision.kind = '';
+  }
+  plan.expectsStudentReply = decision.allowQuestion &&
+    (Boolean(decision.managedQuestion) || plan.expectsStudentReply);
   const retrieval = retrieveApprovedEvidence_({ query: safeMessage, analysis: analysis, plan: plan, material: material, config: config });
   const baseResponse = renderResponse_({ plan: plan, analysis: analysis, material: material, retrieval: retrieval });
   const aiComposeResult = composeResponseWithAI_({ message: safeMessage, plan: plan, analysis: analysis,
-    material: material, retrieval: retrieval, history: history, config: config, baseResponse: baseResponse });
+    material: material, retrieval: retrieval, history: history, config: config, baseResponse: baseResponse,
+    taskLine: buildTaskLine(decision) });
   const responseResult = aiComposeResult.responseResult;
   let reviewId = '';
   const reason = getReviewReasonCode_(analysis, plan, retrieval);
@@ -424,18 +436,24 @@ function submitTurn(payload) {
   const aiStatus = 'compose:' + aiComposeResult.status;
   // 한 쌍을 한 번의 잠금과 쓰기로 저장하여 발화와 답변이 따로 누락되지 않게 한다.
   const common = { sessionId: payload.sessionId, studentCode: context.session.studentCode, isPreview: false };
+  // AI 성공·실패·꺼짐 및 카드 응답 모두 같은 질문 후처리를 거친다.
+  responseResult.text = enforceManagedQuestion(responseResult.text, decision);
   appendConversationTurns_([
     Object.assign({}, common, { speaker: 'student', text: safeMessage, studentMove: analysis.studentMove,
       relatedQuestion: analysis.relatedQuestion, aiStatus: 'rule' }),
     Object.assign({}, common, { speaker: 'bot', text: responseResult.text, primaryMove: plan.primaryMove,
       hintLevel: plan.hintLevel, sourceStatus: responseResult.sourceStatus,
       evidenceIds: responseResult.evidence.map(function (item) { return item.id; }),
-      aiStatus: aiStatus, decisionReason: reviewId ? reason : plan.reasonCode })
+      aiStatus: aiStatus, decisionReason: reviewId ? reason : plan.reasonCode,
+      phase: decision.phase, managedKind: decision.kind || '',
+      responseScore: decision.lastScore == null ? '' : decision.lastScore,
+      relatedQuestion: decision.relatedQuestion })
   ]);
   return { reply: responseResult.text, primaryMove: plan.primaryMove, hintLevel: plan.hintLevel,
     sourceStatus: responseResult.sourceStatus, teacherInterventionFlag: plan.teacherInterventionFlag || Boolean(reviewId),
     expectsStudentReply: plan.expectsStudentReply, isClosing: plan.isClosing, retrievalConfidence: retrieval.confidence,
     aiStatus: aiStatus, aiModel: aiComposeResult.model || '',
+    phase: decision.phase, managedKind: decision.kind || '',
     evidence: isTruthy_(config.SHOW_EVIDENCE) ? responseResult.evidence : [], reviewQueued: Boolean(reviewId) };
 }
 
