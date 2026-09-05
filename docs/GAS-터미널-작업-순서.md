@@ -121,6 +121,8 @@ scripts/test-gas-lightweight.cjs 의 분기 케이스에 "없어요."→attempt_
 - `getBootstrapData`가 `isPreview: false`를 고정한다. 교사 미리보기(`99-999` 같은 예약 번호)는 `isPreview: true`로 적어 `DASHBOARD`에서 빠지게.
 - `ResponseRenderer`가 답 끝에 `\n근거: 자료 구간 N`을 붙인다. 좋다. 다만 `enforceManagedQuestion`이 물음표 문장을 걷을 때 이 줄은 남도록, 5단계에서 근거 줄은 **후처리 뒤에** 붙인다.
 
+**보완 확인 (커밋 `744b531`)** — 지시문대로 들어갔다. 207턴 분류: `small_talk` 92 → **28**(모두 질문, "근데 왜 줄었어요?"처럼 앞 턴에 기대는 후속 질문), `safety` 4 → **1**(실제 개인정보). "없어요"·"결과요"·"원인은 선택 배식입니다" → `attempt_answer`, "왜 그렇게 됐어요?" → `ask_fact`(관련 질문). 교사 미리보기 `99-*` → `isPreview`, "근거:" 줄은 후처리 뒤에. 심판 셋 초록. 남은 잔가지 하나: 후속 질문 28건이 규칙 응답("이 활동에서는 지문에 나온 내용으로…")을 받는다 — 6단계 실제 발화에서 거슬리면 "앞 턴이 관련 질문이면 이번 질문도 관련으로 본다" 한 줄로 줄일 수 있다.
+
 ### 4단계. Claude Code — `Phase.js`·`Signals.js` (완료 · 2026-09-05)
 
 `gas/Phase.js`·`gas/Signals.js`로 이식했다. `npm run eval:gas` PASS 35 · SKIP 0. `npm run eval:gas:parity`가 웹앱 원본(TS)과 GAS 이식본을 49회기 207턴에서 턴마다 견줘 국면·질문 종류·질문 문구·집계 불일치 0. (`scripts/run-questioning-dialogue-eval.mjs`는 Next 서버가 있어야 돌아 여기서는 대신 parity로 확인한다.)
