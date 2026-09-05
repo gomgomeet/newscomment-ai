@@ -13,7 +13,7 @@
 | 파일 | 소유 | 상대는 |
 | --- | --- | --- |
 | `Code.gs`, 분석·검색·조립·시트·OpenAI 함수가 든 기존 `.gs`, `Client`·`Teacher`·`Dashboard`·`Styles` | **Codex** | 읽기만. 고칠 것이 있으면 사양을 써서 PR 설명에 남긴다 |
-| `Phase.gs`, `Signals.gs`, `Maintenance.gs`(0단계 시트 정리, 1회용), `evals/gas/**`, `docs/**`, 이 문서 | **Claude Code** | 읽기만 |
+| `Phase.gs`, `Signals.gs`, `Maintenance.js`(0단계 시트 정리, 1회용), `evals/gas/**`, `docs/**`, 이 문서 | **Claude Code** | 읽기만 |
 | `submitTurn()` 안의 2국면 접점 세 줄 (4절) | Claude가 사양, **Codex가 끼움** | — |
 
 기존 파일은 **한 번에 한 PR**만 연다. 같은 파일을 두 PR이 동시에 고치지 않는다.
