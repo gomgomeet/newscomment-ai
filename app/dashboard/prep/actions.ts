@@ -137,9 +137,6 @@ export async function saveAssessmentPrep(formData: FormData) {
   const lessonContext = readText(formData, "lesson_context");
   const evaluationGoal = readText(formData, "evaluation_goal");
   const achievementStandards = parseStandards(readText(formData, "achievement_standards"));
-  const safetyRules = readText(formData, "safety_rules");
-  const studentGuidance = readText(formData, "student_guidance");
-  const sampleEvaluationNotes = readText(formData, "sample_evaluation_notes");
   const databaseUrl = readText(formData, "notion_database_url");
   const contentMode = readText(formData, "notion_content_mode") === "page_body" ? "page_body" : "property";
   const notionConfig: Json = {
@@ -158,10 +155,7 @@ export async function saveAssessmentPrep(formData: FormData) {
       lesson_context: lessonContext,
       evaluation_goal: evaluationGoal,
       achievement_standards: achievementStandards,
-      safety_rules: safetyRules,
-      student_guidance: studentGuidance,
       notion_config: notionConfig,
-      sample_evaluation_notes: sampleEvaluationNotes,
       status: "draft",
     })
     .eq("id", prep.id);
