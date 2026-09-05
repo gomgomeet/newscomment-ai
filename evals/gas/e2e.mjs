@@ -41,6 +41,7 @@ class SpreadsheetMock {
   constructor() { this.id = 'sheet-e2e'; this.sheets = new Map(); }
   getId() { return this.id; } getName() { return 'e2e'; }
   getSheetByName(n) { return this.sheets.get(n) || null; }
+  getSheets() { return [...this.sheets.values()]; }
   insertSheet(n) { const s = new SheetMock(n); this.sheets.set(n, s); return s; }
   setActiveSheet() {} toast() {}
 }
@@ -201,6 +202,24 @@ const related = ['잔반이 뭐예요?', '선택 배식이 뭐예요?', '왜 잔
   const preview = start('99-1'); send(preview, related[0]);
   const prow = run(`getRowsAsObjects_('TURNS')`).slice(-1)[0];
   record('   교사 미리보기 99-* → isPreview=true', String(prow.isPreview) === 'true', `isPreview=${prow.isPreview}`);
+}
+
+// ---------- 8. 머지 뒤 후속 — 기존 시트의 CONFIG를 phase0CleanupApply() 한 번으로 맞춘다 ----------
+{
+  // 교사의 기존 시트를 흉내 낸다: AI_MAX_HISTORY_TURNS가 옛 값 6, AI_REASONING_EFFORT 행은 없음
+  const cfg = spreadsheet.getSheetByName('CONFIG');
+  cfg.rows = cfg.rows.filter((row) => String(row[0]) !== 'AI_REASONING_EFFORT');
+  cfg.rows.forEach((row) => { if (String(row[0]) === 'AI_MAX_HISTORY_TURNS') row[1] = '6'; });
+  const before = run('getAISettings_(readConfig_())');
+  run('phase0CleanupPreview()');
+  const untouched = run('readConfig_()');
+  run('phase0CleanupApply()');
+  const after = run('getAISettings_(readConfig_())');
+  const rows = run(`getRowsAsObjects_('CONFIG')`).filter((r) => r.key === 'AI_REASONING_EFFORT');
+  record('⑭ phase0CleanupApply → AI_MAX_HISTORY_TURNS 6→4, AI_REASONING_EFFORT 행 추가(minimal)',
+    before.maxHistoryTurns === 6 && untouched.AI_MAX_HISTORY_TURNS === '6' && untouched.AI_REASONING_EFFORT === undefined
+      && after.maxHistoryTurns === 4 && after.reasoningEffort === 'minimal' && rows.length === 1 && rows[0].value === 'minimal',
+    `before=${before.maxHistoryTurns} preview=${untouched.AI_MAX_HISTORY_TURNS}/${untouched.AI_REASONING_EFFORT} after=${after.maxHistoryTurns}/${after.reasoningEffort} rows=${rows.length}`);
 }
 
 // ---------- 출력 ----------

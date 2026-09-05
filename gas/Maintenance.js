@@ -40,16 +40,24 @@ function phase0Cleanup(apply) {
     report.push('청크 캡션 제거: ' + n + '구간 (' + chunks.getName() + ')');
   } else report.push('청크 시트를 찾지 못함');
 
-  // 3) CONFIG — 이름 묻지 않기, 출력 토큰 1500
+  // 3) CONFIG — 이름 묻지 않기, 출력 토큰 1500, 추론 강도 minimal, 최근 대화 4턴
+  //    (PR #56 뒤: 기존 시트는 옛 값이 남으므로 여기서 맞춘다. 없는 키는 행을 새로 넣는다.)
   const config = findSheetByHeaders_(ss, ['key', 'value']);
   if (config) {
-    const wanted = { ASK_NICKNAME: 'FALSE', AI_MAX_OUTPUT_TOKENS: '1500' };
+    const wanted = { ASK_NICKNAME: 'FALSE', AI_MAX_OUTPUT_TOKENS: '1500', AI_REASONING_EFFORT: 'minimal', AI_MAX_HISTORY_TURNS: '4' };
+    const seen = {};
     const n = updateRows_(config, function (row) {
       const key = String(row.key || '');
+      if (key) seen[key] = true;
       if (!(key in wanted) || String(row.value).toUpperCase() === String(wanted[key]).toUpperCase()) return null;
       return { value: wanted[key] };
     }, apply);
-    report.push('CONFIG 변경: ' + n + '개');
+    const missing = Object.keys(wanted).filter(function (k) { return !seen[k]; });
+    missing.forEach(function (k) {
+      Logger.log(config.getName() + ' 행 추가: ' + k + ' = "' + wanted[k] + '"');
+      if (apply) appendConfigRow_(config, k, wanted[k]);
+    });
+    report.push('CONFIG 변경: ' + n + '개, 추가: ' + missing.length + '개' + (missing.length ? ' (' + missing.join(', ') + ')' : ''));
   } else report.push('CONFIG 시트를 찾지 못함');
 
   // 4) 검토 큐 — 인사·잡담은 닫는다
@@ -106,6 +114,18 @@ function updateRows_(sheet, decide, apply) {
     });
   }
   return changed;
+}
+
+/** CONFIG에 key·value(·description) 열 위치를 맞춰 한 행을 붙인다. */
+function appendConfigRow_(sheet, key, value) {
+  const header = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String);
+  const row = header.map(function (h) {
+    if (h === 'key') return key;
+    if (h === 'value') return value;
+    if (h === 'description') return '수업 설정 (phase0Cleanup이 추가)';
+    return '';
+  });
+  sheet.appendRow(row);
 }
 
 function getActiveMaterialSourceHash_(ss) {
