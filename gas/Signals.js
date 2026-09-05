@@ -135,10 +135,17 @@ function signalLessonWords_(settings) {
 
 function signalHasLessonWord_(text, settings) {
   var compact = String(text).replace(/\s+/g, '');
-  return signalLessonWords_(settings).some(function (w) {
+  var words = signalLessonWords_(settings);
+  if (words.some(function (w) {
     var word = String(w).replace(/\s+/g, '');
     return word.length >= 2 && compact.indexOf(word) >= 0;
-  });
+  })) return true;
+  // 선택 규칙(settings.stemMatch): "줄었어요"처럼 어형이 바뀐 낱말도 앞 두 글자가 같으면 관련으로 본다.
+  // 웹앱 원본에는 없는 규칙이라 기본은 꺼 둔다. GAS 런타임(phaseSettingsFor_)은 켠다.
+  if (!settings.stemMatch) return false;
+  var stems = {};
+  words.forEach(function (w) { var k = String(w).replace(/\s+/g, '').slice(0, 2); if (k.length === 2 && /[가-힣]/.test(k)) stems[k] = true; });
+  return signalContentWords_(text).some(function (w) { var k = w.slice(0, 2); return k.length === 2 && /[가-힣]/.test(k) && stems[k]; });
 }
 
 function isStudentQuestion(text) {

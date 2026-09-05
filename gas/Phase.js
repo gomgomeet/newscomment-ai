@@ -160,9 +160,10 @@ function phaseNextQuestion_(asked, lastQuestion, currentAnswer, targets, setting
  * settings: phaseSettingsFor_(material) 결과
  * 반환: { phase, managedQuestion, allowQuestion, kind, difficulty, feedback, lastScore, relatedQuestion }
  */
-function decidePhase(history, message, settings) {
+function decidePhase(history, message, settings, options) {
   history = history || [];
   settings = settings || {};
+  options = options || {};
   var current = String(message || '').trim();
   var targets = buildStandardTargets(settings.standard, settings.memo);
   var bots = history.filter(phaseIsBot_);
@@ -172,8 +173,15 @@ function decidePhase(history, message, settings) {
   var lastQuestion = lastBot ? phaseClassifyBotQuestion_(lastBot, targets) : null;
   var b1Used = bots.some(function (r) { return phaseText_(r).indexOf(PHASE_B1_PROMPT) >= 0 || r.managedKind === 'b1'; });
   var b2Used = bots.some(function (r) { return phaseText_(r).indexOf(PHASE_B2_PROMPT) >= 0 || r.managedKind === 'b2'; });
-  var relatedQuestion = isPassageRelatedQuestion(current, settings);
-  var related = students.map(phaseText_).filter(function (t) { return isPassageRelatedQuestion(t, settings); }).length + (relatedQuestion ? 1 : 0);
+  // 이번 턴: 런타임 분류기가 관련이라고 봤으면(지시어 이어 묻기, 제목 수치) 그대로 받는다.
+  var relatedQuestion = isPassageRelatedQuestion(current, settings) || options.currentRelated === true;
+  // 지난 턴: TURNS에 relatedQuestion 이 적혀 있으면 그 값을, 없으면(웹앱 회귀 세트) 규칙으로 다시 센다.
+  var related = students.filter(function (r) {
+    var flag = r.relatedQuestion;
+    if (flag === true || flag === 'true' || flag === 'TRUE') return true;
+    if (flag === false || flag === 'false' || flag === 'FALSE') return false;
+    return isPassageRelatedQuestion(phaseText_(r), settings);
+  }).length + (relatedQuestion ? 1 : 0);
   var inPhaseTwo = asked.length > 0 || b2Used || related >= 4;
   var closing = PHASE_CLOSING_.test(current.replace(/\s+/g, '')) && !isStudentQuestion(current);
   var protectedMove = closing || PHASE_REPAIR_.test(current) || PHASE_SAFETY_.test(current);
@@ -278,6 +286,7 @@ function phaseSettingsFor_(material) {
   return {
     passage: String(material.text || ''),
     title: String(material.title || ''),
+    stemMatch: true,
     standard: String(material.standard || ''),
     standardCode: String(material.standardCode || ''),
     memo: String(material.teacherMemo || material.questionFocusMemo || ''),

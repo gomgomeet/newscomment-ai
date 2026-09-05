@@ -40,7 +40,7 @@
 
 ```javascript
 // (1) selectNextMove_ 다음
-const decision = decidePhase(history, safeMessage, phaseSettingsFor_(material));
+const decision = decidePhase(history, safeMessage, phaseSettingsFor_(material), { currentRelated: analysis.relatedQuestion });
 // (2) composeResponseWithAI_ 호출에 넘긴다 — 조립 프롬프트 마지막 user 파트 앞에 buildTaskLine(decision)을 붙인다
 const aiComposeResult = composeResponseWithAI_({ ..., taskLine: buildTaskLine(decision) });
 // (3) 봇 턴을 appendTurn_ 하기 직전
@@ -55,7 +55,10 @@ responseResult.text = enforceManagedQuestion(responseResult.text, decision);
 /** history: TURNS 행 배열(시간순), 각 행 {speaker:'student'|'bot', text, studentMove?, managedKind?}
  *  message: 이번 학생 발화(가린 뒤)
  *  settings: { passage, title, standard, standardCode, memo, words:[{term, definition}], keyConcepts:[], gradeCode } */
-function decidePhase(history, message, settings)
+function decidePhase(history, message, settings, options)
+//   options.currentRelated: 런타임 분류기(analyzeStudentTurn_)의 relatedQuestion — 지시어 이어 묻기·제목 수치처럼
+//   규칙만으로 못 잡는 관련 질문을 국면 집계에도 반영한다. 지난 턴은 TURNS.relatedQuestion 열을 그대로 센다.
+//   settings.stemMatch: 어형이 바뀐 낱말(줄었어요~줄었다)도 관련으로 봄. phaseSettingsFor_가 켠다.
 // → { phase: 1|2, managedQuestion: string, allowQuestion: boolean,
 //     kind: ''|'b1'|'b2'|'explain_sentence'|'comprehension_medium'|'comprehension_followup'|'standard'|'opinion'|'done',
 //     difficulty: '하'|'중'|'상', feedback: string, lastScore: number|null, relatedQuestion: boolean, closing: boolean }

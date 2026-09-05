@@ -172,6 +172,13 @@ const related = ['잔반이 뭐예요?', '선택 배식이 뭐예요?', '왜 잔
   record('   대필 요청 → 안전 안내, 물음표 0', f.primaryMove === 'safety_redirect' && q(f.reply) === 0, `"${f.reply}"`);
 }
 
+// ---------- 6b. 어형이 바뀐 지문 질문 — "줄었어요"(지문은 "줄었다") ----------
+{
+  const b = start('3-7');
+  const r = send(b, '한 달 뒤에 얼마나 줄었어요?');
+  record('⑫ 어형이 바뀐 지문 질문 → 딴소리 아님·관련 질문', turns(b)[0].studentMove !== 'small_talk' && turns(b)[0].relatedQuestion === true, `move=${turns(b)[0].studentMove} related=${turns(b)[0].relatedQuestion} "${r.reply.slice(0, 80)}"`);
+}
+
 // ---------- 7. 반 하나(30명) 두 턴씩 → TURNS 행 60, 세션 섞임 없음 ----------
 {
   const before = run(`getRowsAsObjects_('TURNS')`).length;
