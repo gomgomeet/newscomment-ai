@@ -696,7 +696,7 @@ function serializeIdList_(values) {
 
 const LIGHT_CONFIG_DEFAULTS_ = { APP_NAME: '질문이', GREETING_MESSAGE: '안녕! 나는 {appName}야.', SUBJECT: '국어',
   MAX_INPUT_LENGTH: '500', MIN_RELEVANCE_SCORE: '3', MAX_RETRIEVAL_RESULTS: '3', SHOW_EVIDENCE: 'TRUE',
-  AI_ENABLED: 'FALSE', AI_MODEL: 'gpt-5.6-terra', AI_MAX_OUTPUT_TOKENS: '1500', AI_MAX_HISTORY_TURNS: '6',
+  AI_ENABLED: 'FALSE', AI_MODEL: 'gpt-5.6-terra', AI_REASONING_EFFORT: 'minimal', AI_MAX_OUTPUT_TOKENS: '1500', AI_MAX_HISTORY_TURNS: '4',
   STUDENT_WEB_APP_URL: '', LESSON_CODE: '' };
 
 function normalizeStudentCode_(value) {
