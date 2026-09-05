@@ -10,7 +10,7 @@ function selectNextMove_(context) {
       teacherInterventionFlag: true,
       expectsStudentReply: true,
       isClosing: false,
-      reasonCode: context.guard.reason || 'SAFETY_REQUEST'
+      reasonCode: context.guard.reason || (analysis.ghostwriting ? 'GHOSTWRITING_REQUEST' : 'SAFETY_REQUEST')
     });
   }
 

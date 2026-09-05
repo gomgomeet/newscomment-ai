@@ -8,7 +8,12 @@ function retrieveApprovedEvidence_(input) {
     return emptyRetrievalResult_();
   }
   const corpus = getRetrievalCorpus_(input.botId, input.material, input.config || {});
-  return rankEvidenceCandidates_(input.query, {
+  const followup = /(?:이\s*글|여기|그\s*말|그게|그렇게|어떤\s*뜻|몰라|모르겠)/.test(input.query);
+  const previousQuestion = followup && (input.history || []).slice().reverse().find(function (row) {
+    return row.speaker === 'student' && ['ask_definition', 'ask_fact'].indexOf(row.studentMove) >= 0;
+  });
+  const query = input.query + (previousQuestion ? ' ' + previousQuestion.text : '');
+  const result = rankEvidenceCandidates_(query, {
     studentMove: input.analysis.studentMove,
     primaryMove: input.plan.primaryMove,
     hintLevel: input.plan.hintLevel,
@@ -16,6 +21,16 @@ function retrieveApprovedEvidence_(input) {
     version: input.material.version
   }, input.material, corpus.cards, corpus.vocabulary, corpus.chunks,
   input.config || {}, corpus.knowledge);
+  // 지시어로 이어 묻는 질문은 직전 질문을 검색에만 보탠다. 발화·국면 입력은 원문을 유지한다.
+  // 현재 자료의 승인 구간만 사용하며, 이전 자료의 근거나 임의 답변을 만들지 않는다.
+  if ((followup || /\d+(?:\.\d+)?\s*[%％]/.test(input.query)) && input.analysis.studentMove !== 'ask_definition' &&
+      !result.chunks.length && corpus.chunks.length &&
+      (input.analysis.relatedQuestion || previousQuestion)) {
+    result.chunks = corpus.chunks.slice(0, Math.max(1, Number(input.config.MAX_RETRIEVAL_RESULTS || 3)));
+    result.retrievedChunkIds = result.chunks.map(function (chunk) { return chunk.chunkId; });
+    result.confidence = 'medium';
+  }
+  return result;
 }
 
 function getRetrievalCorpus_(botId, material, config) {

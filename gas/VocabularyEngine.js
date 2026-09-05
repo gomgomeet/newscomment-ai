@@ -123,7 +123,7 @@ function makeVocabularyRow_(material, term, definition, policy, sourceLocation) 
 
 function rankVocabularyEntries_(query, dialogue, material, entries, limit) {
   if (String(dialogue.studentMove || '') !== 'ask_definition') return [];
-  const normalizedQuery = normalizeForSearch_(query);
+  const normalizedQuery = normalizeVocabularyTerm_(query);
   const policy = getGradePolicy_(material.gradeCode || material.grade);
   const desiredExplanationIndex = gradeIndex_(policy.explanationCode);
   return (entries || []).map(function (entry) {

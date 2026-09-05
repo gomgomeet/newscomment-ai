@@ -535,9 +535,9 @@ function syncMaterialChunks_() {
 }
 
 function splitMaterialText_(text, maxLength) {
-  const sentences = (String(text || '').replace(/\r/g, '').replace(/\n+/g, ' ')
+  const sentences = (String(text || '').replace(/\r/g, '').replace(/\n+/g, ' ').replace(/(\d)\.(?=\d)/g, '$1\uE000')
     .match(/[^.!?。！？]+[.!?。！？]?/g) || [])
-    .map(function (sentence) { return sentence.trim(); })
+    .map(function (sentence) { return sentence.replace(/\uE000/g, '.').trim(); })
     .filter(Boolean);
   if (sentences.length === 0 && text) sentences.push(String(text));
 

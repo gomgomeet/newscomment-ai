@@ -419,7 +419,7 @@ function submitTurn(payload) {
   }
   plan.expectsStudentReply = decision.allowQuestion &&
     (Boolean(decision.managedQuestion) || plan.expectsStudentReply);
-  const retrieval = retrieveApprovedEvidence_({ query: safeMessage, analysis: analysis, plan: plan, material: material, config: config });
+  const retrieval = retrieveApprovedEvidence_({ query: safeMessage, analysis: analysis, plan: plan, material: material, config: config, history: history });
   const baseResponse = renderResponse_({ plan: plan, analysis: analysis, material: material, retrieval: retrieval });
   const aiComposeResult = composeResponseWithAI_({ message: safeMessage, plan: plan, analysis: analysis,
     material: material, retrieval: retrieval, history: history, config: config, baseResponse: baseResponse,

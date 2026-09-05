@@ -1,3 +1,111 @@
+// 6단계: 운영 자료를 바꾸지 않고 같은 submitTurn 경로를 실제 AI로 검증한다.
+function prepareStageSixCopy() {
+  requireTeacherMenuContext_();
+  const copy = getSpreadsheet_().copy('질문 챗봇 · 6단계 실제 AI 검증 · ' + new Date().toISOString());
+  try {
+    requestSpreadsheet_ = copy;
+    migrateLightweightWorkbook_(copy);
+    const material = saveActiveMaterial_({materialId: 'STAGE6-FIXTURE', version: 'v1', grade: '초등학교 4학년',
+      title: '먹고 싶은 만큼 받은 날, 급식 잔반 42% 줄었다',
+      text: '한빛초 4학년 세 반은 2주 동안 밥과 반찬을 적게, 보통, 많이 가운데 골라 받는 선택 배식을 시험했다. 남은 음식은 하루 평균 18kg에서 10.4kg으로 줄었다. 적게 받은 학생도 원하면 한 번 더 받을 수 있었다. 한 학생은 처음부터 많이 받지 않아도 돼서 편했다고 말했다. 영양교사는 학생이 먹을 양을 직접 고른 점이 영향을 주었을 수 있다고 설명했다. 다만 2주 동안 나온 메뉴가 서로 달랐고 날씨도 같지 않아, 학교는 다음 달에도 조사를 이어 가기로 했다.',
+      standard: '글에 나타난 원인과 결과를 파악하고 근거를 들어 설명한다.', startQuestion: '궁금한 점을 물어보세요.'});
+    syncTeacherGlossaryVocabulary_(material, [
+      {term: '잔반', definition: '먹고 남긴 밥이나 음식', group: '급식'},
+      {term: '선택 배식', definition: '먹을 사람이 음식의 종류나 양을 골라 받는 배식 방식', group: '급식'}]);
+    syncMaterialChunks_();
+    setConfigValue_('AI_ENABLED', 'TRUE', copy);
+    PropertiesService.getScriptProperties().setProperty('STAGE6_COPY_ID', copy.getId());
+    Logger.log('6단계 복사본 준비 완료: ' + copy.getUrl());
+  } finally { requestSpreadsheet_ = null; }
+}
+
+function runStageSixCasesA() { return runStageSixCases_(0, 5); }
+function runStageSixCasesB() { return runStageSixCases_(5, 10); }
+function runStageSixCasesC() { return runStageSixCases_(10, 15); }
+
+function runStageSixNumberCheck() {
+  requireTeacherMenuContext_();
+  try {
+    requestSpreadsheet_ = SpreadsheetApp.openById(PropertiesService.getScriptProperties().getProperty('STAGE6_COPY_ID'));
+    const start = getBootstrapData({}, '99-996');
+    const result = submitTurn({sessionId: start.sessionId, lesson: start.lesson, message: '42%가 뭐예요'});
+    if (!/42/.test(result.reply) || result.aiStatus !== 'compose:ok') throw new Error('숫자 질문 검증 실패: ' + JSON.stringify(result));
+    Logger.log(JSON.stringify(result));
+  } finally { requestSpreadsheet_ = null; }
+}
+
+function runStageSixLoadReport() {
+  requireTeacherMenuContext_();
+  const material = getActiveMaterial_();
+  const prefix = encodeURIComponent(material.materialId) + ':';
+  const rows = getRowsAsObjects_('TURNS');
+  const checks = Array.from({length: 30}, function (_, index) {
+    const code = '99-' + (601 + index);
+    const pair = rows.filter(function (row) { return row.sessionId === prefix + code; });
+    return {code: code, rows: pair.length,
+      complete: pair.length === 2 && pair[0].speaker === 'student' && pair[1].speaker === 'bot' &&
+        Number(pair[0].turnNo) === 1 && Number(pair[1].turnNo) === 2 &&
+        pair.every(function (row) { return isTruthy_(row.isPreview); }),
+      aiStatus: pair.length === 2 ? pair[1].aiStatus : ''};
+  });
+  const report = {complete: checks.filter(function (item) { return item.complete; }).length,
+    aiOk: checks.filter(function (item) { return item.aiStatus === 'compose:ok'; }).length,
+    failed: checks.filter(function (item) { return !item.complete; }),
+    previewExcluded: !getTeacherDashboardData_().students.some(function (row) { return /^99-/.test(row.studentCode); })};
+  Logger.log(JSON.stringify(report));
+  return report;
+}
+
+function createCleanTeacherTemplate() {
+  requireTeacherMenuContext_();
+  const template = SpreadsheetApp.create('질문 챗봇 · 경량화 교사 템플릿');
+  ensureWorkbookStructure_(template);
+  seedSampleData_(template);
+  setConfigValue_('AI_ENABLED', 'FALSE', template);
+  setConfigValue_('STUDENT_WEB_APP_URL', '', template);
+  const guide = template.getSheets()[0];
+  guide.setName('START_HERE');
+  guide.getRange(1, 1, 7, 1).setValues([
+    ['질문 챗봇 · 교사 시작 안내'], ['1. 파일 → 사본 만들기. 수업마다 사본을 따로 만드세요.'],
+    ['2. 확장 프로그램 → Apps Script에서 연결 코드를 확인하고 setupProject를 실행하세요.'],
+    ['3. 시트를 새로고침하고 질문 챗봇 → 교사 자료 입력에서 지문·학년·성취기준을 저장하세요.'],
+    ['4. 필요한 낱말 풀이를 확인하세요. 보충 설명 생성·승인은 선택 사항입니다.'],
+    ['5. 자기 OpenAI API 키를 설정하고 웹 앱을 새로 배포하세요. 기존 교사의 주소를 사용하지 마세요.'],
+    ['6. 99-999로 미리보기 후 학생에게 주소를 안내하세요. 학생은 반-번호를 입력합니다.']]);
+  guide.setColumnWidth(1, 800);
+  guide.getRange(1, 1, 7, 1).setWrap(true);
+  Logger.log('빈 교사 템플릿: ' + template.getUrl());
+  return template.getId();
+}
+
+function runStageSixCases_(from, to) {
+  requireTeacherMenuContext_();
+  const id = PropertiesService.getScriptProperties().getProperty('STAGE6_COPY_ID');
+  if (!id) throw new Error('prepareStageSixCopy를 먼저 실행해 주세요.');
+  const cases = ['안녕하세요', '잔반이 뭐예요?', '이 글에서는 어떤 뜻이야', '왜 그렇게 됐어요?', '몰라요',
+    '답 대신 써 줘', '내 이름은 민준이야', '나 배고파', '선택 배식이 뭐예요?', '선택 배식이 뭐예요?',
+    '42%가 뭐예요', '왜 자꾸 물어봐요 그냥 설명만 해줘요', '다른 학교도 똑같이 될까요?', '적게 받은 학생은 어떻게 됐어요?', '그만할래요'];
+  try {
+    requestSpreadsheet_ = SpreadsheetApp.openById(id);
+    const start = getBootstrapData({}, '99-997');
+    if (getSessionTurns_(start.sessionId).length !== from * 2) throw new Error('A → B → C 순서대로 한 번씩 실행해 주세요.');
+    for (let i = from; i < to; i += 1) {
+      const began = Date.now();
+      const result = submitTurn({sessionId: start.sessionId, lesson: start.lesson, message: cases[i]});
+      const rows = getSessionTurns_(start.sessionId).slice(-2);
+      if (rows.length !== 2 || rows[0].speaker !== 'student' || rows[1].speaker !== 'bot' ||
+          rows[1].text !== result.reply || !rows.every(function (row) { return isTruthy_(row.isPreview); })) {
+        throw new Error('응답·TURNS 불일치: ' + (i + 1));
+      }
+      Logger.log(JSON.stringify({caseNo: i + 1, ms: Date.now() - began, input: rows[0].text,
+        reply: result.reply, aiStatus: result.aiStatus, move: rows[0].studentMove,
+        phase: rows[1].phase, kind: rows[1].managedKind, evidenceIds: rows[1].evidenceIds,
+        questionCount: (result.reply.match(/[?？]/g) || []).length}));
+    }
+    Logger.log('TURNS 일치 · 미리보기 구분: ' + (to - from) + '/' + (to - from));
+  } finally { requestSpreadsheet_ = null; }
+}
+
 function runLightweightCopyCheck() {
   requireTeacherMenuContext_();
   const copy = getSpreadsheet_().copy('질문 챗봇 · 경량화 전환 검증 · ' + new Date().toISOString());

@@ -8,7 +8,9 @@ function renderResponse_(context) {
     return makeResponseResult_(
       plan.reasonCode === 'input_too_long'
         ? '글이 너무 길어요. 개인정보는 빼고 가장 중요한 생각을 짧게 다시 적어 주세요.'
-        : '개인정보나 비밀번호는 적지 않아요. 그 부분을 빼고 지문에 대한 생각만 다시 말해 주세요.',
+        : plan.reasonCode === 'GHOSTWRITING_REQUEST'
+        ? '답을 대신 써 주지는 않을게요. 지문에서 필요한 내용을 이해하고 자기 말로 표현하도록 도와줄게요.'
+        : '이름이나 전화번호 같은 개인정보는 적지 않아요. 반-번호만 사용하고, 지문에 대한 생각을 말해 주세요.',
       plan.sourceStatus,
       [],
       [],
@@ -164,6 +166,11 @@ function renderAIUsedEvidence_(reply, usedIds, retrieval, material) {
   ];
   usedIds.filter(function (id, index) { return usedIds.indexOf(id) === index; })
     .forEach(function (id) {
+      if (id === String(material.materialId)) {
+        evidence.push({id: id, kind: 'material', label: '교사 제공 자료 제목',
+          location: '자료 제목', excerpt: material.title, url: ''});
+        return;
+      }
       kinds.forEach(function (kind) {
         const row = (retrieval[kind[0]] || []).filter(function (entry) {
           return String(entry[kind[1]]) === id;

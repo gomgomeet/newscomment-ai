@@ -171,6 +171,7 @@ function composeResponseWithAI_(input) {
       instructions: [
         '한국어 교육용 질문 챗봇의 응답 편집기입니다.',
         '정책 엔진이 선택한 primaryMove와 hintLevel을 절대 바꾸지 마세요.',
+        '[지금 할 일]에 있는 관리 질문과 피드백 문장은 코드가 붙입니다. reply에는 그 문장을 복사하지 말고 학생 발화에 대한 답변 부분만 쓰세요.',
         '사실·낱말 질문에는 답만 하고 되묻지 마세요. 자료 구간 번호나 괄호 안 같은 위치 표현은 쓰지 마세요.',
         '학생의 시도를 짧게 관찰하고, 필요하면 승인 근거에 기반한 단서를 준 뒤, 학생이 다음에 할 행동 한 가지만 분명히 제시하세요.',
         '승인 근거 밖의 사실을 추가하지 마세요. 사용한 근거 ID만 usedEvidenceIds에 넣으세요.',
@@ -226,6 +227,9 @@ function buildRecentHistoryText_(history, maxTurns) {
 
 function buildAIEvidenceContext_(retrieval, material, analysis) {
   const results = [];
+  if (analysis && analysis.sourceNumber && material.title) {
+    results.push({id: String(material.materialId), text: '교사 제공 자료 제목: ' + material.title, location: '자료 제목'});
+  }
   const studentMove = String(analysis && analysis.studentMove || '');
   const isDefinitionQuestion = studentMove === 'ask_definition';
   const isFactQuestion = studentMove === 'ask_fact';
@@ -233,7 +237,8 @@ function buildAIEvidenceContext_(retrieval, material, analysis) {
     if (!entry.easyDefinition) return;
     results.push({
       id: String(entry.vocabularyId),
-      text: shortenForAI_(entry.term + ': ' + entry.easyDefinition, 600),
+      text: shortenForAI_(entry.term + ': ' + entry.easyDefinition +
+        (entry.exampleText ? '\n지문 속 쓰임: ' + entry.exampleText : ''), 600),
       location: String(entry.sourceLocation || entry.sourceLabel || material.sourceLabel || '')
     });
   });

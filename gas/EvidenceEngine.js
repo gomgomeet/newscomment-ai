@@ -28,7 +28,13 @@ function analyzeStudentTurn_(input) {
   const answerWords = contentWords_(message);
   const passageEcho = answerWords.some(function (word) { return passageWords.indexOf(word) >= 0; });
   const settings = phaseSettingsFor_(input.material);
-  const related = isPassageRelatedQuestion(message, settings);
+  const sourceNumber = (message.match(/\d+(?:\.\d+)?\s*[%％]/g) || []).some(function (number) {
+    return (String(input.material.title || '') + ' ' + input.material.text).indexOf(number.replace(/\s/g, '')) >= 0;
+  });
+  const previousStudent = (input.history || []).slice().reverse().find(function (row) { return row.speaker === 'student'; });
+  const contextualQuestion = /(?:이\s*글|그\s*말|그게|그렇게|근데\s*왜|어떤\s*뜻)/.test(message) &&
+    (isStudentQuestion(message) || isDefinitionQuestion_(message)) && previousStudent && isTruthy_(previousStudent.relatedQuestion);
+  const related = isPassageRelatedQuestion(message, settings) || sourceNumber || Boolean(contextualQuestion);
   let studentMove = 'attempt_answer';
   if (/((?:내|제)이름은|전화번호는|연락처는|주민번호|비밀번호|대필|대신써|숙제해줘|정답알려줘|\[이름가림\]|\[전화번호가림\])/.test(compact)) {
     studentMove = 'safety';
@@ -38,10 +44,12 @@ function analyzeStudentTurn_(input) {
     studentMove = 'greeting';
   } else if (action === 'close' || /(그만|끝낼|마칠|이제됐)/.test(compact)) {
     studentMove = 'close';
-  } else if (action === 'hint' || /(힌트|도와|모르겠|어려워)/.test(compact)) {
-    studentMove = /모르겠|확실하지|헷갈/.test(compact)
+  } else if (action === 'hint' || /(힌트|도와|모르겠|몰라|어려워)/.test(compact)) {
+    studentMove = /모르겠|몰라|확실하지|헷갈/.test(compact)
       ? 'express_uncertainty'
       : 'request_hint';
+  } else if (sourceNumber && isStudentQuestion(message)) {
+    studentMove = 'ask_fact';
   } else if (isStudentQuestion(message) && !related) {
     studentMove = 'small_talk';
   } else if (isDefinitionQuestion_(message)) {
@@ -64,6 +72,8 @@ function analyzeStudentTurn_(input) {
 
   return {
     studentMove: studentMove,
+    sourceNumber: sourceNumber,
+    ghostwriting: /(대필|대신써|숙제해줘|정답알려줘)/.test(compact),
     attempted: message.replace(/[\s.!?~]/g, '').length >= 2,
     passageEcho: passageEcho,
     relatedQuestion: related && ['ask_fact', 'ask_definition'].indexOf(studentMove) >= 0,

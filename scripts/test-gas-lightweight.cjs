@@ -341,4 +341,24 @@ assert.ok(!run('getTeacherDashboardData_().students').some(s=>s.studentCode==='9
 assert.match(phaseAI.reply,/\n근거: 자료 구간 1$/);
 console.log('PASS review fixes: student answers, preview exclusion and evidence line after question processing');
 
+run(`syncTeacherGlossaryVocabulary_(getActiveMaterial_(), [{term:'식생활 교육',definition:'먹는 생활을 배우는 교육'}]);`);
+const multiword = turnFor('98-1', '식생활 교육이 뭐예요?');
+assert.match(multiword.reply, /먹는 생활을 배우는 교육/);
+const contextual = turnFor('98-1', '이 글에서는 어떤 뜻이야');
+assert.match(contextual.reply, /먹는 생활을 배우는 교육/);
+assert.ok(!contextual.reply.includes('확인할 수 없는 낱말'));
+const causal = turnFor('98-1', '왜 그렇게 됐어요?');
+assert.ok(causal.evidence.some(item => item.kind === 'material'));
+assert.equal(run(`analyzeStudentTurn_({message:'몰라요',material:getActiveMaterial_()}).studentMove`), 'express_uncertainty');
+const ghostwriting = turnFor('98-2', '답 대신 써 줘');
+assert.match(ghostwriting.reply, /대신 써 주지는 않을게요/);
+assert.ok(!ghostwriting.reply.includes('비밀번호'));
+assert.match(turnFor('98-3', '내 이름은 민준이야').reply, /반-번호/);
+assert.ok(!run(`getSessionTurns_('MAT-1:98-3')`).some(row => row.text.includes('민준')));
+console.log('PASS stage 6 regressions: spaced vocabulary, contextual follow-up, causal evidence, uncertainty and distinct safety replies');
+assert.equal(run(`analyzeStudentTurn_({message:'42%가 뭐예요',material:Object.assign({},getActiveMaterial_(),{title:'잔반 42% 감소'})}).studentMove`), 'ask_fact');
+assert.ok(run(`splitMaterialText_('18kg에서 10.4kg으로 줄었다. 결과를 확인했다.',220)[0]`).includes('10.4kg'));
+assert.equal(run(`buildAIEvidenceContext_(emptyRetrievalResult_(),getActiveMaterial_(),{sourceNumber:true})[0].id`), 'MAT-1');
+assert.equal(run(`renderAIUsedEvidence_('42% 줄었어요',['MAT-1'],emptyRetrievalResult_(),getActiveMaterial_()).evidence[0].location`),'자료 제목');
+
 
