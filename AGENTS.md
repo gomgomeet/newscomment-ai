@@ -1,3 +1,7 @@
+# gas/ (Google Apps Script 질문 챗봇)
+
+`gas/`를 고치기 전에 `gas/CONTRACT.md`를 읽는다. 파일 소유·시트 열·함수 서명이 거기 있다. 푸시 전에 `node evals/gas/run.mjs`가 초록이어야 한다.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 # This is NOT the Next.js you know

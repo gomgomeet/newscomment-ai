@@ -1,0 +1,9 @@
+<!doctype html><html lang="ko"><head><base target="_top"><meta charset="utf-8"><style>body{font:16px/1.6 system-ui;padding:24px;color:#173f5f}table{width:100%;border-collapse:collapse}td,th{padding:10px;border-bottom:1px solid #ddd;text-align:left}button{padding:10px;margin:8px}#status{white-space:pre-wrap}</style></head>
+<body data-token="<?= teacherAccessToken ?>"><h1>학생 활동 확인</h1><p id="status" role="status">불러오는 중</p><button id="refresh">새로고침</button><button id="csv">CSV 내려받기</button><table><thead><tr><th>반-번호</th><th>질문 수</th><th>관련 질문</th><th>이해</th><th>성취기준</th><th>의견</th><th>교사 메모</th></tr></thead><tbody id="rows"></tbody></table>
+<script>
+const token=document.body.dataset.token; const status=document.getElementById('status');
+function fail(e){status.textContent=e.message;}
+function refresh(){google.script.run.withFailureHandler(fail).withSuccessHandler(function(data){status.textContent=data.material.title; const body=document.getElementById('rows');body.textContent='';data.students.forEach(function(s){const tr=document.createElement('tr');['studentCode','questionCount','relatedQuestionCount','comprehensionBest','standardBest','opinionScore','teacherNote'].forEach(function(k){const td=document.createElement('td');td.textContent=s[k] == null ? '' : s[k];tr.appendChild(td);});body.appendChild(tr);});}).getTeacherDashboardData(token);}
+document.getElementById('refresh').onclick=refresh;
+document.getElementById('csv').onclick=function(){google.script.run.withFailureHandler(fail).withSuccessHandler(function(data){const url=URL.createObjectURL(new Blob([data.content],{type:data.mimeType}));const a=document.createElement('a');a.href=url;a.download=data.filename;a.click();setTimeout(function(){URL.revokeObjectURL(url);},1000);}).exportTeacherEvaluationCsv(token);};refresh();
+</script></body></html>

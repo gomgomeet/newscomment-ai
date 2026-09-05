@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <base target="_top">
+    <meta charset="UTF-8">
+    <style>
+      :root { --ink:#1f2937; --muted:#64748b; --line:#dbe3ec; --primary:#2563eb; --soft:#eff6ff; }
+      * { box-sizing:border-box; }
+      body { margin:0; color:var(--ink); font:15px/1.55 Arial,"Noto Sans KR",sans-serif; background:#f7f9fc; }
+      main { max-width:920px; margin:0 auto; padding:22px; }
+      h1 { margin:0 0 4px; font-size:26px; }
+      h2 { margin:0 0 14px; font-size:19px; }
+      p { margin:4px 0 12px; }
+      .lead,.help,.status { color:var(--muted); }
+      .practice-flow { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; margin:16px 0; }
+      .practice-step { padding:11px; border:1px solid var(--line); border-radius:11px; background:white; }
+      .practice-step strong { display:block; color:#1d4ed8; }
+      .api-ready { color:#166534; font-weight:700; }
+      .api-needed { color:#b45309; font-weight:700; }
+      .readiness-head { display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between; }
+      .readiness-badge { padding:4px 10px; border-radius:999px; color:#92400e; background:#fef3c7; font-weight:700; }
+      .readiness-badge.ready { color:#166534; background:#dcfce7; }
+      .readiness-badge.blocked { color:#991b1b; background:#fee2e2; }
+      .readiness-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:12px 0; padding:0; list-style:none; }
+      .readiness-item { padding:9px 10px; border:1px solid var(--line); border-radius:9px; background:#f8fafc; }
+      .readiness-item strong { display:block; }
+      .readiness-item[data-state="pass"] strong { color:#166534; }
+      .readiness-item[data-state="warn"] strong { color:#92400e; }
+      .readiness-item[data-state="block"] strong { color:#991b1b; }
+      .card { margin:14px 0; padding:18px; border:1px solid var(--line); border-radius:14px; background:white; }
+      .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:13px; }
+      .wide { grid-column:1 / -1; }
+      label { display:grid; gap:5px; font-weight:700; }
+      input,textarea,select { width:100%; padding:10px 11px; border:1px solid #94a3b8; border-radius:9px; font:inherit; background:white; }
+      textarea { min-height:84px; resize:vertical; }
+      #material-text { min-height:190px; }
+      input:focus-visible,textarea:focus-visible,select:focus-visible,button:focus-visible { outline:3px solid #f97316; outline-offset:2px; }
+      .check { display:flex; align-items:center; gap:8px; font-weight:700; }
+      .check input { width:auto; }
+      .glossary-row { display:grid; grid-template-columns:1fr 2fr auto; gap:8px; margin-top:8px; align-items:start; }
+      .source-row { display:grid; grid-template-columns:1.2fr 1.4fr 1fr auto; gap:8px; margin-top:10px; padding:12px; border:1px solid var(--line); border-radius:10px; background:#f8fafc; }
+      .source-row .source-wide { grid-column:1 / -1; }
+      .draft-toolbar,.draft-actions { display:flex; flex-wrap:wrap; gap:9px; align-items:center; }
+      .draft-list { display:grid; gap:12px; margin-top:14px; }
+      .draft-card { padding:14px; border:1px solid var(--line); border-radius:11px; background:#f8fafc; }
+      .draft-head { display:flex; gap:9px; align-items:center; margin-bottom:10px; }
+      .draft-head input { width:auto; }
+      .draft-type,.draft-state { padding:2px 8px; border-radius:999px; font-size:12px; font-weight:700; background:#dbeafe; color:#1e40af; }
+      .draft-state { margin-left:auto; background:#e2e8f0; color:#334155; }
+      .draft-fields { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+      .draft-evidence { margin-top:10px; padding:10px; border-left:4px solid #60a5fa; background:#eff6ff; white-space:pre-wrap; }
+      .draft-check { margin-top:7px; color:#92400e; }
+      .knowledge-tabs { display:flex; flex-wrap:wrap; gap:7px; margin:14px 0 4px; }
+      .knowledge-tab { min-height:36px; padding:5px 11px; border:1px solid #93c5fd; color:#1e40af; background:white; }
+      .knowledge-tab[aria-selected="true"] { color:white; background:#2563eb; }
+      .knowledge-item[hidden] { display:none; }
+      .word-toolbar { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+      .word-toolbar input { flex:2; min-width:180px; }
+      .word-toolbar select { flex:1; min-width:150px; }
+      .word-table-wrap { max-height:520px; overflow:auto; border:1px solid var(--line); }
+      .word-table { width:100%; border-collapse:collapse; background:white; }
+      .word-table th { position:sticky; top:0; background:#eff6ff; text-align:left; z-index:1; }
+      .word-table th,.word-table td { padding:9px; border-bottom:1px solid var(--line); vertical-align:top; }
+      .word-table td { min-width:100px; }
+      .word-table td:nth-child(3) { min-width:250px; }
+      .word-missing { color:#92400e; }
+      .knowledge-summary { cursor:pointer; padding:9px 0; font-weight:700; }
+      .glossary-row { grid-template-columns:1fr 1fr 2fr auto; }
+      .generation-progress { display:inline-flex; min-height:42px; max-width:100%; align-items:center; gap:9px; padding:7px 11px; border:1px solid #bfdbfe; border-radius:10px; color:#1e40af; background:#eff6ff; }
+      .generation-progress[hidden] { display:none; }
+      .generation-progress[data-state="success"] { border-color:#bbf7d0; color:#166534; background:#f0fdf4; }
+      .generation-progress[data-state="error"] { border-color:#fecaca; color:#991b1b; background:#fef2f2; }
+      .generation-hourglass { display:grid; width:26px; height:26px; place-items:center; flex:0 0 auto; font-size:20px; transform-origin:center; animation:hourglass-turn 1.4s ease-in-out infinite; }
+      .generation-result-icon { display:grid; width:26px; height:26px; place-items:center; flex:0 0 auto; font-size:18px; }
+      .generation-copy { display:grid; gap:1px; }
+      .generation-copy strong { font-size:14px; }
+      .generation-elapsed { color:#64748b; font-size:12px; }
+      @keyframes hourglass-turn { 0%,42% { transform:rotate(0deg); } 50%,92% { transform:rotate(180deg); } 100% { transform:rotate(360deg); } }
+      .success { color:#166534; }
+      button { min-height:42px; padding:8px 14px; border-radius:9px; font:inherit; font-weight:700; cursor:pointer; }
+      .primary { border:1px solid var(--primary); color:white; background:var(--primary); }
+      .secondary { border:1px solid var(--primary); color:#1d4ed8; background:white; }
+      .remove { border:1px solid #cbd5e1; color:#475569; background:white; }
+      .actions { position:sticky; bottom:0; display:flex; flex-wrap:wrap; gap:10px; align-items:center; padding:14px 0 4px; background:linear-gradient(transparent,#f7f9fc 18%); }
+      .status { min-height:24px; flex:1 1 220px; }
+      .notice { padding:10px 12px; border-radius:9px; background:var(--soft); }
+      .student-share { display:grid; gap:8px; margin-top:12px; padding:12px; border:1px solid #bfdbfe; border-radius:10px; background:var(--soft); }
+      .student-share-row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+      .student-share-row input { min-width:260px; flex:1; background:white; }
+      a { color:#1d4ed8; }
+      @media (max-width:680px) { .grid,.glossary-row,.source-row,.draft-fields,.practice-flow,.readiness-list { grid-template-columns:1fr; } .wide,.source-row .source-wide { grid-column:auto; } }
+      @media (prefers-reduced-motion:reduce) { .generation-hourglass { animation:none; } }
+    </style>
+  </head>
+  <body data-teacher-access-token="<?= teacherAccessToken ?>">
+    <main id="teacher-main" data-initial-section="<?= initialSection ?>">
+      <h1>교사 입력 화면</h1>
+      <p class="lead">여기에 입력하면 Google Sheet에 저장되고 학생 앱은 새로고침부터 같은 내용을 사용합니다.</p>
+      <div class="practice-flow" aria-label="챗봇 만들기 실습 순서">
+        <div class="practice-step"><strong>1단계</strong>OpenAI API 연결<br><span id="api-status" class="api-needed">확인 중</span></div>
+        <div class="practice-step"><strong>2단계</strong>교사 자료 입력·저장</div>
+        <div class="practice-step"><strong>3단계</strong>필요한 보충 설명 확인</div>
+      </div>
+
+      <section id="readiness-section" class="card" aria-labelledby="readiness-title">
+        <div class="readiness-head">
+          <div>
+            <h2 id="readiness-title">수업 운영 준비 점검</h2>
+            <p class="help">API 키 값은 표시하지 않고 자료·근거·배포·오류 복귀 상태만 확인합니다.</p>
+          </div>
+          <span id="readiness-badge" class="readiness-badge">확인 중</span>
+        </div>
+        <ul id="readiness-list" class="readiness-list"></ul>
+        <p id="readiness-summary" class="notice"></p>
+        <button id="refresh-readiness" class="secondary" type="button">운영 준비 다시 점검</button>
+      </section>
+
+      <form id="teacher-form">
+        <section class="card">
+          <h2>교사 자료 준비 · 챗봇 기본 안내</h2>
+          <div class="grid">
+            <label>챗봇 이름
+              <input id="app-name" maxlength="40" required placeholder="예: 질문이">
+            </label>
+            <label>교과
+              <input id="subject" maxlength="40" placeholder="예: 국어">
+            </label>
+            <label class="wide">첫 인사
+              <input id="greeting-message" maxlength="240" required placeholder="{appName}을 쓰면 챗봇 이름으로 바뀝니다.">
+            </label>
+
+
+
+          </div>
+<p class="help">학생은 반-번호로 참여하고 같은 자료의 대화를 이어갑니다.</p>
+        </section>
+
+        <section id="material-section" class="card">
+          <h2>2단계. 수업 자료 입력</h2>
+          <input id="material-id" type="hidden">
+          <div class="grid">
+            <label>학년
+              <select id="grade" required>
+                <option value="">학년 선택</option>
+                <option value="초등 1학년">초등 1학년</option>
+                <option value="초등 2학년">초등 2학년</option>
+                <option value="초등 3학년">초등 3학년</option>
+                <option value="초등 4학년">초등 4학년</option>
+                <option value="초등 5학년">초등 5학년</option>
+                <option value="초등 6학년">초등 6학년</option>
+                <option value="중학교 1학년">중학교 1학년</option>
+                <option value="중학교 2학년">중학교 2학년</option>
+                <option value="중학교 3학년">중학교 3학년</option>
+              </select>
+            </label>
+
+            <label>자료 버전
+              <input id="version" maxlength="30" required placeholder="예: v1">
+            </label>
+            <label class="wide">주제·지문 제목
+              <input id="title" maxlength="120" required>
+            </label>
+            <label class="wide">성취기준
+              <textarea id="standard" maxlength="500" required></textarea>
+            </label>
+            <label class="wide">지문
+              <textarea id="material-text" maxlength="12000" minlength="30" required></textarea>
+            </label>
+            <label class="wide">시작 질문
+              <textarea id="start-question" maxlength="300" required></textarea>
+            </label>
+
+
+          </div>
+          <p class="help">지원 범위: 초등 1학년~중학교 3학년. 어휘와 지식팩의 쉬운 설명은 선택한 학년보다 한 단계 쉬운 읽기 수준으로 맞춥니다.</p>
+        </section>
+
+        <section class="card">
+          <h2 id="review-title">학생에게 부족했던 설명</h2>
+          <p class="notice">현재 자료에서 답변이 부족했던 질문만 모았습니다. 낱말 뜻을 보충하면 다음 질문부터 재사용합니다.</p>
+          <p id="review-summary" role="status"></p>
+          <div id="review-list"></div>
+          <p id="review-result" role="status" aria-live="polite"></p>
+          <details><summary id="word-review-title">전체 보충 설명 확인·수정</summary>
+          <p class="notice">원문은 저장하면 바로 검색됩니다. 원문만으로 설명하기 어려운 낱말 뜻만 보충하세요.</p>
+          <h3>전체 단어 뜻·단어군 모아보기</h3>
+          <p class="help">검색하거나 단어군을 골라 확인하세요. 뜻 보완 표시는 참고용이며 모든 단어를 채울 필요는 없습니다.</p>
+          <div class="word-toolbar">
+            <input id="word-search" type="search" aria-label="단어·뜻·단어군 검색" placeholder="단어·뜻·단어군 검색">
+            <select id="word-group" aria-label="단어군 선택"><option value="">모든 단어군</option></select>
+            <select id="word-status" aria-label="단어 뜻 상태"><option value="">전체 상태</option><option value="missing">뜻 보완 필요</option></select>
+            <button id="word-refresh" type="button" class="secondary">목록 새로 모으기</button>
+          </div>
+          <p id="word-count" role="status"></p>
+          <div class="word-table-wrap"><table class="word-table"><thead><tr><th scope="col">단어군</th><th scope="col">단어</th><th scope="col">쉬운 뜻</th><th scope="col">출처·확인 상태</th></tr></thead><tbody id="word-body"></tbody></table></div>
+          <details><summary class="knowledge-summary">단어 뜻 한꺼번에 넣기</summary>
+            <p class="help">한 줄에 단어군, 단어, 뜻을 탭으로 나누어 붙여 넣으세요. 같은 단어는 입력란의 뜻과 단어군을 갱신합니다. 아래에서 검토한 후 ‘교사 자료만 저장’을 눌러 반영합니다.</p>
+            <textarea id="word-bulk" aria-label="단어군·단어·뜻 일괄 입력" placeholder="단어군&#9;단어&#9;쉬운 뜻"></textarea>
+            <button id="word-import" type="button" class="secondary">입력란에 모아 넣기</button>
+          </details>
+          <details><summary class="knowledge-summary">개별 단어 뜻 수정</summary>
+          <div id="glossary-list"></div>
+          <button id="add-glossary" class="secondary" type="button">+ 낱말 추가</button>
+          </details>
+          </details>
+        </section>
+
+
+        <section id="knowledge-pack-section" class="card">
+          <details id="knowledge-advanced"><summary class="knowledge-summary">자동 분석 결과 · 필요할 때만 검토</summary>
+          <p class="notice">원문 검색에 추가 설명이 필요할 때만 사용하세요. 선택해 승인한 항목만 학생 답변에 활용합니다.</p>
+          <div class="draft-toolbar">
+            <button id="generate-knowledge" class="secondary" type="button">필요한 보충 설명 제안받기</button>
+            <div id="knowledge-progress" class="generation-progress" data-state="idle" role="status" aria-live="polite" aria-atomic="true" hidden>
+              <span id="knowledge-icon" class="generation-hourglass" aria-hidden="true">⏳</span>
+              <span class="generation-copy">
+                <strong id="knowledge-status"></strong>
+                <small id="knowledge-elapsed" class="generation-elapsed" aria-hidden="true"></small>
+              </span>
+            </div>
+          </div>
+          <div id="knowledge-tabs" class="knowledge-tabs" role="tablist" aria-label="지식 유형별 보기"></div>
+          <div id="knowledge-list" class="draft-list"></div>
+          <div id="knowledge-actions" class="draft-actions" hidden>
+            <button id="approve-knowledge" class="primary" type="button">선택 항목 승인·발행</button>
+            <button id="discard-knowledge" class="remove" type="button">남은 초안 모두 폐기</button>
+          </div>
+          </details>
+        </section>
+
+
+        <div class="actions">
+          <button id="save-button" class="primary" type="submit">교사 자료만 저장</button>
+          <span id="save-progress" class="generation-progress" data-state="idle" role="status" aria-live="polite" aria-atomic="true" hidden>
+            <span id="save-icon" class="generation-hourglass" aria-hidden="true">⏳</span>
+            <span class="generation-copy">
+              <strong id="save-progress-status"></strong>
+              <small id="save-elapsed" class="generation-elapsed" aria-hidden="true"></small>
+            </span>
+          </span>
+          <span id="status" class="status" role="status" aria-live="polite"></span>
+        </div>
+        <section id="student-link-row" class="student-share" aria-label="수업별 학생 링크" hidden>
+          <strong>이 수업 전용 학생 링크</strong>
+          <div class="student-share-row">
+            <input id="student-url" type="text" readonly aria-label="QR 제작과 공유에 사용할 학생 주소">
+            <button id="copy-student-link" class="secondary" type="button">주소 복사</button>
+            <a id="student-link" target="_blank" rel="noopener noreferrer">학생 화면 열기</a>
+          </div>
+          <small>자료 버전이 바뀌면 이 주소도 새로 복사하세요. 같은 주소를 QR 생성기에 넣을 수 있습니다.</small>
+        </section>
+      </form>
+    </main>
+
+    <script>
+      const teacherAccessToken = document.body.dataset.teacherAccessToken || '';
+      const byId = function (id) { return document.getElementById(id); };
+      let currentKnowledgeGenerationId = '';
+      let boardKnowledgeItems = [];
+      let reviewMaterial = {};
+      let knowledgeTimerId = null;
+      let knowledgeStartedAt = 0;
+      let saveTimerId = null;
+      let saveStartedAt = 0;
+      const initialSection = byId('teacher-main').dataset.initialSection || 'material';
+
+      window.addEventListener('load', function () {
+        byId('teacher-form').addEventListener('submit', saveSetup);
+        byId('add-glossary').addEventListener('click', function () { addGlossaryRow('', ''); });
+        byId('generate-knowledge').addEventListener('click', generateKnowledgePack);
+        byId('approve-knowledge').addEventListener('click', approveKnowledgePack);
+        byId('discard-knowledge').addEventListener('click', discardKnowledgePack);
+        byId('refresh-readiness').addEventListener('click', refreshOperationalReadiness);
+        byId('copy-student-link').addEventListener('click', copyStudentLink);
+        ['word-search','word-group','word-status'].forEach(function (id) {
+          byId(id).addEventListener('input', renderWordBoard);
+        });
+        byId('word-refresh').addEventListener('click', renderWordBoard);
+        byId('word-import').addEventListener('click', importWordRows);
+        byId('glossary-list').addEventListener('input', renderWordBoard);
+        setBusy(true, '현재 설정을 불러오는 중입니다.');
+        google.script.run
+          .withSuccessHandler(fillForm)
+          .withFailureHandler(showError)
+          .getTeacherSetupData(teacherAccessToken);
+      });
+
+      function fillForm(data) {
+        const material = data.material || {};
+        reviewMaterial = material;
+        renderPendingReviews(data.pendingReviews || { total: 0, items: [] });
+        byId('app-name').value = data.appName || '';
+        byId('subject').value = data.subject || '';
+        byId('greeting-message').value = data.greetingMessage || '';
+        byId('material-id').value = material.materialId || '';
+        byId('grade').value = gradeLabelFor_(material.gradeCode) || material.grade || '';
+        byId('version').value = material.version || 'v1';
+        byId('title').value = material.title || '';
+        byId('standard').value = material.standard || '';
+        byId('material-text').value = material.text || '';
+        byId('start-question').value = material.startQuestion || '';
+        byId('glossary-list').textContent = '';
+        (data.glossary || []).forEach(function (item) {
+          addGlossaryRow(item.term || '', item.definition || '', item.group || '');
+        });
+        if (!(data.glossary || []).length) addGlossaryRow('', '');
+        renderKnowledgePack(data.knowledgeDrafts || { generationId: '', items: [] });
+        updateApiStatus(data.ai || {});
+        updateStudentLink(data.studentUrl || '');
+        renderOperationalReadiness(data.readiness || {});
+        setBusy(false, '입력 내용을 확인한 뒤 저장해 주세요.');
+        if (initialSection === 'knowledge') {
+          window.setTimeout(function () {
+            byId('review-title').scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }, 80);
+        }
+      }
+
+      function renderPendingReviews(data) {
+        byId('review-summary').textContent = data.total ? '검토할 질문 ' + data.total + '개 · 자주 나온 순서로 최대 10개 표시' : '현재 자료에서 검토할 질문이 없습니다.';
+        const list = byId('review-list'); list.textContent = '';
+        data.items.forEach(function (item) {
+          const detail = document.createElement('details');
+          const summary = document.createElement('summary'); summary.textContent = item.question + ' · ' + item.count + '회';
+          detail.appendChild(summary);
+          const fields = {};
+          if (item.canSupplement) {
+            [['term','낱말',50], ['definition','쉬운 뜻',300], ['group','단어군(선택)',60]].forEach(function (field) {
+              const label = document.createElement('label'); label.textContent = field[1];
+              const input = document.createElement(field[0] === 'definition' ? 'textarea' : 'input');
+              input.maxLength = field[2]; label.appendChild(input); detail.appendChild(label); fields[field[0]] = input;
+            });
+            const save = document.createElement('button'); save.type = 'button'; save.className = 'primary';
+            save.textContent = '보충 설명 저장·처리 완료';
+            save.addEventListener('click', function () { resolveReview(item, 'supplement', fields); }); detail.appendChild(save);
+          } else {
+            const help = document.createElement('p'); help.textContent = '원문이나 승인 자료를 확인하세요. 사실·추론 질문은 낱말 풀이로 저장하지 않습니다.'; detail.appendChild(help);
+          }
+          const done = document.createElement('button'); done.type = 'button'; done.className = 'secondary'; done.textContent = '확인 완료 · 보충 없음';
+          done.addEventListener('click', function () { resolveReview(item, 'reviewed', fields); }); detail.appendChild(done);
+          list.appendChild(detail);
+        });
+      }
+
+      function resolveReview(item, action, fields) {
+        if (byId('material-text').value !== reviewMaterial.text || byId('version').value !== reviewMaterial.version) {
+          byId('review-result').textContent = '자료 변경 내용을 저장한 뒤 화면을 다시 열어 질문을 확인해 주세요.'; return;
+        }
+        const payload = { reviewId: item.reviewId, sourceHash: reviewMaterial.sourceHash, action: action };
+        Object.keys(fields).forEach(function (key) { payload[key] = fields[key].value; });
+        setBusy(true, '검토 결과를 저장하고 있습니다.');
+        google.script.run.withSuccessHandler(function (result) {
+          if (result.supplement) {
+            const entry = result.supplement;
+            const normalize = function (text) { return text.toLowerCase().replace(/[^0-9a-z가-힣]/g, ''); };
+            const row = Array.from(document.querySelectorAll('.glossary-row')).find(function (element) { return normalize(element.querySelector('.glossary-term').value) === normalize(entry.term); });
+            if (row) { row.querySelector('.glossary-definition').value = entry.definition; row.querySelector('.glossary-group').value = entry.group; }
+            else addGlossaryRow(entry.term, entry.definition, entry.group);
+            renderWordBoard();
+          }
+          renderPendingReviews(result.pendingReviews);
+          setBusy(false, '검토 결과가 저장되었습니다.');
+          byId('review-result').textContent = result.supplement ? '보충 설명을 저장했습니다. 다음 질문부터 사용합니다.' : '확인 완료로 기록했습니다. 같은 문제가 다시 발생하면 새 검토 항목으로 모입니다.';
+        }).withFailureHandler(function (error) {
+          setBusy(false, '검토 결과를 저장하지 못했습니다.'); byId('review-result').textContent = error.message || String(error);
+        }).resolveSupplementReview(teacherAccessToken, payload);
+      }
+
+      function gradeLabelFor_(gradeCode) {
+        const labels = {
+          E1: '초등 1학년', E2: '초등 2학년', E3: '초등 3학년',
+          E4: '초등 4학년', E5: '초등 5학년', E6: '초등 6학년',
+          M1: '중학교 1학년', M2: '중학교 2학년', M3: '중학교 3학년'
+        };
+        return labels[String(gradeCode || '').toUpperCase()] || '';
+      }
+
+      function updateApiStatus(ai) {
+        const status = byId('api-status');
+        if (ai.configured && ai.enabled) {
+          status.className = 'api-ready';
+          status.textContent = '연결됨 · 대화 ' + (ai.model || 'Terra') +
+            ' · 지식팩 ' + (ai.knowledgeGenerationModel || ai.model || 'Terra') + ' 우선';
+        } else {
+          status.className = 'api-needed';
+          status.textContent = '시트 메뉴 1~2번을 먼저 실행하세요';
+        }
+      }
+
+      function addGlossaryRow(term, definition, group) {
+        const row = document.createElement('div');
+        row.className = 'glossary-row';
+        const groupInput = document.createElement('input');
+        groupInput.className = 'glossary-group';
+        groupInput.maxLength = 60;
+        groupInput.value = group || '';
+        groupInput.placeholder = '단어군';
+        groupInput.setAttribute('aria-label', '사전카드 단어군');
+        const termInput = document.createElement('input');
+        termInput.className = 'glossary-term';
+        termInput.maxLength = 50;
+        termInput.placeholder = '낱말 (예: 잔반)';
+        termInput.value = term;
+        termInput.setAttribute('aria-label', '사전카드 낱말');
+        const definitionInput = document.createElement('textarea');
+        definitionInput.className = 'glossary-definition';
+        definitionInput.maxLength = 300;
+        definitionInput.placeholder = '학생에게 알려 줄 쉬운 뜻';
+        definitionInput.value = definition;
+        definitionInput.setAttribute('aria-label', '사전카드 뜻');
+        const removeButton = document.createElement('button');
+        removeButton.type = 'button';
+        removeButton.className = 'remove';
+        removeButton.textContent = '삭제';
+        removeButton.addEventListener('click', function () { row.remove(); renderWordBoard(); });
+        row.appendChild(groupInput);
+        row.appendChild(termInput);
+        row.appendChild(definitionInput);
+        row.appendChild(removeButton);
+        byId('glossary-list').appendChild(row);
+      }
+
+      function buildWordReviewRows(glossary, knowledge) {
+        const rows = new Map();
+        function add(term, group, definition, source) {
+          const word = String(term || '').trim();
+          if (!word) return;
+          const key = word.normalize('NFKC').toLowerCase().replace(/\s+/g, '');
+          if (!rows.has(key)) rows.set(key, { term: word, groups: [], definitions: [], sources: [] });
+          const row = rows.get(key);
+          [[row.groups, group], [row.definitions, definition], [row.sources, source]].forEach(function (pair) {
+            const value = String(pair[1] || '').trim();
+            if (value && pair[0].indexOf(value) < 0) pair[0].push(value);
+          });
+        }
+        glossary.forEach(function (item) { add(item.term, item.group || '교사 어휘', item.definition, '교사 보충 풀이 · 입력값 기준'); });
+        knowledge.filter(function (item) { return ['draft','approved'].indexOf(item.status) >= 0; }).forEach(function (item) {
+          const source = (item.status === 'approved' ? '승인 지식' : '검토 중인 지식') + ' · ' + item.title +
+            ' · ' + (item.sourceLocation || '') + (item.evidenceQuote ? ' · 원문: ' + item.evidenceQuote : '');
+          if (item.knowledgeType === 'vocabulary') add(item.title, '지식팩 낱말', item.easyExplanation || item.content, source);
+          String(item.keywords || '').split('|').forEach(function (term) { add(term, item.title, '', source); });
+        });
+        return Array.from(rows.values()).sort(function (a, b) { return a.term.localeCompare(b.term, 'ko'); });
+      }
+
+      function renderWordBoard() {
+        const glossary = Array.from(document.querySelectorAll('.glossary-row')).map(function (row) {
+          return { term: row.querySelector('.glossary-term').value, definition: row.querySelector('.glossary-definition').value,
+            group: row.querySelector('.glossary-group').value };
+        });
+        const rows = buildWordReviewRows(glossary, boardKnowledgeItems);
+        const groupControl = byId('word-group');
+        const selectedGroup = groupControl.value;
+        groupControl.textContent = '';
+        [''].concat(Array.from(new Set(rows.reduce(function (all, row) { return all.concat(row.groups); }, []))).sort())
+          .forEach(function (group) {
+            const option = document.createElement('option'); option.value = group; option.textContent = group || '모든 단어군';
+            groupControl.appendChild(option);
+          });
+        groupControl.value = selectedGroup;
+        const query = byId('word-search').value.trim().toLowerCase();
+        const visible = rows.filter(function (row) {
+          return (!groupControl.value || row.groups.indexOf(groupControl.value) >= 0) &&
+            (byId('word-status').value !== 'missing' || !row.definitions.length) &&
+            (!query || [row.term].concat(row.groups, row.definitions).join(' ').toLowerCase().includes(query));
+        });
+        const body = byId('word-body'); body.textContent = '';
+        visible.forEach(function (row) {
+          const tr = document.createElement('tr');
+          [row.groups[0] || '미분류', row.term, row.definitions.join('\n / \n') || '뜻 보완 필요', '단어군: ' + row.groups.join(' · ') + '\n' + row.sources.join('\n')]
+            .forEach(function (value, index) {
+              const cell = document.createElement('td');
+              if (index === 3) {
+                const detail = document.createElement('details'); const summary = document.createElement('summary');
+                summary.textContent = (row.definitions.length > 1 ? '풀이 비교 · ' : '') + '근거·출처 ' + row.sources.length + '개';
+                const text = document.createElement('p'); text.textContent = value; text.style.whiteSpace = 'pre-wrap';
+                detail.appendChild(summary); detail.appendChild(text); cell.appendChild(detail);
+              } else cell.textContent = value;
+              if (index === 2 && !row.definitions.length) cell.className = 'word-missing';
+              tr.appendChild(cell);
+            });
+          body.appendChild(tr);
+        });
+        byId('word-count').textContent = '전체 ' + rows.length + '개 · 뜻 보완 필요 ' + rows.filter(function (row) { return !row.definitions.length; }).length +
+          '개 · 현재 표시 ' + visible.length + '개';
+      }
+
+      function importWordRows() {
+        const lines = byId('word-bulk').value.trim().split(/\r?\n/).filter(Boolean);
+        const entries = lines.map(function (line) { return line.split('\t').map(function (cell) { return cell.trim(); }); });
+        if (entries.length && entries[0][0] === '단어군' && entries[0][1] === '단어') entries.shift();
+        if (!entries.length || entries.some(function (entry) { return entry.length !== 3 || !entry[1] || !entry[2] || entry[0].length > 60 || entry[1].length > 50 || entry[2].length > 300; })) {
+          byId('word-count').textContent = '단어군·단어·뜻 3열을 탭으로 나누어 입력해 주세요. 뜻은 300자 이내입니다.'; return;
+        }
+        entries.forEach(function (entry) {
+          const existing = Array.from(document.querySelectorAll('.glossary-row')).find(function (row) {
+            return row.querySelector('.glossary-term').value.trim().toLowerCase() === entry[1].toLowerCase();
+          });
+          if (existing) {
+            existing.querySelector('.glossary-group').value = entry[0]; existing.querySelector('.glossary-definition').value = entry[2];
+          } else addGlossaryRow(entry[1], entry[2], entry[0]);
+        });
+        renderWordBoard();
+        byId('word-count').textContent += ' · ' + entries.length + '개 입력란 반영, 저장 전 검토해 주세요.';
+      }
+
+      function collectPayload() {
+        return {
+          appName: byId('app-name').value,
+          subject: byId('subject').value,
+          greetingMessage: byId('greeting-message').value,
+          material: {
+            materialId: byId('material-id').value,
+            grade: byId('grade').value,
+            version: byId('version').value,
+            title: byId('title').value,
+            standard: byId('standard').value,
+            text: byId('material-text').value,
+            startQuestion: byId('start-question').value,
+          },
+          glossary: Array.from(document.querySelectorAll('.glossary-row')).map(function (row) {
+            return {
+              term: row.querySelector('.glossary-term').value,
+              definition: row.querySelector('.glossary-definition').value,
+              group: row.querySelector('.glossary-group').value
+            };
+          }),
+
+        };
+      }
+
+      function saveSetup(event) {
+        event.preventDefault();
+        if (!byId('teacher-form').reportValidity()) return;
+        setBusy(true, '');
+        startSaveProgress('Google Sheet에 저장하고 자료를 색인하는 중…');
+        google.script.run
+          .withSuccessHandler(function (result) {
+            byId('material-id').value = result.materialId || byId('material-id').value;
+            updateStudentLink(result.studentUrl || '');
+            if (result.sourceHash) reviewMaterial.sourceHash = result.sourceHash;
+            setBusy(false, '');
+            finishSaveProgress(
+              result.message + ' 보충 어휘 ' + result.glossaryCount + '개',
+              'success'
+            );
+          })
+          .withFailureHandler(showError)
+          .saveTeacherSetup(teacherAccessToken, collectPayload());
+      }
+
+      function renderOperationalReadiness(report) {
+        const badge = byId('readiness-badge');
+        const level = report.level || 'blocked';
+        badge.className = 'readiness-badge ' + (level === 'ready' ? 'ready' : level === 'blocked' ? 'blocked' : '');
+        badge.textContent = level === 'ready'
+          ? '준비 완료'
+          : level === 'ready_with_warnings' ? '수업 가능 · 주의 있음' : '필수 준비 필요';
+        const list = byId('readiness-list');
+        list.textContent = '';
+        (report.checks || []).forEach(function (check) {
+          const item = document.createElement('li');
+          item.className = 'readiness-item';
+          item.dataset.state = check.state || 'warn';
+          const title = document.createElement('strong');
+          title.textContent = (check.state === 'pass' ? '✓ ' : check.state === 'block' ? '! ' : '△ ') + check.label;
+          const detail = document.createElement('span');
+          detail.textContent = check.detail || '';
+          item.appendChild(title);
+          item.appendChild(detail);
+          list.appendChild(item);
+        });
+        byId('readiness-summary').textContent = report.canStartClass
+          ? '필수 준비를 마쳤습니다. 주의 항목 ' + Number(report.warningCount || 0) + '개를 확인하세요.'
+          : '수업 시작 전 필수 조치 ' + Number(report.blockerCount || 0) + '개를 해결하세요.';
+      }
+
+      function refreshOperationalReadiness() {
+        setBusy(true, '운영 준비 상태를 점검하는 중입니다.');
+        google.script.run
+          .withSuccessHandler(function (report) {
+            renderOperationalReadiness(report || {});
+            setBusy(false, '운영 준비 점검 결과를 기록했습니다.');
+          })
+          .withFailureHandler(showError)
+          .runOperationalReadinessCheck(teacherAccessToken);
+      }
+
+      function generateKnowledgePack() {
+        if (!byId('teacher-form').reportValidity()) return;
+        setBusy(true, '수업 자료를 먼저 저장하고 있습니다.');
+        startKnowledgeProgress('1/3 수업 자료를 Google Sheet에 저장하는 중…');
+        google.script.run
+          .withSuccessHandler(function (saved) {
+            byId('material-id').value = saved.materialId || byId('material-id').value;
+            updateStudentLink(saved.studentUrl || '');
+            setKnowledgeStage('2/3 AI가 지문 전체를 분석하고 원문 인용을 검증하는 중…');
+            google.script.run
+              .withSuccessHandler(function (result) {
+                renderKnowledgePack(result);
+                setBusy(false, result.message);
+                finishKnowledgeProgress('3/3 ' + result.message, 'success');
+              })
+              .withFailureHandler(showError)
+              .generateKnowledgePackDrafts(teacherAccessToken, saved.materialId);
+          })
+          .withFailureHandler(showError)
+          .saveTeacherSetup(teacherAccessToken, collectPayload());
+      }
+
+      function renderKnowledgePack(result) {
+        const items = result.items || [];
+        boardKnowledgeItems = items;
+        renderWordBoard();
+        currentKnowledgeGenerationId = result.generationId || '';
+        const list = byId('knowledge-list');
+        const tabs = byId('knowledge-tabs');
+        list.textContent = '';
+        tabs.textContent = '';
+        const pending = items.filter(function (item) { return item.status === 'draft'; });
+        if (!items.length) {
+          const empty = document.createElement('p');
+          empty.className = 'help';
+          empty.textContent = '아직 생성된 지식팩 초안이 없습니다.';
+          list.appendChild(empty);
+          byId('knowledge-actions').hidden = true;
+          return;
+        }
+        const counts = {};
+        items.forEach(function (item) {
+          counts[item.knowledgeType] = Number(counts[item.knowledgeType] || 0) + 1;
+        });
+        ['all'].concat(Object.keys(counts)).forEach(function (typeName, index) {
+          const tab = document.createElement('button');
+          tab.type = 'button';
+          tab.className = 'knowledge-tab';
+          tab.dataset.type = typeName;
+          tab.setAttribute('role', 'tab');
+          tab.setAttribute('aria-selected', index === 0 ? 'true' : 'false');
+          tab.textContent = typeName === 'all'
+            ? '전체 ' + items.length
+            : knowledgeTypeLabel(typeName) + ' ' + counts[typeName];
+          tab.addEventListener('click', function () { filterKnowledgeItems(typeName); });
+          tabs.appendChild(tab);
+        });
+        items.forEach(function (knowledge) {
+          const item = document.createElement('article');
+          item.className = 'draft-card knowledge-item';
+          item.dataset.knowledgeId = knowledge.knowledgeId;
+          item.dataset.knowledgeType = knowledge.knowledgeType;
+          item.dataset.status = knowledge.status;
+          const head = document.createElement('div');
+          head.className = 'draft-head';
+          const select = document.createElement('input');
+          select.type = 'checkbox';
+          select.className = 'knowledge-select';
+          select.checked = knowledge.status === 'draft';
+          select.disabled = knowledge.status !== 'draft';
+          select.setAttribute('aria-label', knowledge.title + ' 승인 선택');
+          const type = document.createElement('span');
+          type.className = 'draft-type';
+          type.textContent = knowledgeTypeLabel(knowledge.knowledgeType);
+          const state = document.createElement('span');
+          state.className = 'draft-state' + (knowledge.status === 'approved' ? ' success' : '');
+          state.textContent = knowledge.status === 'approved'
+            ? '승인·발행됨'
+            : (knowledge.status === 'rejected'
+              ? '폐기됨'
+              : (knowledge.status === 'archived' ? '이전 자료 보관' : '검토 대기'));
+          head.appendChild(select);
+          head.appendChild(type);
+          head.appendChild(state);
+          const fields = document.createElement('div');
+          fields.className = 'draft-fields';
+          fields.appendChild(makeDraftField('제목', 'knowledge-title', knowledge.title, 120, false));
+          fields.appendChild(makeDraftField('지식 내용', 'knowledge-content', knowledge.content, 700, true));
+          fields.appendChild(makeDraftField('학생용 쉬운 설명', 'knowledge-easy', knowledge.easyExplanation, 500, true));
+          fields.appendChild(makeDraftField('핵심어 (| 로 구분)', 'knowledge-keywords', knowledge.keywords, 700, false));
+          fields.appendChild(makeDraftField('교사 확인 메모', 'knowledge-note', knowledge.teacherNote, 240, true));
+          const evidence = document.createElement('div');
+          evidence.className = 'draft-evidence';
+          evidence.textContent = '원문 근거 · ' + (knowledge.sourceLocation || '교사 자료') +
+            '\n' + knowledge.evidenceQuote;
+          if (knowledge.status !== 'draft') {
+            Array.from(fields.querySelectorAll('input,textarea')).forEach(function (field) {
+              field.disabled = true;
+            });
+          }
+          item.appendChild(head);
+          const detail = document.createElement('details');
+          const summary = document.createElement('summary');
+          summary.className = 'knowledge-summary';
+          summary.textContent = knowledge.title + ' · ' + (knowledge.easyExplanation || knowledge.content || '');
+          detail.appendChild(summary);
+          detail.appendChild(fields);
+          detail.appendChild(evidence);
+          item.appendChild(detail);
+          list.appendChild(item);
+        });
+        byId('knowledge-actions').hidden = pending.length === 0;
+      }
+
+      function knowledgeTypeLabel(type) {
+        return ({
+          overview: '전체 요약', paragraph_summary: '문단 요약', fact: '핵심 사실',
+          concept: '핵심 개념', vocabulary: '낱말', relation: '관계',
+          misconception: '오개념', discussion: '생각 쟁점', boundary: '답변 경계'
+        })[type] || type;
+      }
+
+      function filterKnowledgeItems(typeName) {
+        Array.from(document.querySelectorAll('.knowledge-tab')).forEach(function (tab) {
+          tab.setAttribute('aria-selected', tab.dataset.type === typeName ? 'true' : 'false');
+        });
+        Array.from(document.querySelectorAll('.knowledge-item')).forEach(function (item) {
+          item.hidden = typeName !== 'all' && item.dataset.knowledgeType !== typeName;
+        });
+      }
+
+      function collectSelectedKnowledgeItems() {
+        return Array.from(document.querySelectorAll('.knowledge-item')).filter(function (item) {
+          const checkbox = item.querySelector('.knowledge-select');
+          return item.dataset.status === 'draft' && checkbox && checkbox.checked;
+        }).map(function (item) {
+          return {
+            knowledgeId: item.dataset.knowledgeId,
+            title: item.querySelector('.knowledge-title').value,
+            content: item.querySelector('.knowledge-content').value,
+            easyExplanation: item.querySelector('.knowledge-easy').value,
+            keywords: item.querySelector('.knowledge-keywords').value,
+            teacherNote: item.querySelector('.knowledge-note').value
+          };
+        });
+      }
+
+      function approveKnowledgePack() {
+        const items = collectSelectedKnowledgeItems();
+        if (!items.length) {
+          finishKnowledgeProgress('승인할 지식 항목을 하나 이상 선택해 주세요.', 'error');
+          return;
+        }
+        setBusy(true, '선택한 지식과 원문 근거를 다시 검증하고 있습니다.');
+        startKnowledgeProgress('선택 항목을 승인하고 학생 RAG에 발행하는 중…');
+        google.script.run
+          .withSuccessHandler(function (result) {
+            renderKnowledgePack(result);
+            setBusy(false, result.message);
+            finishKnowledgeProgress(result.message + ' 학생 앱 새로고침부터 반영됩니다.', 'success');
+          })
+          .withFailureHandler(showError)
+          .approveKnowledgePackDrafts(teacherAccessToken, {
+            generationId: currentKnowledgeGenerationId,
+            items: items
+          });
+      }
+
+      function discardKnowledgePack() {
+        const pendingIds = Array.from(document.querySelectorAll('.knowledge-item')).filter(function (item) {
+          return item.dataset.status === 'draft';
+        }).map(function (item) { return item.dataset.knowledgeId; });
+        if (!pendingIds.length) return;
+        if (!window.confirm('남은 지식팩 초안을 모두 폐기할까요? 승인·발행된 항목은 유지됩니다.')) return;
+        setBusy(true, '남은 지식팩 초안을 폐기하고 있습니다.');
+        startKnowledgeProgress('남은 지식팩 초안을 정리하는 중…');
+        google.script.run
+          .withSuccessHandler(function (result) {
+            renderKnowledgePack(result);
+            setBusy(false, result.message);
+            finishKnowledgeProgress(result.message, 'success');
+          })
+          .withFailureHandler(showError)
+          .discardKnowledgePackDrafts(teacherAccessToken, {
+            generationId: currentKnowledgeGenerationId,
+            knowledgeIds: pendingIds
+          });
+      }
+
+      function startKnowledgeProgress(message) {
+        stopKnowledgeTimer();
+        knowledgeStartedAt = Date.now();
+        const progress = byId('knowledge-progress');
+        const icon = byId('knowledge-icon');
+        progress.hidden = false;
+        progress.dataset.state = 'busy';
+        icon.className = 'generation-hourglass';
+        icon.textContent = '⏳';
+        byId('knowledge-status').textContent = message;
+        updateKnowledgeElapsed();
+        knowledgeTimerId = window.setInterval(updateKnowledgeElapsed, 1000);
+      }
+
+      function setKnowledgeStage(message) {
+        byId('knowledge-progress').hidden = false;
+        byId('knowledge-status').textContent = message;
+      }
+
+      function finishKnowledgeProgress(message, state) {
+        const elapsed = knowledgeStartedAt ? formatElapsedTime(Date.now() - knowledgeStartedAt) : '';
+        stopKnowledgeTimer();
+        const progress = byId('knowledge-progress');
+        const icon = byId('knowledge-icon');
+        progress.hidden = false;
+        progress.dataset.state = state || 'success';
+        icon.className = 'generation-result-icon';
+        icon.textContent = state === 'error' ? '⚠️' : '✅';
+        byId('knowledge-status').textContent = message;
+        byId('knowledge-elapsed').textContent = elapsed ? '총 ' + elapsed + ' 걸림' : '';
+        knowledgeStartedAt = 0;
+      }
+
+      function updateKnowledgeElapsed() {
+        if (!knowledgeStartedAt) return;
+        byId('knowledge-elapsed').textContent = formatElapsedTime(Date.now() - knowledgeStartedAt) + ' 경과';
+      }
+
+      function stopKnowledgeTimer() {
+        if (knowledgeTimerId !== null) window.clearInterval(knowledgeTimerId);
+        knowledgeTimerId = null;
+      }
+
+      function formatElapsedTime(milliseconds) {
+        const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+        if (seconds < 60) return seconds + '초';
+        return Math.floor(seconds / 60) + '분 ' + String(seconds % 60).padStart(2, '0') + '초';
+      }
+
+      function startSaveProgress(message) {
+        stopSaveTimer();
+        saveStartedAt = Date.now();
+        const progress = byId('save-progress');
+        const icon = byId('save-icon');
+        progress.hidden = false;
+        progress.dataset.state = 'busy';
+        icon.className = 'generation-hourglass';
+        icon.textContent = '⏳';
+        byId('save-progress-status').textContent = message;
+        updateSaveElapsed();
+        saveTimerId = window.setInterval(updateSaveElapsed, 1000);
+      }
+
+      function finishSaveProgress(message, state) {
+        const elapsed = saveStartedAt ? formatElapsedTime(Date.now() - saveStartedAt) : '';
+        stopSaveTimer();
+        const progress = byId('save-progress');
+        const icon = byId('save-icon');
+        progress.hidden = false;
+        progress.dataset.state = state || 'success';
+        icon.className = 'generation-result-icon';
+        icon.textContent = state === 'error' ? '⚠️' : '✅';
+        byId('save-progress-status').textContent = message;
+        byId('save-elapsed').textContent = elapsed ? '총 ' + elapsed + ' 걸림' : '';
+        saveStartedAt = 0;
+      }
+
+      function updateSaveElapsed() {
+        if (!saveStartedAt) return;
+        byId('save-elapsed').textContent = formatElapsedTime(Date.now() - saveStartedAt) + ' 경과';
+      }
+
+      function stopSaveTimer() {
+        if (saveTimerId !== null) window.clearInterval(saveTimerId);
+        saveTimerId = null;
+      }
+
+      function makeDraftField(labelText, className, value, maxLength, multiline) {
+        const label = document.createElement('label');
+        label.textContent = labelText;
+        const field = document.createElement(multiline ? 'textarea' : 'input');
+        field.className = className;
+        field.maxLength = maxLength;
+        field.value = value || '';
+        field.required = true;
+        label.appendChild(field);
+        return label;
+      }
+
+      function updateStudentLink(url) {
+        if (!url) return;
+        byId('student-link').href = url;
+        byId('student-url').value = url;
+        byId('student-link-row').hidden = false;
+      }
+
+      function copyStudentLink() {
+        const input = byId('student-url');
+        if (!input.value) return;
+        const copied = function () { byId('status').textContent = '수업별 학생 주소를 복사했습니다. QR 생성에도 같은 주소를 사용하세요.'; };
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(input.value).then(copied).catch(function () {
+            input.select(); document.execCommand('copy'); copied();
+          });
+          return;
+        }
+        input.select(); input.setSelectionRange(0, input.value.length);
+        document.execCommand('copy'); copied();
+      }
+
+      function setBusy(busy, message) {
+        Array.from(byId('review-list').querySelectorAll('button')).forEach(function (button) { button.disabled = busy; });
+        byId('save-button').disabled = busy;
+        byId('add-glossary').disabled = busy;
+        byId('generate-knowledge').disabled = busy;
+        byId('approve-knowledge').disabled = busy;
+        byId('discard-knowledge').disabled = busy;
+        byId('refresh-readiness').disabled = busy;
+        Array.from(document.querySelectorAll('.remove')).forEach(function (button) {
+          button.disabled = busy;
+        });
+        byId('status').textContent = message || '';
+      }
+
+      function showError(error) {
+        const message = error && error.message ? error.message : '문제가 생겼습니다. 다시 시도해 주세요.';
+        let progressHandled = false;
+        if (byId('knowledge-progress').dataset.state === 'busy') {
+          finishKnowledgeProgress(message, 'error');
+          progressHandled = true;
+        }
+        if (byId('save-progress').dataset.state === 'busy') {
+          finishSaveProgress(message, 'error');
+          progressHandled = true;
+        }
+        setBusy(false, progressHandled ? '' : message);
+      }
+    </script>
+  </body>
+</html>

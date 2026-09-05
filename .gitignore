@@ -57,3 +57,7 @@ next-env.d.ts
 
 # questioning chatbot eval outputs
 /evals/**/results/*.json
+
+# Google Apps Script (clasp) login token — never commit
+.clasprc.json
+gas/.clasprc.json
