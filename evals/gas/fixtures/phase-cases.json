@@ -1,0 +1,86 @@
+{
+  "settings": {
+    "passage": "학교 급식에 대한 중요성은 날이 갈수록 커지고 있다. 대전두리초등학교는 학생 스스로 식재료의 출처와 성분을 따져보는 힘을 기를 수 있도록 NON-GMO(비유전자변형) 식생활 교육을 진행하고 있다. 학생들은 국산 조청, 고춧가루, 메줏가루를 섞어 고추장을 만들었다. 결국 두리초의 식생활 교육은 '배움으로서의 학교급식'이라는 정체성을 강화하는 실험이기도 하다.",
+    "standard": "글의 중심 내용을 찾아서 정리해 보자.",
+    "standardCode": "",
+    "memo": "",
+    "gradeCode": "E4",
+    "words": [
+      { "term": "NON-GMO", "definition": "비유전자변형" },
+      { "term": "식재료", "definition": "음식을 만드는 데 쓰는 재료" },
+      { "term": "원산지", "definition": "재료가 난 곳" },
+      { "term": "정체성", "definition": "다른 것과 구별되는 자기만의 모습" }
+    ]
+  },
+  "related": [
+    { "text": "NON-GMO가 뭐예요?", "related": true },
+    { "text": "고추장은 무슨 재료로 만들었어요?", "related": true },
+    { "text": "안녕하세요?", "related": false },
+    { "text": "점심 뭐 먹어요?", "related": false },
+    { "text": "왜 두리초는 식생활 교육을 해요?", "related": true }
+  ],
+  "cases": [
+    {
+      "name": "관련 질문 4개 뒤 → 2국면 이해(중) 질문 정확히 한 번",
+      "turns": [
+        { "student": "NON-GMO가 뭐예요?" },
+        { "student": "식재료는 뭐예요?" },
+        { "student": "고추장은 무슨 재료로 만들었어요?" },
+        { "student": "왜 식생활 교육을 해요?" },
+        { "student": "원산지는 무슨 뜻이에요?", "botDraft": "원산지는 재료가 난 곳이에요. 더 볼까요? 어때요?" }
+      ],
+      "expect": { "phase": 2, "kind": "comprehension_medium", "questionMarks": 1 }
+    },
+    {
+      "name": "1국면 3턴 내내 딴소리 → B1 한 번",
+      "turns": [
+        { "student": "안녕하세요?" },
+        { "student": "점심 뭐 먹어요?" },
+        { "student": "심심해요" }
+      ],
+      "expect": { "phase": 1, "kind": "b1", "contains": "모르는 단어" }
+    },
+    {
+      "name": "B1에 없어요 → B2",
+      "turns": [
+        { "student": "안녕하세요?" },
+        { "student": "점심 뭐 먹어요?" },
+        { "student": "심심해요" },
+        { "student": "없어요" }
+      ],
+      "expect": { "phase": 2, "kind": "b2", "contains": "제가 질문해도 될까요" }
+    },
+    {
+      "name": "2국면 중 그만할래요 → 질문 0",
+      "turns": [
+        { "student": "NON-GMO가 뭐예요?" },
+        { "student": "식재료는 뭐예요?" },
+        { "student": "고추장은 무슨 재료로 만들었어요?" },
+        { "student": "왜 식생활 교육을 해요?" },
+        { "student": "원산지는 무슨 뜻이에요?" },
+        { "student": "이제 그만할래요", "botDraft": "오늘 이야기 고마워요. 또 볼까요?" }
+      ],
+      "expect": { "allowQuestion": false, "questionMarks": 0 }
+    },
+    {
+      "name": "왜 자꾸 물어봐요 → 물음표 0",
+      "turns": [
+        { "student": "NON-GMO가 뭐예요?" },
+        { "student": "왜 자꾸 물어봐요 그냥 설명만 해줘요", "botDraft": "네. NON-GMO는 비유전자변형이라는 뜻이에요. 다시 볼까요?" }
+      ],
+      "expect": { "allowQuestion": false, "questionMarks": 0 }
+    },
+    {
+      "name": "이해(중) 답 뒤 → 이해 후속(상/하) 질문 하나",
+      "turns": [
+        { "student": "NON-GMO가 뭐예요?" },
+        { "student": "식재료는 뭐예요?" },
+        { "student": "고추장은 무슨 재료로 만들었어요?" },
+        { "student": "왜 식생활 교육을 해요?" },
+        { "student": "원산지는 무슨 뜻이에요?" },
+        { "student": "글에서는 두리초가 NON-GMO 식생활 교육을 한다고 했어요. 학생들이 스스로 재료를 따져보게 하려고요." }
+      ],
+      "expect": { "phase": 2, "kind": "comprehension_followup", "questionMarks": 1 }
+    }
+  ]
+}
