@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <base target="_top">
+    <meta charset="UTF-8">
+    <?!= include_('Styles'); ?>
+  </head>
+  <body
+    data-lesson-id="<?= lessonId ?>"
+    data-lesson-version="<?= lessonVersion ?>"
+    data-lesson-source="<?= lessonSourceHash ?>"
+  >
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="brand-mark" aria-hidden="true">질</div>
+        <div class="brand-copy">
+          <p id="activity-mode-label" class="eyebrow">생각 나누기</p>
+          <h1 id="app-name">질문 챗봇</h1>
+        </div>
+        <div class="header-meta">
+          <span id="subject-chip" class="subject-chip">수업</span>
+          <span id="student-code" class="student-code" aria-live="polite"></span>
+        </div>
+      </header>
+
+      <nav class="mobile-tabs" aria-label="학습 화면 선택">
+        <button type="button" class="mobile-tab" data-panel="material" aria-controls="material-panel" aria-selected="false">지문 보기</button>
+        <button type="button" class="mobile-tab active" data-panel="chat" aria-controls="chat-panel" aria-selected="true">대화하기</button>
+      </nav>
+
+      <main class="learning-workspace">
+        <section id="material-panel" class="workspace-panel material-panel" aria-labelledby="material-title">
+          <header class="panel-header material-header">
+            <div>
+              <p class="section-kicker">읽고 생각할 글</p>
+              <h2 id="material-title">지문을 불러오는 중입니다.</h2>
+              <p id="material-meta" class="material-meta"></p>
+            </div>
+            <div class="font-controls" aria-label="지문 글자 크기">
+              <button id="font-smaller" type="button" aria-label="지문 글자 작게">가−</button>
+              <button id="font-larger" type="button" aria-label="지문 글자 크게">가＋</button>
+            </div>
+          </header>
+
+          <details class="learning-goal">
+            <summary>오늘의 배움 목표</summary>
+            <p id="material-standard"></p>
+          </details>
+
+          <article id="material-text" class="material-text" tabindex="-1"></article>
+          <p id="material-highlight-status" class="visually-hidden" aria-live="polite"></p>
+        </section>
+
+        <section id="chat-panel" class="workspace-panel chat-panel active" aria-label="질문 챗봇 대화">
+          <header class="panel-header chat-header">
+            <div>
+              <p id="chat-kicker" class="section-kicker">질문이와 대화하기</p>
+              <h2>내 생각을 천천히 말해 봐요</h2>
+            </div>
+            <ol id="learning-progress" class="learning-progress" aria-label="생각 나누기 단계">
+              <li class="current" data-step="1"><span>1</span><b id="progress-label-1">생각</b></li>
+              <li data-step="2"><span>2</span><b id="progress-label-2">근거</b></li>
+              <li data-step="3"><span>3</span><b id="progress-label-3">다듬기</b></li>
+            </ol>
+          </header>
+
+          <div class="conversation-area">
+            <div id="messages" class="messages" aria-live="polite" aria-label="대화 내용"></div>
+
+            <section id="onboarding" class="onboarding" hidden aria-labelledby="nickname-prompt">
+              <p id="nickname-prompt"></p>
+              <label for="nickname-input">대화에서 사용할 이름·별명(선택)</label>
+              <input id="nickname-input" maxlength="20" autocomplete="off" placeholder="예: 별빛 독자">
+              <div class="button-row">
+                <button type="button" id="start-button" class="primary-button">대화 시작</button>
+                <button type="button" id="skip-name-button" class="secondary-button">이름 없이 시작</button>
+              </div>
+              <small>이 이름은 이 화면에서만 사용하며 Google Sheet에는 저장하지 않습니다.</small>
+            </section>
+          </div>
+
+          <div class="interaction-dock">
+            <div id="quick-actions" class="quick-actions" aria-label="빠른 질문">
+              <button type="button" id="definition-button" class="quick-action"><span aria-hidden="true">📖</span> 낱말 뜻</button>
+              <button type="button" id="research-button" class="quick-action" hidden><span aria-hidden="true">🧭</span> 조사 질문·검색어</button>
+              <button type="button" id="hint-button" class="quick-action"><span aria-hidden="true">💡</span> 힌트 받기</button>
+              <button type="button" id="evidence-button" class="quick-action"><span aria-hidden="true">🔎</span> 근거 말하기</button>
+              <button type="button" id="revise-button" class="quick-action"><span aria-hidden="true">↺</span> 다시 생각하기</button>
+            </div>
+
+            <div id="status" class="status" role="status" aria-live="polite"></div>
+
+            <form id="chat-form" class="composer">
+              <label class="visually-hidden" for="message-input">내 생각이나 질문</label>
+              <div class="input-wrap">
+                <textarea
+                  id="message-input"
+                  rows="2"
+                  maxlength="500"
+                  placeholder="지문을 읽고 떠오른 생각이나 질문을 적어 보세요."
+                  required
+                ></textarea>
+                <button type="submit" class="send-button" aria-label="메시지 보내기">보내기</button>
+              </div>
+              <div class="composer-footer">
+                <small class="input-help">Enter 보내기 · Shift+Enter 줄바꿈</small>
+                <button type="button" id="close-button" class="text-button">대화 마치기</button>
+              </div>
+            </form>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <?!= include_('Client'); ?>
+  </body>
+</html>
