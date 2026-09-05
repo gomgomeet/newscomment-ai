@@ -19,11 +19,11 @@ Codex가 만든 Google Apps Script 챗봇(시트 「질문챗봇-연수-대시�
 | 단계 | 일 | 필요한 것 | 완료 조건 | 크기 |
 | --- | --- | --- | --- | --- |
 | **0. 시트에서 바로** | 옛 카드 C001~C010·BOARD S01~S06 비활성 · 사진 캡션 구간 4개 비활성 · `ASK_NICKNAME=FALSE` · `AI_MAX_OUTPUT_TOKENS=1500` · 검토 큐의 "안녕하세요?" 닫기 | 시트만 | `잔반이 뭐예요?`에 잔반 카드가 나오지 않는다 | 30분 |
-| **1. 코드 확보** | `.gs`·`index.html`을 저장소 `gas/`에 넣는다 (Google Docs 붙여 넣기, GitHub 업로드, `clasp clone` 중 하나) | 교사 | `gas/` 폴더에 파일이 있다 | 20분 |
-| **2. 경량화 — 코드** | 분석 호출 제거(행동 분류는 규칙으로) · 모델 하나 · AI 카드 생성·외부 자료·캐시 제거 · `READINESS`·`EVALUATION_LOG`·`GENERATION_LOG`·`SESSIONS`·`RETRIEVAL_LOG`·`BOARD` 쓰기 제거 · BOARD 시나리오를 `runSmokeTests()`로 | 1 | `runSmokeTests()` PASS, 한 턴 AI 호출 1회 | 반나절 |
-| **3. 경량화 — 시트** | `TURNS` 16열 · `KNOWLEDGE` 9열 · `REVIEW_QUEUE` 7열 · `CONFIG` 11키 · 시트 7장 삭제 · DEF-*/AI-* 카드 삭제 · 낱말 25개 이하 | 2 | 시트 7장(+안내문), 교사 검토 항목 ≤ 60 | 2시간 |
+| **1. 코드 확보** ✅ | `.gs`·`index.html`을 저장소 `gas/`에 넣는다 (Google Docs 붙여 넣기, GitHub 업로드, `clasp clone` 중 하나) | 교사 | `gas/` 폴더에 파일이 있다 | 20분 |
+| **2. 경량화 — 코드** ✅ | 분석 호출 제거(행동 분류는 규칙으로) · 모델 하나 · AI 카드 생성·외부 자료·캐시 제거 · `READINESS`·`EVALUATION_LOG`·`GENERATION_LOG`·`SESSIONS`·`RETRIEVAL_LOG`·`BOARD` 쓰기 제거 · BOARD 시나리오를 `runSmokeTests()`로 | 1 | `runSmokeTests()` PASS, 한 턴 AI 호출 1회 | 반나절 |
+| **3. 경량화 — 시트** ✅ | `TURNS` 16열 · `KNOWLEDGE` 9열 · `REVIEW_QUEUE` 7열 · `CONFIG` 11키 · 시트 7장 삭제 · DEF-*/AI-* 카드 삭제 · 낱말 25개 이하 | 2 | 시트 7장(+안내문), 교사 검토 항목 ≤ 60 | 2시간 |
 | **4. 2국면 — 이식** ✅ | `Phase.js`·`Signals.js` (저장소 TypeScript 이식) · 49회기 동일성 확인 | 저장소 `lib/questioning-conversation-phase.ts` `questioning-target-signals.ts` | `npm run eval:gas` PASS 35, `npm run eval:gas:parity` 49회기 207턴 불일치 0 — **완료** | 하루 |
-| **5. 2국면 — 끼우기** | `chat()`에 `decidePhase()` → `[지금 할 일]` → `enforceManagedQuestion()` · `TURNS`에 열 3개 · `MATERIAL`에 `standardCode` · `DASHBOARD` 학생별 행 | 2·4 | 2국면 점검 발화 6종 통과 (관련 질문 4개 뒤 이해 질문 정확히 한 번 · B1 한 번 · `없어요`→B2 · `그만할래요` 질문 0 · `왜 자꾸 물어봐요` 물음표 0 · 의견 답 뒤 질문 없음) | 반나절 |
+| **5. 2국면 — 끼우기** ✅ | `submitTurn()`에 `decidePhase()` → `[지금 할 일]` → `enforceManagedQuestion()` · `TURNS`에 열 4개 · `DASHBOARD` 학생별 행 | 2·4 | `npm run eval:gas:e2e` — 공개 진입점으로 2국면 점검 6종 + 점검표 11항목 **21 PASS** (관련 질문 4개 뒤 이해 질문 정확히 한 번 · B1 한 번 · `없어요`→B2 · `그만할래요` 질문 0 · `왜 자꾸 물어봐요` 물음표 0 · 의견 답 뒤 질문 없음 · 30명×2턴 120행) — **완료** | 반나절 |
 | **6. 검증·배포** | 점검 발화 18개(`scripts/check-standalone-chatbot.mjs`)를 웹앱 주소로 · 30탭 동시 전송 · 템플릿 시트 사본 · 교사 절차 문서 | 5 | 18개 통과, `TURNS` 행 수 정확, 배포 주소·QR | 2시간 |
 
 합계 **사흘 안팎.** 0단계는 코드 없이 오늘 할 수 있다.
