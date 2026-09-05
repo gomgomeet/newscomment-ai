@@ -52,16 +52,25 @@ git add gas && git commit -m "GAS 원본 전체 수집" && git push
 
 ### 3단계. Codex — 경량화 (반나절)
 
-Codex에게 줄 지시문:
+Codex에게 줄 지시문 (코드 확인 뒤 파일별로 구체화한 판):
 
 ```
-gas/CONTRACT.md 와 docs/구글시트-챗봇-경량화-제안.md 를 먼저 읽어.
-경량화 제안 4~5절 순서대로: (1) 분석 AI 호출 제거 — analyzeStudentTurn_ 규칙 결과만 쓴다,
-(2) 모델 하나(AI_MODEL), (3) AI 카드 생성·외부 자료·검색 캐시 제거,
-(4) READINESS·EVALUATION_LOG·GENERATION_LOG·SESSIONS·RETRIEVAL_LOG·BOARD 쓰기 제거,
-BOARD 시나리오는 runSmokeTests()로, (5) TURNS·KNOWLEDGE·REVIEW_QUEUE·CONFIG 열을 CONTRACT 3절대로,
-(6) getBootstrapData의 별명 입력을 반-번호 입력으로 바꾸고 studentCode='3-12' 형식으로 세션 키를 만든다.
-Phase.gs·Signals.gs·evals/gas/ 는 만지지 마. 한 PR로. 푸시 전에 node evals/gas/run.mjs 초록 확인.
+gas/CONTRACT.md 와 docs/구글시트-챗봇-경량화-제안.md 를 먼저 읽어. 한 PR로, 순서대로.
+1. Maintenance.js를 clasp push 하고 Apps Script 편집기에서 phase0Cleanup() → 로그 확인 → phase0Cleanup(true) 실행. (0단계)
+2. AIService.js: enrichStudentAnalysisWithAI_ 호출을 Code.js submitTurn에서 빼고 ruleAnalysis를 그대로 analysis로 쓴다.
+   selectAIModel_·routingMode·fastModel 제거, 모델은 CONFIG.AI_MODEL 하나. composeResponseWithAI_ 지시문의
+   "정답을 바로 공개하지 말고"를 "학생이 물은 것에는 승인 근거로 먼저 답하고"로 바꾼다.
+   근거 위치("자료 구간 N")는 프롬프트에 넣지 말고, usedEvidenceIds로 코드가 붙인다(renderAIUsedEvidence_).
+3. EvidenceEngine.js analyzeStudentTurn_: '?'로 ask_fact를 잡기 전에 greeting(안녕·하이·고마워), small_talk(지문 낱말이 하나도 없는 잡담),
+   repair(왜 자꾸 물어봐·그냥 설명만), safety(이름·전화·대필 요청) 갈래를 앞에 둔다. contentWords_(material.text)로 관련 여부를 판정한다.
+4. DialoguePolicy.js selectNextMove_: ask_fact → primaryMove 'answer'(hintLevel 0, 되묻기 없음). check_evidence는 attempt_answer·give_evidence만.
+   greeting·small_talk·repair는 'receive', safety는 'safety_redirect'. shouldQueueReview_는 관련 질문만 큐에 넣는다.
+5. CardGenerator.js·ResearchMode.js·EvaluationSuite.js·OperationalReadiness.js 시트 기록·ClassroomLoadTest.js·LoadTestPanel.html 제거.
+   RetrievalEngine.js 캐시(getRetrievalCorpus_의 CacheService) 제거 — 자료가 작아 매번 읽는다.
+6. SheetService.js: SESSIONS·RETRIEVAL_LOG·BOARD·READINESS·EVALUATION_LOG·GENERATION_LOG·SOURCE_LIBRARY 쓰기 제거,
+   TURNS·KNOWLEDGE·REVIEW_QUEUE·CONFIG 열을 CONTRACT 3절대로. BOARD 시나리오는 TestRunner.js runSmokeTests()로 옮긴다.
+7. Code.js getBootstrapData: 별명 입력을 반-번호 입력으로. studentCode='3-12', sessionId는 materialId+studentCode로 만들어 새로고침해도 같은 세션.
+Phase.js·Signals.js·Maintenance.js·evals/gas/ 는 만지지 마. 푸시 전에 node evals/gas/run.mjs 초록 확인, clasp push 뒤 runSmokeTests().
 ```
 
 ### 4단계. Claude Code — `Phase.gs`·`Signals.gs` (하루)
