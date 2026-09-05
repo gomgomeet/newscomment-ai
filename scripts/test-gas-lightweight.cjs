@@ -330,5 +330,15 @@ turnFor('4-7','알겠어요');
 assert.equal(run(`getSessionTurns_('MAT-1:4-7').slice(-1)[0].responseScore`),0);
 run('decidePhase = savedDecidePhase');
 console.log('PASS phase integration: public submitTurn, fourth related question, B1/B2, repair/safety/close, zero score, opinion end, card/AI/error paths and task-line order');
+for (const [message, expected] of [['없어요.','attempt_answer'],['원인은 선택 배식입니다','attempt_answer'],['제목 보고 더 먹은 줄 알았어요.','attempt_answer'],['점심 뭐 먹어요?','small_talk']]) {
+  context.classifyMessage=message;
+  assert.equal(run('analyzeStudentTurn_({message:classifyMessage,material:getActiveMaterial_()}).studentMove'),expected);
+}
+turnFor('99-999','안녕하세요?');
+assert.equal(run(`getBootstrapData({},'99-999').isPreview`),true);
+assert.equal(run(`getSessionTurns_('MAT-1:99-999').every(function(row){return row.isPreview;})`),true);
+assert.ok(!run('getTeacherDashboardData_().students').some(s=>s.studentCode==='99-999'));
+assert.match(phaseAI.reply,/\n근거: 자료 구간 1$/);
+console.log('PASS review fixes: student answers, preview exclusion and evidence line after question processing');
 
 

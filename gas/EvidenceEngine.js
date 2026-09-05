@@ -27,8 +27,10 @@ function analyzeStudentTurn_(input) {
   const passageWords = contentWords_(input.material.text);
   const answerWords = contentWords_(message);
   const passageEcho = answerWords.some(function (word) { return passageWords.indexOf(word) >= 0; });
+  const settings = phaseSettingsFor_(input.material);
+  const related = isPassageRelatedQuestion(message, settings);
   let studentMove = 'attempt_answer';
-  if (/(이름|전화|연락처|대필|대신써|대신작성|숙제해줘|[가-힣]{2,4}입니다)/.test(compact)) {
+  if (/((?:내|제)이름은|전화번호는|연락처는|주민번호|비밀번호|대필|대신써|숙제해줘|정답알려줘|\[이름가림\]|\[전화번호가림\])/.test(compact)) {
     studentMove = 'safety';
   } else if (/(왜자꾸물어|그냥설명만|질문하지마|답만해)/.test(compact)) {
     studentMove = 'repair';
@@ -40,7 +42,7 @@ function analyzeStudentTurn_(input) {
     studentMove = /모르겠|확실하지|헷갈/.test(compact)
       ? 'express_uncertainty'
       : 'request_hint';
-  } else if (!passageEcho) {
+  } else if (isStudentQuestion(message) && !related) {
     studentMove = 'small_talk';
   } else if (isDefinitionQuestion_(message)) {
     studentMove = 'ask_definition';
@@ -64,7 +66,7 @@ function analyzeStudentTurn_(input) {
     studentMove: studentMove,
     attempted: message.replace(/[\s.!?~]/g, '').length >= 2,
     passageEcho: passageEcho,
-    relatedQuestion: passageEcho && ['ask_fact', 'ask_definition'].indexOf(studentMove) >= 0,
+    relatedQuestion: related && ['ask_fact', 'ask_definition'].indexOf(studentMove) >= 0,
     reasonGiven: reasonGiven,
     feedbackUptake: studentMove === 'revise' ? 'revised' : 'not_observed',
     helpSeeking:

@@ -178,9 +178,7 @@ function renderAIUsedEvidence_(reply, usedIds, retrieval, material) {
         items.forEach(function (item) { evidence.push(item); });
       });
     });
-  const locations = Array.from(new Set(evidence.map(function (item) { return item.location; }).filter(Boolean)));
-  const groundedReply = reply + (locations.length ? '\n근거: ' + locations.join(' · ') : '');
-  return makeResponseResult_(groundedReply, evidence.length ? 'supported' : 'source_insufficient',
+  return makeResponseResult_(reply, evidence.length ? 'supported' : 'source_insufficient',
     selected.cards, selected.cards, evidence, selected.vocabulary, selected.vocabulary,
     selected.knowledge, selected.knowledge);
 }

@@ -42,8 +42,10 @@ function runPhaseIntegrationCopyCheck() {
     const repair = send('왜 자꾸 물어봐요?');
     const close = send('그만할래요');
     if (/[?？]/.test(repair.reply + close.reply) || !close.isClosing) throw new Error('설명만 요청·종료 검증 실패');
+    const turns = getSessionTurns_(start.sessionId);
+    if (!turns.every(function (row) { return isTruthy_(row.isPreview); })) throw new Error('미리보기 기록 구분 실패');
     const report = {phase: Number(bot.phase), managedKind: bot.managedKind,
-      turns: getSessionTurns_(start.sessionId).length, repairNoQuestion: true, closed: true};
+      turns: turns.length, preview: true, repairNoQuestion: true, closed: true};
     Logger.log(JSON.stringify(report));
     return report;
   } finally { requestSpreadsheet_ = null; }

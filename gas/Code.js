@@ -244,6 +244,7 @@ function getBootstrapData(lessonSelector, studentCode) {
   return { appName: config.APP_NAME || '질문이', subject: config.SUBJECT || '',
     greetingMessage: formatGreetingMessage_(config.GREETING_MESSAGE || '안녕! 나는 {appName}야.', config.APP_NAME || '질문이'),
     introMessage: '지문을 읽고 궁금한 점을 물어보세요.', sessionId: sessionId, studentCode: code,
+    isPreview: /^99-/.test(code),
     material: material, activityMode: 'discussion', history: history.map(function (row) {
       return { speaker: row.speaker, text: row.text, primaryMove: row.primaryMove, turnNo: row.turnNo };
     }), isClosing: history.length > 0 && history[history.length - 1].primaryMove === 'close',
@@ -435,9 +436,12 @@ function submitTurn(payload) {
   }
   const aiStatus = 'compose:' + aiComposeResult.status;
   // 한 쌍을 한 번의 잠금과 쓰기로 저장하여 발화와 답변이 따로 누락되지 않게 한다.
-  const common = { sessionId: payload.sessionId, studentCode: context.session.studentCode, isPreview: false };
+  const common = { sessionId: payload.sessionId, studentCode: context.session.studentCode,
+    isPreview: /^99-/.test(context.session.studentCode) };
   // AI 성공·실패·꺼짐 및 카드 응답 모두 같은 질문 후처리를 거친다.
   responseResult.text = enforceManagedQuestion(responseResult.text, decision);
+  const locations = Array.from(new Set(responseResult.evidence.map(function (item) { return item.location; }).filter(Boolean)));
+  if (locations.length) responseResult.text += '\n근거: ' + locations.join(' · ');
   appendConversationTurns_([
     Object.assign({}, common, { speaker: 'student', text: safeMessage, studentMove: analysis.studentMove,
       relatedQuestion: analysis.relatedQuestion, aiStatus: 'rule' }),
