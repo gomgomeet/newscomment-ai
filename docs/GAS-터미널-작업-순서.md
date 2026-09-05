@@ -201,3 +201,33 @@ Codex가 배포(버전 18)·실제 AI 발화 15개·공개 웹앱 30탭·교사 
 - `Code.js`: `decidePhase(…, { currentRelated: analysis.relatedQuestion })` — 지시어 이어 묻기·제목 수치 질문이 국면 집계에도 들어간다. e2e ⑬으로 확인(잔반이 뭐예요? → "이 글에서는 어떤 뜻이야" → 2개 더 → 4번째에 2국면).
 - `AIService.js`: 추론 강도를 `CONFIG.AI_REASONING_EFFORT`로(기본 **minimal**, 전에는 코드에 `low` 고정), 최근 대화 기본 6 → **4턴**. 조립은 구조화 출력 한 번이라 최소 추론이면 충분하다. **실측은 아직이다** — 이 환경엔 API 키가 없다. 기존 시트는 CONFIG 값이 남아 있으므로 `AI_REASONING_EFFORT` 행을 넣거나 `AI_MAX_HISTORY_TURNS`를 4로 바꿔야 적용된다. 교사 미리보기 99-*로 30탭을 다시 돌려 중앙값·p95를 견준다(`scripts/check-gas-browser.cjs`, 예약 번호는 99-631부터).
 - `GAS-6단계-검증-배포.md` → `docs/`.
+
+### 7단계. 배포·설정·실측 — 내일 PC 터미널의 Claude Code에서 (한 시간)
+
+웹 세션(claude.ai/code)에서는 할 수 없다. `clasp` 로그인 토큰이 없고, 그 환경의 네트워크가 `script.google.com`을 막는다. Codex가 쓰던 PC 터미널에서 `claude`를 띄우고 이 절을 가리키면 된다: **"docs/GAS-터미널-작업-순서.md 7단계를 진행해."**
+
+미리 해 둔 것: `Maintenance.js`의 `phase0CleanupApply()`가 이제 `AI_REASONING_EFFORT=minimal`·`AI_MAX_HISTORY_TURNS=4`도 맞춘다. 없는 키는 행을 새로 넣는다(e2e ⑭). 시트 셀을 손으로 고칠 일이 없다.
+
+```bash
+git checkout main && git pull origin main
+npm run eval:gas && npm run eval:gas:parity && npm run eval:gas:e2e && node scripts/test-gas-lightweight.cjs   # 31 · 불일치 0 · 24 · 36
+cd gas && clasp push && cd ..                    # "Login expired"면 clasp login 먼저
+```
+
+1. **배포.** Apps Script 편집기 → 배포 → 배포 관리 → 새 버전. 배포 URL은 그대로다.
+2. **설정.** 편집기에서 `phase0CleanupPreview()` 실행 → 로그에서 `CONFIG 변경: n개, 추가: m개` 확인 → `phase0CleanupApply()` 실행. 시트 `CONFIG`에서 두 키가 `minimal`·`4`인지 본다.
+3. **실측.** 예약 번호는 99-631부터(99-601~630은 6단계에서 썼다).
+   ```bash
+   GAS_WEB_APP_URL=https://script.google.com/macros/s/…/exec node scripts/check-gas-browser.cjs
+   ```
+   아래 표에 적는다. 6단계와 같은 조건(30탭 동시)이어야 견줄 수 있다.
+
+   | 조건 | 중앙값 | p95 | 답변·저장 | 브라우저 오류 |
+   | --- | --- | --- | --- | --- |
+   | 6단계(low · 6턴 · 근거 3) | 22초 | 41초 | 30/30 | 0 |
+   | 7단계(minimal · 4턴 · 근거 3) | | | | |
+
+4. **그래도 길면** 순서대로 하나씩: `MAX_RETRIEVAL_RESULTS` 3 → 2 → 다시 실측 → `AI_MODEL`을 더 빠른 모델로. 한 번에 둘을 바꾸면 무엇이 효과였는지 모른다.
+5. **끝나면** 표를 채운 커밋을 `main`에서 새 브랜치로 올린다. 학생 발화·배포 URL·키는 PR에 넣지 않는다.
+
+완료 조건: 30/30 답변·저장, 오류 0, 중앙값이 6단계보다 짧다. 중앙값 10초 안팎이면 수업에서 쓸 만하다.

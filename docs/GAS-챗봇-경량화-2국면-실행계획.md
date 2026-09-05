@@ -25,8 +25,9 @@ Codex가 만든 Google Apps Script 챗봇(시트 「질문챗봇-연수-대시�
 | **4. 2국면 — 이식** ✅ | `Phase.js`·`Signals.js` (저장소 TypeScript 이식) · 49회기 동일성 확인 | 저장소 `lib/questioning-conversation-phase.ts` `questioning-target-signals.ts` | `npm run eval:gas` PASS 35, `npm run eval:gas:parity` 49회기 207턴 불일치 0 — **완료** | 하루 |
 | **5. 2국면 — 끼우기** ✅ | `submitTurn()`에 `decidePhase()` → `[지금 할 일]` → `enforceManagedQuestion()` · `TURNS`에 열 4개 · `DASHBOARD` 학생별 행 | 2·4 | `npm run eval:gas:e2e` — 공개 진입점으로 2국면 점검 6종 + 점검표 11항목 **21 PASS** (관련 질문 4개 뒤 이해 질문 정확히 한 번 · B1 한 번 · `없어요`→B2 · `그만할래요` 질문 0 · `왜 자꾸 물어봐요` 물음표 0 · 의견 답 뒤 질문 없음 · 30명×2턴 120행) — **완료** | 반나절 |
 | **6. 검증·배포** ✅ | 배포 버전 18 · 실제 AI 발화 15개 · 공개 웹앱 30탭 · 교사 템플릿 · 교사 절차(`GAS-6단계-검증-배포.md`) | 5 | 30/30 답변·저장, 브라우저 오류 0, 스모크 32 PASS — **완료**. 관찰: 30탭 동시 응답 중앙값 22초·p95 41초 (작업 순서 문서 6단계 결과 참고) | 2시간 |
+| **7. 배포·설정·실측** | `clasp push` 새 버전 · `phase0CleanupApply()`로 CONFIG(minimal · 4턴) · 30탭 재실측(99-631부터) · 길면 `MAX_RETRIEVAL_RESULTS` 3→2 | 6 · PC 터미널의 Claude Code (`GAS-터미널-작업-순서.md` 7단계) | 30/30 답변·저장, 오류 0, 중앙값이 6단계 22초보다 짧다 | 1시간 |
 
-합계 **사흘 안팎.** 0단계는 코드 없이 오늘 할 수 있다.
+합계 **사흘 안팎.** 0단계는 코드 없이 오늘 할 수 있다. 0~6단계는 끝났고 7단계만 남았다(2026-09-05).
 
 ## 단계마다 지키는 것
 
