@@ -365,6 +365,32 @@ cd gas && clasp push && cd ..                    # "Login expired"면 clasp logi
 
 교사 결정: 관리 질문 세션당 4개 유지 · 자료 밖 질문은 기본 허용하되 글의 주제와 상관있을 때만 · 이용 조건은 `NOTICE.md`대로 엄격하게.
 
+### 학교 PC에서 시작하기 (2026-09-07)
+
+집 PC의 Claude Code 기억(메모리)은 학교 PC에 없다. 그래서 **저장소의 이 문서가 유일한 인계서**다. 학교 PC에서는 아래 순서로 준비하고, 첫 프롬프트를 "docs/GAS-터미널-작업-순서.md 11단계를 진행해."로 준다.
+
+**준비 순서 (30분 안팎).** 집 PC 기준 버전: Node 22.16 · npm 10.9 · git 2.55 · clasp 3.4.1 · Claude Code 2.1.
+
+1. **설치**: Node.js LTS(22), Git, Claude Code(`npm i -g @anthropic-ai/claude-code`), clasp(`npm i -g @google/clasp`). Chrome에 Claude in Chrome 확장(선택 — 시트를 gviz로 읽고 편집기를 열 때 쓴다).
+2. **저장소**: `git clone https://github.com/gomgomeet/newscomment-ai.git && cd newscomment-ai && npm ci` → `npm run eval:gas && npm run eval:gas:parity && npm run eval:gas:e2e && node scripts/test-gas-lightweight.cjs` 가 31 · 불일치 0 · 25 · 38이면 준비 끝.
+3. **clasp 로그인**: `clasp login` (브라우저에서 구글 계정 승인). `gas/.clasp.json`은 저장소에 있으므로 `cd gas && clasp status`가 파일 목록을 보이면 된다. 토큰(`~/.clasprc.json`)은 집 PC에서 복사하지 않는다.
+4. **Claude Code**: `claude` 실행 → 로그인 → 설정에 `Bash(clasp *)` 허용 규칙(집 PC에서 넣었던 것, 없으면 첫 clasp 명령이 막힐 때 "settings에 clasp 허용 규칙 추가해줘").
+5. **30탭·대화 실측 도구(선택)**: 저장소 옆에 `gas-browser-check` 폴더를 만들고 `npm i playwright@1.63` → `npx playwright install chrome`이 안 되면 설치된 Chrome을 쓴다(`channel: 'chrome'`). 실측 스크립트는 `scripts/check-gas-browser.cjs`(30탭)와 이 문서 9단계의 `conversation.cjs` 방식(한 세션 여러 턴 — 집 PC 임시 폴더에 있던 것이라 필요하면 다시 만든다: `#student-code-input` 채우기 → `대화 시작` → 메시지마다 `#message-input` 채우고 `메시지 보내기` → 입력칸이 다시 활성화될 때까지 기다린 뒤 마지막 `.message.bot .message-body` 읽기).
+
+**학교망에서 막힐 수 있는 것과 대안.**
+
+| 막히면 | 대안 |
+| --- | --- |
+| `clasp login`이 안 됨(OAuth 차단) | 코드 배포는 집 PC나 다른 망에서. 학교에서는 B(교사 배포 리허설)와 문서 작업만 — 리허설은 브라우저와 구글 계정만 있으면 된다 |
+| `script.google.com` 차단 | 웹앱·편집기·배포 모두 불가 → 개인 핫스팟으로 우회하거나 그날은 C(실습 교안 작성)만 |
+| npm 설치 차단(프록시) | `npm config set proxy …` 또는 집 PC에서 `node_modules`를 압축해 가져가기(저장소 `npm ci`는 인터넷 필요) |
+| Chrome 확장 설치 불가 | 시트는 브라우저에서 직접 열어 본다. Claude가 시트를 읽어야 하면 gviz 주소(`…/gviz/tq?tqx=out:html&sheet=TURNS&headers=1`)를 직접 열어 결과를 붙여 준다 |
+| 회사/학교 계정으로 로그인됨 | 시트 소유 계정(개인 구글 계정)으로 Chrome 프로필을 따로 만든다 |
+
+**대안 B — 집 PC를 켜 두고 원격으로.** 집 PC의 Claude Code를 켜 둔 채(Remote Control 켜짐) 학교에서는 claude.ai/code 브라우저로 같은 세션에 이어서 지시할 수 있다. 이 경우 clasp·실측 도구·메모리가 모두 집 PC에 있어 준비가 필요 없다. 단, 집 PC가 절전에 들어가지 않게 하고, 학교망이 claude.ai를 막지 않아야 한다.
+
+**하루 순서 제안.** ① 준비 2·3 확인(10분) → ② B 교사 배포 리허설(브라우저만, 30분) → ③ A 새 지문 실증(clasp 없이도 됨 — 교사 화면 저장과 학생 화면은 브라우저) → ④ C 실습 교안 작성 → ⑤ 커밋·PR은 clasp가 없어도 git만 있으면 된다. 배포 버전을 올려야 하는 코드 수정이 생기면 그것만 집 PC에서.
+
 ### 11단계. 내일 — 새 지문 실증과 교사 배포 과정 실증 (2026-09-07 예정)
 
 터미널의 Claude Code에서 **"docs/GAS-터미널-작업-순서.md 11단계를 진행해."** 로 시작한다.
