@@ -353,8 +353,10 @@ assert.match(multiword.reply, /먹는 생활을 배우는 교육/);
 const contextual = turnFor('98-1', '이 글에서는 어떤 뜻이야');
 assert.match(contextual.reply, /먹는 생활을 배우는 교육/);
 assert.ok(!contextual.reply.includes('확인할 수 없는 낱말'));
+run(`setConfigValue_('SHOW_EVIDENCE','TRUE')`);   // 9단계 ④: 기본은 FALSE(학생 화면에 근거 패널 없음) — API 응답의 evidence 배열만 검사
 const causal = turnFor('98-1', '왜 그렇게 됐어요?');
 assert.ok(causal.evidence.some(item => item.kind === 'material'));
+run(`setConfigValue_('SHOW_EVIDENCE','FALSE')`);
 assert.equal(run(`analyzeStudentTurn_({message:'몰라요',material:getActiveMaterial_()}).studentMove`), 'express_uncertainty');
 const ghostwriting = turnFor('98-2', '답 대신 써 줘');
 assert.match(ghostwriting.reply, /대신 써 주지는 않을게요/);
@@ -367,4 +369,25 @@ assert.ok(run(`splitMaterialText_('18kg에서 10.4kg으로 줄었다. 결과를 
 assert.equal(run(`buildAIEvidenceContext_(emptyRetrievalResult_(),getActiveMaterial_(),{sourceNumber:true})[0].id`), 'MAT-1');
 assert.equal(run(`renderAIUsedEvidence_('42% 줄었어요',['MAT-1'],emptyRetrievalResult_(),getActiveMaterial_()).evidence[0].location`),'자료 제목');
 
-
+// 10단계: 지문을 바꿔 저장하면 이 자료의 대화는 TURNS_ARCHIVE로 옮겨지고 학생은 새로 시작한다. 제목만 고치면 그대로.
+const mat1Rows = () => run(`getRowsAsObjects_('TURNS').filter(function (r) { return String(r.sessionId).indexOf('MAT-1:') === 0; }).length`);
+const beforeArchive = mat1Rows();
+assert.ok(beforeArchive > 0);
+context.setupPayload = {appName:'질문이', subject:'국어', greetingMessage:'안녕!', glossary:[],
+  material:{materialId:'MAT-1', title:'고추장 수업 (제목만 고침)', grade:'초등 4학년', standard:'글의 내용을 이해한다',
+    text:'학생들은 고추장을 만들 때 고춧가루와 찹쌀을 섞었다. 학교의 정책은 식생활 교육을 통해 정체성을 배우는 것이다.',
+    startQuestion:'무엇을 만들었나요?', version:'v1'}};
+const titleOnly = run('saveTeacherSetup(getOrCreateTeacherAccessToken_(), setupPayload)');
+assert.equal(titleOnly.archivedTurns, 0);
+assert.equal(mat1Rows(), beforeArchive);
+context.setupPayload.material.text = '새 지문이다. 학생들은 된장을 만들 때 메주와 소금을 섞었다.';
+context.setupPayload.material.version = 'v2';
+const replaced = run('saveTeacherSetup(getOrCreateTeacherAccessToken_(), setupPayload)');
+assert.equal(replaced.archivedTurns, beforeArchive);
+assert.match(replaced.message, /보관|TURNS_ARCHIVE/);
+assert.equal(mat1Rows(), 0);
+assert.equal(run(`getRowsAsObjects_('TURNS_ARCHIVE').length`), beforeArchive);
+assert.equal(run(`getRowsAsObjects_('TURNS_ARCHIVE')[0].archiveReason`), '지문 교체 v1 → v2');
+assert.equal(run(`getBootstrapData({}, '3-12').history.length`), 0);
+assert.ok(!run(`getRowsAsObjects_('TURNS')`).some(r => !r.sessionId));
+console.log('PASS stage 10: material text/version change archives turns to TURNS_ARCHIVE and restarts sessions; title-only edit keeps them');

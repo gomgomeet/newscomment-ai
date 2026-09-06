@@ -24,13 +24,14 @@
 
 | 시트 | 열 |
 | --- | --- |
-| `CONFIG` | `key` `value` `description` — 키 11개: `APP_NAME` `GREETING_MESSAGE` `SUBJECT` `MAX_INPUT_LENGTH` `MIN_RELEVANCE_SCORE` `MAX_RETRIEVAL_RESULTS` `SHOW_EVIDENCE` `AI_ENABLED` `AI_MODEL` `AI_REASONING_EFFORT`(기본 low · none·low·medium·high·xhigh만, gpt-5.6-terra는 minimal을 HTTP 400으로 거부) `AI_MAX_OUTPUT_TOKENS` `AI_MAX_HISTORY_TURNS`(기본 4) `ALLOW_GENERAL_ANSWER`(기본 FALSE · TRUE면 글에 없는 질문에 "글에는 안 나오지만" 붙여 일반 답, 검토 큐는 그대로) `STUDENT_WEB_APP_URL` `LESSON_CODE` |
+| `CONFIG` | `key` `value` `description` — 키 11개: `APP_NAME` `GREETING_MESSAGE` `SUBJECT` `MAX_INPUT_LENGTH` `MIN_RELEVANCE_SCORE` `MAX_RETRIEVAL_RESULTS` `SHOW_EVIDENCE`(학생 화면의 근거 토글은 9단계에서 뺐다 · API 응답의 evidence 배열에만 영향, 기본 FALSE) `AI_ENABLED` `AI_MODEL` `AI_REASONING_EFFORT`(기본 low · none·low·medium·high·xhigh만, gpt-5.6-terra는 minimal을 HTTP 400으로 거부) `AI_MAX_OUTPUT_TOKENS` `AI_MAX_HISTORY_TURNS`(기본 4) `ALLOW_GENERAL_ANSWER`(기본 FALSE · TRUE면 글에 없는 질문에 "글에는 안 나오지만" 붙여 일반 답, 검토 큐는 그대로) `STUDENT_WEB_APP_URL` `LESSON_CODE` |
 | `MATERIALS` | `materialId` `title` `grade` `gradeCode` `standard` `standardCode` `text` `startQuestion` `active` `version` `sourceHash` `status` `activityMode` |
 | `CHUNKS` | `chunkId` `materialId` `chunkOrder` `content` `keywords` `sourceLocation` `version` `sourceHash` `status` `active` |
 | `VOCABULARY_LIBRARY` | `vocabularyId` `term` `normalizedTerm` `easyDefinition` `exampleText` `wordGroup` `sourceId` `version` `sourceHash` `status` `active` |
 | `KNOWLEDGE` | `knowledgeId` `materialId` `knowledgeType` `title` `content` `easyExplanation` `evidenceQuote` `chunkId` `sourceHash` `status` `active` |
 | `CARDS` | `cardId` `studentMove` `primaryMove` `hintLevel` `response` `questionPatterns` `materialId` `sourceHash` `status` `active` |
 | `TURNS` | `timestamp` `sessionId` `studentCode` `turnNo` `speaker`(`student`/`bot`) `text` `studentMove` `primaryMove` `hintLevel` `sourceStatus` `evidenceIds`(`\|`로 이어 붙임) `aiStatus` `decisionReason` **`phase`** **`managedKind`** **`responseScore`** **`relatedQuestion`** `isPreview` |
+| `TURNS_ARCHIVE` | `TURNS`와 같은 열 + `archivedAt` `archiveReason` — 지문이나 버전이 바뀌어 저장할 때(또는 메뉴 "이 자료의 학생 대화 보관") 그 자료의 `TURNS` 행을 옮긴다(10단계). 런타임은 읽지 않는다 |
 | `REVIEW_QUEUE` | `createdAt` `reviewId` `studentCode` `question` `reasonCode` `candidateIds` `count` `status` `teacherDecision` `reviewedAt` |
 | `DASHBOARD` | 학생별 한 행: `studentCode` `questionCount` `relatedQuestionCount` `comprehensionBest` `standardBest` `opinionScore` `moreToExplore` `reachedDifficulty` `teacherNote` |
 

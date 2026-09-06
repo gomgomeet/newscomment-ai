@@ -82,7 +82,7 @@
       sendTurn('hint', '힌트가 필요해요.');
     });
     elements.evidenceButton.addEventListener('click', function () {
-      preparePrompt('지문에서 “___” 부분을 근거로 찾았어요.', '___');
+      preparePrompt('내 생각에는 ___', '___');
     });
     elements.reviseButton.addEventListener('click', function () {
       preparePrompt('다시 생각해 보니 ___', '___');
@@ -120,14 +120,12 @@
     elements.materialStandard.textContent = data.material.standard || '지문을 읽고 생각과 근거를 나누어 봅니다.';
     elements.researchButton.hidden = state.activityMode !== 'research';
     if (state.activityMode === 'research') {
-      document.getElementById('progress-label-1').textContent = '질문';
-      document.getElementById('progress-label-2').textContent = '자료';
-      document.getElementById('progress-label-3').textContent = '정리';
+      // 9단계 ⑤: 단계 표시(생각·근거·다듬기)는 화면에서 뺐다.
     }
     renderMaterialText();
     updateProgress(1);
     addMessage('bot', data.greetingMessage || ('안녕! 나는 ' + data.appName + '야.'), {
-      label: '첫 인사',
+      label: '',
       move: 'welcome'
     });
     elements.studentCodePrompt.textContent = '반-번호를 입력해 주세요. 이름은 입력하지 않아요.';
@@ -148,7 +146,7 @@
       elements.onboarding.hidden = true;
       try { sessionStorage.setItem('student-code:' + data.material.materialId, data.studentCode); } catch (error) {}
       (data.history || []).forEach(function (turn) { addMessage(turn.speaker, turn.text, {move: turn.primaryMove}); });
-      if (!data.history.length) addMessage('bot', data.introMessage, {label: '활동 시작'});
+      if (!data.history.length) addMessage('bot', data.introMessage, {label: ''});
       setBusy(false, data.isClosing ? '마친 대화입니다.' : '궁금한 점을 물어보세요.');
       if (data.isClosing) disableComposer(); else elements.input.focus();
     }).getBootstrapData(state.lessonSelector, studentCode);
@@ -177,7 +175,8 @@
     google.script.run
       .withSuccessHandler(function (result) {
         addMessage('bot', result.reply, {
-          label: responseLabel_(result),
+          label: '',   // 9단계 ⑤: 말풍선에 "근거 확인"·"생각 다듬기" 같은 단계 이름을 붙이지 않는다 — 챗봇 이름만
+
           move: result.primaryMove,
           evidence: result.evidence || []
         });
@@ -232,7 +231,7 @@
     const icon = document.createElement('span');
     icon.className = 'message-label-icon';
     icon.setAttribute('aria-hidden', 'true');
-    icon.textContent = role === 'student' ? '나' : responseIcon_(detail.move);
+    icon.textContent = role === 'student' ? '나' : '💬';
     const label = document.createElement('span');
     label.textContent = role === 'student'
       ? (state.studentCode || detail.label || '나')
@@ -246,9 +245,7 @@
     item.appendChild(labelRow);
     item.appendChild(body);
 
-    if (role === 'bot' && Array.isArray(detail.evidence) && detail.evidence.length > 0) {
-      item.appendChild(buildEvidencePanel_(detail.evidence));
-    }
+    // 9단계 ④: '확인한 교사 자료' 토글은 학생 화면에 달지 않는다(교사 실증: 답이 억지스러워 보임). 근거는 TURNS·대시보드에만.
     elements.messages.appendChild(item);
     elements.messages.scrollTop = elements.messages.scrollHeight;
   }
@@ -335,6 +332,7 @@
 
   function updateProgress(step) {
     state.progressStep = Math.max(state.progressStep, Number(step || 1));
+    if (!elements.progress) return;   // 9단계 ⑤: 단계 표시 없음
     Array.from(elements.progress.querySelectorAll('li')).forEach(function (item) {
       const itemStep = Number(item.dataset.step);
       item.classList.toggle('done', itemStep < state.progressStep);
