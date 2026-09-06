@@ -441,8 +441,7 @@ function submitTurn(payload) {
     isPreview: /^99-/.test(context.session.studentCode) };
   // AI 성공·실패·꺼짐 및 카드 응답 모두 같은 질문 후처리를 거친다.
   responseResult.text = enforceManagedQuestion(responseResult.text, decision);
-  const locations = Array.from(new Set(responseResult.evidence.map(function (item) { return item.location; }).filter(Boolean)));
-  if (locations.length) responseResult.text += '\n근거: ' + locations.join(' · ');
+  // 9단계: "근거: 자료 구간 N" 줄은 학생 화면에 붙이지 않는다. 근거 ID는 TURNS.evidenceIds에, 근거 카드는 SHOW_EVIDENCE일 때만.
   appendConversationTurns_([
     Object.assign({}, common, { speaker: 'student', text: safeMessage, studentMove: analysis.studentMove,
       relatedQuestion: analysis.relatedQuestion, aiStatus: 'rule' }),
