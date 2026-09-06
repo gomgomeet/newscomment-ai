@@ -78,7 +78,8 @@ function getAISettings_(config) {
   return { enabled: isTruthy_(config.AI_ENABLED), model: String(config.AI_MODEL || OPENAI_TERRA_MODEL_),
     reasoningEffort: normalizeReasoningEffort_(config.AI_REASONING_EFFORT),
     maxHistoryTurns: Math.max(0, Math.min(10, Number(config.AI_MAX_HISTORY_TURNS || 4))),
-    allowGeneralAnswer: isTruthy_(config.ALLOW_GENERAL_ANSWER),
+    // 기본 켜짐(키가 없으면 TRUE). 글의 주제와 상관있는 질문만 답하고, 상관없으면 부드럽게 넘긴다.
+    allowGeneralAnswer: config.ALLOW_GENERAL_ANSWER === undefined || config.ALLOW_GENERAL_ANSWER === '' ? true : isTruthy_(config.ALLOW_GENERAL_ANSWER),
     maxOutputTokens: Math.max(200, Math.min(4000, Number(config.AI_MAX_OUTPUT_TOKENS || 1500))) };
 }
 
@@ -143,20 +144,40 @@ function composeResponseWithAI_(input) {
       fallback.status = 'skipped_no_evidence';
       return fallback;
     }
-    // 9단계: 교사가 ALLOW_GENERAL_ANSWER를 켜면 글에 없는 질문도 "글에는 안 나오지만" 한 마디 붙여 짧게 답한다. 검토 큐에는 그대로 남는다.
+    // 9단계·교사 결정: 글에 없는 질문도 글의 주제와 상관있으면 "글에는 안 나오지만" 한 마디 붙여 짧게 답한다.
+    // 상관없으면 답하지 않고 글로 돌아오게 한다. 어느 쪽이든 관련 질문은 검토 큐에 그대로 남는다.
     try {
+      const generalSchema = {
+        type: 'object',
+        properties: {
+          related: { type: 'boolean' },
+          reply: { type: 'string' },
+          usedEvidenceIds: { type: 'array', items: { type: 'string' } }
+        },
+        required: ['related', 'reply', 'usedEvidenceIds'],
+        additionalProperties: false
+      };
+      const passage = String(input.material.text || '').replace(/\s+/g, ' ').slice(0, 900);
       const general = callOpenAIJson_({
         model: model, reasoningEffort: settings.reasoningEffort,
         maxOutputTokens: Math.min(settings.maxOutputTokens, 600),
-        schemaName: 'general_tutor_reply', schema: schema,
+        schemaName: 'general_tutor_reply', schema: generalSchema,
         instructions: voice.concat([
-          '이 질문은 글에 나오지 않는 내용입니다. 널리 알려진 사실만으로 2~3문장으로 답하세요. 확실하지 않으면 모른다고 하세요.',
-          '첫 문장을 "글에는 안 나오지만,"으로 시작하세요. usedEvidenceIds는 빈 배열로 두세요.'
+          '이 질문은 글에 직접 나오지 않는 내용입니다. 먼저 이 질문이 글의 주제나 소재(글에 나온 사물·사람·일)와 이어지는지 판단해 related에 넣으세요.',
+          'related가 true면 널리 알려진 사실만으로 2~3문장으로 답하고, 첫 문장을 "글에는 안 나오지만,"으로 시작하세요. 확실하지 않으면 모른다고 하세요.',
+          'related가 false면 reply는 빈 문자열로 두세요. usedEvidenceIds는 빈 배열로 두세요.'
         ]).join(' '),
-        input: '글 제목: ' + String(input.material.title || '') + '\n\n학생 발화: ' + input.message
+        input: '글 제목: ' + String(input.material.title || '') + '\n\n글 앞부분: ' + passage + '\n\n학생 발화: ' + input.message
       });
+      const related = input.analysis.relatedQuestion === true || general.value.related === true;
       let generalReply = stripEvidenceLocations_(String(general.value.reply || '')).trim()
         .replace(/[^.!?。？]*[?？]/g, '').trim();
+      if (!related) {
+        return {
+          responseResult: renderAIUsedEvidence_('그건 이 글과는 조금 다른 이야기라 여기서는 넘어갈게요. 글을 읽고 궁금한 걸 물어봐 줘요.', [], input.retrieval, input.material),
+          status: 'general_off_topic', model: general.model || model, usedEvidenceIds: []
+        };
+      }
       if (!generalReply || generalReply.length > 600) throw new Error('일반 답변 검증 실패');
       if (!/^글에는?\s*(안|없)/.test(generalReply)) generalReply = '글에는 안 나오지만, ' + generalReply;
       return {

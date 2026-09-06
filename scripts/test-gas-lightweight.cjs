@@ -225,7 +225,7 @@ assert.equal(spreadsheet.getSheetByName('TURNS').batchWrites, pairWrites+1);
 assert.equal(run(`getRowsAsObjects_('REVIEW_QUEUE').length`),0);
 context.testPayload.message='정책은 무슨 뜻이에요?';
 run('submitTurn(testPayload)');
-assert.equal(aiRequests.length-beforeCalls,1,'no evidence means no AI call');
+assert.equal(aiRequests.length-beforeCalls,2,'no evidence: grounded compose is skipped, one general-answer call is made instead (mock returns nothing -> falls back)');
 assert.equal(run(`getRowsAsObjects_('REVIEW_QUEUE').length`),1);
 const pending = run('getPendingSupplementReviews_(getActiveMaterial_())');
 context.reviewPayload={reviewId:pending.items[0].reviewId, sourceHash:material.sourceHash, action:'supplement', term:'정책',definition:'학교가 정한 일의 방향',group:'학교'};
@@ -368,6 +368,30 @@ assert.equal(run(`analyzeStudentTurn_({message:'42%가 뭐예요',material:Objec
 assert.ok(run(`splitMaterialText_('18kg에서 10.4kg으로 줄었다. 결과를 확인했다.',220)[0]`).includes('10.4kg'));
 assert.equal(run(`buildAIEvidenceContext_(emptyRetrievalResult_(),getActiveMaterial_(),{sourceNumber:true})[0].id`), 'MAT-1');
 assert.equal(run(`renderAIUsedEvidence_('42% 줄었어요',['MAT-1'],emptyRetrievalResult_(),getActiveMaterial_()).evidence[0].location`),'자료 제목');
+
+// 자료 밖 질문: 기본 허용 — 글의 주제와 상관있으면 "글에는 안 나오지만" 답, 상관없으면 글로 돌아오게 한다.
+run(`setConfigValue_('AI_ENABLED','TRUE'); setConfigValue_('AI_MODEL','test-model');`);
+properties.set('OPENAI_API_KEY','test-only');
+aiResponses.push({body:{output_text:JSON.stringify({related:true, reply:'된장은 콩을 띄워 만든 메주로 담가요.', usedEvidenceIds:[]})}});
+const generalOn = turnFor('97-1', '메주는 어떻게 만들어요?');
+assert.equal(generalOn.aiStatus, 'compose:general');
+assert.match(generalOn.reply, /^글에는 안 나오지만/);
+assert.equal(aiRequests.at(-1).text.format.name, 'general_tutor_reply');
+// 지문 낱말이 하나도 없는 질문은 분류기가 먼저 딴소리로 잡아 AI를 부르지 않는다(규칙 응답).
+const generalOff = turnFor('97-2', '축구 경기 규칙은 어떻게 돼요?');
+assert.equal(generalOff.aiStatus, 'compose:skipped_policy');
+// 낱말은 겹치지만 모델이 "글의 주제와 상관없다"고 판단하면 글로 돌아오게 한다.
+aiResponses.push({body:{output_text:JSON.stringify({related:false, reply:'', usedEvidenceIds:[]})}});
+context.offTopicInput = {message:'학교 운동장은 몇 평이에요?', plan:{primaryMove:'answer', hintLevel:0}, analysis:{studentMove:'ask_fact', relatedQuestion:false},
+  history:[], baseResponse:{text:'x', evidence:[], sourceStatus:'source_insufficient'}};
+const offTopic = run(`(function(){ var i = offTopicInput; i.material = getActiveMaterial_(); i.retrieval = emptyRetrievalResult_(); i.config = readConfig_(); return composeResponseWithAI_(i); })()`);
+assert.equal(offTopic.status, 'general_off_topic');
+assert.match(offTopic.responseResult.text, /글을 읽고 궁금한 걸/);
+run(`setConfigValue_('ALLOW_GENERAL_ANSWER','FALSE')`);
+const generalDisabled = turnFor('97-3', '메주는 어떻게 만들어요?');
+assert.equal(generalDisabled.aiStatus, 'compose:skipped_no_evidence');
+run(`setConfigValue_('ALLOW_GENERAL_ANSWER','TRUE')`);
+console.log('PASS general answers: related off-text question answered with prefix, unrelated one redirected, switch off falls back');
 
 // 10단계: 지문을 바꿔 저장하면 이 자료의 대화는 TURNS_ARCHIVE로 옮겨지고 학생은 새로 시작한다. 제목만 고치면 그대로.
 const mat1Rows = () => run(`getRowsAsObjects_('TURNS').filter(function (r) { return String(r.sessionId).indexOf('MAT-1:') === 0; }).length`);

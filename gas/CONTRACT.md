@@ -24,7 +24,7 @@
 
 | 시트 | 열 |
 | --- | --- |
-| `CONFIG` | `key` `value` `description` — 키 11개: `APP_NAME` `GREETING_MESSAGE` `SUBJECT` `MAX_INPUT_LENGTH` `MIN_RELEVANCE_SCORE` `MAX_RETRIEVAL_RESULTS` `SHOW_EVIDENCE`(학생 화면의 근거 토글은 9단계에서 뺐다 · API 응답의 evidence 배열에만 영향, 기본 FALSE) `AI_ENABLED` `AI_MODEL` `AI_REASONING_EFFORT`(기본 low · none·low·medium·high·xhigh만, gpt-5.6-terra는 minimal을 HTTP 400으로 거부) `AI_MAX_OUTPUT_TOKENS` `AI_MAX_HISTORY_TURNS`(기본 4) `ALLOW_GENERAL_ANSWER`(기본 FALSE · TRUE면 글에 없는 질문에 "글에는 안 나오지만" 붙여 일반 답, 검토 큐는 그대로) `STUDENT_WEB_APP_URL` `LESSON_CODE` |
+| `CONFIG` | `key` `value` `description` — 키 11개: `APP_NAME` `GREETING_MESSAGE` `SUBJECT` `MAX_INPUT_LENGTH` `MIN_RELEVANCE_SCORE` `MAX_RETRIEVAL_RESULTS` `SHOW_EVIDENCE`(학생 화면의 근거 토글은 9단계에서 뺐다 · API 응답의 evidence 배열에만 영향, 기본 FALSE) `AI_ENABLED` `AI_MODEL` `AI_REASONING_EFFORT`(기본 low · none·low·medium·high·xhigh만, gpt-5.6-terra는 minimal을 HTTP 400으로 거부) `AI_MAX_OUTPUT_TOKENS` `AI_MAX_HISTORY_TURNS`(기본 4) `ALLOW_GENERAL_ANSWER`(기본 TRUE · 글에 없는 질문이 글의 주제와 상관있으면 "글에는 안 나오지만" 붙여 일반 답(`compose:general`), 상관없으면 글로 돌아오게 함(`compose:general_off_topic`), FALSE면 "선생님께 남겨 둘게요" · 검토 큐는 그대로) `STUDENT_WEB_APP_URL` `LESSON_CODE` |
 | `MATERIALS` | `materialId` `title` `grade` `gradeCode` `standard` `standardCode` `text` `startQuestion` `active` `version` `sourceHash` `status` `activityMode` |
 | `CHUNKS` | `chunkId` `materialId` `chunkOrder` `content` `keywords` `sourceLocation` `version` `sourceHash` `status` `active` |
 | `VOCABULARY_LIBRARY` | `vocabularyId` `term` `normalizedTerm` `easyDefinition` `exampleText` `wordGroup` `sourceId` `version` `sourceHash` `status` `active` |
