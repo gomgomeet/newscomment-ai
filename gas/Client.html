@@ -246,9 +246,7 @@
     item.appendChild(labelRow);
     item.appendChild(body);
 
-    if (role === 'bot' && Array.isArray(detail.evidence) && detail.evidence.length > 0) {
-      item.appendChild(buildEvidencePanel_(detail.evidence));
-    }
+    // 9단계 ④: '확인한 교사 자료' 토글은 학생 화면에 달지 않는다(교사 실증: 답이 억지스러워 보임). 근거는 TURNS·대시보드에만.
     elements.messages.appendChild(item);
     elements.messages.scrollTop = elements.messages.scrollHeight;
   }
