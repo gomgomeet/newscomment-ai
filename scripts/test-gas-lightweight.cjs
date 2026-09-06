@@ -377,10 +377,16 @@ const generalOn = turnFor('97-1', '메주는 어떻게 만들어요?');
 assert.equal(generalOn.aiStatus, 'compose:general');
 assert.match(generalOn.reply, /^글에는 안 나오지만/);
 assert.equal(aiRequests.at(-1).text.format.name, 'general_tutor_reply');
-aiResponses.push({body:{output_text:JSON.stringify({related:false, reply:'', usedEvidenceIds:[]})}});
+// 지문 낱말이 하나도 없는 질문은 분류기가 먼저 딴소리로 잡아 AI를 부르지 않는다(규칙 응답).
 const generalOff = turnFor('97-2', '축구 경기 규칙은 어떻게 돼요?');
-assert.equal(generalOff.aiStatus, 'compose:general_off_topic');
-assert.match(generalOff.reply, /글을 읽고 궁금한 걸/);
+assert.equal(generalOff.aiStatus, 'compose:skipped_policy');
+// 낱말은 겹치지만 모델이 "글의 주제와 상관없다"고 판단하면 글로 돌아오게 한다.
+aiResponses.push({body:{output_text:JSON.stringify({related:false, reply:'', usedEvidenceIds:[]})}});
+context.offTopicInput = {message:'학교 운동장은 몇 평이에요?', plan:{primaryMove:'answer', hintLevel:0}, analysis:{studentMove:'ask_fact', relatedQuestion:false},
+  history:[], baseResponse:{text:'x', evidence:[], sourceStatus:'source_insufficient'}};
+const offTopic = run(`(function(){ var i = offTopicInput; i.material = getActiveMaterial_(); i.retrieval = emptyRetrievalResult_(); i.config = readConfig_(); return composeResponseWithAI_(i); })()`);
+assert.equal(offTopic.status, 'general_off_topic');
+assert.match(offTopic.responseResult.text, /글을 읽고 궁금한 걸/);
 run(`setConfigValue_('ALLOW_GENERAL_ANSWER','FALSE')`);
 const generalDisabled = turnFor('97-3', '메주는 어떻게 만들어요?');
 assert.equal(generalDisabled.aiStatus, 'compose:skipped_no_evidence');
