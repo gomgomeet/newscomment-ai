@@ -147,43 +147,7 @@ function composeResponseWithAI_(input) {
     // 9단계·교사 결정: 글에 없는 질문도 글의 주제와 상관있으면 "글에는 안 나오지만" 한 마디 붙여 짧게 답한다.
     // 상관없으면 답하지 않고 글로 돌아오게 한다. 어느 쪽이든 관련 질문은 검토 큐에 그대로 남는다.
     try {
-      const generalSchema = {
-        type: 'object',
-        properties: {
-          related: { type: 'boolean' },
-          reply: { type: 'string' },
-          usedEvidenceIds: { type: 'array', items: { type: 'string' } }
-        },
-        required: ['related', 'reply', 'usedEvidenceIds'],
-        additionalProperties: false
-      };
-      const passage = String(input.material.text || '').replace(/\s+/g, ' ').slice(0, 900);
-      const general = callOpenAIJson_({
-        model: model, reasoningEffort: settings.reasoningEffort,
-        maxOutputTokens: Math.min(settings.maxOutputTokens, 600),
-        schemaName: 'general_tutor_reply', schema: generalSchema,
-        instructions: voice.concat([
-          '이 질문은 글에 직접 나오지 않는 내용입니다. 먼저 이 질문이 글의 주제나 소재(글에 나온 사물·사람·일)와 이어지는지 판단해 related에 넣으세요.',
-          'related가 true면 널리 알려진 사실만으로 2~3문장으로 답하고, 첫 문장을 "글에는 안 나오지만,"으로 시작하세요. 확실하지 않으면 모른다고 하세요.',
-          'related가 false면 reply는 빈 문자열로 두세요. usedEvidenceIds는 빈 배열로 두세요.'
-        ]).join(' '),
-        input: '글 제목: ' + String(input.material.title || '') + '\n\n글 앞부분: ' + passage + '\n\n학생 발화: ' + input.message
-      });
-      const related = input.analysis.relatedQuestion === true || general.value.related === true;
-      let generalReply = stripEvidenceLocations_(String(general.value.reply || '')).trim()
-        .replace(/[^.!?。？]*[?？]/g, '').trim();
-      if (!related) {
-        return {
-          responseResult: renderAIUsedEvidence_('그건 이 글과는 조금 다른 이야기라 여기서는 넘어갈게요. 글을 읽고 궁금한 걸 물어봐 줘요.', [], input.retrieval, input.material),
-          status: 'general_off_topic', model: general.model || model, usedEvidenceIds: []
-        };
-      }
-      if (!generalReply || generalReply.length > 600) throw new Error('일반 답변 검증 실패');
-      if (!/^글에는?\s*(안|없)/.test(generalReply)) generalReply = '글에는 안 나오지만, ' + generalReply;
-      return {
-        responseResult: renderAIUsedEvidence_(generalReply, [], input.retrieval, input.material),
-        status: 'general', model: general.model || model, usedEvidenceIds: []
-      };
+      return composeGeneralAnswer_(input, settings, model, voice);
     } catch (error) {
       console.warn('일반 답변을 건너뛰고 규칙 응답을 사용합니다: ' + safeAIErrorMessage_(error));
       fallback.status = 'skipped_no_evidence';
@@ -223,9 +187,10 @@ function composeResponseWithAI_(input) {
       schemaName: 'grounded_tutor_reply',
       schema: schema,
       instructions: voice.concat([
-        '학생이 물은 것에는 승인 근거의 내용으로 먼저 답하세요. 되묻지 마세요. 마지막 질문이 필요하면 [지금 할 일]대로 코드가 붙입니다.',
+        moveGuidance_(input.analysis.studentMove),
+        '되묻지 마세요. 마지막 질문이 필요하면 [지금 할 일]대로 코드가 붙입니다.',
         '[지금 할 일]에 있는 관리 질문과 피드백 문장은 코드가 붙이므로 reply에 복사하지 마세요.',
-        '학생이 자기 생각을 말했으면 평가하거나 고치라고 하지 말고, 그 생각을 받아 준 뒤 글의 내용과 한 번 연결해 주세요.',
+        '학생이 자기 생각을 말했으면 평가하거나 고치라고 하지 마세요.',
         '승인 근거 밖의 사실을 더하지 마세요. 사용한 근거 ID만 usedEvidenceIds에 넣으세요.',
         '정책 엔진의 primaryMove와 hintLevel은 바꾸지 마세요.'
       ]).join(' '),
@@ -244,9 +209,13 @@ function composeResponseWithAI_(input) {
     });
     const knowledgeNeedsEvidence = input.analysis.studentMove === 'ask_fact' ||
       input.analysis.studentMove === 'ask_definition';
-    if (!reply || reply.length > 800 || hasUnknownEvidence ||
-        (knowledgeNeedsEvidence && usedEvidenceIds.length === 0)) {
+    if (!reply || reply.length > 800 || hasUnknownEvidence) {
       throw new Error('AI 응답의 근거 ID 또는 길이 검증에 실패했습니다.');
+    }
+    if (knowledgeNeedsEvidence && usedEvidenceIds.length === 0) {
+      // 검색은 무언가 찾았지만 모델이 승인 근거로 답할 수 없다고 본 질문 — 글에 없는 질문과 같이 다룬다.
+      if (settings.allowGeneralAnswer) return composeGeneralAnswer_(input, settings, model, voice);
+      throw new Error('AI 응답이 승인 근거를 쓰지 않았습니다.');
     }
     return {
       responseResult: renderAIUsedEvidence_(reply, usedEvidenceIds, input.retrieval, input.material),
@@ -272,10 +241,72 @@ function studentVoiceInstructions_(input) {
   return [
     '당신은 "' + appName + '"라는 이름의 학습 친구 챗봇입니다. 대상 학생: ' + gradeLabel + '.',
     '그 학년 학생이 쓰는 쉬운 낱말과 짧은 문장으로, 다정한 해요체 2~3문장으로 말하세요.',
-    '"근거", "승인", "자료 구간", 번호, 괄호 안 위치 같은 표현은 쓰지 마세요. 글의 내용을 말할 때는 "글에서는 ~라고 했어요"처럼 자연스럽게 한 번만 언급하세요.',
+    '"근거", "승인", "자료 구간", 번호, 괄호 안 위치 같은 표현은 쓰지 마세요.',
+    '글의 내용은 학생이 글에 대해 물었을 때만 씁니다. 그때도 "글에서는 ~라고 했어요", "지문에서는 ~라고 합니다" 같은 틀 문장을 붙이지 말고 답에 필요한 사실만 자연스럽게 말하세요. 글에 대한 질문이 아니면 글의 내용을 끌어오지 마세요.',
     '같은 말을 되풀이하지 말고, 학생이 궁금해할 만한 점 하나를 덧붙여도 좋습니다.',
     '학생이 글에 없는 것을 물으면 글의 내용과 억지로 잇지 마세요. "글에는 안 나오지만"이라고 솔직히 말하고, 아는 만큼만 짧게 답하거나 선생님께 물어보자고 하세요.'
   ];
+}
+
+// 글에 없는 질문 — 글의 주제와 이어지면 "글에는 안 나오지만" 붙여 짧게, 아니면 글로 돌아오게. 실패하면 throw.
+function composeGeneralAnswer_(input, settings, model, voice) {
+    const generalSchema = {
+      type: 'object',
+      properties: {
+        related: { type: 'boolean' },
+        reply: { type: 'string' },
+        usedEvidenceIds: { type: 'array', items: { type: 'string' } }
+      },
+      required: ['related', 'reply', 'usedEvidenceIds'],
+      additionalProperties: false
+    };
+    const passage = String(input.material.text || '').replace(/\s+/g, ' ').slice(0, 900);
+    const general = callOpenAIJson_({
+      model: model, reasoningEffort: settings.reasoningEffort,
+      maxOutputTokens: Math.min(settings.maxOutputTokens, 600),
+      schemaName: 'general_tutor_reply', schema: generalSchema,
+      instructions: voice.concat([
+        '이 질문은 글에 직접 나오지 않는 내용입니다. 먼저 이 질문이 글의 주제나 소재(글에 나온 사물·사람·일)와 이어지는지 판단해 related에 넣으세요.',
+        'related가 true면 널리 알려진 사실만으로 2~3문장으로 답하고, 첫 문장을 "글에는 안 나오지만,"으로 시작하세요. 확실하지 않으면 모른다고 하세요.',
+        'related가 false면 reply는 빈 문자열로 두세요. usedEvidenceIds는 빈 배열로 두세요.'
+      ]).join(' '),
+      input: '글 제목: ' + String(input.material.title || '') + '\n\n글 앞부분: ' + passage + '\n\n학생 발화: ' + input.message
+    });
+    // 분류기의 낱말 겹침·이어 묻기 신호는 여기까지 오게 한 조건일 뿐이다. 글의 주제와 이어지는지는 글을 읽은 모델의 판단을 따른다.
+    const related = general.value.related === true;
+    let generalReply = stripEvidenceLocations_(String(general.value.reply || '')).trim()
+      .replace(/[^.!?。？]*[?？]/g, '').trim();
+    if (!related) {
+      return {
+        responseResult: renderAIUsedEvidence_('그건 이 글과는 조금 다른 이야기라 여기서는 넘어갈게요. 글을 읽고 궁금한 걸 물어봐 줘요.', [], input.retrieval, input.material),
+        status: 'general_off_topic', model: general.model || model, usedEvidenceIds: []
+      };
+    }
+    if (!generalReply || generalReply.length > 600) throw new Error('일반 답변 검증 실패');
+    if (!/^글에는?\s*(안|없)/.test(generalReply)) generalReply = '글에는 안 나오지만, ' + generalReply;
+    return {
+      responseResult: renderAIUsedEvidence_(generalReply, [], input.retrieval, input.material),
+      status: 'general', model: general.model || model, usedEvidenceIds: []
+    };
+}
+
+// 발화 종류에 따라 글 내용을 쓸지 정한다 — 글에 대해 물었을 때만 글로 답하고, 나머지는 받아 주기만 한다.
+function moveGuidance_(studentMove) {
+  switch (String(studentMove || '')) {
+    case 'ask_fact':
+    case 'ask_definition':
+      return '학생이 글에 대해 물었습니다. 승인 근거에 있는 내용으로 답하세요. 글을 인용한다는 말 없이 사실만 말하면 됩니다.';
+    case 'attempt_answer':
+    case 'give_evidence':
+      return '학생이 자기 생각이나 답을 말했습니다. 그 말을 짧게 받아 주기만 하세요. 글의 내용을 다시 설명하거나 덧붙이지 마세요. 틀린 부분이 있어도 지적하지 말고, 다음 질문은 코드가 붙입니다.';
+    case 'express_uncertainty':
+    case 'hint':
+      return '학생이 어렵다고 했습니다. 답을 바로 말하지 말고, 글의 어느 부분을 보면 좋을지 한 가지만 다정하게 알려 주세요.';
+    case 'revise':
+      return '학생이 생각을 고쳐 말했습니다. 달라진 점을 짧게 받아 주세요. 글의 내용을 덧붙이지 마세요.';
+    default:
+      return '학생의 말에 짧고 다정하게 반응하세요. 글의 내용은 끌어오지 마세요.';
+  }
 }
 
 function strategyConfidenceForPlan_(analysis, plan) {
