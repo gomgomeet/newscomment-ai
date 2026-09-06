@@ -1,6 +1,11 @@
 /**
  * 질문 챗봇 웹앱의 공개 진입점입니다.
  * 연수에서는 함수 이름과 반환 객체의 필드명을 유지합니다.
+ *
+ * 이용 조건 — © 2026 gomgomeet. All rights reserved. 원본: https://github.com/gomgomeet/newscomment-ai (gas/, NOTICE.md)
+ *   연수 참가자는 본인 수업 목적에 한해 사본을 만들어 쓰고 고칠 수 있습니다.
+ *   제3자 재배포·공개 게시·상업적 이용·다른 서비스로의 이식은 저작자의 서면 허락 없이 할 수 없습니다.
+ *   사본에는 이 머리말과 출처를 그대로 남깁니다. API 키는 시트가 아니라 Script Properties에만 둡니다.
  */
 
 const TEACHER_ACCESS_TOKEN_PROPERTY_ = 'TEACHER_ACCESS_TOKEN';
@@ -21,6 +26,17 @@ function assertTeacherAccess_(token) {
   if (!expected || !token || String(token) !== String(expected)) {
     throw new Error('교사용 Google Sheet 메뉴에서 다시 열어 주세요.');
   }
+}
+
+/** 메뉴: 같은 지문으로 다음 반을 새로 시작하고 싶을 때. 현재 자료의 대화를 TURNS_ARCHIVE로 옮긴다. */
+function archiveCurrentMaterialTurns() {
+  requireTeacherMenuContext_();
+  const material = getActiveMaterial_();
+  const count = archiveTurnsForMaterial_(material.materialId, '교사 메뉴 · 새로 시작');
+  const text = count ? '지난 대화 ' + count + '건을 TURNS_ARCHIVE 시트로 옮겼어요. 학생은 새로 시작합니다.' : '옮길 대화가 없어요.';
+  Logger.log(text);
+  try { SpreadsheetApp.getActiveSpreadsheet().toast(text, '질문 챗봇', 8); } catch (error) {}
+  return count;
 }
 
 function requireTeacherMenuContext_() {
@@ -58,6 +74,7 @@ function onOpen() {
     .addItem('고급. 수업 자료 적용 및 점검', 'applyTeacherMaterial')
     .addItem('고급. 미해결 질문 검토', 'openReviewQueue')
     .addSeparator()
+    .addItem('관리. 이 자료의 학생 대화 보관(새로 시작)', 'archiveCurrentMaterialTurns')
     .addItem('관리. 경량화 시트 전환(백업 포함)', 'migrateLightweightWorkbook')
     .addItem('관리. 스모크 테스트', 'runSmokeTests')
     .addItem('관리. 운영 준비 점검', 'runOperationalReadinessCheck')
@@ -354,7 +371,18 @@ function saveTeacherSetup(teacherAccessToken, payload) {
     ensureWorkbookStructure_(spreadsheet);
     setConfigValues_({ APP_NAME: normalized.appName, SUBJECT: normalized.subject,
       GREETING_MESSAGE: normalized.greetingMessage }, spreadsheet);
+    let previous = null;
+    try { previous = getActiveMaterial_(); } catch (error) { previous = null; }
     const material = saveActiveMaterial_(normalized.material);
+    // 10단계: 지문이나 버전이 바뀌면 이 자료의 지난 대화를 보관 시트로 옮긴다 — 학생은 새로 시작, 기록은 남는다.
+    // 제목·시작 질문·성취기준만 고친 경우는 대화를 이어간다.
+    let archivedTurns = 0;
+    if (previous && String(previous.materialId) === String(material.materialId) &&
+        (normalizeMaterialText_(previous.text) !== normalizeMaterialText_(material.text) ||
+         String(previous.version || 'v1') !== String(material.version || 'v1'))) {
+      archivedTurns = archiveTurnsForMaterial_(material.materialId,
+        '지문 교체 ' + String(previous.version || 'v1') + ' → ' + String(material.version || 'v1'), { locked: true });
+    }
     archiveStaleKnowledgeItems_(material);
     const vocabularyCount = syncTeacherGlossaryVocabulary_(material, normalized.glossary);
     const externalSourceCount = 0;
@@ -362,7 +390,10 @@ function saveTeacherSetup(teacherAccessToken, payload) {
 
     return {
       ok: true,
-      message: '저장되었습니다. 학생 앱 새로고침부터 바로 반영됩니다.',
+      message: archivedTurns
+        ? '저장되었습니다. 지문이 바뀌어 지난 대화 ' + archivedTurns + '건을 TURNS_ARCHIVE 시트로 옮겼어요. 학생은 새로 시작합니다.'
+        : '저장되었습니다. 학생 앱 새로고침부터 바로 반영됩니다.',
+      archivedTurns: archivedTurns,
       materialId: material.materialId,
       title: material.title,
       glossaryCount: normalized.glossary.length,
