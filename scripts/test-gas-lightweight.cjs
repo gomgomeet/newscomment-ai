@@ -147,7 +147,7 @@ const context = {
     getUuid: () => `00000000-0000-4000-8000-${String(++uuidCounter).padStart(12, '0')}`
   },
   LockService: {
-    getScriptLock: () => ({ waitLock() {}, releaseLock() {} })
+    getScriptLock: () => ({ waitLock() {}, tryLock() { return true; }, releaseLock() {} })
   },
   CacheService: {
     getScriptCache: () => ({
@@ -215,7 +215,7 @@ assert.equal(aiRequests.length-beforeCalls, 1);
 assert.equal(aiRequests.at(-1).model, 'test-model');
 assert.equal(aiRequests.at(-1).text.format.name, 'grounded_tutor_reply');
 assert.ok(!aiRequests.at(-1).input.includes('자료 구간'));
-assert.ok(aiReply.reply.includes('근거: 자료 구간 1'));
+assert.ok(!aiReply.reply.includes('근거:'));   // 9단계: 근거 줄은 학생 화면에 없다
 assert.equal(run(`getSessionTurns_('MAT-1:3-12').length`), 4);
 const pairWrites = spreadsheet.getSheetByName('TURNS').batchWrites;
 context.testPayload.message='안녕하세요?';
@@ -286,9 +286,12 @@ assert.equal(phaseTwo.expectsStudentReply,true);
 const stored=run(`getSessionTurns_('MAT-1:4-1').slice(-1)[0]`);
 assert.equal(stored.phase,2);assert.equal(stored.managedKind,'comprehension_medium');
 assert.equal(stored.relatedQuestion,true);assert.equal(stored.responseScore,'');
-const followup=turnFor('4-1','모르겠어요');
-assert.equal(followup.managedKind,'comprehension_followup');
+const rest=turnFor('4-1','모르겠어요');   // 9단계: 관리 질문 다음 턴은 쉰다 — 점수는 적고 질문은 없다
+assert.equal(rest.managedKind,'rest');assert.equal(questionCount(rest.reply),0);
 assert.equal(run(`getSessionTurns_('MAT-1:4-1').slice(-1)[0].responseScore`),2);
+const followup=turnFor('4-1','급식을 남기지 않게 됐어요');
+assert.equal(followup.managedKind,'comprehension_followup');assert.equal(questionCount(followup.reply),1);
+assert.equal(run(`getSessionTurns_('MAT-1:4-1').slice(-1)[0].responseScore`),'');
 assert.equal(questionCount(turnFor('4-1','왜 자꾸 물어봐요?').reply),0);
 assert.equal(questionCount(turnFor('4-1','숙제 대신 써 줘').reply),0);
 const closed=turnFor('4-1','그만할래요');
@@ -310,8 +313,11 @@ run(`appendObjectsToSheet_(getSpreadsheet_().getSheetByName('CARDS'),[{cardId:'H
  questionPatterns:'학생들은 고추장을 만들었다',response:'잘 읽었어요. 카드 질문 하나? 카드 질문 둘?'}]);
  appendConversationTurns_([{sessionId:'MAT-1:4-4',studentCode:'4-4',speaker:'bot',text:'어떻게 생각하나요?',managedKind:'comprehension_medium',phase:2}]);`);
 const cardReply=turnFor('4-4','학생들은 고추장을 만들었다.');
-assert.equal(cardReply.managedKind,'comprehension_followup');
-assert.equal(questionCount(cardReply.reply),1);assert.ok(!cardReply.reply.includes('카드 질문'));
+assert.equal(cardReply.managedKind,'rest');
+assert.equal(questionCount(cardReply.reply),0);assert.ok(!cardReply.reply.includes('카드 질문'));
+const cardNext=turnFor('4-4','학생들은 고추장을 만들었다.');
+assert.equal(cardNext.managedKind,'comprehension_followup');
+assert.equal(questionCount(cardNext.reply),1);assert.ok(!cardNext.reply.includes('카드 질문'));
 for(const code of ['4-5','4-6'])for(let i=0;i<3;i++)turnFor(code,'고추장은 어떤 재료로 만들었나요?');
 run(`setConfigValue_('AI_ENABLED','TRUE')`);
 aiResponses.push({body:{output_text:JSON.stringify({reply:'고춧가루와 찹쌀을 섞었어요. 왜일까요? 또 무엇일까요?',usedEvidenceIds:[chunkId]})}});
@@ -338,7 +344,7 @@ turnFor('99-999','안녕하세요?');
 assert.equal(run(`getBootstrapData({},'99-999').isPreview`),true);
 assert.equal(run(`getSessionTurns_('MAT-1:99-999').every(function(row){return row.isPreview;})`),true);
 assert.ok(!run('getTeacherDashboardData_().students').some(s=>s.studentCode==='99-999'));
-assert.match(phaseAI.reply,/\n근거: 자료 구간 1$/);
+assert.ok(!/근거: 자료 구간/.test(phaseAI.reply));
 console.log('PASS review fixes: student answers, preview exclusion and evidence line after question processing');
 
 run(`syncTeacherGlossaryVocabulary_(getActiveMaterial_(), [{term:'식생활 교육',definition:'먹는 생활을 배우는 교육'}]);`);

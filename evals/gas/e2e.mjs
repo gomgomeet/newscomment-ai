@@ -41,6 +41,7 @@ class SpreadsheetMock {
   constructor() { this.id = 'sheet-e2e'; this.sheets = new Map(); }
   getId() { return this.id; } getName() { return 'e2e'; }
   getSheetByName(n) { return this.sheets.get(n) || null; }
+  getSheets() { return [...this.sheets.values()]; }
   insertSheet(n) { const s = new SheetMock(n); this.sheets.set(n, s); return s; }
   setActiveSheet() {} toast() {}
 }
@@ -56,7 +57,7 @@ const ctx = {
     computeDigest: (_a, v) => createHash('sha256').update(String(v), 'utf8').digest(),
     base64EncodeWebSafe: (v) => Buffer.from(v).toString('base64url'),
     getUuid: () => `00000000-0000-4000-8000-${String(++uuid).padStart(12, '0')}` },
-  LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
+  LockService: { getScriptLock: () => ({ waitLock() {}, tryLock() { return true; }, releaseLock() {} }) },
   CacheService: { getScriptCache() { throw new Error('캐시를 쓰면 안 된다'); } },
   ScriptApp: { getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/e2e/exec' }) },
   UrlFetchApp: { fetch() { throw new Error('AI가 꺼져 있어야 한다'); } },
@@ -137,15 +138,20 @@ const related = ['잔반이 뭐예요?', '선택 배식이 뭐예요?', '왜 잔
 {
   const b = start('3-4'); let r;
   for (const m of related) r = send(b, m);
-  const kinds = [r.managedKind];
-  r = send(b, '학생들이 먹을 만큼 골라서 남은 음식이 줄었어요.'); kinds.push(r.managedKind);
-  r = send(b, '처음엔 급식을 더 많이 먹은 줄 알았는데, 다시 보니 남긴 음식이 줄어든 거였어요.'); kinds.push(r.managedKind);
-  let guard = 0;
-  while (r.managedKind === 'standard' && guard++ < 3) { r = send(b, '결국 글은 학생이 스스로 고르면 남기는 음식이 줄어든다고 말해요. 그래서 우리 반도 해 보면 좋겠어요.'); kinds.push(r.managedKind); }
-  const opinionAsked = r.managedKind === 'opinion' || kinds.includes('opinion');
-  const fin = send(b, '나는 우리 학교도 이렇게 하면 좋겠다고 느꼈어요. 직접 골라 보면 더 잘 알 것 같아서요.');
-  kinds.push(fin.managedKind);
-  record('⑥ 이해(중)→후속→표적→의견→끝, 의견 답 뒤 질문 0', kinds[0] === 'comprehension_medium' && kinds[1] === 'comprehension_followup' && kinds.includes('standard') && opinionAsked && fin.managedKind === 'done' && q(fin.reply) === 0, `kinds=${kinds.join(' → ')}\n      마지막: "${fin.reply}"`);
+  const kinds = [r.managedKind]; const replies = [r.reply];
+  const answers = ['학생들이 먹을 만큼 골라서 남은 음식이 줄었어요.',
+    '처음엔 급식을 더 많이 먹은 줄 알았는데, 다시 보니 남긴 음식이 줄어든 거였어요.',
+    '결국 글은 학생이 스스로 고르면 남기는 음식이 줄어든다고 말해요. 그래서 우리 반도 해 보면 좋겠어요.',
+    '나는 우리 학교도 이렇게 하면 좋겠다고 느꼈어요. 직접 골라 보면 더 잘 알 것 같아서요.'];
+  let guard = 0, i = 0;
+  while (r.managedKind !== 'done' && guard++ < 12) { r = send(b, answers[i++ % answers.length]); kinds.push(r.managedKind); replies.push(r.reply); }
+  const fin = r;
+  const askedKinds = kinds.filter((k) => k && k !== 'rest' && k !== 'done');
+  const spaced = kinds.every((k, idx) => idx === 0 || k === 'rest' || k === 'done' || kinds[idx - 1] === 'rest');
+  const restSilent = kinds.every((k, idx) => k !== 'rest' || q(replies[idx]) === 0);
+  record('⑥ 이해(중)→쉼→후속→쉼→표적→쉼→의견→끝: 질문 사이에 자유 턴, 쉬는 턴·마지막 답 질문 0, 세션당 관리 질문 4개',
+    askedKinds.join(',') === 'comprehension_medium,comprehension_followup,standard,opinion' && spaced && restSilent && fin.managedKind === 'done' && q(fin.reply) === 0,
+    `kinds=${kinds.join(' → ')}\n      마지막: "${fin.reply}"`);
   const rows = turns(b).filter((r) => r.speaker === 'bot' && r.responseScore !== '');
   record('   responseScore 기록 (2국면 답마다 0~5)', rows.length >= 3 && rows.every((r) => Number(r.responseScore) >= 0 && Number(r.responseScore) <= 5), rows.map((r) => `${r.managedKind}:${r.responseScore}`).join(' '));
   ctx.e2eHist = turns(b);
@@ -201,6 +207,35 @@ const related = ['잔반이 뭐예요?', '선택 배식이 뭐예요?', '왜 잔
   const preview = start('99-1'); send(preview, related[0]);
   const prow = run(`getRowsAsObjects_('TURNS')`).slice(-1)[0];
   record('   교사 미리보기 99-* → isPreview=true', String(prow.isPreview) === 'true', `isPreview=${prow.isPreview}`);
+}
+
+// ---------- 8. 머지 뒤 후속 — 기존 시트의 CONFIG를 phase0CleanupApply() 한 번으로 맞춘다 ----------
+{
+  // 교사의 기존 시트를 흉내 낸다: AI_MAX_HISTORY_TURNS가 옛 값 6, AI_REASONING_EFFORT 행은 없음
+  const cfg = spreadsheet.getSheetByName('CONFIG');
+  cfg.rows = cfg.rows.filter((row) => String(row[0]) !== 'AI_REASONING_EFFORT');
+  cfg.rows.forEach((row) => { if (String(row[0]) === 'AI_MAX_HISTORY_TURNS') row[1] = '6'; });
+  const before = run('getAISettings_(readConfig_())');
+  run('phase0CleanupPreview()');
+  const untouched = run('readConfig_()');
+  run('phase0CleanupApply()');
+  const after = run('getAISettings_(readConfig_())');
+  const rows = run(`getRowsAsObjects_('CONFIG')`).filter((r) => r.key === 'AI_REASONING_EFFORT');
+  record('⑭ phase0CleanupApply → AI_MAX_HISTORY_TURNS 6→4, AI_REASONING_EFFORT 행 추가(low)',
+    before.maxHistoryTurns === 6 && untouched.AI_MAX_HISTORY_TURNS === '6' && untouched.AI_REASONING_EFFORT === undefined
+      && after.maxHistoryTurns === 4 && after.reasoningEffort === 'low' && rows.length === 1 && rows[0].value === 'low',
+    `before=${before.maxHistoryTurns} preview=${untouched.AI_MAX_HISTORY_TURNS}/${untouched.AI_REASONING_EFFORT} after=${after.maxHistoryTurns}/${after.reasoningEffort} rows=${rows.length}`);
+}
+
+// ---------- 9. 8단계 — 잠금 밖에서 읽은 기록 커서로 턴 번호를 잇는다 ----------
+{
+  const b = start('4-31'); send(b, related[0]);
+  ctx.e2eSid = b.sessionId;
+  ctx.e2eStale = run('getSessionTurnsCursor_(e2eSid)');            // 요청 시작 때 읽은 상태(턴 2까지)
+  run("appendConversationTurns_([{ sessionId: e2eSid, studentCode: '4-31', speaker: 'student', text: '끼어든 턴', aiStatus: 'rule' }])"); // 그 사이 같은 세션에 행이 하나 더
+  run("appendConversationTurns_([{ sessionId: e2eSid, studentCode: '4-31', speaker: 'student', text: 'a', aiStatus: 'rule' }, { sessionId: e2eSid, studentCode: '4-31', speaker: 'bot', text: 'b', aiStatus: 'rule' }], e2eStale)");
+  const nos = run('getSessionTurns_(e2eSid).map(function (r) { return Number(r.turnNo); })');
+  record('⑮ 기록을 읽은 뒤 같은 세션 행이 끼어들어도 커서 뒤만 훑어 턴 번호가 1~5로 이어진다', JSON.stringify(nos) === '[1,2,3,4,5]', 'turnNo=' + JSON.stringify(nos));
 }
 
 // ---------- 출력 ----------

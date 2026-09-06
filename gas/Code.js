@@ -398,7 +398,8 @@ function submitTurn(payload) {
   const config = readConfig_();
   const context = getActiveSessionContext_(payload.sessionId, payload.lesson);
   const material = context.material;
-  const history = getSessionTurns_(payload.sessionId);
+  const historyCursor = getSessionTurnsCursor_(payload.sessionId);
+  const history = historyCursor.turns;
   if (history.length && history[history.length - 1].primaryMove === 'close') throw new Error('이미 마친 대화입니다.');
   const action = String(payload.action || 'message');
   const message = String(payload.message || (action === 'hint' ? '힌트가 필요해요.' : action === 'close' ? '이제 대화를 마칠게요.' : '')).trim();
@@ -440,19 +441,21 @@ function submitTurn(payload) {
     isPreview: /^99-/.test(context.session.studentCode) };
   // AI 성공·실패·꺼짐 및 카드 응답 모두 같은 질문 후처리를 거친다.
   responseResult.text = enforceManagedQuestion(responseResult.text, decision);
-  const locations = Array.from(new Set(responseResult.evidence.map(function (item) { return item.location; }).filter(Boolean)));
-  if (locations.length) responseResult.text += '\n근거: ' + locations.join(' · ');
+  // 9단계: "근거: 자료 구간 N" 줄은 학생 화면에 붙이지 않는다. 근거 ID는 TURNS.evidenceIds에, 근거 카드는 SHOW_EVIDENCE일 때만.
   appendConversationTurns_([
     Object.assign({}, common, { speaker: 'student', text: safeMessage, studentMove: analysis.studentMove,
       relatedQuestion: analysis.relatedQuestion, aiStatus: 'rule' }),
     Object.assign({}, common, { speaker: 'bot', text: responseResult.text, primaryMove: plan.primaryMove,
       hintLevel: plan.hintLevel, sourceStatus: responseResult.sourceStatus,
       evidenceIds: responseResult.evidence.map(function (item) { return item.id; }),
-      aiStatus: aiStatus, decisionReason: reviewId ? reason : plan.reasonCode,
+      aiStatus: aiStatus,
+      // AI가 규칙 응답으로 물러난 까닭을 함께 남긴다 — 익명 웹앱 실행은 console 로그를 볼 수 없다.
+      decisionReason: (reviewId ? reason : plan.reasonCode) +
+        (aiComposeResult.reason ? ' · ai:' + String(aiComposeResult.reason).slice(0, 160) : ''),
       phase: decision.phase, managedKind: decision.kind || '',
       responseScore: decision.lastScore == null ? '' : decision.lastScore,
       relatedQuestion: decision.relatedQuestion })
-  ]);
+  ], historyCursor);
   return { reply: responseResult.text, primaryMove: plan.primaryMove, hintLevel: plan.hintLevel,
     sourceStatus: responseResult.sourceStatus, teacherInterventionFlag: plan.teacherInterventionFlag || Boolean(reviewId),
     expectsStudentReply: plan.expectsStudentReply, isClosing: plan.isClosing, retrievalConfidence: retrieval.confidence,

@@ -82,6 +82,15 @@ function phaseComprehensionFollowup_(settings, difficulty) {
   return '자료의 “' + sentence + '”를 다시 봐요. 이 문장에 나온 사실 한 가지는 무엇인가요?';
 }
 
+/** 반말 어미의 관리 질문을 해요체로. 이미 해요체면 그대로. */
+function phasePoliteQuestion_(text) {
+  return String(text || '')
+    .replace(/줄래\?/g, '줄래요?').replace(/생각해\?/g, '생각해요?').replace(/있어\?/g, '있어요?')
+    .replace(/같았어\?/g, '같았어요?').replace(/했어\?/g, '했어요?').replace(/들었어\?/g, '들었어요?')
+    .replace(/뭐야\?/g, '뭐예요?').replace(/어디야\?/g, '어디예요?').replace(/좋을까\?/g, '좋을까요?')
+    .replace(/궁금해\./g, '궁금해요.');
+}
+
 // ---------------------------------------------------------------------------
 // 봇이 이미 물은 질문 알아보기
 // ---------------------------------------------------------------------------
@@ -100,7 +109,7 @@ function phaseClassifyBotQuestion_(row, targets) {
     return { kind: 'comprehension_followup', text: text, difficulty: '하' };
   }
   for (var i = 0; i < targets.length; i++) {
-    if (text.indexOf(targets[i].askTemplate) >= 0) {
+    if (text.indexOf(targets[i].askTemplate) >= 0 || text.indexOf(phasePoliteQuestion_(targets[i].askTemplate)) >= 0) {
       return { kind: 'standard', text: targets[i].askTemplate, target: targets[i],
         difficulty: text.indexOf('이 문장을 먼저 다시 보고') >= 0 ? '하' : '상' };
     }
@@ -120,19 +129,29 @@ function phaseText_(row) { return String(row && (row.text !== undefined ? row.te
 // 다음 질문 고르기
 // ---------------------------------------------------------------------------
 
-function phaseNextQuestion_(asked, lastQuestion, currentAnswer, targets, settings) {
+function phaseNextQuestion_(asked, lastQuestion, currentAnswer, targets, settings, carriedScore) {
+  var limit = Number(settings.maxManagedQuestions || 0);   // 0이면 상한 없음(웹앱 원본과 같음)
   if (asked.length === 0) {
     return { question: { kind: 'comprehension_medium', text: PHASE_COMPREHENSION_MEDIUM_PROMPT, difficulty: '중' }, feedback: '', score: null };
   }
-  var score = lastQuestion ? answerScore(lastQuestion, currentAnswer, settings) : 0;
+  // 쉬는 턴 다음이면 lastQuestion이 없다 — 쉬는 턴에 적어 둔 점수로 난이도를 정한다(점수는 다시 기록하지 않는다).
+  var scored = lastQuestion ? answerScore(lastQuestion, currentAnswer, settings) : null;
+  var score = scored != null ? scored : (carriedScore != null ? carriedScore : 0);
   var nextDifficulty = score >= 3 ? '상' : '하';
+  var quoteLength = settings.questionSpacing ? 90 : 150;
   var feedback = lastQuestion && lastQuestion.difficulty === '하' && score <= 2
-    ? '여기에는 “' + phaseSupportSentence_(settings).slice(0, 150) + '”라고 나와 있어요. 이 문장에서 답을 찾을 수 있어요. '
+    ? '여기에는 “' + phaseSupportSentence_(settings).slice(0, quoteLength) + '”라고 나와 있어요. 이 문장에서 답을 찾을 수 있어요. '
     : '';
   var has = function (kind) { return asked.some(function (q) { return q.kind === kind; }); };
 
+  // 상한: 마지막 자리는 의견 질문에 준다. 상한을 채웠으면 더 묻지 않는다.
+  if (limit > 0 && asked.length >= limit) return { question: null, feedback: feedback, score: scored };
+  if (limit > 0 && asked.length === limit - 1 && !has('opinion')) {
+    return { question: { kind: 'opinion', text: PHASE_OPINION_PROMPT, difficulty: '중' }, feedback: feedback, score: scored };
+  }
+
   if (!has('comprehension_followup')) {
-    return { question: { kind: 'comprehension_followup', text: phaseComprehensionFollowup_(settings, nextDifficulty), difficulty: nextDifficulty }, feedback: feedback, score: score };
+    return { question: { kind: 'comprehension_followup', text: phaseComprehensionFollowup_(settings, nextDifficulty), difficulty: nextDifficulty }, feedback: feedback, score: scored != null ? scored : (lastQuestion ? score : (settings.questionSpacing ? null : 0)) };
   }
   var askedKeys = {};
   asked.forEach(function (q) { if (q.kind === 'standard' && q.target) askedKeys[q.target.key] = true; });
@@ -142,12 +161,12 @@ function phaseNextQuestion_(asked, lastQuestion, currentAnswer, targets, setting
     var text = nextDifficulty === '하'
       ? '자료의 “' + phaseSupportSentence_(settings).slice(0, 150) + '” 이 문장을 먼저 다시 보고 ' + nextTarget.askTemplate
       : nextTarget.askTemplate;
-    return { question: { kind: 'standard', text: text, target: nextTarget, difficulty: nextDifficulty }, feedback: feedback, score: score };
+    return { question: { kind: 'standard', text: text, target: nextTarget, difficulty: nextDifficulty }, feedback: feedback, score: scored != null ? scored : (settings.questionSpacing ? null : 0) };
   }
   if (!has('opinion')) {
-    return { question: { kind: 'opinion', text: PHASE_OPINION_PROMPT, difficulty: '중' }, feedback: feedback, score: score };
+    return { question: { kind: 'opinion', text: PHASE_OPINION_PROMPT, difficulty: '중' }, feedback: feedback, score: scored != null ? scored : (settings.questionSpacing ? null : 0) };
   }
-  return { question: null, feedback: feedback, score: score };
+  return { question: null, feedback: feedback, score: scored != null ? scored : (settings.questionSpacing ? null : 0) };
 }
 
 // ---------------------------------------------------------------------------
@@ -210,13 +229,25 @@ function decidePhase(history, message, settings, options) {
   }
 
   if (inPhaseTwo) {
-    var next = phaseNextQuestion_(asked, lastQuestion, current, targets, settings);
+    var carriedScore = null;
+    if (settings.questionSpacing && !lastQuestion && lastBot && lastBot.managedKind === 'rest' &&
+        lastBot.responseScore !== '' && lastBot.responseScore != null && !isNaN(Number(lastBot.responseScore))) {
+      carriedScore = Number(lastBot.responseScore);
+    }
+    var next = phaseNextQuestion_(asked, lastQuestion, current, targets, settings, carriedScore);
     base.phase = 2;
     base.lastScore = next.score;
     base.feedback = next.feedback;
+    // 9단계 간격: 바로 앞 봇 턴이 관리 질문이었으면 이번 턴은 답·피드백만 하고 쉰다(질문 하나 걸러 하나).
+    if (settings.questionSpacing && lastQuestion && next.question) {
+      base.kind = 'rest';
+      base.allowQuestion = false;
+      return base;
+    }
     if (next.question) {
       base.kind = next.question.kind;
-      base.managedQuestion = next.question.text;
+      // 9단계: 학생 화면의 관리 질문은 모두 해요체로(원본 문구는 parity 검사와 분류에 그대로 쓴다).
+      base.managedQuestion = settings.questionSpacing ? phasePoliteQuestion_(next.question.text) : next.question.text;
       base.difficulty = next.question.difficulty;
     } else {
       base.kind = 'done';
@@ -255,11 +286,18 @@ function enforceManagedQuestion(text, decision) {
     return s.replace(/[^.!?？]*[?？]/g, '').replace(/\s+/g, ' ').trim();
   };
   if (!decision.allowQuestion) {
-    var answerOnly = stripQuestions(reply);
-    return answerOnly || reply.replace(/[?？]/g, '.') || '말해 준 내용을 바탕으로 지문을 계속 살펴볼게요.';
+    var answerOnly = stripQuestions(reply) || reply.replace(/[?？]/g, '.') || '말해 준 내용을 바탕으로 지문을 계속 살펴볼게요.';
+    // 쉬는 턴에도 피드백 문장(지문 문장 안내)은 붙는다. 질문은 없다.
+    var restFeedback = stripQuestions(String(decision.feedback || '').trim());
+    return (restFeedback ? answerOnly + ' ' + restFeedback : answerOnly).replace(/\s+/g, ' ').trim();
   }
   if (decision.managedQuestion) {
     var body = stripQuestions(reply);
+    // 모델이 관리 질문의 조각("네 생각이 궁금해요.")을 미리 썼으면 걷는다 — 코드가 붙이는 질문과 겹치지 않게.
+    String(decision.managedQuestion).split(/(?<=[.!?？])\s+/).map(function (p) { return p.trim(); })
+      .filter(function (p) { return p.length >= 4; })
+      .forEach(function (p) { body = body.split(p).join(' '); });
+    body = body.replace(/\s+/g, ' ').trim();
     var parts = [body, String(decision.feedback || '').trim(), decision.managedQuestion].filter(Boolean);
     return parts.join(' ').replace(/\s+/g, ' ').trim();
   }
@@ -287,6 +325,8 @@ function phaseSettingsFor_(material) {
     passage: String(material.text || ''),
     title: String(material.title || ''),
     stemMatch: true,
+    questionSpacing: true,        // 9단계: 관리 질문 사이에 자유 턴 하나
+    maxManagedQuestions: 4,       // 9단계: 세션당 이해·후속·표적·의견까지만
     standard: String(material.standard || ''),
     standardCode: String(material.standardCode || ''),
     memo: String(material.teacherMemo || material.questionFocusMemo || ''),
