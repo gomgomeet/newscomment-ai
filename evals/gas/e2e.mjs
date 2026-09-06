@@ -57,7 +57,7 @@ const ctx = {
     computeDigest: (_a, v) => createHash('sha256').update(String(v), 'utf8').digest(),
     base64EncodeWebSafe: (v) => Buffer.from(v).toString('base64url'),
     getUuid: () => `00000000-0000-4000-8000-${String(++uuid).padStart(12, '0')}` },
-  LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
+  LockService: { getScriptLock: () => ({ waitLock() {}, tryLock() { return true; }, releaseLock() {} }) },
   CacheService: { getScriptCache() { throw new Error('캐시를 쓰면 안 된다'); } },
   ScriptApp: { getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/e2e/exec' }) },
   UrlFetchApp: { fetch() { throw new Error('AI가 꺼져 있어야 한다'); } },

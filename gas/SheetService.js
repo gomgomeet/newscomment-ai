@@ -594,17 +594,48 @@ function getActiveSessionContext_(sessionId, selector) {
 
 function appendTurn_(turn) { appendConversationTurns_([turn]); }
 
+var TURN_LOCK_BUSY_MESSAGE_ = '지금 친구들이 한꺼번에 보내고 있어요. 잠시 뒤 다시 보내 주세요.';
+
+// 잠금 안에서는 (1) 이 세션의 마지막 턴 번호를 두 열만 읽어 구하고 (2) 두 행을 한 번에 쓴다.
+// 헤더 읽기·행 조립은 잠금 밖. 30명이 동시에 보내면 잠금이 직렬화되므로 안의 일이 곧 대기 시간이다(7단계 실측).
 function appendConversationTurns_(turns) {
-  const lock = LockService.getScriptLock(); lock.waitLock(30000);
+  const sheet = getSpreadsheet_().getSheetByName('TURNS');
+  const headers = getHeaderMap_(sheet);
+  const columns = Object.keys(headers).sort(function (a, b) { return headers[a] - headers[b]; });
+  const width = columns.length ? headers[columns[columns.length - 1]] : 0;
+  const prepared = turns.map(function (turn) {
+    return Object.assign({}, turn, { evidenceIds: serializeIdList_(turn.evidenceIds), isPreview: Boolean(turn.isPreview) });
+  });
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error(TURN_LOCK_BUSY_MESSAGE_);
   try {
-    const sheet = getSpreadsheet_().getSheetByName('TURNS');
-    const history = getSessionTurns_(turns[0].sessionId);
-    const lastNo = history.reduce(function (max, row) { return Math.max(max, Number(row.turnNo || 0)); }, 0);
-    appendObjectsToSheet_(sheet, turns.map(function (turn, index) {
-      return Object.assign({}, turn, { timestamp: new Date(), turnNo: lastNo + index + 1,
-        evidenceIds: serializeIdList_(turn.evidenceIds), isPreview: Boolean(turn.isPreview) });
-    }));
+    const lastNo = lastTurnNoForSession_(sheet, headers, turns[0].sessionId);
+    const now = new Date();
+    const rows = prepared.map(function (turn, index) {
+      const row = new Array(width).fill('');
+      const values = Object.assign({}, turn, { timestamp: now, turnNo: lastNo + index + 1 });
+      columns.forEach(function (header) {
+        if (Object.prototype.hasOwnProperty.call(values, header)) row[headers[header] - 1] = values[header];
+      });
+      return row;
+    });
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, width).setValues(rows);
   } finally { flushAndReleaseLock_(lock); }
+}
+
+// TURNS에서 sessionId·turnNo 두 열만 읽어 이 세션의 마지막 턴 번호를 돌려준다(전체 18열 객체 변환 대신).
+function lastTurnNoForSession_(sheet, headers, sessionId) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2 || !headers.sessionId || !headers.turnNo) return 0;
+  const from = Math.min(headers.sessionId, headers.turnNo);
+  const to = Math.max(headers.sessionId, headers.turnNo);
+  const values = sheet.getRange(2, from, lastRow - 1, to - from + 1).getValues();
+  const si = headers.sessionId - from, ti = headers.turnNo - from;
+  let max = 0;
+  for (let i = 0; i < values.length; i++) {
+    if (String(values[i][si]) === String(sessionId)) max = Math.max(max, Number(values[i][ti] || 0));
+  }
+  return max;
 }
 
 function upsertReviewItem_(item) {
