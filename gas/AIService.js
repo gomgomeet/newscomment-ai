@@ -78,6 +78,7 @@ function getAISettings_(config) {
   return { enabled: isTruthy_(config.AI_ENABLED), model: String(config.AI_MODEL || OPENAI_TERRA_MODEL_),
     reasoningEffort: normalizeReasoningEffort_(config.AI_REASONING_EFFORT),
     maxHistoryTurns: Math.max(0, Math.min(10, Number(config.AI_MAX_HISTORY_TURNS || 4))),
+    allowGeneralAnswer: isTruthy_(config.ALLOW_GENERAL_ANSWER),
     maxOutputTokens: Math.max(200, Math.min(4000, Number(config.AI_MAX_OUTPUT_TOKENS || 1500))) };
 }
 
@@ -124,11 +125,6 @@ function composeResponseWithAI_(input) {
   }
 
   const evidence = buildAIEvidenceContext_(input.retrieval, input.material, input.analysis);
-  if ((input.analysis.studentMove === 'ask_fact' ||
-      input.analysis.studentMove === 'ask_definition') && evidence.length === 0) {
-    fallback.status = 'skipped_no_evidence';
-    return fallback;
-  }
   const model = settings.model;
   const allowedIds = evidence.map(function (item) { return item.id; });
   const schema = {
@@ -140,6 +136,40 @@ function composeResponseWithAI_(input) {
     required: ['reply', 'usedEvidenceIds'],
     additionalProperties: false
   };
+  const voice = studentVoiceInstructions_(input);
+  if ((input.analysis.studentMove === 'ask_fact' ||
+      input.analysis.studentMove === 'ask_definition') && evidence.length === 0) {
+    if (!settings.allowGeneralAnswer) {
+      fallback.status = 'skipped_no_evidence';
+      return fallback;
+    }
+    // 9단계: 교사가 ALLOW_GENERAL_ANSWER를 켜면 글에 없는 질문도 "글에는 안 나오지만" 한 마디 붙여 짧게 답한다. 검토 큐에는 그대로 남는다.
+    try {
+      const general = callOpenAIJson_({
+        model: model, reasoningEffort: settings.reasoningEffort,
+        maxOutputTokens: Math.min(settings.maxOutputTokens, 600),
+        schemaName: 'general_tutor_reply', schema: schema,
+        instructions: voice.concat([
+          '이 질문은 글에 나오지 않는 내용입니다. 널리 알려진 사실만으로 2~3문장으로 답하세요. 확실하지 않으면 모른다고 하세요.',
+          '첫 문장을 "글에는 안 나오지만,"으로 시작하세요. usedEvidenceIds는 빈 배열로 두세요.'
+        ]).join(' '),
+        input: '글 제목: ' + String(input.material.title || '') + '\n\n학생 발화: ' + input.message
+      });
+      let generalReply = stripEvidenceLocations_(String(general.value.reply || '')).trim()
+        .replace(/[^.!?。？]*[?？]/g, '').trim();
+      if (!generalReply || generalReply.length > 600) throw new Error('일반 답변 검증 실패');
+      if (!/^글에는?\s*(안|없)/.test(generalReply)) generalReply = '글에는 안 나오지만, ' + generalReply;
+      return {
+        responseResult: renderAIUsedEvidence_(generalReply, [], input.retrieval, input.material),
+        status: 'general', model: general.model || model, usedEvidenceIds: []
+      };
+    } catch (error) {
+      console.warn('일반 답변을 건너뛰고 규칙 응답을 사용합니다: ' + safeAIErrorMessage_(error));
+      fallback.status = 'skipped_no_evidence';
+      fallback.reason = safeAIErrorMessage_(error);
+      return fallback;
+    }
+  }
   const prompt = [
     '학생 상태: ' + JSON.stringify({
       studentMove: input.analysis.studentMove,
@@ -171,15 +201,13 @@ function composeResponseWithAI_(input) {
       maxOutputTokens: settings.maxOutputTokens,
       schemaName: 'grounded_tutor_reply',
       schema: schema,
-      instructions: [
-        '한국어 교육용 질문 챗봇의 응답 편집기입니다.',
-        '정책 엔진이 선택한 primaryMove와 hintLevel을 절대 바꾸지 마세요.',
-        '[지금 할 일]에 있는 관리 질문과 피드백 문장은 코드가 붙입니다. reply에는 그 문장을 복사하지 말고 학생 발화에 대한 답변 부분만 쓰세요.',
-        '사실·낱말 질문에는 답만 하고 되묻지 마세요. 자료 구간 번호나 괄호 안 같은 위치 표현은 쓰지 마세요.',
-        '학생의 시도를 짧게 관찰하고, 필요하면 승인 근거에 기반한 단서를 준 뒤, 학생이 다음에 할 행동 한 가지만 분명히 제시하세요.',
-        '승인 근거 밖의 사실을 추가하지 마세요. 사용한 근거 ID만 usedEvidenceIds에 넣으세요.',
-        '학생이 물은 것에는 승인 근거로 먼저 답하고 초등·중등 학생이 이해할 수 있는 2~4문장으로 작성하세요.'
-      ].join(' '),
+      instructions: voice.concat([
+        '학생이 물은 것에는 승인 근거의 내용으로 먼저 답하세요. 되묻지 마세요. 마지막 질문이 필요하면 [지금 할 일]대로 코드가 붙입니다.',
+        '[지금 할 일]에 있는 관리 질문과 피드백 문장은 코드가 붙이므로 reply에 복사하지 마세요.',
+        '학생이 자기 생각을 말했으면 평가하거나 고치라고 하지 말고, 그 생각을 받아 준 뒤 글의 내용과 한 번 연결해 주세요.',
+        '승인 근거 밖의 사실을 더하지 마세요. 사용한 근거 ID만 usedEvidenceIds에 넣으세요.',
+        '정책 엔진의 primaryMove와 hintLevel은 바꾸지 마세요.'
+      ]).join(' '),
       input: prompt
     });
     const value = result.value;
@@ -212,6 +240,21 @@ function composeResponseWithAI_(input) {
     fallback.reason = safeAIErrorMessage_(error);
     return fallback;
   }
+}
+
+// 9단계: 학생에게 보이는 말투 — 교사가 자료에 적은 대상 학년을 기준으로 한다.
+function studentVoiceInstructions_(input) {
+  const config = input.config || {};
+  const material = input.material || {};
+  const gradeLabel = String(material.grade || '').trim() || '초등학생';
+  const appName = String(config.APP_NAME || '질문이').trim();
+  return [
+    '당신은 "' + appName + '"라는 이름의 학습 친구 챗봇입니다. 대상 학생: ' + gradeLabel + '.',
+    '그 학년 학생이 쓰는 쉬운 낱말과 짧은 문장으로, 다정한 해요체 2~3문장으로 말하세요.',
+    '"근거", "승인", "자료 구간", 번호, 괄호 안 위치 같은 표현은 쓰지 마세요. 글의 내용을 말할 때는 "글에서는 ~라고 했어요"처럼 자연스럽게 한 번만 언급하세요.',
+    '같은 말을 되풀이하지 말고, 학생이 궁금해할 만한 점 하나를 덧붙여도 좋습니다.',
+    '학생이 글에 없는 것을 물으면 글의 내용과 억지로 잇지 마세요. "글에는 안 나오지만"이라고 솔직히 말하고, 아는 만큼만 짧게 답하거나 선생님께 물어보자고 하세요.'
+  ];
 }
 
 function strategyConfidenceForPlan_(analysis, plan) {

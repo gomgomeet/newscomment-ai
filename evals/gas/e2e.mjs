@@ -138,15 +138,20 @@ const related = ['잔반이 뭐예요?', '선택 배식이 뭐예요?', '왜 잔
 {
   const b = start('3-4'); let r;
   for (const m of related) r = send(b, m);
-  const kinds = [r.managedKind];
-  r = send(b, '학생들이 먹을 만큼 골라서 남은 음식이 줄었어요.'); kinds.push(r.managedKind);
-  r = send(b, '처음엔 급식을 더 많이 먹은 줄 알았는데, 다시 보니 남긴 음식이 줄어든 거였어요.'); kinds.push(r.managedKind);
-  let guard = 0;
-  while (r.managedKind === 'standard' && guard++ < 3) { r = send(b, '결국 글은 학생이 스스로 고르면 남기는 음식이 줄어든다고 말해요. 그래서 우리 반도 해 보면 좋겠어요.'); kinds.push(r.managedKind); }
-  const opinionAsked = r.managedKind === 'opinion' || kinds.includes('opinion');
-  const fin = send(b, '나는 우리 학교도 이렇게 하면 좋겠다고 느꼈어요. 직접 골라 보면 더 잘 알 것 같아서요.');
-  kinds.push(fin.managedKind);
-  record('⑥ 이해(중)→후속→표적→의견→끝, 의견 답 뒤 질문 0', kinds[0] === 'comprehension_medium' && kinds[1] === 'comprehension_followup' && kinds.includes('standard') && opinionAsked && fin.managedKind === 'done' && q(fin.reply) === 0, `kinds=${kinds.join(' → ')}\n      마지막: "${fin.reply}"`);
+  const kinds = [r.managedKind]; const replies = [r.reply];
+  const answers = ['학생들이 먹을 만큼 골라서 남은 음식이 줄었어요.',
+    '처음엔 급식을 더 많이 먹은 줄 알았는데, 다시 보니 남긴 음식이 줄어든 거였어요.',
+    '결국 글은 학생이 스스로 고르면 남기는 음식이 줄어든다고 말해요. 그래서 우리 반도 해 보면 좋겠어요.',
+    '나는 우리 학교도 이렇게 하면 좋겠다고 느꼈어요. 직접 골라 보면 더 잘 알 것 같아서요.'];
+  let guard = 0, i = 0;
+  while (r.managedKind !== 'done' && guard++ < 12) { r = send(b, answers[i++ % answers.length]); kinds.push(r.managedKind); replies.push(r.reply); }
+  const fin = r;
+  const askedKinds = kinds.filter((k) => k && k !== 'rest' && k !== 'done');
+  const spaced = kinds.every((k, idx) => idx === 0 || k === 'rest' || k === 'done' || kinds[idx - 1] === 'rest');
+  const restSilent = kinds.every((k, idx) => k !== 'rest' || q(replies[idx]) === 0);
+  record('⑥ 이해(중)→쉼→후속→쉼→표적→쉼→의견→끝: 질문 사이에 자유 턴, 쉬는 턴·마지막 답 질문 0, 세션당 관리 질문 4개',
+    askedKinds.join(',') === 'comprehension_medium,comprehension_followup,standard,opinion' && spaced && restSilent && fin.managedKind === 'done' && q(fin.reply) === 0,
+    `kinds=${kinds.join(' → ')}\n      마지막: "${fin.reply}"`);
   const rows = turns(b).filter((r) => r.speaker === 'bot' && r.responseScore !== '');
   record('   responseScore 기록 (2국면 답마다 0~5)', rows.length >= 3 && rows.every((r) => Number(r.responseScore) >= 0 && Number(r.responseScore) <= 5), rows.map((r) => `${r.managedKind}:${r.responseScore}`).join(' '));
   ctx.e2eHist = turns(b);

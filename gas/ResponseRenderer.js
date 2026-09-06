@@ -68,10 +68,7 @@ function renderResponse_(context) {
   } else if (usedCard && usedCard.response) {
     text = replaceCardVariables_(usedCard.response, material);
   } else if ((retrieval.chunks || []).length > 0 && analysis.studentMove === 'ask_fact') {
-    text =
-      '교사가 제공한 자료에서 관련 근거를 찾았어요. “' +
-      shortenEvidence_(retrieval.chunks[0].content, 150) +
-      '”';
+    text = '글에서는 “' + shortenEvidence_(firstSentence_(retrieval.chunks[0].content), 100) + '”라고 했어요.';
   } else {
     text = fallbackResponse_(plan, material);
   }
@@ -192,20 +189,31 @@ function renderAIUsedEvidence_(reply, usedIds, retrieval, material) {
 
 function renderKnowledgeDefinition_(knowledge) { return String(knowledge.easyExplanation || knowledge.content || '').trim(); }
 
-function renderKnowledgeFact_(knowledge) { return (knowledge.knowledgeType === 'relation' ? '자료의 근거를 바탕으로 추론하면, ' : '') + String(knowledge.content || knowledge.easyExplanation || '').trim(); }
+function renderKnowledgeFact_(knowledge) {
+  // 학년에 맞춘 쉬운 풀이가 있으면 그것을, 없으면 원문을. 앞말은 "글을 보면" 한 마디만.
+  const body = String(knowledge.easyExplanation || knowledge.content || '').trim();
+  return (knowledge.knowledgeType === 'relation' ? '글을 보면, ' : '') + body;
+}
+
+function firstSentence_(text) {
+  const value = String(text || '').replace(/\s+/g, ' ').trim();
+  const match = /^(.+?[.!?。])(\s|$)/.exec(value);
+  return match ? match[1] : value;
+}
 
 function fallbackResponse_(plan, material) {
+  // 9단계: 학생에게 보이는 말은 짧고 다정하게. "근거"·"승인"·"자료 구간" 같은 낱말은 쓰지 않는다.
   const fallback = {
-    answer: '현재 승인된 자료에서는 답을 확인하기 어려워요. 선생님 확인 목록에 남길게요.',
-    receive: '근거를 더해 생각을 표현했군요. 처음 생각과 무엇이 달라졌는지 말해 볼까요?',
+    answer: '그건 글에 안 나오는 내용이라 내가 확실히 말해 주기 어려워요. 선생님께 여쭤볼 수 있게 남겨 둘게요.',
+    receive: '이야기해 줘서 고마워요. 글에서 궁금한 게 있으면 편하게 물어봐요.',
     clarify: plan.sourceStatus === 'source_insufficient'
-      ? '교사가 승인한 어휘 자료에서 바로 확인할 수 없는 낱말이에요. 어려운 낱말을 다시 적어 주면 선생님이 확인할 수 있게 남겨 둘게요.'
-      : '어느 낱말이나 문장이 어려운지 한 부분을 골라 주세요.',
-    offer_clue: '결과가 나타난 문장과 그 앞 문장을 이어서 읽어 볼까요?',
+      ? '그 낱말은 글에서 바로 찾기 어렵네요. 선생님께 여쭤볼 수 있게 남겨 둘게요.'
+      : '어느 낱말이 어려운지 하나만 골라 줄래요?',
+    offer_clue: '결과가 나온 문장 바로 앞 문장을 한 번 더 읽어 보면 실마리가 있어요.',
     check_evidence: plan.sourceStatus === 'source_insufficient'
-      ? '승인된 자료에서 바로 연결되는 근거를 찾지 못했어요. 지문의 어느 부분을 보고 그렇게 생각했는지 알려 주세요.'
-      : '그렇게 생각한 근거를 지문의 어느 부분에서 찾았나요?',
-    close: '오늘 말한 생각은 여기까지 저장할게요. 참여해 줘서 고마워요.'
+      ? '그렇게 생각했군요. 글에서 바로 이어지는 부분은 못 찾았지만, 어디를 보고 그렇게 생각했는지 말해 줘도 좋아요.'
+      : '좋아요, 그렇게 생각했군요.',
+    close: '오늘 이야기는 여기까지 저장할게요. 함께해 줘서 고마워요.'
   };
   return fallback[plan.primaryMove] || material.startQuestion;
 }
