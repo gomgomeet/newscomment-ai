@@ -40,11 +40,11 @@ function phase0Cleanup(apply) {
     report.push('청크 캡션 제거: ' + n + '구간 (' + chunks.getName() + ')');
   } else report.push('청크 시트를 찾지 못함');
 
-  // 3) CONFIG — 이름 묻지 않기, 출력 토큰 1500, 추론 강도 minimal, 최근 대화 4턴
+  // 3) CONFIG — 이름 묻지 않기, 출력 토큰 1500, 추론 강도 low(모델이 받는 최솟값), 최근 대화 4턴
   //    (PR #56 뒤: 기존 시트는 옛 값이 남으므로 여기서 맞춘다. 없는 키는 행을 새로 넣는다.)
   const config = findSheetByHeaders_(ss, ['key', 'value']);
   if (config) {
-    const wanted = { ASK_NICKNAME: 'FALSE', AI_MAX_OUTPUT_TOKENS: '1500', AI_REASONING_EFFORT: 'minimal', AI_MAX_HISTORY_TURNS: '4' };
+    const wanted = { AI_MAX_OUTPUT_TOKENS: '1500', AI_REASONING_EFFORT: 'low', AI_MAX_HISTORY_TURNS: '4' };
     const seen = {};
     const n = updateRows_(config, function (row) {
       const key = String(row.key || '');

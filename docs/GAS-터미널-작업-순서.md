@@ -225,9 +225,37 @@ cd gas && clasp push && cd ..                    # "Login expired"면 clasp logi
    | 조건 | 중앙값 | p95 | 답변·저장 | 브라우저 오류 |
    | --- | --- | --- | --- | --- |
    | 6단계(low · 6턴 · 근거 3) | 22초 | 41초 | 30/30 | 0 |
-   | 7단계(minimal · 4턴 · 근거 3) | | | | |
+   | 7단계 ① (minimal · 4턴 · 근거 3) · 버전 20 | 20.9초 | 37.6초 | 30/30 답변·저장, **AI 성공 0/30** | 0 |
+   | 7단계 ② (low · 4턴 · 근거 3) · 버전 22 | 24.4초 | 40.2초 | 29/30 답변·저장, AI 성공 29/29 · 1탭 잠금 시간초과 | 0 |
 
 4. **그래도 길면** 순서대로 하나씩: `MAX_RETRIEVAL_RESULTS` 3 → 2 → 다시 실측 → `AI_MODEL`을 더 빠른 모델로. 한 번에 둘을 바꾸면 무엇이 효과였는지 모른다.
 5. **끝나면** 표를 채운 커밋을 `main`에서 새 브랜치로 올린다. 학생 발화·배포 URL·키는 PR에 넣지 않는다.
 
 완료 조건: 30/30 답변·저장, 오류 0, 중앙값이 6단계보다 짧다. 중앙값 10초 안팎이면 수업에서 쓸 만하다.
+
+### 7단계 결과 (2026-09-06 · PC 터미널의 Claude Code · 배포 버전 20 → 21 → 22)
+
+**한 줄.** 30탭을 두 번 돌렸다. 추론 강도 `minimal`은 **gpt-5.6-terra가 HTTP 400으로 거부**해 AI 조립이 전부 규칙 응답으로 물러났고, `low`로 되돌리자 AI 29/29가 성공했다. 응답 시간은 4턴으로 줄여도 6단계와 같다(중앙값 24초·p95 40초). 추론 강도·대화 길이는 병목이 아니다.
+
+| 순서 | 한 것 | 결과 |
+| --- | --- | --- |
+| 배포 | `clasp push` → 배포 관리에 새 버전 **20** (PR #57 Maintenance.js) | 배포 주소 그대로 |
+| 설정 | 편집기에서 `phase0CleanupPreview()` → `phase0CleanupApply()` | CONFIG 변경 1(6→4)·추가 2(`AI_REASONING_EFFORT=minimal`, `ASK_NICKNAME`), 카드·청크·검토 큐 0 |
+| 실측 ① | 99-631~660, 30탭 동시 | 30/30 답변·저장, 오류 0, 중앙값 20.9초·p95 37.6초 — 그런데 **`TURNS.aiStatus`가 30개 모두 `compose:compose_fallback`**. 답은 규칙 경로("학생들은 NON-GMO 국산 재료로 고추장을 직접 만들었다.") |
+| 진단 | 익명 웹앱 실행은 `console.warn`이 실행 목록에 안 보여서, 물러난 까닭을 `TURNS.decisionReason`에 ` · ai:…`로 남기게 고침 → 버전 **21** → 99-661 한 탭 | `OpenAI API 오류 HTTP 400: Unsupported value: 'minimal' is not supported with the 'gpt-5.6-terra' model. Supported values are: 'none', 'low', 'medium', 'high', 'xhigh'` |
+| 복구 | `normalizeReasoningEffort_`: `minimal`→`low` 별칭, 허용 목록에서 `minimal` 제거, 기본 `low`. `callOpenAIJson_`: 모델이 추론 강도를 거부하면 한 번만 `low`로 재시도. `LIGHT_CONFIG_DEFAULTS_`·`phase0Cleanup` 기본도 `low`. e2e ⑭ 갱신 → 버전 **22** | 심판 넷 초록(31 · 207턴 불일치 0 · 24 · 36) |
+| 실측 ② | 99-671~700, 30탭 동시 (교사가 같은 시각에 수동 실증 중) | 29/30 답변·저장, **AI 성공 29/29**, 브라우저 오류 0. 중앙값 24.4초·p95 40.2초·최소 7.6초. **1탭(99-681)은 "잠금 시간초과" 예외**로 답이 없고 TURNS 행도 0(발화·답변이 따로 남지는 않음) |
+
+**읽는 법.**
+
+- 실측 ①의 20.9초는 AI를 부르지 않은 시간이다. 실측 ②(AI 켜짐)와 6단계(22초·41초)가 같으므로 **30탭 동시의 시간은 AI 호출이 아니라 시트 잠금 직렬화**가 만든다. 혼자 보낼 때는 7~8초(AI 5~6초 + 시트). 다음 손잡이는 `MAX_RETRIEVAL_RESULTS`가 아니라 잠금 안에서 하는 일(`appendConversationTurns_`의 읽기·쓰기)을 줄이는 것과, "한 번에 다 보내기"를 피하는 수업 운영이다. 잠금 시간초과가 학생 화면에 `Exception: …`으로 그대로 보이는 것도 다듬을 일(Codex 몫).
+- CONFIG 시트에는 `AI_REASONING_EFFORT=minimal`이 남아 있어도 코드가 `low`로 읽는다. `phase0CleanupApply()`를 다시 돌리면 `low`로 바뀐다. `none`(모델이 받는 최솟값)은 품질을 안 봤으므로 별도 단계로 한 번에 하나만 바꿔 재고, 바꾸면 `TURNS.aiStatus`가 `compose:ok`인지 먼저 센다.
+- 교사가 시트 메뉴 "관리. 경량화 시트 전환(백업 포함)"을 한 번 더 눌러 백업 사본이 하나 더 생겼고 CONFIG가 `LIGHT_CONFIG_DEFAULTS_` 14키로 재배열됐다(값 유지). 이때 `ASK_NICKNAME` 행이 사라지는데 코드가 안 쓰는 키라 문제없고, `phase0Cleanup`의 목록에서도 뺐다.
+- 예약 번호는 99-601~700을 썼다. 다음 실측은 **99-701부터**.
+- 시트를 UI 없이 읽는 법: Chrome에서 `https://docs.google.com/spreadsheets/d/<id>/gviz/tq?tqx=out:html&sheet=TURNS&headers=1&tq=select …`. `clasp run`·`clasp logs`는 GCP 프로젝트가 없어 안 된다.
+
+**교사 실증 관찰 — "생각·근거·다듬기에 편향된다".** 같은 시각(오전 9:47~9:54) 교사가 1-20으로 실증한 8턴이 모두 `compose:compose_fallback`이었다. AI가 꺼진 규칙 경로는 `attempt_answer`에 `check_evidence`("그렇게 생각한 근거를 지문의 어느 부분에서 찾았나요?")를, 나머지에 `receive`("근거를 더해 생각을 표현했군요…")를 내고, 2국면 관리 질문(이해→까닭→의견)이 매 턴 붙는다. 답 부분이 비어 질문만 연달아 보이므로 편향으로 느껴진다. **버전 22에서 AI가 돌아왔으니 먼저 다시 실증한다.** 그래도 남으면 손볼 순서:
+
+1. `Phase.js` — 관리 질문을 매 턴이 아니라 **학생 답 뒤 한 턴은 비워** 두기(관리 질문 사이에 자유 턴 1개), 세션당 관리 질문 상한(예 3개). 웹앱 원본과의 parity 검사는 설정으로 끈 채 확인.
+2. `ResponseRenderer.js` — 규칙 경로의 `check_evidence`·`receive` 바탕 문장을 "알겠어요." 수준으로 짧게(6단계 잔가지 3번과 같은 자리). AI가 꺼져도 되묻기 문장이 매 턴 나가지 않게.
+3. `AIService.js` 조립 지시문 — "학생의 시도를 짧게 관찰하고 … 다음에 할 행동 한 가지"가 다듬기 쪽으로 기울면 "학생이 답했으면 맞는 부분을 먼저 확인해 주고 끝낸다"로 바꾼다.

@@ -216,9 +216,9 @@ const related = ['잔반이 뭐예요?', '선택 배식이 뭐예요?', '왜 잔
   run('phase0CleanupApply()');
   const after = run('getAISettings_(readConfig_())');
   const rows = run(`getRowsAsObjects_('CONFIG')`).filter((r) => r.key === 'AI_REASONING_EFFORT');
-  record('⑭ phase0CleanupApply → AI_MAX_HISTORY_TURNS 6→4, AI_REASONING_EFFORT 행 추가(minimal)',
+  record('⑭ phase0CleanupApply → AI_MAX_HISTORY_TURNS 6→4, AI_REASONING_EFFORT 행 추가(low)',
     before.maxHistoryTurns === 6 && untouched.AI_MAX_HISTORY_TURNS === '6' && untouched.AI_REASONING_EFFORT === undefined
-      && after.maxHistoryTurns === 4 && after.reasoningEffort === 'minimal' && rows.length === 1 && rows[0].value === 'minimal',
+      && after.maxHistoryTurns === 4 && after.reasoningEffort === 'low' && rows.length === 1 && rows[0].value === 'low',
     `before=${before.maxHistoryTurns} preview=${untouched.AI_MAX_HISTORY_TURNS}/${untouched.AI_REASONING_EFFORT} after=${after.maxHistoryTurns}/${after.reasoningEffort} rows=${rows.length}`);
 }
 
