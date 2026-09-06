@@ -82,8 +82,10 @@ function getAISettings_(config) {
 }
 
 function normalizeReasoningEffort_(value) {
-  const allowed = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'];
+  // gpt-5.6-terra는 none·low·medium·high·xhigh만 받는다. 'minimal'은 HTTP 400으로 거부된다(7단계 실측 2026-09-06).
+  const allowed = ['none', 'low', 'medium', 'high', 'xhigh'];
   const normalized = String(value || 'low').toLowerCase();
+  if (normalized === 'minimal') return 'low';
   return allowed.indexOf(normalized) >= 0 ? normalized : 'low';
 }
 
@@ -207,6 +209,7 @@ function composeResponseWithAI_(input) {
     console.warn('AI 문장 조립을 건너뛰고 규칙 응답을 사용합니다: ' + safeAIErrorMessage_(error));
     fallback.status = 'compose_fallback';
     fallback.model = model;
+    fallback.reason = safeAIErrorMessage_(error);
     return fallback;
   }
 }
@@ -284,7 +287,7 @@ function callOpenAIJson_(request) {
     model: request.model,
     instructions: request.instructions,
     input: request.input,
-    reasoning: { effort: request.reasoningEffort || 'minimal' },
+    reasoning: { effort: request.reasoningEffort || 'low' },
     max_output_tokens: Number(request.maxOutputTokens || 500),
     store: false,
     text: {
@@ -317,6 +320,11 @@ function callOpenAIJson_(request) {
     const message = data && data.error && data.error.message
       ? String(data.error.message).slice(0, 240)
       : '요청이 실패했습니다.';
+    // 모델이 추론 강도 값을 거부하면 한 번만 low로 다시 보낸다 — 설정 실수 하나로 AI 전체가 꺼지지 않게.
+    if (statusCode === 400 && /Unsupported value/i.test(message) && /reasoning|effort/i.test(message) &&
+        request.reasoningEffort !== 'low' && !request.retriedEffort) {
+      return callOpenAIJson_(Object.assign({}, request, { reasoningEffort: 'low', retriedEffort: true }));
+    }
     throw new Error('OpenAI API 오류 HTTP ' + statusCode + ': ' + message);
   }
   if (data.status === 'incomplete') {

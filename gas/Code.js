@@ -448,7 +448,10 @@ function submitTurn(payload) {
     Object.assign({}, common, { speaker: 'bot', text: responseResult.text, primaryMove: plan.primaryMove,
       hintLevel: plan.hintLevel, sourceStatus: responseResult.sourceStatus,
       evidenceIds: responseResult.evidence.map(function (item) { return item.id; }),
-      aiStatus: aiStatus, decisionReason: reviewId ? reason : plan.reasonCode,
+      aiStatus: aiStatus,
+      // AI가 규칙 응답으로 물러난 까닭을 함께 남긴다 — 익명 웹앱 실행은 console 로그를 볼 수 없다.
+      decisionReason: (reviewId ? reason : plan.reasonCode) +
+        (aiComposeResult.reason ? ' · ai:' + String(aiComposeResult.reason).slice(0, 160) : ''),
       phase: decision.phase, managedKind: decision.kind || '',
       responseScore: decision.lastScore == null ? '' : decision.lastScore,
       relatedQuestion: decision.relatedQuestion })
