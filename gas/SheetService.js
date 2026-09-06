@@ -594,17 +594,52 @@ function getActiveSessionContext_(sessionId, selector) {
 
 function appendTurn_(turn) { appendConversationTurns_([turn]); }
 
-function appendConversationTurns_(turns) {
-  const lock = LockService.getScriptLock(); lock.waitLock(30000);
+var TURN_LOCK_BUSY_MESSAGE_ = '지금 친구들이 한꺼번에 보내고 있어요. 잠시 뒤 다시 보내 주세요.';
+
+// 잠금 안에서는 (1) 이 세션의 마지막 턴 번호를 두 열만 읽어 구하고 (2) 두 행을 한 번에 쓴다.
+// 헤더 읽기·행 조립은 잠금 밖. 30명이 동시에 보내면 잠금이 직렬화되므로 안의 일이 곧 대기 시간이다(7단계 실측).
+function appendConversationTurns_(turns, cursor) {
+  const sheet = getSpreadsheet_().getSheetByName('TURNS');
+  const headers = getHeaderMap_(sheet);
+  const columns = Object.keys(headers).sort(function (a, b) { return headers[a] - headers[b]; });
+  const width = columns.length ? headers[columns[columns.length - 1]] : 0;
+  const prepared = turns.map(function (turn) {
+    return Object.assign({}, turn, { evidenceIds: serializeIdList_(turn.evidenceIds), isPreview: Boolean(turn.isPreview) });
+  });
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error(TURN_LOCK_BUSY_MESSAGE_);
   try {
-    const sheet = getSpreadsheet_().getSheetByName('TURNS');
-    const history = getSessionTurns_(turns[0].sessionId);
-    const lastNo = history.reduce(function (max, row) { return Math.max(max, Number(row.turnNo || 0)); }, 0);
-    appendObjectsToSheet_(sheet, turns.map(function (turn, index) {
-      return Object.assign({}, turn, { timestamp: new Date(), turnNo: lastNo + index + 1,
-        evidenceIds: serializeIdList_(turn.evidenceIds), isPreview: Boolean(turn.isPreview) });
-    }));
+    const lastNo = cursor
+      ? Math.max(Number(cursor.lastNo || 0), lastTurnNoForSession_(sheet, headers, turns[0].sessionId, cursor.lastRow))
+      : lastTurnNoForSession_(sheet, headers, turns[0].sessionId);
+    const now = new Date();
+    const rows = prepared.map(function (turn, index) {
+      const row = new Array(width).fill('');
+      const values = Object.assign({}, turn, { timestamp: now, turnNo: lastNo + index + 1 });
+      columns.forEach(function (header) {
+        if (Object.prototype.hasOwnProperty.call(values, header)) row[headers[header] - 1] = values[header];
+      });
+      return row;
+    });
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, width).setValues(rows);
   } finally { flushAndReleaseLock_(lock); }
+}
+
+// TURNS에서 sessionId·turnNo 두 열만 읽어 이 세션의 마지막 턴 번호를 돌려준다(전체 18열 객체 변환 대신).
+// sinceRow를 주면 그 행 뒤에 추가된 행만 본다(요청 시작 때 읽은 기록 이후의 변화).
+function lastTurnNoForSession_(sheet, headers, sessionId, sinceRow) {
+  const lastRow = sheet.getLastRow();
+  const startRow = Math.max(2, Number(sinceRow || 0) + 1);
+  if (lastRow < startRow || !headers.sessionId || !headers.turnNo) return 0;
+  const from = Math.min(headers.sessionId, headers.turnNo);
+  const to = Math.max(headers.sessionId, headers.turnNo);
+  const values = sheet.getRange(startRow, from, lastRow - startRow + 1, to - from + 1).getValues();
+  const si = headers.sessionId - from, ti = headers.turnNo - from;
+  let max = 0;
+  for (let i = 0; i < values.length; i++) {
+    if (String(values[i][si]) === String(sessionId)) max = Math.max(max, Number(values[i][ti] || 0));
+  }
+  return max;
 }
 
 function upsertReviewItem_(item) {
@@ -637,6 +672,16 @@ function reviewScope_(material) { return 'REV-' + String(material.sourceHash) + 
 function getSessionTurns_(sessionId) {
   return getRowsAsObjects_('TURNS').filter(function (row) { return String(row.sessionId) === String(sessionId); })
     .sort(function (a, b) { return Number(a.turnNo) - Number(b.turnNo); });
+}
+
+// 세션 기록과 함께 "그때 TURNS의 마지막 행 번호"를 돌려준다. appendConversationTurns_가 잠금 안에서
+// 이 행 뒤에 추가된 행만 훑어 같은 세션의 새 턴이 있는지 본다(전체 다시 읽기 없이 턴 번호가 정확하다).
+function getSessionTurnsCursor_(sessionId) {
+  const sheet = getSpreadsheet_().getSheetByName('TURNS');
+  const lastRow = sheet ? sheet.getLastRow() : 0;   // 기록을 읽기 전에 잡아 둔다 — 사이에 늘어난 행은 잠금 안에서 다시 본다
+  const turns = getSessionTurns_(sessionId);
+  const lastNo = turns.reduce(function (max, row) { return Math.max(max, Number(row.turnNo || 0)); }, 0);
+  return { turns: turns, lastRow: lastRow, lastNo: lastNo };
 }
 
 function getRowsAsObjects_(sheetName) {

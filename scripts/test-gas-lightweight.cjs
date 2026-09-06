@@ -147,7 +147,7 @@ const context = {
     getUuid: () => `00000000-0000-4000-8000-${String(++uuidCounter).padStart(12, '0')}`
   },
   LockService: {
-    getScriptLock: () => ({ waitLock() {}, releaseLock() {} })
+    getScriptLock: () => ({ waitLock() {}, tryLock() { return true; }, releaseLock() {} })
   },
   CacheService: {
     getScriptCache: () => ({

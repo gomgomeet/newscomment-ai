@@ -398,7 +398,8 @@ function submitTurn(payload) {
   const config = readConfig_();
   const context = getActiveSessionContext_(payload.sessionId, payload.lesson);
   const material = context.material;
-  const history = getSessionTurns_(payload.sessionId);
+  const historyCursor = getSessionTurnsCursor_(payload.sessionId);
+  const history = historyCursor.turns;
   if (history.length && history[history.length - 1].primaryMove === 'close') throw new Error('이미 마친 대화입니다.');
   const action = String(payload.action || 'message');
   const message = String(payload.message || (action === 'hint' ? '힌트가 필요해요.' : action === 'close' ? '이제 대화를 마칠게요.' : '')).trim();
@@ -455,7 +456,7 @@ function submitTurn(payload) {
       phase: decision.phase, managedKind: decision.kind || '',
       responseScore: decision.lastScore == null ? '' : decision.lastScore,
       relatedQuestion: decision.relatedQuestion })
-  ]);
+  ], historyCursor);
   return { reply: responseResult.text, primaryMove: plan.primaryMove, hintLevel: plan.hintLevel,
     sourceStatus: responseResult.sourceStatus, teacherInterventionFlag: plan.teacherInterventionFlag || Boolean(reviewId),
     expectsStudentReply: plan.expectsStudentReply, isClosing: plan.isClosing, retrievalConfidence: retrieval.confidence,

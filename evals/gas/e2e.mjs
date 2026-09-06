@@ -57,7 +57,7 @@ const ctx = {
     computeDigest: (_a, v) => createHash('sha256').update(String(v), 'utf8').digest(),
     base64EncodeWebSafe: (v) => Buffer.from(v).toString('base64url'),
     getUuid: () => `00000000-0000-4000-8000-${String(++uuid).padStart(12, '0')}` },
-  LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
+  LockService: { getScriptLock: () => ({ waitLock() {}, tryLock() { return true; }, releaseLock() {} }) },
   CacheService: { getScriptCache() { throw new Error('캐시를 쓰면 안 된다'); } },
   ScriptApp: { getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/e2e/exec' }) },
   UrlFetchApp: { fetch() { throw new Error('AI가 꺼져 있어야 한다'); } },
@@ -220,6 +220,17 @@ const related = ['잔반이 뭐예요?', '선택 배식이 뭐예요?', '왜 잔
     before.maxHistoryTurns === 6 && untouched.AI_MAX_HISTORY_TURNS === '6' && untouched.AI_REASONING_EFFORT === undefined
       && after.maxHistoryTurns === 4 && after.reasoningEffort === 'low' && rows.length === 1 && rows[0].value === 'low',
     `before=${before.maxHistoryTurns} preview=${untouched.AI_MAX_HISTORY_TURNS}/${untouched.AI_REASONING_EFFORT} after=${after.maxHistoryTurns}/${after.reasoningEffort} rows=${rows.length}`);
+}
+
+// ---------- 9. 8단계 — 잠금 밖에서 읽은 기록 커서로 턴 번호를 잇는다 ----------
+{
+  const b = start('4-31'); send(b, related[0]);
+  ctx.e2eSid = b.sessionId;
+  ctx.e2eStale = run('getSessionTurnsCursor_(e2eSid)');            // 요청 시작 때 읽은 상태(턴 2까지)
+  run("appendConversationTurns_([{ sessionId: e2eSid, studentCode: '4-31', speaker: 'student', text: '끼어든 턴', aiStatus: 'rule' }])"); // 그 사이 같은 세션에 행이 하나 더
+  run("appendConversationTurns_([{ sessionId: e2eSid, studentCode: '4-31', speaker: 'student', text: 'a', aiStatus: 'rule' }, { sessionId: e2eSid, studentCode: '4-31', speaker: 'bot', text: 'b', aiStatus: 'rule' }], e2eStale)");
+  const nos = run('getSessionTurns_(e2eSid).map(function (r) { return Number(r.turnNo); })');
+  record('⑮ 기록을 읽은 뒤 같은 세션 행이 끼어들어도 커서 뒤만 훑어 턴 번호가 1~5로 이어진다', JSON.stringify(nos) === '[1,2,3,4,5]', 'turnNo=' + JSON.stringify(nos));
 }
 
 // ---------- 출력 ----------
