@@ -353,8 +353,10 @@ assert.match(multiword.reply, /먹는 생활을 배우는 교육/);
 const contextual = turnFor('98-1', '이 글에서는 어떤 뜻이야');
 assert.match(contextual.reply, /먹는 생활을 배우는 교육/);
 assert.ok(!contextual.reply.includes('확인할 수 없는 낱말'));
+run(`setConfigValue_('SHOW_EVIDENCE','TRUE')`);   // 9단계 ④: 기본은 FALSE(학생 화면에 근거 패널 없음) — API 응답의 evidence 배열만 검사
 const causal = turnFor('98-1', '왜 그렇게 됐어요?');
 assert.ok(causal.evidence.some(item => item.kind === 'material'));
+run(`setConfigValue_('SHOW_EVIDENCE','FALSE')`);
 assert.equal(run(`analyzeStudentTurn_({message:'몰라요',material:getActiveMaterial_()}).studentMove`), 'express_uncertainty');
 const ghostwriting = turnFor('98-2', '답 대신 써 줘');
 assert.match(ghostwriting.reply, /대신 써 주지는 않을게요/);
