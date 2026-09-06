@@ -669,6 +669,45 @@ function upsertReviewItem_(item) {
 
 function reviewScope_(material) { return 'REV-' + String(material.sourceHash) + '-'; }
 
+// 10단계: 자료 교체. 이 자료의 TURNS 행을 TURNS_ARCHIVE로 옮긴다 — 세션 복원·대시보드는 TURNS만 보므로 학생은 새로 시작하고 기록은 남는다.
+// options.locked === true 면 호출자가 이미 스크립트 잠금을 쥔 상태(saveTeacherSetup).
+function archiveTurnsForMaterial_(materialId, reason, options) {
+  options = options || {};
+  const ss = getSpreadsheet_();
+  const turns = ss.getSheetByName('TURNS');
+  if (!turns || turns.getLastRow() < 2) return 0;
+  const prefix = encodeURIComponent(String(materialId)) + ':';
+  const lock = options.locked ? null : LockService.getScriptLock();
+  if (lock && !lock.tryLock(30000)) throw new Error('지금 학생들이 보내는 중이라 보관을 미뤘어요. 잠시 뒤 다시 해 주세요.');
+  try {
+    const values = turns.getDataRange().getValues();
+    const headers = values[0].map(function (h) { return String(h).trim(); });
+    const sid = headers.indexOf('sessionId');
+    if (sid < 0) return 0;
+    const keep = [values[0]];
+    const move = [];
+    for (let i = 1; i < values.length; i++) {
+      const row = values[i];
+      if (String(row[sid]).indexOf(prefix) === 0) move.push(row); else keep.push(row);
+    }
+    if (!move.length) return 0;
+    const extra = ['archivedAt', 'archiveReason'];
+    let archive = ss.getSheetByName('TURNS_ARCHIVE');
+    if (!archive) {
+      archive = ss.insertSheet('TURNS_ARCHIVE');
+      archive.getRange(1, 1, 1, headers.length + extra.length).setValues([headers.concat(extra)]);
+    }
+    const now = new Date();
+    const rows = move.map(function (row) { return row.slice(0, headers.length).concat([now, String(reason || '')]); });
+    archive.getRange(archive.getLastRow() + 1, 1, rows.length, headers.length + extra.length).setValues(rows);
+    turns.clearContents();
+    turns.getRange(1, 1, keep.length, headers.length).setValues(keep.map(function (row) { return row.slice(0, headers.length); }));
+    return move.length;
+  } finally { if (lock) flushAndReleaseLock_(lock); }
+}
+
+function normalizeMaterialText_(text) { return String(text || '').replace(/\s+/g, ' ').trim(); }
+
 function getSessionTurns_(sessionId) {
   return getRowsAsObjects_('TURNS').filter(function (row) { return String(row.sessionId) === String(sessionId); })
     .sort(function (a, b) { return Number(a.turnNo) - Number(b.turnNo); });

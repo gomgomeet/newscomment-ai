@@ -31,6 +31,7 @@
 | `KNOWLEDGE` | `knowledgeId` `materialId` `knowledgeType` `title` `content` `easyExplanation` `evidenceQuote` `chunkId` `sourceHash` `status` `active` |
 | `CARDS` | `cardId` `studentMove` `primaryMove` `hintLevel` `response` `questionPatterns` `materialId` `sourceHash` `status` `active` |
 | `TURNS` | `timestamp` `sessionId` `studentCode` `turnNo` `speaker`(`student`/`bot`) `text` `studentMove` `primaryMove` `hintLevel` `sourceStatus` `evidenceIds`(`\|`로 이어 붙임) `aiStatus` `decisionReason` **`phase`** **`managedKind`** **`responseScore`** **`relatedQuestion`** `isPreview` |
+| `TURNS_ARCHIVE` | `TURNS`와 같은 열 + `archivedAt` `archiveReason` — 지문이나 버전이 바뀌어 저장할 때(또는 메뉴 "이 자료의 학생 대화 보관") 그 자료의 `TURNS` 행을 옮긴다(10단계). 런타임은 읽지 않는다 |
 | `REVIEW_QUEUE` | `createdAt` `reviewId` `studentCode` `question` `reasonCode` `candidateIds` `count` `status` `teacherDecision` `reviewedAt` |
 | `DASHBOARD` | 학생별 한 행: `studentCode` `questionCount` `relatedQuestionCount` `comprehensionBest` `standardBest` `opinionScore` `moreToExplore` `reachedDifficulty` `teacherNote` |
 
