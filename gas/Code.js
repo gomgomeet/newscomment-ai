@@ -1,6 +1,11 @@
 /**
  * 질문 챗봇 웹앱의 공개 진입점입니다.
  * 연수에서는 함수 이름과 반환 객체의 필드명을 유지합니다.
+ *
+ * 출처·이용 안내 — 이 스크립트는 교사 연수용 공개 자료입니다.
+ *   원본: https://github.com/gomgomeet/newscomment-ai (gas/)
+ *   연수 참가자는 수업 목적으로 사본을 만들고 고쳐 쓸 수 있습니다. 나눠 쓸 때는 이 출처를 남겨 주세요.
+ *   상업적 이용·재배포는 저작자에게 먼저 문의해 주세요. API 키는 시트가 아니라 Script Properties에만 둡니다.
  */
 
 const TEACHER_ACCESS_TOKEN_PROPERTY_ = 'TEACHER_ACCESS_TOKEN';
