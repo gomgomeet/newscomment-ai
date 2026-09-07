@@ -10,11 +10,10 @@
  *
  * 이것으로 대신할 수 없는 것: 실제 모델의 말투와 시트 반영. 그건 교사 화면에서 한 번 더 본다.
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHash } from 'node:crypto';
-import vm from 'node:vm';
+import { createGasContext, installMaterial } from './lib/fake-apps-script.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
@@ -22,75 +21,11 @@ const materialPath = resolve(root, (process.argv.find((a) => a.startsWith('--mat
   || 'evals/gas/fixtures/material-plastic-e5.json');
 const fixture = JSON.parse(readFileSync(materialPath, 'utf8'));
 
-// ---------- 가짜 Apps Script (evals/gas/e2e.mjs 와 같은 모양, AI만 스텁으로 바꿀 수 있게) ----------
-class RangeMock {
-  constructor(sheet, row, column, rowCount = 1, columnCount = 1) { Object.assign(this, { sheet, row, column, rowCount, columnCount }); }
-  getValues() { const rows = []; for (let r = 0; r < this.rowCount; r++) { const row = []; for (let c = 0; c < this.columnCount; c++) row.push(this.sheet.getCell(this.row + r, this.column + c)); rows.push(row); } return rows; }
-  getDisplayValues() { return this.getValues().map((row) => row.map((v) => (v == null ? '' : String(v)))); }
-  setValues(values) { values.forEach((row, r) => row.forEach((v, c) => this.sheet.setCell(this.row + r, this.column + c, v))); return this; }
-  setValue(v) { this.sheet.setCell(this.row, this.column, v); return this; }
-  setFontWeight() { return this; } setBackground() { return this; } setFontColor() { return this; } setWrap() { return this; }
-}
-class SheetMock {
-  constructor(name) { this.name = name; this.rows = []; }
-  getName() { return this.name; }
-  getCell(r, c) { return this.rows[r - 1]?.[c - 1] ?? ''; }
-  setCell(r, c, v) { while (this.rows.length < r) this.rows.push([]); while (this.rows[r - 1].length < c) this.rows[r - 1].push(''); this.rows[r - 1][c - 1] = v; }
-  getLastRow() { for (let r = this.rows.length - 1; r >= 0; r--) if (this.rows[r].some((v) => v !== '' && v != null)) return r + 1; return 0; }
-  getLastColumn() { return this.rows.reduce((m, row) => Math.max(m, row.length), 0); }
-  getRange(r, c, rc = 1, cc = 1) { return new RangeMock(this, r, c, rc, cc); }
-  getDataRange() { return new RangeMock(this, 1, 1, Math.max(1, this.getLastRow()), Math.max(1, this.getLastColumn())); }
-  appendRow(row) { this.getRange(this.getLastRow() + 1, 1, 1, row.length).setValues([row]); }
-  setFrozenRows() { return this; } clearContents() { this.rows = []; return this; }
-}
-class SpreadsheetMock {
-  constructor() { this.id = 'sheet-new-material'; this.sheets = new Map(); }
-  getId() { return this.id; } getName() { return 'new-material'; }
-  getSheetByName(n) { return this.sheets.get(n) || null; }
-  getSheets() { return [...this.sheets.values()]; }
-  insertSheet(n) { const s = new SheetMock(n); this.sheets.set(n, s); return s; }
-  setActiveSheet() {} toast() {}
-}
-const spreadsheet = new SpreadsheetMock();
-const properties = new Map();
-let uuid = 0;
-const aiResponses = [];   // 넣어 둔 만큼만 모델이 답한다. 비어 있는데 부르면 실패다.
-const aiRequests = [];
-const ctx = {
-  console,
-  SpreadsheetApp: { flush() {}, getActiveSpreadsheet: () => spreadsheet, openById: () => spreadsheet,
-    getUi: () => ({ createMenu: () => { const m = { addItem() { return m; }, addSeparator() { return m; }, addToUi() {} }; return m; }, alert() {}, showModalDialog() {} }) },
-  PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => properties.get(k) || null, setProperty: (k, v) => properties.set(k, String(v)), deleteProperty: (k) => properties.delete(k) }) },
-  Utilities: { DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
-    computeDigest: (_a, v) => createHash('sha256').update(String(v), 'utf8').digest(),
-    base64EncodeWebSafe: (v) => Buffer.from(v).toString('base64url'),
-    getUuid: () => `00000000-0000-4000-8000-${String(++uuid).padStart(12, '0')}` },
-  LockService: { getScriptLock: () => ({ waitLock() {}, tryLock() { return true; }, releaseLock() {} }) },
-  CacheService: { getScriptCache() { throw new Error('캐시를 쓰면 안 된다'); } },
-  ScriptApp: { getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/new-material/exec' }) },
-  UrlFetchApp: { fetch: (_url, options) => {
-    aiRequests.push(JSON.parse(options.payload));
-    const next = aiResponses.shift();
-    if (!next) throw new Error('AI를 부르면 안 되는 자리에서 불렀다');
-    return { getResponseCode: () => 200, getContentText: () => JSON.stringify(next) };
-  } },
-  HtmlService: { createTemplateFromFile: () => ({ evaluate: () => ({ setTitle() { return this; }, addMetaTag() { return this; } }) }), createHtmlOutputFromFile: () => ({ getContent: () => '' }) },
-  Logger: { log() {} },
-};
-vm.createContext(ctx);
-const gasDir = join(root, 'gas');
-for (const f of readdirSync(gasDir).filter((f) => f.endsWith('.js')).sort()) vm.runInContext(readFileSync(join(gasDir, f), 'utf8'), ctx, { filename: f });
-const run = (src) => vm.runInContext(src, ctx);
+// ---------- 가짜 Apps Script 위에 자료를 올린다 ----------
+const { ctx, run, spreadsheet, properties, aiResponses, aiRequests } = createGasContext(join(root, 'gas'), { id: 'sheet-new-material' });
 
 // ---------- 자료를 넣는다 (교사 화면 "3. 교사 자료 입력"과 같은 자리) ----------
-run('setupProject()');
-ctx.newMaterial = fixture.material;
-run(`appendObjectsToSheet_(getSpreadsheet_().getSheetByName('MATERIALS'), [newMaterial]); syncMaterialChunks_();`);
-const material = run('getActiveMaterial_()');
-ctx.newVocab = fixture.vocabulary || [];
-run(`(function(){ var m = getActiveMaterial_(); var policy = requireSupportedGrade_(m.gradeCode || m.grade);
-  var rows = newVocab.map(function (v) { return Object.assign(makeVocabularyRow_(m, v.term, v.definition, policy, '교사 직접 입력'), { status: 'approved', active: true, teacherApproved: true, sourceHash: m.sourceHash, version: m.version }); });
-  appendObjectsToSheet_(getSpreadsheet_().getSheetByName('VOCABULARY_LIBRARY'), rows); })()`);
+const material = installMaterial({ ctx, run }, fixture.material, fixture.vocabulary || []);
 run(`setConfigValue_('AI_ENABLED', 'FALSE')`);
 
 // ---------- 도우미 ----------
