@@ -89,6 +89,12 @@ function matchesAny(reply, candidates) {
   return candidates.some((candidate) => compactReply.includes(normalizeForMatch(candidate)));
 }
 
+function syntheticClientAddress(sessionId) {
+  let hash = 0;
+  for (const character of String(sessionId)) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  return `198.18.${(hash >>> 8) % 254 + 1}.${hash % 254 + 1}`;
+}
+
 function sentenceCount(value) {
   const matches = value.match(/[^.!?？]+[.!?？]?/g) || [];
   return matches.map((item) => item.trim()).filter(Boolean).length;
@@ -217,7 +223,11 @@ async function main() {
       const startedAt = performance.now();
       const apiResponse = await fetch(`${baseUrl}/api/questioning-board/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        // 운영 환경의 여러 학생 기기를 재현해 주소 단위 폭주 제한과 세션 제한을 분리한다.
+        headers: {
+          "Content-Type": "application/json",
+          "X-Forwarded-For": syntheticClientAddress(session.id),
+        },
         body: JSON.stringify({
           standard: session.standard,
           targetGrade: session.targetGrade,

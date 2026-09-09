@@ -3,7 +3,7 @@
  * API 키는 Script Properties에만 저장하며 Sheet 행으로 만들지 않습니다.
  */
 
-const LITE_APP_VERSION_ = '0.1.0';
+const LITE_APP_VERSION_ = '0.3.0';
 const LITE_API_KEY_PROPERTY_ = 'TEACHER_OPENAI_API_KEY';
 const LITE_SPREADSHEET_ID_PROPERTY_ = 'TEACHER_SPREADSHEET_ID';
 const LITE_ENGINE_ENDPOINT_PROPERTY_ = 'CENTRAL_ENGINE_ENDPOINT';
@@ -16,19 +16,22 @@ const LITE_SHEET_HEADERS_ = {
     'achievementStandardCode', 'achievementStandard', 'assessmentCriteria',
     'rubricHigh', 'rubricMeet', 'rubricDeveloping', 'evidenceDescription',
     'materialTitle', 'materialText', 'materialUrl', 'startQuestion',
-    'activityMode', 'version', 'updatedAt'
+    'activityMode', 'version', 'sourceHash', 'lessonRevision', 'updatedAt'
   ],
   '학생별 현황': [
-    'studentCode', 'questionCount', 'relatedQuestionCount', 'lastActiveAt',
+    'studentCode', 'lessonId', 'lessonRevision', 'sessionId', 'questionCount', 'relatedQuestionCount', 'lastActiveAt',
     'progressStatus', 'isPreview'
   ],
   '질문과 답변': [
     'timestamp', 'requestId', 'sessionId', 'studentCode', 'turnNo', 'speaker',
-    'text', 'activityMode', 'phase', 'managedKind', 'evidenceIds',
-    'engineStatus', 'aiStatus', 'isPreview'
+    'text', 'activityMode', 'phase', 'managedKind', 'relatedQuestion', 'responseScore',
+    'questionType', 'engagementState', 'curriculumRelation', 'supportLevel',
+    'sourceStatus', 'sourceCue', 'evidenceIds', 'isClosing',
+    'engineStatus', 'aiStatus', 'isPreview', 'lessonRevision', 'sourceHash'
   ],
   '교사 평가': [
-    'studentCode', 'lessonId', 'automaticJudgment', 'evidenceSummary',
+    'studentCode', 'sessionId', 'lessonId', 'lessonRevision', 'automaticJudgment', 'evidenceSummary',
+    'questioningBest', 'passageComprehensionBest', 'achievementStandardBest', 'reflectionOpinionBest',
     'teacherDecision', 'teacherFeedback', 'improvementSuggestion',
     'nextLessonSuggestion', 'finalStatus', 'finalizedAt'
   ]
@@ -117,6 +120,7 @@ function validateLiteTeacherSetup_(payload) {
 function sanitizeLiteSettingsForStudent_(settings) {
   settings = settings || {};
   return {
+    lessonId: liteText_(settings.lessonId, 80),
     appName: liteText_(settings.appName, 40) || '질문이',
     subject: liteText_(settings.subject, 40),
     grade: liteText_(settings.grade, 40),
@@ -127,7 +131,9 @@ function sanitizeLiteSettingsForStudent_(settings) {
     materialUrl: liteText_(settings.materialUrl, 1000),
     startQuestion: liteText_(settings.startQuestion, 500),
     activityMode: settings.activityMode === 'exploration' ? 'exploration' : 'evaluation',
-    version: liteText_(settings.version, 30) || 'v1'
+    version: liteText_(settings.version, 30) || 'v1',
+    sourceHash: liteText_(settings.sourceHash, 24),
+    lessonRevision: Math.max(1, Number(settings.lessonRevision || 1))
   };
 }
 
@@ -166,7 +172,7 @@ function buildLiteReadiness_(settings, context) {
       key: 'mode',
       label: '운영 모드',
       state: settings.activityMode === 'evaluation' || settings.activityMode === 'exploration' ? 'pass' : 'block',
-      detail: settings.activityMode === 'exploration' ? '탐색모드로 운영합니다.' : settings.activityMode === 'evaluation' ? '평가모드로 운영합니다.' : '평가모드 또는 탐색모드를 선택해 주세요.'
+      detail: settings.activityMode === 'exploration' ? '자료 탐색모드로 운영합니다.' : settings.activityMode === 'evaluation' ? '평가모드로 운영합니다.' : '평가모드 또는 자료 탐색모드를 선택해 주세요.'
     },
     {
       key: 'engine',
@@ -250,7 +256,7 @@ function writeLiteStartHere_(spreadsheet) {
   const sheet = spreadsheet.getSheetByName('시작하기');
   const rows = [
     ['항목', '상태', '안내'],
-    ['1. API 연결', '', '경량 질문챗봇 → 교사 설정 열기에서 개인 API를 저장합니다.'],
+    ['1. API 연결', '', '내 수업 질문챗봇 → 교사 설정 열기에서 개인 API를 저장합니다.'],
     ['2. 평가 설계', '', '수업 목표 → 성취기준 → 평가기준 → 평가 근거 순서로 입력합니다.'],
     ['3. 수업자료', '', '학생이 질문할 본문과 시작 질문, 운영 모드를 입력합니다.'],
     ['4. 미리보기', '', '학생용 주소에서 99-999로 전체 과정을 점검합니다.'],
@@ -283,7 +289,14 @@ function readLiteTeacherSettings_() {
   const spreadsheet = getLiteSpreadsheet_();
   ensureLiteWorkbook_(spreadsheet);
   const rows = liteRowsAsObjects_(spreadsheet.getSheetByName('수업 자료'));
-  return rows[0] || {};
+  const settings = rows[0] || {};
+  // 0.1.x 사본은 개정 열이 없으므로, 다시 저장하기 전에도 새 중앙 엔진을 사용할 수 있게
+  // 같은 설정에서 항상 같은 해시와 첫 개정 번호를 계산해 돌려준다.
+  if (settings.lessonId) {
+    settings.sourceHash = liteText_(settings.sourceHash, 24) || makeLiteSettingsHash_(settings);
+    settings.lessonRevision = Math.max(1, Number(settings.lessonRevision || 1));
+  }
+  return settings;
 }
 
 function saveLiteTeacherSettings_(settings) {
@@ -292,8 +305,14 @@ function saveLiteTeacherSettings_(settings) {
   const sheet = spreadsheet.getSheetByName('수업 자료');
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0]
     .map(function (value) { return String(value).trim(); });
+  const previous = liteRowsAsObjects_(sheet)[0] || {};
+  const sourceHash = makeLiteSettingsHash_(settings);
+  const changed = String(previous.sourceHash || '') !== sourceHash;
+  const previousRevision = Math.max(0, Number(previous.lessonRevision || 0));
   const row = Object.assign({}, settings, {
-    lessonId: settings.lessonId || ('LESSON-' + Utilities.getUuid().slice(0, 8).toUpperCase()),
+    lessonId: settings.lessonId || previous.lessonId || ('LESSON-' + Utilities.getUuid().slice(0, 8).toUpperCase()),
+    sourceHash: sourceHash,
+    lessonRevision: changed ? previousRevision + 1 : Math.max(1, previousRevision),
     updatedAt: new Date()
   });
   const values = headers.map(function (header) {
@@ -308,6 +327,24 @@ function saveLiteTeacherSettings_(settings) {
     }
   }
   return row;
+}
+
+function makeLiteSettingsHash_(settings) {
+  const fields = [
+    'appName', 'subject', 'grade', 'lessonTitle', 'lessonGoal',
+    'achievementStandardCode', 'achievementStandard', 'assessmentCriteria', 'rubricHigh',
+    'rubricMeet', 'rubricDeveloping', 'evidenceDescription', 'materialTitle',
+    'materialText', 'materialUrl', 'startQuestion', 'activityMode', 'version'
+  ];
+  const source = fields.map(function (field) {
+    return field + '=' + liteText_(settings && settings[field]);
+  }).join('\n');
+  const digest = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    source,
+    Utilities.Charset.UTF_8
+  );
+  return Utilities.base64EncodeWebSafe(digest).replace(/=+$/g, '').slice(0, 24);
 }
 
 function getLiteStudentUrl_() {

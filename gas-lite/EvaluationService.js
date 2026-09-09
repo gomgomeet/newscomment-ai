@@ -4,6 +4,12 @@
  */
 
 const LITE_TEACHER_DECISIONS_ = ['판단 보류', '도달', '성장 중', '도움 필요'];
+const LITE_RUBRIC_SCORE_COLUMNS_ = {
+  questioning: 'questioningBest',
+  passage_comprehension: 'passageComprehensionBest',
+  achievement_standard: 'achievementStandardBest',
+  reflection_opinion: 'reflectionOpinionBest'
+};
 
 function liteAutomaticJudgment_(rubricScores) {
   const scores = (Array.isArray(rubricScores) ? rubricScores : [])
@@ -40,6 +46,11 @@ function liteEvidenceSummary_(rubricScores) {
 
 function upsertLiteEvaluationDraft_(settings, turn, observation) {
   if (turn.isPreview) return null;
+  if (!observation || observation.isClosing || observation.safetyFlag ||
+      (observation.sourceStatus === 'out_of_scope' && Number(observation.responseScore || 0) <= 0) ||
+      observation.primaryMove === 'repair') return null;
+  const observedScores = Array.isArray(observation.rubricScores) ? observation.rubricScores : [];
+  if (!observedScores.some(function (item) { return Number(item && item.score || 0) > 0; })) return null;
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -51,24 +62,50 @@ function upsertLiteEvaluationDraft_(settings, turn, observation) {
     const rows = liteRowsAsObjects_(sheet);
     const index = rows.findIndex(function (row) {
       return String(row.studentCode) === String(turn.studentCode) &&
-        String(row.lessonId) === String(settings.lessonId);
+        String(row.sessionId) === String(turn.sessionId) &&
+        String(row.lessonId) === String(settings.lessonId) &&
+        Number(row.lessonRevision || 1) === Number(settings.lessonRevision || 1);
     });
     const previous = index >= 0 ? rows[index] : {};
-    const scores = observation && observation.rubricScores || [];
-    const judgment = liteAutomaticJudgment_(scores);
+    const scoresByKey = {};
+    observedScores.forEach(function (item) {
+      if (item && LITE_RUBRIC_SCORE_COLUMNS_[item.criterionKey]) scoresByKey[item.criterionKey] = item;
+    });
+    const accumulatedScores = Object.keys(LITE_RUBRIC_SCORE_COLUMNS_).map(function (key) {
+      const column = LITE_RUBRIC_SCORE_COLUMNS_[key];
+      const current = scoresByKey[key] || {};
+      const hasPrevious = previous[column] !== '' && previous[column] != null;
+      if (!scoresByKey[key] && !hasPrevious) return null;
+      return {
+        criterionKey: key,
+        score: Math.max(Number(previous[column] || 0), Number(current.score || 0)),
+        rationale: String(current.rationale || '')
+      };
+    }).filter(Boolean);
+    const judgment = liteAutomaticJudgment_(accumulatedScores);
     const priorStatus = String(previous.finalStatus || '');
+    const evidenceLines = [String(previous.evidenceSummary || ''), liteEvidenceSummary_(observedScores)]
+      .join('\n').split('\n').map(function (line) { return line.trim(); }).filter(Boolean);
+    const evidenceSummary = evidenceLines.filter(function (line, index) {
+      return evidenceLines.indexOf(line) === index;
+    }).join('\n').slice(-10000);
     const object = {
       studentCode: turn.studentCode,
+      sessionId: turn.sessionId,
       lessonId: settings.lessonId,
-      automaticJudgment: judgment.label + ' · 평균 ' + judgment.average + '/5',
-      evidenceSummary: liteEvidenceSummary_(scores),
+      lessonRevision: settings.lessonRevision || 1,
+      automaticJudgment: '공통 질문행동 관찰 · ' + judgment.label + ' · 평균 ' + judgment.average + '/5 · 교사 기준 판단 전',
+      evidenceSummary: evidenceSummary,
       teacherDecision: previous.teacherDecision || '판단 보류',
       teacherFeedback: previous.teacherFeedback || '',
-      improvementSuggestion: previous.improvementSuggestion || liteImprovementSuggestion_(scores),
+      improvementSuggestion: previous.improvementSuggestion || liteImprovementSuggestion_(accumulatedScores),
       nextLessonSuggestion: previous.nextLessonSuggestion || '',
       finalStatus: priorStatus === '최종 확정' ? '재검수 필요' : (priorStatus || '검수 필요'),
       finalizedAt: priorStatus === '최종 확정' ? '' : (previous.finalizedAt || '')
     };
+    accumulatedScores.forEach(function (item) {
+      object[LITE_RUBRIC_SCORE_COLUMNS_[item.criterionKey]] = item.score;
+    });
     const values = headers.map(function (header) {
       return Object.prototype.hasOwnProperty.call(object, header) ? object[header] : '';
     });
@@ -84,10 +121,30 @@ function getLiteTeacherDashboardData(teacherAccessToken) {
   assertLiteTeacherAccess_(teacherAccessToken);
   const spreadsheet = getLiteSpreadsheet_();
   ensureLiteWorkbook_(spreadsheet);
+  const lesson = readLiteTeacherSettings_();
+  const isCurrentLesson = function (row) {
+    return String(row.lessonId) === String(lesson.lessonId) &&
+      Number(row.lessonRevision || 1) === Number(lesson.lessonRevision || 1);
+  };
+  const students = liteRowsAsObjects_(spreadsheet.getSheetByName('학생별 현황')).filter(isCurrentLesson);
+  const evaluations = liteRowsAsObjects_(spreadsheet.getSheetByName('교사 평가')).filter(isCurrentLesson);
+  const sessionCounts = {};
+  students.forEach(function (row) {
+    const code = String(row.studentCode || '');
+    sessionCounts[code] = Number(sessionCounts[code] || 0) + 1;
+  });
+  const decorate = function (row) {
+    const sessionId = String(row.sessionId || '');
+    return Object.assign({}, row, {
+      sessionConflict: Number(sessionCounts[String(row.studentCode || '')] || 0) > 1,
+      sessionLabel: sessionId ? sessionId.slice(-6) : ''
+    });
+  };
   return {
-    lesson: readLiteTeacherSettings_(),
-    students: liteRowsAsObjects_(spreadsheet.getSheetByName('학생별 현황')),
-    evaluations: liteRowsAsObjects_(spreadsheet.getSheetByName('교사 평가'))
+    lesson: lesson,
+    uniqueStudentCount: Object.keys(sessionCounts).length,
+    students: students.map(decorate),
+    evaluations: evaluations.map(decorate)
   };
 }
 
@@ -104,7 +161,9 @@ function validateLiteTeacherEvaluation_(payload) {
   }
   return {
     studentCode: normalizeLiteStudentCode_(payload.studentCode),
+    sessionId: liteRequired_(payload.sessionId, '대화 세션', 80),
     lessonId: liteRequired_(payload.lessonId, '수업 ID', 80),
+    lessonRevision: Math.max(1, Number(payload.lessonRevision || 1)),
     teacherDecision: decision,
     teacherFeedback: liteRequired_(payload.teacherFeedback, '교사 피드백', 1500),
     improvementSuggestion: liteRequired_(payload.improvementSuggestion, '향상 방법', 1500),
@@ -116,22 +175,33 @@ function validateLiteTeacherEvaluation_(payload) {
 function saveLiteTeacherEvaluation(teacherAccessToken, payload) {
   assertLiteTeacherAccess_(teacherAccessToken);
   const normalized = validateLiteTeacherEvaluation_(payload);
-  const spreadsheet = getLiteSpreadsheet_();
-  const sheet = spreadsheet.getSheetByName('교사 평가');
-  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0]
-    .map(function (value) { return String(value).trim(); });
-  const rows = liteRowsAsObjects_(sheet);
-  const index = rows.findIndex(function (row) {
-    return String(row.studentCode) === normalized.studentCode && String(row.lessonId) === normalized.lessonId;
-  });
-  if (index < 0) throw new Error('검수할 자동 판단 초안을 찾지 못했습니다.');
-  const previous = rows[index];
-  const object = Object.assign({}, previous, normalized, {
-    finalizedAt: normalized.finalStatus === '최종 확정' ? new Date() : ''
-  });
-  const values = headers.map(function (header) {
-    return Object.prototype.hasOwnProperty.call(object, header) ? object[header] : '';
-  });
-  sheet.getRange(index + 2, 1, 1, headers.length).setValues([values]);
-  return { ok: true, message: normalized.finalStatus === '최종 확정' ? '교사 최종 평가로 확정했습니다.' : '교사 검수 내용을 저장했습니다.' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    // 자동 초안 갱신과 같은 락 안에서 최신 행을 다시 읽어 교사 판단 유실을 막는다.
+    const spreadsheet = getLiteSpreadsheet_();
+    ensureLiteWorkbook_(spreadsheet);
+    const sheet = spreadsheet.getSheetByName('교사 평가');
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0]
+      .map(function (value) { return String(value).trim(); });
+    const rows = liteRowsAsObjects_(sheet);
+    const index = rows.findIndex(function (row) {
+      return String(row.studentCode) === normalized.studentCode &&
+        String(row.sessionId) === normalized.sessionId &&
+        String(row.lessonId) === normalized.lessonId &&
+        Number(row.lessonRevision || 1) === normalized.lessonRevision;
+    });
+    if (index < 0) throw new Error('검수할 자동 판단 초안을 찾지 못했습니다.');
+    const previous = rows[index];
+    const object = Object.assign({}, previous, normalized, {
+      finalizedAt: normalized.finalStatus === '최종 확정' ? new Date() : ''
+    });
+    const values = headers.map(function (header) {
+      return Object.prototype.hasOwnProperty.call(object, header) ? object[header] : '';
+    });
+    sheet.getRange(index + 2, 1, 1, headers.length).setValues([values]);
+    return { ok: true, message: normalized.finalStatus === '최종 확정' ? '교사 최종 평가로 확정했습니다.' : '교사 검수 내용을 저장했습니다.' };
+  } finally {
+    lock.releaseLock();
+  }
 }

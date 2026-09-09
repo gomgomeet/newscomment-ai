@@ -38,6 +38,9 @@
       .actions .status { flex:1 1 260px; min-height:24px; }
       .api-row { display:grid; grid-template-columns:1fr auto auto; gap:8px; align-items:end; }
       .notice { padding:11px 13px; border-radius:10px; background:var(--blue-soft); }
+      .training-path { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; margin:15px 0 18px; padding:13px; border:1px solid #bfdbfe; border-radius:12px; background:var(--blue-soft); }
+      .training-path div { padding:10px; border-radius:9px; background:white; }
+      .training-path strong { display:block; color:#1d4ed8; }
       .privacy { padding:11px 13px; border-left:4px solid #22c55e; background:#f0fdf4; }
       .badge { display:inline-flex; align-items:center; padding:4px 10px; border-radius:999px; color:var(--amber); background:var(--amber-soft); font-weight:800; }
       .badge.pass { color:var(--green); background:var(--green-soft); }
@@ -53,7 +56,7 @@
       .button-link[aria-disabled="true"] { pointer-events:none; color:#64748b; background:#e2e8f0; }
       .hidden { display:none !important; }
       @media (max-width:720px) {
-        .flow,.grid,.readiness { grid-template-columns:1fr; }
+        .flow,.grid,.readiness,.training-path { grid-template-columns:1fr; }
         .wide { grid-column:auto; }
         .api-row { grid-template-columns:1fr; }
       }
@@ -62,7 +65,12 @@
   <body data-teacher-access-token="<?= teacherAccessToken ?>">
     <main>
       <h1>내 수업 질문챗봇 만들기</h1>
-      <p class="lead">목표와 평가를 먼저 정한 뒤 수업자료를 연결합니다. 코드를 수정할 필요가 없습니다.</p>
+      <p class="lead">1차시에서 학생으로 체험한 웹 챗봇과 같은 대화 엔진·학생 화면을 사용합니다. 여기서는 내 API, 내 수업 설정, 내 결과 Sheet만 연결합니다.</p>
+      <div class="training-path" aria-label="연수에서 사용하는 순서">
+        <div><strong>1. 강사 설정 보기</strong><span>목표→평가기준→자료 순서를 관찰합니다.</span></div>
+        <div><strong>2. 학생으로 체험</strong><span>같은 학생 화면에서 질문하고 결과가 남는 것을 봅니다.</span></div>
+        <div><strong>3. 내 수업 설정</strong><span>이 화면에서 개인 API와 수업 내용을 연결합니다.</span></div>
+      </div>
 
       <nav class="flow" aria-label="설정 순서">
         <button type="button" data-step="api" aria-current="step"><span class="step-no">1단계</span>개인 API 연결</button>
@@ -157,7 +165,7 @@
             <label class="wide">챗봇 운영 모드
               <select id="activity-mode" required>
                 <option value="evaluation">평가모드 · 승인한 자료와 기준 중심, 비용 절약</option>
-                <option value="exploration">탐색모드 · 수업 주제와 관련된 확장 질문 허용</option>
+                <option value="exploration">자료 탐색모드 · 평가 기록 부담 없이 글 안의 근거 탐색</option>
               </select>
             </label>
           </div>

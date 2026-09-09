@@ -5,7 +5,7 @@
 
 function onOpen() {
   SpreadsheetApp.getUi()
-    .createMenu('경량 질문챗봇')
+    .createMenu('내 수업 질문챗봇')
     .addItem('1. 최초 준비', 'setupLiteProject')
     .addItem('2. 교사 설정 열기', 'showLiteTeacherSetup')
     .addSeparator()
@@ -23,7 +23,7 @@ function showLiteTeacherDashboard() {
   const html = template.evaluate()
     .setWidth(1040)
     .setHeight(760);
-  SpreadsheetApp.getUi().showModalDialog(html, '경량 질문챗봇 · 학생 현황과 평가 검수');
+  SpreadsheetApp.getUi().showModalDialog(html, '내 수업 질문챗봇 · 학생 현황과 평가 검수');
 }
 
 function setupLiteProject() {
@@ -32,10 +32,11 @@ function setupLiteProject() {
     LITE_SPREADSHEET_ID_PROPERTY_, spreadsheet.getId()
   );
   getOrCreateLiteTeacherAccessToken_();
+  getOrCreateLiteSessionSecret_();
   ensureLiteWorkbook_(spreadsheet);
   spreadsheet.toast(
     '교사용 시트 다섯 장을 준비했습니다. 이제 교사 설정을 열어 주세요.',
-    '경량 질문챗봇',
+    '내 수업 질문챗봇',
     7
   );
   showLiteTeacherSetup();
@@ -49,7 +50,7 @@ function showLiteTeacherSetup() {
   const html = template.evaluate()
     .setWidth(1040)
     .setHeight(760);
-  SpreadsheetApp.getUi().showModalDialog(html, '경량 질문챗봇 · 교사 설정');
+  SpreadsheetApp.getUi().showModalDialog(html, '내 수업 질문챗봇 · 교사 설정');
 }
 
 function includeLite_(filename) {
@@ -138,7 +139,7 @@ function clearLiteApiKeyFromMenu() {
   requireLiteTeacherContext_();
   clearLiteApiKey_();
   SpreadsheetApp.getActiveSpreadsheet().toast(
-    '저장된 API 키를 삭제했습니다.', '경량 질문챗봇', 5
+    '저장된 API 키를 삭제했습니다.', '내 수업 질문챗봇', 5
   );
 }
 
@@ -159,22 +160,30 @@ function showLiteStudentLink() {
     '<p><a target="_blank" rel="noopener noreferrer" href="' + escaped + '">' + escaped + '</a></p>' +
     '<p>교사 미리보기 코드는 <strong>99-999</strong>입니다.</p></div>'
   ).setWidth(600).setHeight(280);
-  SpreadsheetApp.getUi().showModalDialog(html, '경량 질문챗봇 · 학생 배포');
+  SpreadsheetApp.getUi().showModalDialog(html, '내 수업 질문챗봇 · 학생 배포');
 }
 
 function doGet() {
+  const settings = readLiteTeacherSettings_();
   return HtmlService.createTemplateFromFile('Student')
     .evaluate()
-    .setTitle('경량 질문챗봇')
+    .setTitle(settings.appName || '질문 챗봇')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
 function getLiteStudentBootstrap() {
   const settings = readLiteTeacherSettings_();
+  const engineReady = hasLiteEngineEndpoint_();
+  const apiReady = hasLiteApiKey_();
+  const readiness = buildLiteReadiness_(settings, {
+    apiConfigured: apiReady,
+    engineConfigured: engineReady,
+    studentUrl: getLiteStudentUrl_()
+  });
   return {
     appVersion: LITE_APP_VERSION_,
     lesson: sanitizeLiteSettingsForStudent_(settings),
-    engineReady: hasLiteEngineEndpoint_(),
-    chatReady: hasLiteEngineEndpoint_() && hasLiteApiKey_() && Boolean(settings.lessonId)
+    engineReady: engineReady,
+    chatReady: apiReady && engineReady && readiness.setupReady
   };
 }

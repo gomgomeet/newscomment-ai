@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const { createHmac } = require('node:crypto');
+const { createHash, createHmac } = require('node:crypto');
 
 class RangeMock {
   constructor(sheet, row, column, rowCount = 1, columnCount = 1) {
@@ -88,7 +88,9 @@ const gasGlobals = {
   },
   Utilities: {
     Charset: { UTF_8:'utf8' },
+    DigestAlgorithm: { SHA_256:'sha256' },
     getUuid: () => `00000000-0000-4000-8000-${String(++uuidCounter).padStart(12, '0')}`,
+    computeDigest: (algorithm, value) => createHash(algorithm).update(value).digest(),
     computeHmacSha256Signature: (value, secret) => createHmac('sha256', secret).update(value).digest(),
     base64EncodeWebSafe: (value) => Buffer.from(value).toString('base64url')
   },
@@ -195,6 +197,54 @@ assert.equal(
   context.redactLiteStudentText_('내 이름은 홍길동이고 010-1234-5678로 연락해요.'),
   '내 이름은 [이름 가림]이고 [연락처 가림]로 연락해요.'
 );
+assert.equal(
+  context.redactLiteStudentText_('저는 홍길동입니다. 물병이 궁금해요.'),
+  '저는 [이름 가림]입니다. 물병이 궁금해요.'
+);
+assert.equal(
+  context.redactLiteStudentText_('성명: 홍길동'),
+  '성명: [이름 가림]'
+);
+assert.equal(context.redactLiteStudentText_('제가 홍길동입니다.'), '제가 [이름 가림]입니다.');
+assert.equal(context.redactLiteStudentText_('내가 홍길동이야.'), '내가 [이름 가림]이야.');
+assert.equal(context.redactLiteStudentText_('난 예은이야.'), '난 [이름 가림]이야.');
+assert.equal(context.redactLiteStudentText_('저 민준인데 물병이 궁금해요.'), '저 [이름 가림]인데 물병이 궁금해요.');
+assert.equal(context.redactLiteStudentText_('나는 Alice야.'), '나는 [이름 가림]야.');
+assert.equal(context.redactLiteStudentText_('제 이름이 홍길동인데요.'), '제 이름이 [이름 가림]인데요.');
+assert.equal(context.redactLiteStudentText_('학생 이름은 홍길동입니다.'), '학생 이름은 [이름 가림]입니다.');
+assert.equal(context.redactLiteStudentText_('친구 이름은 김민수예요.'), '친구 이름은 [이름 가림]예요.');
+assert.equal(
+  context.redactLiteStudentText_('제 친구 김민수 전화번호는 010-1234-5678이에요.'),
+  '제 친구 [이름 가림] 전화번호는 [연락처 가림]이에요.'
+);
+assert.equal(context.redactLiteStudentText_('저는 찬성입니다.'), '저는 찬성입니다.');
+assert.equal(context.redactLiteStudentText_('저는 반대입니다.'), '저는 반대입니다.');
+assert.equal(context.redactLiteStudentText_('저는 학생입니다.'), '저는 학생입니다.');
+assert.equal(context.redactLiteStudentText_('나는 개인 물병을 사용해요.'), '나는 개인 물병을 사용해요.');
+assert.equal(
+  context.redactLiteStudentText_('저는 환경 보호가 중요하다고 생각해요.'),
+  '저는 환경 보호가 중요하다고 생각해요.'
+);
+assert.equal(
+  context.redactLiteStudentText_('우리 집은 서울시 강남구 테헤란로 123이에요.'),
+  '우리 집은 [주소 가림]이에요.'
+);
+assert.equal(
+  context.redactLiteStudentText_('경기도 성남시 분당구 판교로 123에 살아요.'),
+  '[주소 가림]에 살아요.'
+);
+assert.equal(
+  context.redactLiteStudentText_('경상남도 창원시 성산구 중앙대로 123'),
+  '[주소 가림]'
+);
+assert.equal(
+  context.redactLiteStudentText_('경기도 성남시의 환경 정책을 조사했어요.'),
+  '경기도 성남시의 환경 정책을 조사했어요.'
+);
+assert.equal(
+  context.redactLiteStudentText_('계좌번호는 123-456-789012예요.'),
+  '계좌번호는 [계좌번호 가림]예요.'
+);
 assert.throws(() => context.normalizeLiteDeviceToken_('short'), /새로고침/);
 assert.equal(
   context.normalizeLiteRequestId_('req_1234567890123456'),
@@ -224,7 +274,7 @@ assert.match(
 );
 assert.throws(
   () => context.validateLiteTeacherEvaluation_({
-    studentCode:'3-12', lessonId:'LESSON-1', teacherDecision:'판단 보류',
+    studentCode:'3-12', sessionId:'S-validation-session', lessonId:'LESSON-1', teacherDecision:'판단 보류',
     teacherFeedback:'관찰함', improvementSuggestion:'근거 찾기', finalStatus:'최종 확정'
   }),
   /최종 확정하려면/
@@ -236,16 +286,75 @@ const savedSettings = context.saveLiteTeacherSettings_(normalized);
 const reopenedSettings = context.readLiteTeacherSettings_();
 assert.equal(reopenedSettings.lessonId, savedSettings.lessonId);
 assert.equal(reopenedSettings.assessmentCriteria, normalized.assessmentCriteria);
+assert.equal(savedSettings.lessonRevision, 1);
+assert.match(savedSettings.sourceHash, /^[A-Za-z0-9_-]{24}$/);
+const unchangedSettings = context.saveLiteTeacherSettings_(normalized);
+assert.equal(unchangedSettings.lessonRevision, 1);
+assert.equal(unchangedSettings.sourceHash, savedSettings.sourceHash);
+assert.notEqual(
+  context.makeLiteSettingsHash_({ ...normalized, grade:'초등 5학년' }),
+  context.makeLiteSettingsHash_(normalized)
+);
 
 const teacherToken = context.getOrCreateLiteTeacherAccessToken_();
 assert.throws(() => context.assertLiteTeacherAccess_('wrong-token'), /Google Sheet/);
 assert.doesNotThrow(() => context.assertLiteTeacherAccess_(teacherToken));
 
+const seededSession = context.startLiteStudentSession({
+  studentCode:'4-7', deviceToken:'device_seed_1234567890',
+  lessonId:savedSettings.lessonId, lessonRevision:savedSettings.lessonRevision,
+  sourceHash:savedSettings.sourceHash
+});
+assert.equal(seededSession.history.length, 1);
+assert.equal(seededSession.history[0].speaker, 'bot');
+assert.equal(seededSession.history[0].text, normalized.startQuestion);
+const seededRowCount = context.liteRowsAsObjects_(spreadsheet.getSheetByName('질문과 답변')).length;
+assert.equal(seededRowCount, 0);
+const reopenedSeededSession = context.startLiteStudentSession({
+  studentCode:'4-7', deviceToken:'device_seed_1234567890',
+  lessonId:savedSettings.lessonId, lessonRevision:savedSettings.lessonRevision,
+  sourceHash:savedSettings.sourceHash
+});
+assert.equal(reopenedSeededSession.history.length, 1);
+assert.equal(context.liteRowsAsObjects_(spreadsheet.getSheetByName('질문과 답변')).length, seededRowCount);
+const separateDeviceSession = context.startLiteStudentSession({
+  studentCode:'4-7', deviceToken:'different_device_12345',
+  lessonId:savedSettings.lessonId, lessonRevision:savedSettings.lessonRevision,
+  sourceHash:savedSettings.sourceHash
+});
+assert.notEqual(separateDeviceSession.sessionId, seededSession.sessionId);
+assert.equal(separateDeviceSession.history.length, 1);
+assert.equal(context.liteRowsAsObjects_(spreadsheet.getSheetByName('질문과 답변')).length, 0);
+for (let index = 1; index <= 25; index += 1) {
+  context.startLiteStudentSession({
+    studentCode:`6-${index}`, deviceToken:`device_entry_only_${String(index).padStart(4, '0')}`,
+    lessonId:savedSettings.lessonId, lessonRevision:savedSettings.lessonRevision,
+    sourceHash:savedSettings.sourceHash
+  });
+}
+assert.equal(context.liteRowsAsObjects_(spreadsheet.getSheetByName('질문과 답변')).length, 0);
+
 const turn = context.prepareLiteStudentTurn_({
   requestId:'req_integration000001', studentCode:'3-12',
-  deviceToken:'device_1234567890123456', message:'내 이름은 홍길동이고 왜 물병을 써요?'
+  deviceToken:'device_1234567890123456', message:'내 이름은 홍길동이고 왜 물병을 써요?',
+  lessonId:savedSettings.lessonId, lessonRevision:savedSettings.lessonRevision,
+  sourceHash:savedSettings.sourceHash
 }, savedSettings);
 assert.equal(turn.message.includes('홍길동'), false);
+const compactHistory = context.compactLiteEngineHistory_(Array.from({ length:18 }, (_, index) => ({
+  speaker:index % 2 ? 'bot' : 'student', text:'가'.repeat(4000), engineStatus:'ok'
+})));
+assert.equal(compactHistory.every((entry) => entry.text.length <= 1200), true);
+assert.equal(compactHistory.reduce((total, entry) => total + entry.text.length, 0) <= 8000, true);
+assert.throws(
+  () => context.prepareLiteStudentTurn_({
+    requestId:'req_stale_lesson00001', studentCode:'3-12',
+    deviceToken:'device_1234567890123456', message:'왜 물병을 써요?',
+    lessonId:savedSettings.lessonId, lessonRevision:savedSettings.lessonRevision + 1,
+    sourceHash:savedSettings.sourceHash
+  }, savedSettings),
+  /새로고침/
+);
 const firstWrite = context.appendLiteTurnPair_(turn, {
   text:'일회용품을 줄이기 위해서예요.', phase:1, managedKind:'receive',
   evidenceIds:['source-1'], engineStatus:'ok', aiStatus:'ok'
@@ -255,8 +364,56 @@ const duplicateWrite = context.appendLiteTurnPair_(turn, {
   text:'다시 쓰면 안 됩니다.', phase:1, managedKind:'receive', engineStatus:'ok', aiStatus:'ok'
 });
 assert.equal(duplicateWrite.duplicate, true);
-assert.equal(context.liteRowsAsObjects_(spreadsheet.getSheetByName('질문과 답변')).length, 2);
-assert.equal(context.liteRowsAsObjects_(spreadsheet.getSheetByName('학생별 현황'))[0].questionCount, 1);
+assert.equal(
+  context.liteRowsAsObjects_(spreadsheet.getSheetByName('질문과 답변'))
+    .filter((row) => row.requestId === turn.requestId).length,
+  2
+);
+assert.equal(
+  context.liteRowsAsObjects_(spreadsheet.getSheetByName('학생별 현황'))
+    .find((row) => row.studentCode === turn.studentCode).questionCount,
+  1
+);
+const duplicateRequest = context.findLiteDuplicateRequest_(turn.requestId);
+assert.equal(duplicateRequest.sessionId, turn.sessionId);
+assert.equal(duplicateRequest.isClosing, false);
+
+const failedTurn = context.prepareLiteStudentTurn_({
+  requestId:'req_failed_turn00001', studentCode:'3-12',
+  deviceToken:'device_1234567890123456', message:'다시 물어볼게요?',
+  lessonId:savedSettings.lessonId, lessonRevision:savedSettings.lessonRevision,
+  sourceHash:savedSettings.sourceHash
+}, savedSettings);
+context.appendLiteTurnPair_(failedTurn, {
+  text:'잠시 뒤 다시 보내 주세요.', phase:'', managedKind:'', evidenceIds:[],
+  engineStatus:'engine_failed:timeout', aiStatus:'not_called'
+});
+assert.equal(context.getLiteSessionHistory_(turn.sessionId).length, 3);
+assert.equal(
+  context.liteRowsAsObjects_(spreadsheet.getSheetByName('학생별 현황'))
+    .find((row) => row.studentCode === turn.studentCode).questionCount,
+  1
+);
+
+const formulaTurn = context.prepareLiteStudentTurn_({
+  requestId:'req_formula_turn0001', studentCode:'5-1',
+  deviceToken:'device_formula_12345678', message:'=HYPERLINK("https://example.com","왜?")',
+  lessonId:savedSettings.lessonId, lessonRevision:savedSettings.lessonRevision,
+  sourceHash:savedSettings.sourceHash
+}, savedSettings);
+context.appendLiteTurnPair_(formulaTurn, {
+  text:'=IMPORTXML("https://example.com","//title")', phase:1, managedKind:'receive',
+  evidenceIds:[], engineStatus:'ok', aiStatus:'ok'
+});
+const formulaRows = context.liteRowsAsObjects_(spreadsheet.getSheetByName('질문과 답변'))
+  .filter((row) => row.requestId === formulaTurn.requestId);
+assert.equal(formulaRows.length, 2);
+assert.match(formulaRows[0].text, /^'=HYPERLINK/);
+assert.match(formulaRows[1].text, /^'=IMPORTXML/);
+const formulaHistory = context.getLiteSessionHistory_(formulaTurn.sessionId);
+assert.equal(formulaHistory[0].text, normalized.startQuestion);
+assert.equal(formulaHistory[1].text, formulaTurn.message);
+assert.equal(formulaHistory[2].text, '=IMPORTXML("https://example.com","//title")');
 
 context.upsertLiteEvaluationDraft_(savedSettings, turn, {
   rubricScores:[
@@ -267,10 +424,132 @@ context.upsertLiteEvaluationDraft_(savedSettings, turn, {
 const evaluationRow = context.liteRowsAsObjects_(spreadsheet.getSheetByName('교사 평가'))[0];
 assert.match(evaluationRow.automaticJudgment, /성장 중/);
 assert.equal(evaluationRow.finalStatus, '검수 필요');
+assert.equal(evaluationRow.questioningBest, 3);
+assert.equal(evaluationRow.passageComprehensionBest, 2);
+assert.equal(context.upsertLiteEvaluationDraft_(savedSettings, turn, {
+  isClosing:true,
+  rubricScores:[
+    { criterionKey:'questioning', score:0, rationale:'종료 턴' },
+    { criterionKey:'passage_comprehension', score:0, rationale:'종료 턴' }
+  ]
+}), null);
+context.upsertLiteEvaluationDraft_(savedSettings, turn, {
+  isClosing:false, sourceStatus:'supported', primaryMove:'receive',
+  rubricScores:[
+    { criterionKey:'questioning', score:1, rationale:'후속 관찰' },
+    { criterionKey:'passage_comprehension', score:1, rationale:'후속 관찰' }
+  ]
+});
+const accumulatedEvaluation = context.liteRowsAsObjects_(spreadsheet.getSheetByName('교사 평가'))[0];
+assert.equal(accumulatedEvaluation.questioningBest, 3);
+assert.equal(accumulatedEvaluation.passageComprehensionBest, 2);
+assert.match(accumulatedEvaluation.automaticJudgment, /성장 중/);
+assert.notEqual(context.upsertLiteEvaluationDraft_(savedSettings, turn, {
+  isClosing:false, sourceStatus:'out_of_scope', responseScore:4, primaryMove:'receive',
+  rubricScores:[
+    { criterionKey:'achievement_standard', score:4, rationale:'관리 질문에 근거를 들어 답함' }
+  ]
+}), null);
+assert.equal(
+  context.liteRowsAsObjects_(spreadsheet.getSheetByName('교사 평가'))[0].achievementStandardBest,
+  4
+);
+assert.equal(context.upsertLiteEvaluationDraft_(savedSettings, turn, {
+  isClosing:false, sourceStatus:'out_of_scope', responseScore:0, primaryMove:'receive',
+  rubricScores:[{ criterionKey:'questioning', score:5, rationale:'실제 이탈 발화' }]
+}), null);
+
+const alternateTurn = context.prepareLiteStudentTurn_({
+  requestId:'req_alternate_device01', studentCode:'3-12',
+  deviceToken:'device_alternate_12345', message:'자료의 중심 내용은 무엇인가요?',
+  lessonId:savedSettings.lessonId, lessonRevision:savedSettings.lessonRevision,
+  sourceHash:savedSettings.sourceHash
+}, savedSettings);
+context.appendLiteTurnPair_(alternateTurn, {
+  text:'개인 물병 사용의 의미를 설명해요.', phase:1, managedKind:'receive',
+  relatedQuestion:true, evidenceIds:['source-1'], engineStatus:'ok', aiStatus:'ok'
+});
+context.upsertLiteEvaluationDraft_(savedSettings, alternateTurn, {
+  isClosing:false, sourceStatus:'supported', primaryMove:'receive',
+  rubricScores:[
+    { criterionKey:'passage_comprehension', score:5, rationale:'다른 접속에서 관찰함' }
+  ]
+});
+const sameCodeSummaries = context.liteRowsAsObjects_(spreadsheet.getSheetByName('학생별 현황'))
+  .filter((row) => row.studentCode === '3-12');
+assert.equal(sameCodeSummaries.length, 2);
+assert.notEqual(sameCodeSummaries[0].sessionId, sameCodeSummaries[1].sessionId);
+const sameCodeEvaluations = context.liteRowsAsObjects_(spreadsheet.getSheetByName('교사 평가'))
+  .filter((row) => row.studentCode === '3-12');
+assert.equal(sameCodeEvaluations.length, 2);
+const originalEvaluation = sameCodeEvaluations.find((row) => row.sessionId === turn.sessionId);
+const alternateEvaluation = sameCodeEvaluations.find((row) => row.sessionId === alternateTurn.sessionId);
+assert.equal(originalEvaluation.questioningBest, 3);
+assert.equal(originalEvaluation.passageComprehensionBest, 2);
+assert.equal(alternateEvaluation.questioningBest, '');
+assert.equal(alternateEvaluation.passageComprehensionBest, 5);
+const conflictDashboard = context.getLiteTeacherDashboardData(teacherToken);
+assert.equal(conflictDashboard.uniqueStudentCount, 2);
+assert.equal(
+  conflictDashboard.evaluations.filter((row) => row.studentCode === '3-12' && row.sessionConflict).length,
+  2
+);
+context.saveLiteTeacherEvaluation(teacherToken, {
+  studentCode:'3-12', sessionId:turn.sessionId,
+  lessonId:savedSettings.lessonId, lessonRevision:savedSettings.lessonRevision,
+  teacherDecision:'성장 중', teacherFeedback:'첫 접속 근거를 확인함',
+  improvementSuggestion:'관련 문장을 더 정확히 인용해 보세요.',
+  nextLessonSuggestion:'근거 비교 활동', finalStatus:'최종 확정'
+});
+const savedEvaluations = context.liteRowsAsObjects_(spreadsheet.getSheetByName('교사 평가'))
+  .filter((row) => row.studentCode === '3-12');
+assert.equal(savedEvaluations.find((row) => row.sessionId === turn.sessionId).finalStatus, '최종 확정');
+assert.notEqual(savedEvaluations.find((row) => row.sessionId === alternateTurn.sessionId).finalStatus, '최종 확정');
+
+assert.equal(typeof context.resetLiteStudentBinding, 'undefined');
+
+properties.delete('LITE_MODEL_MINUTE_BUDGET');
+properties.set('LITE_MODEL_DAILY_BUDGET', JSON.stringify({
+  bucket:new Date().toISOString().slice(0, 10), count:300
+}));
+assert.equal(context.reserveLiteModelCall_().allowed, false);
+assert.equal(context.reserveLiteModelCall_().reason, 'daily_limit');
+properties.delete('LITE_MODEL_DAILY_BUDGET');
+const normalLockFactory = context.LockService.getScriptLock;
+context.LockService.getScriptLock = () => ({
+  waitLock() { throw new Error('lock busy'); }, releaseLock() {}
+});
+assert.equal(context.safeReserveLiteModelCall_().reason, 'budget_check_failed');
+context.LockService.getScriptLock = normalLockFactory;
+assert.equal(context.claimLiteInFlightRequest_('req_claim_123456789'), true);
+assert.equal(context.claimLiteInFlightRequest_('req_claim_123456789'), false);
+context.releaseLiteInFlightRequest_('req_claim_123456789');
+assert.equal(context.claimLiteInFlightRequest_('req_claim_123456789'), true);
+context.releaseLiteInFlightRequest_('req_claim_123456789');
+context.LockService.getScriptLock = () => ({
+  waitLock() { throw new Error('claim lock busy'); }, releaseLock() {}
+});
+assert.equal(context.safeClaimLiteInFlightRequest_('req_claim_lock_failure').reason, 'claim_failed');
+assert.doesNotThrow(() => context.safeReleaseLiteInFlightRequest_('req_claim_lock_failure'));
+context.LockService.getScriptLock = normalLockFactory;
+
+const revisedSettings = context.saveLiteTeacherSettings_({ ...normalized, materialTitle:'일회용품을 줄이는 우리 반' });
+assert.equal(revisedSettings.lessonRevision, 2);
+assert.notEqual(revisedSettings.sourceHash, savedSettings.sourceHash);
+assert.notEqual(
+  context.makeLiteSessionId_(savedSettings.lessonId, savedSettings.lessonRevision, savedSettings.sourceHash, '3-12', 'device_1234567890123456'),
+  context.makeLiteSessionId_(revisedSettings.lessonId, revisedSettings.lessonRevision, revisedSettings.sourceHash, '3-12', 'device_1234567890123456')
+);
+const currentDashboard = context.getLiteTeacherDashboardData(teacherToken);
+assert.equal(currentDashboard.lesson.lessonRevision, 2);
+assert.equal(currentDashboard.students.length, 0);
+assert.equal(currentDashboard.evaluations.length, 0);
 
 const codeSource = fs.readFileSync(path.join(root, 'gas-lite', 'Code.js'), 'utf8');
 const teacherHtml = fs.readFileSync(path.join(root, 'gas-lite', 'TeacherSetup.html'), 'utf8');
 const studentHtml = fs.readFileSync(path.join(root, 'gas-lite', 'Student.html'), 'utf8');
+const studentClientHtml = fs.readFileSync(path.join(root, 'gas-lite', 'StudentClient.html'), 'utf8');
+const studentStylesHtml = fs.readFileSync(path.join(root, 'gas-lite', 'StudentStyles.html'), 'utf8');
 
 assert.match(codeSource, /setProperty\(LITE_API_KEY_PROPERTY_, key\)/);
 assert.doesNotMatch(codeSource, /apiKey\s*:/);
@@ -278,10 +557,28 @@ assert.match(codeSource, /function getLiteTeacherSetupData\(teacherAccessToken\)
 assert.match(codeSource, /function saveLiteApiKey\(teacherAccessToken, apiKey\) \{\s*assertLiteTeacherAccess_/);
 assert.doesNotMatch(engineSource, /apiKey\s*:\s*(?:key|LITE_API_KEY_PROPERTY_)/);
 assert.match(engineSource, /개인 API 키·Google Sheet ID·교사 이메일은 payload에 포함하지 않는다/);
+assert.match(engineSource, /questioning-dialogue-v2/);
+assert.match(engineSource, /planDigest/);
+assert.match(engineSource, /lead_evidence_quote_v1/);
+assert.match(engineSource, /candidateEvidenceQuote/);
+assert.match(engineSource, /if \(!replyFinalizedByEngine\) reply = enforceLiteReply_/);
 assert.match(teacherHtml, /id="assessment-criteria"/);
 assert.match(teacherHtml, /id="evidence-description"/);
 assert.match(teacherHtml, /99-999/);
+assert.match(teacherHtml, /강사 설정 보기/);
+assert.match(teacherHtml, /학생으로 체험/);
 assert.match(teacherHtml, /data-teacher-access-token/);
 assert.doesNotMatch(studentHtml, /assessment-criteria|rubric-high|API 키/);
+assert.match(studentHtml, /class="learning-workspace"/);
+assert.match(studentHtml, /data-panel="material"/);
+assert.match(studentHtml, /id="definition-button"/);
+assert.match(studentClientHtml, /getLiteStudentBootstrap/);
+assert.match(studentClientHtml, /startLiteStudentSession/);
+assert.match(studentClientHtml, /submitLiteTurn/);
+assert.match(studentClientHtml, /lessonIdentity\(\)/);
+assert.match(studentClientHtml, /sessionStorage\.getItem\(key\)/);
+assert.doesNotMatch(studentClientHtml, /localStorage/);
+assert.match(studentClientHtml, /leaveDeviceSession/);
+assert.match(studentStylesHtml, /grid-template-columns:minmax\(0,42fr\) minmax\(0,58fr\)/);
 
 console.log('gas-lite implementation checks: all passed');

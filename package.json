@@ -15,6 +15,7 @@
     "eval:gas:parity": "node --experimental-strip-types evals/gas/parity.mjs",
     "eval:gas:e2e": "node evals/gas/e2e.mjs",
     "test:gas-lite": "node scripts/test-gas-lite.cjs",
+    "test:lite-engine-http": "node scripts/test-lite-engine-http.mjs",
     "eval:questioning:holdout": "node scripts/run-questioning-dialogue-eval.mjs --suite=holdout"
   },
   "dependencies": {

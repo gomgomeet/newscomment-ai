@@ -2374,7 +2374,7 @@ function withSubjectJosa(word: string): string {
 function isClosingStudentTurn(value: string) {
   const compact = value.toLowerCase().replace(/\s+/g, "");
   // "네 알겠어요 이제 그만할래요"처럼 인사말이 앞에 붙고 '-요'로 끝나도 종결이다.
-  return /(네|응|아|오케이|ㅇㅋ)?(알겠어요|알겠어)?(이제)?(됐어요|됐어|알겠어요|알겠어|알겠음그만|알겠음|그만할래|그만할게요|그만할게|끝낼래|끝낼게요|끝낼게|여기까지만할게요|여기까지만할게|여기까지만|안할래|쉬고싶|ㅇㅋ이제끝|ㅇㅋ끝|그만)(요)?([.!?？]|$)/.test(
+  return /(네|응|아|오케이|ㅇㅋ)?(알겠어요|알겠어)?(이제)?(됐어요|됐어|알겠어요|알겠어|알겠음그만|알겠음|그만할래|그만할게요|그만할게|마칠래요|마칠래|마칠게요|마칠게|끝낼래|끝낼게요|끝낼게|여기까지만할게요|여기까지만할게|여기까지만|안할래|쉬고싶|ㅇㅋ이제끝|ㅇㅋ끝|그만)(요)?([.!?？]|$)/.test(
     compact,
   );
 }
@@ -2505,7 +2505,7 @@ function isUncertainStudentTurn(value: string) {
   const normalized = value.trim();
   return (
     /^(그래도\s*)?(잘\s*)?(모르겠는데요|모르겠어|모르겠어요|모르겠|몰라요|몰라)([.!?？]|$)/.test(normalized) ||
-    /(글쎄|그냥\s*그런|생각\s*안\s*나|어려워|뭘\s*보|무슨\s*말)/.test(normalized)
+    /(글쎄|그냥\s*그런|생각\s*안\s*나|어려워|힌트|뭘\s*보|무슨\s*말)/.test(normalized)
   );
 }
 
@@ -2546,7 +2546,9 @@ function sourceActionCue(material: MaterialAnalysis) {
 
 function compactStudentIdea(value: string) {
   return value
+    .replace(/(\d)\.(\d)/g, "$1<decimal>$2")
     .replace(/[?？.!]/g, "")
+    .replace(/<decimal>/g, ".")
     .replace(/^(근데|그런데|그러면|그럼|그래도)(?:\s+|[,，]\s*)?/g, "")
     .replace(/^아(?:\s+|[,，]\s*)/g, "")
     .trim()

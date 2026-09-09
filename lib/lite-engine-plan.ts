@@ -1,18 +1,32 @@
+import { createHash } from "node:crypto";
+
 import {
+  type ChatEvaluation,
+  type ChatResult,
   buildCurriculumCompass,
   buildRubric,
-  createLocalQuestionResult,
+  createDefaultQuestioningChatbotBehavior,
+  normalizeQuestioningChatbotConfig,
   type MaterialAnalysis,
+  type QuestioningChatbotConfig,
   type QuestioningConversationEntry,
+  type RubricCriterion,
 } from "@/lib/questioning-board";
-import { applyQuestioningConversationPhase } from "@/lib/questioning-conversation-phase";
+import {
+  QUESTIONING_ENGINE_FAMILY,
+  runQuestioningLocalEngine,
+} from "@/lib/questioning-engine-core";
+import {
+  getQuestioningTurnMetadata,
+  type QuestioningManagedKind,
+} from "@/lib/questioning-conversation-phase";
 
 export const LITE_ENGINE_SCHEMA_VERSION = 1;
-export const LITE_ENGINE_POLICY_VERSION = "questioning-lite-plan-v1";
+export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v3";
 
-type LiteMode = "evaluation" | "exploration";
+export type LiteMode = "evaluation" | "exploration";
 
-type LiteLessonInput = {
+export type LiteLessonInput = {
   lessonId: string;
   subject: string;
   grade: string;
@@ -28,6 +42,8 @@ type LiteLessonInput = {
   materialText: string;
   startQuestion: string;
   version: string;
+  sourceHash: string;
+  lessonRevision: number;
 };
 
 export type LiteEnginePlanInput = {
@@ -40,20 +56,50 @@ export type LiteEnginePlanInput = {
   lesson: LiteLessonInput;
 };
 
-type NormalizedLiteEnginePlanInput = Omit<LiteEnginePlanInput, "history"> & {
+export type NormalizedLiteEnginePlanInput = Omit<LiteEnginePlanInput, "history"> & {
   history: QuestioningConversationEntry[];
+};
+
+type LiteEngineDescriptor = {
+  family: typeof QUESTIONING_ENGINE_FAMILY;
+  sharedCore: true;
+  providerAdapter: "teacher_openai";
+  persistenceAdapter: "teacher_google_sheet";
+};
+
+export type LiteEngineObservation = {
+  conversationPhase: 1 | 2;
+  primaryMove: ChatResult["primaryMove"];
+  engagementState: ChatResult["engagementState"];
+  curriculumRelation: ChatResult["curriculumRelation"];
+  supportLevel: ChatResult["supportLevel"];
+  sourceStatus: ChatResult["sourceStatus"];
+  sourceCue: string;
+  questionType: ChatResult["questionType"];
+  safetyFlag: boolean;
+  isClosing: boolean;
+  rubricScores: ChatEvaluation[];
+  reachedDifficulty?: ChatResult["reachedDifficulty"];
+  moreToExploreQuestions: string[];
+  managedKind: QuestioningManagedKind;
+  relatedQuestion: boolean;
+  responseScore: number | null;
+  evidenceIds: string[];
 };
 
 export type LiteEnginePlan = {
   schemaVersion: 1;
   requestId: string;
   policyVersion: string;
+  planDigest: string;
+  engine: LiteEngineDescriptor;
   skipModel: boolean;
   fallbackReply: string;
   modelRequest: {
     model: string;
     reasoningEffort: "low";
     maxOutputTokens: number;
+    outputContract: "lead_evidence_quote_v1";
     instructions: string;
     input: string;
   };
@@ -62,14 +108,20 @@ export type LiteEnginePlan = {
     managedQuestion: string;
     maximumQuestionCount: 0 | 1;
   };
-  observation: {
-    conversationPhase: 1 | 2;
-    primaryMove: string;
-    sourceStatus: string;
-    safetyFlag: boolean;
-    isClosing: boolean;
-    rubricScores: Array<{ criterionKey: string; score: number; rationale: string }>;
-  };
+  observation: LiteEngineObservation;
+};
+
+export type LiteEngineFinalizedResponse = {
+  schemaVersion: 2;
+  requestId: string;
+  policyVersion: string;
+  planDigest: string;
+  engine: LiteEngineDescriptor;
+  studentReply: string;
+  expectsStudentReply: boolean;
+  isClosing: boolean;
+  localFallback: boolean;
+  observation: LiteEngineObservation;
 };
 
 const MAX_HISTORY_TURNS = 18;
@@ -126,20 +178,6 @@ function extractKeyConcepts(text: string) {
     .map(([word]) => word);
 }
 
-function hasMaterialWord(studentMessage: string, materialText: string) {
-  const material = materialText.replace(/\s+/g, "").toLowerCase();
-  return studentMessage
-    .split(/[^가-힣A-Za-z0-9-]+/)
-    .map((word) => word.trim().toLowerCase())
-    .filter((word) => word.length >= 2 && !KEYWORD_STOPWORDS.has(word))
-    .some((word) => material.includes(word));
-}
-
-function isClearlyOffTopic(studentMessage: string, materialText: string) {
-  const obvious = /(야구|축구|농구|게임|아이돌|유튜브|로또|드라마|영화|연예인|오늘\s*날씨|점심\s*메뉴|배고파|졸려|심심해)/i;
-  return obvious.test(studentMessage) && !hasMaterialWord(studentMessage, materialText);
-}
-
 function summarizeMaterial(text: string) {
   const sentences = text
     .replace(/(\d)\.(\d)/g, "$1<decimal>$2")
@@ -149,7 +187,7 @@ function summarizeMaterial(text: string) {
   return (sentences.slice(0, 4).join(" ") || text).slice(0, 900);
 }
 
-function normalizeInput(value: unknown): NormalizedLiteEnginePlanInput {
+export function normalizeLiteEngineInput(value: unknown): NormalizedLiteEnginePlanInput {
   if (typeof value !== "object" || value === null) throw new Error("요청 형식을 확인해 주세요.");
   const raw = value as Record<string, unknown>;
   const lessonRaw = raw.lesson;
@@ -183,6 +221,8 @@ function normalizeInput(value: unknown): NormalizedLiteEnginePlanInput {
       materialText,
       startQuestion: requiredText(lesson.startQuestion, "시작 질문", 500),
       version: optionalText(lesson.version, 30) || "v1",
+      sourceHash: requiredText(lesson.sourceHash, "수업 설정 해시", 80),
+      lessonRevision: Math.max(1, Math.min(10_000, Math.floor(Number(lesson.lessonRevision) || 1))),
     },
   };
 }
@@ -204,14 +244,42 @@ function historyForPrompt(history: QuestioningConversationEntry[]) {
     .join("\n");
 }
 
-export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
-  const input = normalizeInput(value);
-  const lesson = input.lesson;
+function descriptorForLiteScore(lesson: LiteLessonInput, score: number) {
+  if (score >= 4) return lesson.rubricHigh;
+  if (score >= 2) return lesson.rubricMeet;
+  return lesson.rubricDeveloping;
+}
+
+function buildLiteRubric(lesson: LiteLessonInput): RubricCriterion[] {
+  return buildRubric(lesson.achievementStandard).map((criterion) => ({
+    ...criterion,
+    ...(criterion.key === "achievement_standard"
+      ? {
+          description: lesson.assessmentCriteria,
+          observableEvidence: lesson.evidenceDescription,
+          feedbackForward: `다음 활동에서는 ${lesson.rubricHigh}`,
+        }
+      : {}),
+    levels: criterion.levels.map((level) => ({
+      ...level,
+      descriptor: `${level.descriptor} 교사 수준 기준: ${descriptorForLiteScore(lesson, level.score)}`,
+    })),
+  }));
+}
+
+export function createLiteQuestioningConfig(
+  lesson: LiteLessonInput,
+  activityMode: LiteMode,
+): QuestioningChatbotConfig {
   const material: MaterialAnalysis = {
     materialTitle: lesson.materialTitle,
     summary: summarizeMaterial(lesson.materialText),
     visibleText: lesson.materialText,
-    questionFocusMemo: lesson.evidenceDescription,
+    questionFocusMemo: [
+      `수업 목표: ${lesson.lessonGoal}`,
+      `평가기준: ${lesson.assessmentCriteria}`,
+      `수집할 평가 근거: ${lesson.evidenceDescription}`,
+    ].join(" "),
     keyConcepts: extractKeyConcepts(lesson.materialText),
     vocabulary: [],
     possibleMisconceptions: [],
@@ -219,78 +287,176 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
     sourceLimit: "교사가 입력한 수업자료의 범위를 구분해 답합니다.",
     safetyNotice: "학생 이름, 연락처, 주소 등 개인정보를 답에 반복하지 않습니다.",
   };
-  const rubric = buildRubric(lesson.achievementStandard);
-  const curriculumCompass = buildCurriculumCompass(lesson.achievementStandard);
-  const base = createLocalQuestionResult({
-    studentTurn: input.studentMessage,
-    material,
-    rubric,
-    conversation: input.history,
-    curriculumCompass,
+  const behavior = createDefaultQuestioningChatbotBehavior();
+  const config: QuestioningChatbotConfig = {
+    standard: lesson.achievementStandard,
     targetGrade: lesson.grade,
-  });
-  let planned = applyQuestioningConversationPhase({
-    result: base,
+    subjectUnit: `${lesson.subject} · ${lesson.lessonTitle}`,
+    material,
+    rubric: buildLiteRubric(lesson),
+    behavior,
+    curriculumCompass: buildCurriculumCompass(lesson.achievementStandard),
+    prdText: [
+      `수업 목표: ${lesson.lessonGoal}`,
+      `평가기준: ${lesson.assessmentCriteria}`,
+      `수준 기준: 도달=${lesson.rubricHigh}; 성장 중=${lesson.rubricMeet}; 도움 필요=${lesson.rubricDeveloping}`,
+    ].join("\n"),
+    liveResearchEnabled: activityMode === "exploration",
+    updatedAt: new Date().toISOString(),
+  };
+  return normalizeQuestioningChatbotConfig(config);
+}
+
+function liteEngineDescriptor(): LiteEngineDescriptor {
+  return {
+    family: QUESTIONING_ENGINE_FAMILY,
+    sharedCore: true,
+    providerAdapter: "teacher_openai",
+    persistenceAdapter: "teacher_google_sheet",
+  };
+}
+
+function litePlanDigest(input: NormalizedLiteEnginePlanInput) {
+  return createHash("sha256")
+    .update(JSON.stringify({ policyVersion: LITE_ENGINE_POLICY_VERSION, input }))
+    .digest("base64url")
+    .slice(0, 43);
+}
+
+function buildLiteObservation(
+  result: ChatResult,
+  input: NormalizedLiteEnginePlanInput,
+  config: QuestioningChatbotConfig,
+): LiteEngineObservation {
+  const phaseMetadata = getQuestioningTurnMetadata({
+    result,
     currentTurn: input.studentMessage,
     conversation: input.history,
-    material,
-    standard: lesson.achievementStandard,
-    teacherMemo: lesson.evidenceDescription,
+    material: config.material,
+    standard: config.standard,
+    teacherMemo: config.material.questionFocusMemo,
   });
-  const clearlyOffTopic = isClearlyOffTopic(input.studentMessage, lesson.materialText);
-  if (clearlyOffTopic && !planned.safetyFlag && !planned.isClosing) {
-    const reply = "이 질문은 지금 수업자료와 관련이 적어요. 자료에서 궁금한 낱말이나 사실을 찾아 이야기해 주세요.";
-    planned = {
-      ...planned,
-      studentReply: reply,
-      answer: reply,
-      followUpQuestion: "",
-      expectsStudentReply: false,
-      primaryMove: "receive",
-      curriculumRelation: "disconnected",
-      sourceStatus: "out_of_scope",
-    };
+  const evidenceIds =
+    result.sourceStatus === "supported" &&
+    (phaseMetadata.relatedQuestion || phaseMetadata.responseScore !== null)
+      ? [`lesson-material:${input.lesson.lessonId}:r${input.lesson.lessonRevision}:${input.lesson.sourceHash}`]
+      : [];
+
+  return {
+    conversationPhase: result.conversationPhase || 1,
+    primaryMove: result.primaryMove,
+    engagementState: result.engagementState,
+    curriculumRelation: result.curriculumRelation,
+    supportLevel: result.supportLevel,
+    sourceStatus: result.sourceStatus,
+    sourceCue: result.sourceCue,
+    questionType: result.questionType,
+    safetyFlag: result.safetyFlag,
+    isClosing: result.isClosing,
+    rubricScores: result.rubricScores,
+    ...(result.reachedDifficulty ? { reachedDifficulty: result.reachedDifficulty } : {}),
+    moreToExploreQuestions: result.moreToExploreQuestions || [],
+    managedKind: phaseMetadata.managedKind,
+    relatedQuestion: phaseMetadata.relatedQuestion,
+    responseScore: phaseMetadata.responseScore,
+    evidenceIds,
+  };
+}
+
+function liteReplyAdmitsMissingSource(reply: string) {
+  return /(?:자료|글|기사).{0,40}(?:안\s*나오|나오지\s*않|없어요|없습니다|확인하기\s*어렵|알기\s*어렵|말하기\s*어렵|직접\s*답해\s*주지\s*않)/.test(reply);
+}
+
+function liteQuestionRequestsMissingDimension(question: string, materialText: string) {
+  const compactMaterial = materialText.replace(/\s+/g, "").toLowerCase();
+  const dimension = /(?:무슨|어떤)\s*(재료|성분|원료|가격|비용|장소|지역|나라|기관|날짜|시기|기간|수치|종류|색|크기|무게)/i
+    .exec(question)?.[1]?.toLowerCase();
+  if (dimension && !compactMaterial.includes(dimension)) return true;
+  if (/무엇(?:으로|로)\s*만들/i.test(question)) {
+    return !/(재료|성분|원료|만들)/.test(compactMaterial);
   }
-  const managedQuestion = planned.expectsStudentReply ? lastQuestionFrom(planned.studentReply) : "";
-  const skipModel = Boolean(
-    clearlyOffTopic || planned.safetyFlag || planned.isClosing || planned.primaryMove === "repair" ||
-    (input.activityMode === "evaluation" &&
-      (planned.sourceStatus === "source_insufficient" || planned.sourceStatus === "out_of_scope"))
+  return false;
+}
+
+function liteMaterialDefinesVocabulary(reply: string, materialText: string) {
+  const term = /‘([^’]{1,40})’/.exec(reply)?.[1]?.trim();
+  if (!term) return false;
+  const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const definition = new RegExp(
+    `["'“”‘’]?${escapedTerm}["'“”‘’]?(?:은|는|이란|란)?[^.!?。？！\\n]{0,200}` +
+    `(?:뜻(?:한다|합니다|하는|이다|입니다|이에요)|의미(?:한다|합니다|하는|이다|입니다|예요)|` +
+    `말(?:한다|합니다|해요)|가리(?:킨다|킵니다|켜요))`,
   );
-  const source = planned.sourceCue?.trim() || material.summary;
+  const glossary = new RegExp(`["'“”‘’]?${escapedTerm}["'“”‘’]?\\s*[:：]\\s*[^\\n]{3,200}`);
+  return definition.test(materialText) || glossary.test(materialText);
+}
+
+export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
+  const input = normalizeLiteEngineInput(value);
+  const lesson = input.lesson;
+  const config = createLiteQuestioningConfig(lesson, input.activityMode);
+  const { result: planned } = runQuestioningLocalEngine({
+    config,
+    question: input.studentMessage,
+    conversation: input.history,
+  });
+  const rawObservation = buildLiteObservation(planned, input, config);
+  const replyAdmitsMissingSource =
+    liteReplyAdmitsMissingSource(planned.studentReply) ||
+    liteQuestionRequestsMissingDimension(input.studentMessage, lesson.materialText) ||
+    rawObservation.sourceStatus === "source_insufficient";
+  const unsupportedVocabulary =
+    rawObservation.questionType === "vocabulary" &&
+    rawObservation.sourceStatus === "supported" &&
+    !liteMaterialDefinesVocabulary(planned.studentReply, lesson.materialText);
+  const sourceCannotSupportAnswer = replyAdmitsMissingSource || unsupportedVocabulary;
+  const observation: LiteEngineObservation = sourceCannotSupportAnswer
+    ? {
+        ...rawObservation,
+        sourceStatus: replyAdmitsMissingSource ? "source_insufficient" : "reasonable_inference",
+        sourceCue: "",
+        evidenceIds: [],
+      }
+    : rawObservation;
+  const managedQuestion = planned.expectsStudentReply ? lastQuestionFrom(planned.studentReply) : "";
+  const verifiedSourceCue = observation.sourceCue?.trim() || "";
+  const skipModel = Boolean(
+    planned.safetyFlag || planned.isClosing || planned.primaryMove === "repair" ||
+    observation.sourceStatus !== "supported" || !verifiedSourceCue ||
+    (!observation.relatedQuestion && observation.responseScore === null)
+  );
+  const source = verifiedSourceCue || config.material.summary;
   const modeRule = input.activityMode === "evaluation"
-    ? "평가모드입니다. 제공된 근거에 없는 사실은 만들지 말고, 자료에 없다고 짧게 밝히세요."
-    : "탐색모드입니다. 수업 주제와 직접 관련된 확장 설명은 가능하지만, 자료 밖 정보는 ‘자료에는 없지만 일반적으로’라고 구분하세요.";
+    ? "평가모드입니다. 제공된 근거 문장만 고르고 자료 밖 사실은 만들지 마세요."
+    : "탐색모드이지만 이 경량판의 개인 API는 제공된 근거 문장 선택에만 사용합니다.";
   const questionRule = managedQuestion
-    ? `답변 마지막에는 다음 질문을 글자 그대로 한 번만 붙이세요: ${managedQuestion}`
-    : "학생에게 새 질문을 하지 말고 물음표를 사용하지 마세요.";
+    ? `관리 질문은 중앙 엔진이 별도로 붙입니다. 참고할 질문: ${managedQuestion}`
+    : "학생에게 새 질문을 만들지 마세요.";
 
   return {
     schemaVersion: LITE_ENGINE_SCHEMA_VERSION,
     requestId: input.requestId,
     policyVersion: LITE_ENGINE_POLICY_VERSION,
+    planDigest: litePlanDigest(input),
+    engine: liteEngineDescriptor(),
     skipModel,
     fallbackReply: planned.studentReply,
     modelRequest: {
       model: process.env.LITE_ENGINE_MODEL?.trim() || "gpt-5.6-terra",
       reasoningEffort: "low",
-      maxOutputTokens: 700,
+      maxOutputTokens: 220,
+      outputContract: "lead_evidence_quote_v1",
       instructions: [
         `당신은 ${lesson.grade} 학생의 질문을 돕는 교실 챗봇입니다.`,
-        "먼저 학생 말에 자연스럽게 답하고, 정답이나 완성된 수행평가를 대신 써 주지 마세요.",
-        "학생이 입력한 개인정보를 답변에서 반복하지 마세요.",
-        "숫자와 사실은 제공된 근거와 다르게 바꾸지 마세요.",
+        "학생에게 보일 짧은 연결 문구 하나를 고르고, 답의 근거가 되는 문장을 관련 자료에서 글자 그대로 인용하세요.",
+        "근거 문장은 새로 쓰거나 바꾸지 말고, 관련 자료에 연속해서 있는 문장 일부만 사용하세요.",
         modeRule,
         questionRule,
-        "reply 필드 하나를 가진 JSON만 반환하세요.",
+        "lead와 evidenceQuote 필드만 가진 JSON을 반환하세요.",
       ].join(" "),
       input: [
         `[수업명] ${lesson.lessonTitle}`,
         `[수업 목표] ${lesson.lessonGoal}`,
-        `[성취기준] ${lesson.achievementStandard}`,
-        `[교사 평가기준] ${lesson.assessmentCriteria}`,
-        `[수준별 기준] 도달: ${lesson.rubricHigh} / 성장 중: ${lesson.rubricMeet} / 도움 필요: ${lesson.rubricDeveloping}`,
-        `[수집할 평가 근거] ${lesson.evidenceDescription}`,
         `[관련 자료 근거] ${source.slice(0, 2_500)}`,
         `[최근 대화]\n${historyForPrompt(input.history)}`,
         `[학생 말] ${input.studentMessage}`,
@@ -302,13 +468,145 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
       managedQuestion,
       maximumQuestionCount: managedQuestion ? 1 : 0,
     },
-    observation: {
-      conversationPhase: planned.conversationPhase || 1,
-      primaryMove: planned.primaryMove,
-      sourceStatus: planned.sourceStatus,
-      safetyFlag: planned.safetyFlag,
-      isClosing: planned.isClosing,
-      rubricScores: planned.rubricScores,
-    },
+    observation,
+  };
+}
+
+function enforceLiteQuestionContract(candidate: string, plan: LiteEnginePlan) {
+  const fallback = plan.fallbackReply.trim();
+  const managedQuestion = plan.enforcement.managedQuestion.trim();
+  const answerOnly = withoutQuestionSentences(candidate) || withoutQuestionSentences(fallback);
+  if (managedQuestion) return [answerOnly, managedQuestion].filter(Boolean).join(" ").trim();
+  if (plan.enforcement.maximumQuestionCount === 0) {
+    return answerOnly || fallback.replace(/[?？]/g, ".").trim();
+  }
+  let seen = false;
+  return candidate.replace(/[?？]/g, () => {
+    if (seen) return ".";
+    seen = true;
+    return "?";
+  }).trim();
+}
+
+const LITE_ALLOWED_LEADS = [
+  "좋은 질문이에요.",
+  "궁금한 점을 잘 짚었어요.",
+  "자료에서 함께 확인해 볼게요.",
+  "차근차근 살펴볼게요.",
+] as const;
+
+function normalizeLiteQuote(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function supportedLiteEvidenceQuote(
+  evidenceQuote: string,
+  input: NormalizedLiteEnginePlanInput,
+  plan: LiteEnginePlan,
+) {
+  const quote = normalizeLiteQuote(evidenceQuote);
+  if (quote.length < 8 || quote.length > 500) return "";
+  const material = normalizeLiteQuote(input.lesson.materialText);
+  const plannedSource = normalizeLiteQuote(plan.observation.sourceCue);
+  if (!plannedSource) return "";
+  if (!material.includes(quote) || !plannedSource.includes(quote)) return "";
+  return quote;
+}
+
+function candidateNeedsSafeFallback(candidate: string, input: NormalizedLiteEnginePlanInput) {
+  const privateOrSecret = /(?:[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|(?:01[016789]|0\d{1,2})[-.\s]?\d{3,4}[-.\s]?\d{4}|\b\d{6}[-\s]?\d{7}\b|\bsk-[A-Za-z0-9_-]{16,})/i;
+  const internalPolicy = /(?:\b(?:primaryMove|rubricScores|criterionKey|conversationPhase|managedKind|sourceStatus|safetyFlag)\b|평가\s*기준|성취\s*기준|루브릭\s*(?:점수|기준)|(?:^|\s)도달(?:입니다|이다|했|함|\s|[.!?,]|$)|성장\s*중|도움\s*필요)/i;
+  if (privateOrSecret.test(candidate) || internalPolicy.test(candidate)) return true;
+  if (!LITE_ALLOWED_LEADS.includes(candidate.trim() as (typeof LITE_ALLOWED_LEADS)[number])) return true;
+
+  // 학생 발화나 이전 모델 답은 사실 근거로 승격하지 않고 교사 제공 본문만 대조한다.
+  const source = input.lesson.materialText;
+  const compactSource = source.replace(/\s+/g, "").toLowerCase();
+  const numericClaims = candidate.match(/\d+(?:[.,]\d+)*(?:%|퍼센트|명|개|년|월|일|도)?/g) || [];
+  if (numericClaims.some((claim) => !source.includes(claim))) return true;
+
+  // 의료·법률·금전·위험 주장은 모드와 무관하게 본문에 같은 근거가 없으면 폐기한다.
+  const highRiskTerms = candidate.match(
+    /암|치료|완치|질병|약물|복용|사망|폭발|중독|범죄|불법|벌금|소송|투자|수익|손실|대출|이자/g,
+  ) || [];
+  if (highRiskTerms.some((term) => !compactSource.includes(term.toLowerCase()))) return true;
+
+  return false;
+}
+
+/**
+ * 교사 개인 API가 만든 문장을 다시 공통 엔진에 통과시킵니다.
+ * API 키는 이 함수나 중앙 서버로 오지 않고, 생성된 문장만 검수합니다.
+ */
+export function finalizeLiteEngineReply(value: unknown): LiteEngineFinalizedResponse {
+  if (typeof value !== "object" || value === null) throw new Error("최종 확인 요청 형식을 확인해 주세요.");
+  const candidateReply = requiredText(
+    (value as Record<string, unknown>).candidateReply,
+    "개인 API 답변",
+    3_000,
+  );
+  const candidateEvidenceQuote = optionalText(
+    (value as Record<string, unknown>).candidateEvidenceQuote,
+    500,
+  );
+  const input = normalizeLiteEngineInput(value);
+  const plan = createLiteEnginePlan(value);
+  const submittedPolicyVersion = requiredText(
+    (value as Record<string, unknown>).policyVersion,
+    "계획 정책 버전",
+    120,
+  );
+  const submittedPlanDigest = requiredText(
+    (value as Record<string, unknown>).planDigest,
+    "계획 식별값",
+    100,
+  );
+  if (submittedPolicyVersion !== plan.policyVersion || submittedPlanDigest !== plan.planDigest) {
+    throw new Error("대화 계획이 바뀌었습니다. 최신 계획으로 다시 시도해 주세요.");
+  }
+  const evidenceQuote = supportedLiteEvidenceQuote(candidateEvidenceQuote, input, plan);
+  if (plan.skipModel || !evidenceQuote || candidateNeedsSafeFallback(candidateReply, input)) {
+    const studentReply = enforceLiteQuestionContract(plan.fallbackReply, plan);
+    return {
+      schemaVersion: 2,
+      requestId: input.requestId,
+      policyVersion: LITE_ENGINE_POLICY_VERSION,
+      planDigest: plan.planDigest,
+      engine: liteEngineDescriptor(),
+      studentReply,
+      expectsStudentReply: !plan.observation.isClosing && /[?？]/.test(studentReply),
+      isClosing: plan.observation.isClosing,
+      localFallback: true,
+      observation: plan.observation,
+    };
+  }
+  const safeQuote = evidenceQuote.replace(/[?？]/g, ".");
+  const centralAnswer = withoutQuestionSentences(plan.fallbackReply);
+  const groundedReply = [
+    candidateReply.trim(),
+    centralAnswer,
+    `자료 근거는 “${safeQuote}”예요.`,
+  ].filter(Boolean).join(" ");
+  const studentReply = enforceLiteQuestionContract(groundedReply, plan);
+  const finalizedObservation: LiteEngineObservation = {
+    ...plan.observation,
+    sourceStatus: "supported",
+    sourceCue: evidenceQuote,
+    evidenceIds: [
+      `lesson-material:${input.lesson.lessonId}:r${input.lesson.lessonRevision}:${input.lesson.sourceHash}`,
+    ],
+  };
+
+  return {
+    schemaVersion: 2,
+    requestId: input.requestId,
+    policyVersion: LITE_ENGINE_POLICY_VERSION,
+    planDigest: plan.planDigest,
+    engine: liteEngineDescriptor(),
+    studentReply,
+    expectsStudentReply: !finalizedObservation.isClosing && /[?？]/.test(studentReply),
+    isClosing: finalizedObservation.isClosing,
+    localFallback: false,
+    observation: finalizedObservation,
   };
 }
