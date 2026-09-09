@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <base target="_top">
+    <meta charset="UTF-8">
+    <style>
+      :root { --ink:#172033; --muted:#64748b; --line:#dbe3ee; --blue:#2563eb; --soft:#eff6ff; --green:#166534; }
+      * { box-sizing:border-box; }
+      body { margin:0; color:var(--ink); background:#f6f8fc; font:15px/1.55 Arial,"Noto Sans KR",sans-serif; }
+      main { max-width:980px; margin:0 auto; padding:22px; }
+      h1,h2,h3 { margin:0 0 8px; }
+      .lead,.muted,.status { color:var(--muted); }
+      .stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:16px 0; }
+      .stat,.card { padding:16px; border:1px solid var(--line); border-radius:13px; background:white; }
+      .stat strong { display:block; color:#1d4ed8; font-size:25px; }
+      .toolbar { display:flex; flex-wrap:wrap; gap:9px; align-items:center; margin:12px 0; }
+      button { min-height:40px; padding:8px 13px; border:1px solid var(--blue); border-radius:9px; color:#1d4ed8; background:white; font:inherit; font-weight:700; cursor:pointer; }
+      button.primary { color:white; background:var(--blue); }
+      .students { display:flex; flex-wrap:wrap; gap:7px; }
+      .student { padding:5px 9px; border-radius:999px; background:#e2e8f0; }
+      .evaluation-list { display:grid; gap:12px; }
+      .evaluation { padding:17px; border:1px solid var(--line); border-radius:13px; background:white; }
+      .evaluation-head { display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between; }
+      .badge { padding:4px 9px; border-radius:999px; color:#1d4ed8; background:var(--soft); font-weight:800; }
+      .evidence { max-height:150px; overflow:auto; padding:10px; white-space:pre-wrap; background:#f8fafc; }
+      .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:11px; }
+      .wide { grid-column:1 / -1; }
+      label { display:grid; gap:5px; font-weight:700; }
+      input,textarea,select { width:100%; padding:9px 10px; border:1px solid #94a3b8; border-radius:8px; font:inherit; }
+      textarea { min-height:78px; resize:vertical; }
+      .empty { padding:28px; border:1px dashed #94a3b8; border-radius:13px; text-align:center; background:white; }
+      @media(max-width:700px) { .stats,.grid { grid-template-columns:1fr; } .wide { grid-column:auto; } }
+    </style>
+  </head>
+  <body data-teacher-access-token="<?= teacherAccessToken ?>">
+    <main>
+      <h1>학생 현황과 평가 검수</h1>
+      <p id="lesson-title" class="lead">현재 수업을 불러오는 중입니다.</p>
+      <div class="stats">
+        <div class="stat"><strong id="student-count">0</strong>참여 학생</div>
+        <div class="stat"><strong id="question-count">0</strong>전체 질문</div>
+        <div class="stat"><strong id="review-count">0</strong>검수할 평가</div>
+      </div>
+      <section class="card">
+        <h2>참여 현황</h2>
+        <p class="muted">이 화면에는 질문 전문을 표시하지 않습니다. 전문은 `질문과 답변` 시트에서 교사만 확인합니다.</p>
+        <div id="students" class="students"></div>
+      </section>
+      <div class="toolbar">
+        <button id="refresh" type="button">새로고침</button>
+        <span id="status" class="status" role="status" aria-live="polite"></span>
+      </div>
+      <section>
+        <h2>자동 판단 → 교사 검수 → 최종 평가</h2>
+        <p class="muted">자동 판단은 초안입니다. 근거를 확인하고 교사 판단·피드백·향상 방법을 저장한 뒤에만 최종 확정합니다.</p>
+        <div id="evaluations" class="evaluation-list"></div>
+      </section>
+    </main>
+    <script>
+      const byId = function (id) { return document.getElementById(id); };
+      const teacherAccessToken = document.body.dataset.teacherAccessToken || '';
+      window.addEventListener('load', function () {
+        byId('refresh').addEventListener('click', loadDashboard);
+        loadDashboard();
+      });
+
+      function loadDashboard() {
+        setStatus('학생 현황과 평가 초안을 불러오는 중입니다.');
+        google.script.run
+          .withSuccessHandler(renderDashboard)
+          .withFailureHandler(showError)
+          .getLiteTeacherDashboardData(teacherAccessToken);
+      }
+
+      function renderDashboard(data) {
+        const lesson = data.lesson || {};
+        const students = data.students || [];
+        const evaluations = data.evaluations || [];
+        byId('lesson-title').textContent = lesson.lessonTitle || '아직 설정한 수업이 없습니다.';
+        byId('student-count').textContent = String(students.length);
+        byId('question-count').textContent = String(students.reduce(function (sum, row) { return sum + Number(row.questionCount || 0); }, 0));
+        byId('review-count').textContent = String(evaluations.filter(function (row) { return row.finalStatus !== '최종 확정'; }).length);
+        renderStudents(students);
+        renderEvaluations(evaluations);
+        setStatus('최근 저장 내용을 표시했습니다.');
+      }
+
+      function renderStudents(rows) {
+        const root = byId('students'); root.textContent = '';
+        if (!rows.length) { root.textContent = '아직 실제 학생 참여 기록이 없습니다.'; return; }
+        rows.forEach(function (row) {
+          const item = document.createElement('span'); item.className = 'student';
+          item.textContent = row.studentCode + ' · 질문 ' + Number(row.questionCount || 0) + '개';
+          root.appendChild(item);
+        });
+      }
+
+      function renderEvaluations(rows) {
+        const root = byId('evaluations'); root.textContent = '';
+        if (!rows.length) {
+          const empty = document.createElement('div'); empty.className = 'empty';
+          empty.textContent = '학생이 질문을 시작하면 자동 판단 초안이 여기에 나타납니다.';
+          root.appendChild(empty); return;
+        }
+        rows.forEach(function (row) { root.appendChild(evaluationCard(row)); });
+      }
+
+      function evaluationCard(row) {
+        const card = document.createElement('article'); card.className = 'evaluation';
+        const head = document.createElement('div'); head.className = 'evaluation-head';
+        const title = document.createElement('h3'); title.textContent = row.studentCode + ' 학생';
+        const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = row.finalStatus || '검수 필요';
+        head.appendChild(title); head.appendChild(badge); card.appendChild(head);
+        const auto = document.createElement('p');
+        const autoStrong = document.createElement('strong'); autoStrong.textContent = '자동 판단 초안: ';
+        auto.appendChild(autoStrong); auto.appendChild(document.createTextNode(row.automaticJudgment || '판단 보류'));
+        card.appendChild(auto);
+        const details = document.createElement('details');
+        const summary = document.createElement('summary'); summary.textContent = '자동 판단 근거 확인';
+        const evidence = document.createElement('p'); evidence.className = 'evidence'; evidence.textContent = row.evidenceSummary || '아직 근거가 없습니다.';
+        details.appendChild(summary); details.appendChild(evidence); card.appendChild(details);
+        const grid = document.createElement('div'); grid.className = 'grid';
+        grid.appendChild(selectField('교사 판단', 'teacherDecision', ['판단 보류','도달','성장 중','도움 필요'], row.teacherDecision || '판단 보류'));
+        grid.appendChild(selectField('검수 상태', 'finalStatus', ['검수 중','최종 확정'], row.finalStatus === '최종 확정' ? '최종 확정' : '검수 중'));
+        grid.appendChild(textareaField('교사 피드백', 'teacherFeedback', row.teacherFeedback || '', true));
+        grid.appendChild(textareaField('학생 향상 방법', 'improvementSuggestion', row.improvementSuggestion || '', true));
+        grid.appendChild(textareaField('다음 수업 제안', 'nextLessonSuggestion', row.nextLessonSuggestion || '', true));
+        card.appendChild(grid);
+        const save = document.createElement('button'); save.type = 'button'; save.className = 'primary'; save.textContent = '교사 검수 저장';
+        save.addEventListener('click', function () { saveEvaluation(card, row, save); });
+        card.appendChild(save);
+        return card;
+      }
+
+      function selectField(labelText, name, options, value) {
+        const label = document.createElement('label'); label.textContent = labelText;
+        const select = document.createElement('select'); select.dataset.field = name;
+        options.forEach(function (optionValue) {
+          const option = document.createElement('option'); option.value = optionValue; option.textContent = optionValue;
+          if (optionValue === value) option.selected = true; select.appendChild(option);
+        });
+        label.appendChild(select); return label;
+      }
+
+      function textareaField(labelText, name, value, wide) {
+        const label = document.createElement('label'); if (wide) label.className = 'wide'; label.textContent = labelText;
+        const textarea = document.createElement('textarea'); textarea.dataset.field = name; textarea.maxLength = 1500; textarea.value = value;
+        label.appendChild(textarea); return label;
+      }
+
+      function saveEvaluation(card, row, button) {
+        const value = function (name) { return card.querySelector('[data-field="' + name + '"]').value; };
+        button.disabled = true; setStatus(row.studentCode + ' 학생의 검수 내용을 저장하는 중입니다.');
+        google.script.run
+          .withSuccessHandler(function (result) { button.disabled = false; setStatus(result.message); loadDashboard(); })
+          .withFailureHandler(function (error) { button.disabled = false; showError(error); })
+          .saveLiteTeacherEvaluation(teacherAccessToken, {
+            studentCode:row.studentCode, lessonId:row.lessonId,
+            teacherDecision:value('teacherDecision'), teacherFeedback:value('teacherFeedback'),
+            improvementSuggestion:value('improvementSuggestion'), nextLessonSuggestion:value('nextLessonSuggestion'),
+            finalStatus:value('finalStatus')
+          });
+      }
+
+      function setStatus(message) { byId('status').textContent = message || ''; }
+      function showError(error) { setStatus(error && error.message ? error.message : String(error)); }
+    </script>
+  </body>
+</html>
