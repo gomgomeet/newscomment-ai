@@ -562,8 +562,18 @@ function shouldUseEvaluationVocabularyAnswer_(message, analysis, retrieval, base
     return term.length >= 2 && query.indexOf(term) >= 0 &&
       Boolean(entry.easyDefinition) && isApprovedStatus_(entry.status) && isTruthy_(entry.active);
   });
-  return matches.length === 1 &&
-    String(matches[0].vocabularyId || '') === String((retrieval.vocabulary[0] || {}).vocabularyId || '');
+  if (!matches.length) return false;
+  // "식품첨가물" 안의 "식품"처럼 짧은 포함 낱말은 별도 질문으로 세지 않는다.
+  // 다만 학생이 차이·비교를 물었다면 한 낱말만 답하지 않고 AI 조립으로 보낸다.
+  if (matches.length > 1 && /(차이|비교|같|다르|와|과|랑|하고)/.test(String(message || ''))) return false;
+  const longestLength = Math.max.apply(null, matches.map(function (entry) {
+    return normalizeForSearch_(entry.term).length;
+  }));
+  const longest = matches.filter(function (entry) {
+    return normalizeForSearch_(entry.term).length === longestLength;
+  });
+  return longest.length === 1 &&
+    String(longest[0].vocabularyId || '') === String((retrieval.vocabulary[0] || {}).vocabularyId || '');
 }
 
 function configForActivityMode_(config, activityMode) {

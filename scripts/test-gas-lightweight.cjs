@@ -250,6 +250,11 @@ context.evaluationAnalysis = {studentMove:'ask_definition'};
 context.evaluationBase = {sourceStatus:'supported'};
 assert.equal(run(`shouldUseEvaluationVocabularyAnswer_('정책은 무슨 뜻이에요?',evaluationAnalysis,evaluationRetrieval,evaluationBase)`), true);
 assert.match(run(`renderVocabularyDefinition_(evaluationVocabulary)`), /^정책은 /);
+context.shortVocabulary = Object.assign({}, context.evaluationVocabulary, {vocabularyId:'VOC-SHORT',term:'식품'});
+context.longVocabulary = Object.assign({}, context.evaluationVocabulary, {vocabularyId:'VOC-LONG',term:'식품첨가물'});
+context.nestedVocabularyRetrieval = {vocabulary:[context.longVocabulary,context.shortVocabulary],knowledge:[],cards:[],chunks:[]};
+assert.equal(run(`shouldUseEvaluationVocabularyAnswer_('식품첨가물이 뭐예요?',evaluationAnalysis,nestedVocabularyRetrieval,evaluationBase)`), true);
+assert.equal(run(`shouldUseEvaluationVocabularyAnswer_('식품첨가물과 식품의 차이가 뭐예요?',evaluationAnalysis,nestedVocabularyRetrieval,evaluationBase)`), false);
 // Knowledge survives contraction without stored generation/version/approval metadata.
 context.knowledgeFixture = {knowledgeId:'KN-TEST-01',materialId:'MAT-1',sourceHash:material.sourceHash,
   knowledgeType:'concept',title:'식생활 교육',content:'정체성을 배운다.',easyExplanation:'먹는 문화를 배운다.',
