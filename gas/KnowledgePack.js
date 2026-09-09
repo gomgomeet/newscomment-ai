@@ -77,6 +77,147 @@ function generateKnowledgePackDrafts(teacherAccessToken, materialId, forceRefres
   };
 }
 
+/** 자료를 저장할 때 낱말 뜻과 주제어를 한 번에 만들고 교사 검토용 초안으로 보관한다. */
+function generateVocabularyDrafts(teacherAccessToken, materialId, forceRefresh) {
+  assertTeacherAccess_(teacherAccessToken);
+  const spreadsheet = getSpreadsheet_();
+  ensureWorkbookStructure_(spreadsheet);
+  const settings = getAISettings_(readConfig_());
+  if (!settings.enabled || !getOpenAIApiKey_()) {
+    throw new Error('먼저 질문 챗봇 메뉴에서 OpenAI API 키를 연결해 주세요.');
+  }
+  const material = getActiveMaterial_();
+  if (materialId && String(material.materialId) !== String(materialId)) {
+    throw new Error('현재 활성 자료가 바뀌었습니다. 교사 화면을 새로 열어 주세요.');
+  }
+  const sourceHash = String(material.sourceHash || makeMaterialSourceHash_(material));
+  const generationKey = vocabularyGenerationPropertyKey_(material.materialId);
+  const properties = PropertiesService.getScriptProperties();
+  if (!forceRefresh && properties.getProperty(generationKey) === sourceHash) {
+    const reusedItems = getVocabularyRowsForMaterial_(material);
+    return {
+      ok: true,
+      reused: true,
+      wordCount: reusedItems.filter(function (item) { return item.wordGroup !== '주제어'; }).length,
+      themeCount: reusedItems.filter(function (item) { return item.wordGroup === '주제어'; }).length,
+      items: reusedItems
+    };
+  }
+
+  const policy = requireSupportedGrade_(material.gradeCode || material.grade);
+  const passage = String(material.text || '');
+  const result = callOpenAIJson_(makeVocabularyRequest_(material, settings));
+  const value = result.value || {};
+  const existingTerms = {};
+  getVocabularyRowsForMaterial_(material).forEach(function (item) {
+    existingTerms[normalizeVocabularyTerm_(item.term)] = true;
+  });
+  const rows = [];
+  const seen = {};
+  const add = function (termValue, definitionValue, groupValue, themeWord) {
+    const term = String(termValue || '').trim();
+    const definition = String(definitionValue || '').trim();
+    const key = normalizeVocabularyTerm_(term);
+    if (!key || seen[key] || existingTerms[key] || term.length > 50 ||
+        definition.length < 2 || definition.length > 300) return;
+    if (themeWord ? passage.indexOf(term) >= 0 : passage.indexOf(term) < 0) return;
+    const group = themeWord ? '주제어' : String(groupValue || '').trim().slice(0, 60);
+    const row = makeVocabularyRow_(material, term, definition, policy, 'AI 초안');
+    row.vocabularyId = 'VOC-AI-' + makeContentHash_(
+      material.materialId + '|' + sourceHash + '|' + key
+    ).slice(0, 12);
+    row.wordGroup = group;
+    row.status = 'draft';
+    row.active = false;
+    row.teacherApproved = false;
+    seen[key] = true;
+    rows.push(row);
+  };
+  (Array.isArray(value.words) ? value.words : []).forEach(function (item) {
+    add(item.term, item.easyDefinition, item.wordGroup, false);
+  });
+  (Array.isArray(value.themeWords) ? value.themeWords : []).forEach(function (item) {
+    add(item.term, item.easyDefinition, item.wordGroup, true);
+  });
+  appendObjectsToSheet_(spreadsheet.getSheetByName('VOCABULARY_LIBRARY'), rows);
+  properties.setProperty(generationKey, sourceHash);
+  const items = getVocabularyRowsForMaterial_(material);
+  return {
+    ok: true,
+    reused: false,
+    model: String(result.model || settings.model),
+    wordCount: rows.filter(function (item) { return item.wordGroup !== '주제어'; }).length,
+    themeCount: rows.filter(function (item) { return item.wordGroup === '주제어'; }).length,
+    items: items
+  };
+}
+
+function makeVocabularyRequest_(material, settings) {
+  const entry = {
+    type: 'object',
+    properties: {
+      term: { type: 'string' },
+      easyDefinition: { type: 'string' },
+      wordGroup: { type: 'string' }
+    },
+    required: ['term', 'easyDefinition', 'wordGroup'],
+    additionalProperties: false
+  };
+  return {
+    model: settings.model,
+    reasoningEffort: settings.reasoningEffort,
+    maxOutputTokens: 2000,
+    schemaName: 'teacher_vocabulary_drafts',
+    schema: {
+      type: 'object',
+      properties: {
+        words: { type: 'array', maxItems: 20, items: entry },
+        themeWords: { type: 'array', maxItems: 10, items: entry }
+      },
+      required: ['words', 'themeWords'],
+      additionalProperties: false
+    },
+    instructions: [
+      '한국어 수업용 질문 챗봇의 낱말 도우미입니다.',
+      'words: 지문에 실제로 나오는 말 가운데 대상 학년이 어려워할 낱말을 최대 20개 고르고, 대상 학년보다 한 단계 쉬운 말로 한 문장 뜻을 쓰세요.',
+      'themeWords: 이 글을 읽은 대상 학년 학생이 물어볼 만한 말 가운데 지문에는 나오지 않는 낱말을 최대 10개 고르세요. 글의 주제와 이어지는 것만 고르고, 뜻도 같은 방식으로 쓰세요.',
+      '뜻에 어려운 한자어를 쓰지 말고, 낱말 자체를 뜻풀이에 되풀이하지 마세요.',
+      'wordGroup은 같은 갈래끼리 묶는 짧은 이름이며 없으면 빈 문자열로 두세요.'
+    ].join(' '),
+    input: JSON.stringify({
+      grade: material.grade,
+      gradeCode: material.gradeCode,
+      title: material.title,
+      standard: material.standard,
+      text: material.text
+    })
+  };
+}
+
+function vocabularyGenerationPropertyKey_(materialId) {
+  return 'VOCABULARY_DRAFT_SOURCE_' + makeContentHash_(String(materialId || '')).slice(0, 16);
+}
+
+function getVocabularyRowsForMaterial_(material) {
+  const sourceHash = String(material.sourceHash || makeMaterialSourceHash_(material));
+  return getRowsAsObjects_('VOCABULARY_LIBRARY').filter(function (row) {
+    const status = String(row.status || '').toLowerCase();
+    return String(row.sourceId || '') === String(material.materialId || '') &&
+      String(row.version || 'v1') === String(material.version || 'v1') &&
+      String(row.sourceHash || '') === sourceHash &&
+      ((isTruthy_(row.active) && isApprovedStatus_(status)) || status === 'draft');
+  }).map(function (row) {
+    return {
+      term: String(row.term || ''),
+      definition: String(row.easyDefinition || ''),
+      group: String(row.wordGroup || ''),
+      wordGroup: String(row.wordGroup || ''),
+      status: String(row.status || 'draft'),
+      source: String(row.status || '').toLowerCase() === 'draft' ? 'ai_draft' : 'teacher_confirmed'
+    };
+  });
+}
+
 function makeKnowledgePackRequest_(material, chunks, model, settings, config) {
   const maxItems = Math.floor(Math.min(
     8,
@@ -130,7 +271,9 @@ function makeKnowledgePackRequest_(material, chunks, model, settings, config) {
       '교사가 제공한 원문에서 확인되는 내용만 사용하세요.',
       '모든 항목은 정확한 원문 인용과 해당 chunkId를 가져야 합니다.',
       '낱말 설명은 대상 학년보다 한 단계 쉽게 쓰세요.',
-      '최대 ' + maxItems + '개의 꼭 필요한 보충 설명만 제안하세요. 원문에서 바로 찾을 수 있는 사실이나 문단별 요약을 반복 생성하지 마세요.',
+      '이 지식은 학생이 물었을 때 검색해서 답의 근거로 쓰는 자료입니다. 아이들이 실제로 물어볼 것을 기준으로 만드세요.',
+      '최대 ' + maxItems + '개를 만들되 이 순서로 채우세요 — 글 전체의 중심 생각 하나(overview), 숫자·비율이 나오는 문단의 요약(paragraph_summary), 아이들이 물어볼 핵심 사실(fact), 까닭이나 관계(relation), 어려운 개념(concept), 이야깃거리(discussion), 글에 없는 것(boundary).',
+      '제목과 본문 첫 문장에 아이들이 쓸 말을 그대로 넣으세요. 예: 제목 "몇 퍼센트인가 · 87% 식품 포장재", 본문 시작 "몇 퍼센트인지 보면, …". 검색이 제목과 본문 앞부분으로 이루어집니다.',
       '어려운 낱말·개념, 관계 해석, 오개념, 자료 밖 답변 경계를 우선하고 같은 설명을 여러 유형으로 중복하지 마세요.',
       '내용과 쉬운 설명은 각각 1~2문장, 핵심어는 5개 이내로 간결하게 쓰세요.',
       '원문 인용은 근거가 되는 짧은 연속 구절을 정확하게 옮기세요.',

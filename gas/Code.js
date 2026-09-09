@@ -296,7 +296,7 @@ function getTeacherSetupData(teacherAccessToken) {
       config.GREETING_MESSAGE ||
       '안녕! 나는 {appName}야. 함께 지문을 읽고 질문을 나눠 보자.',
     material: material,
-    glossary: getTeacherGlossaryEntries_(material.materialId, material.version),
+    glossary: getTeacherGlossaryEntries_(material.materialId, material.version, material.sourceHash),
     pendingReviews: getPendingSupplementReviews_(material),
     knowledgeDrafts: getLatestKnowledgePack_(material),
     ai: {
@@ -339,7 +339,7 @@ function resolveSupplementReview(teacherAccessToken, payload) {
       if (!term || term.length > 50 || !definition || definition.length > 300 || group.length > 60) throw new Error('낱말은 50자, 뜻은 300자, 단어군은 60자 이내로 입력해 주세요.');
       const normalized = normalizeVocabularyTerm_(term);
       if (!normalized) throw new Error('검색할 수 있는 낱말을 입력해 주세요.');
-      const glossary = getTeacherGlossaryEntries_(material.materialId, material.version);
+      const glossary = getTeacherGlossaryEntries_(material.materialId, material.version, material.sourceHash);
       if (glossary.length >= 120 && !glossary.some(function (item) { return normalizeVocabularyTerm_(item.term) === normalized; })) throw new Error('보충 어휘가 120개입니다. 기존 어휘를 정리한 뒤 추가해 주세요.');
       const vocabulary = Object.assign(makeVocabularyRow_(material, term, definition,
         requireSupportedGrade_(material.gradeCode || material.grade), '교사 직접 입력'), { wordGroup: group });
@@ -366,6 +366,7 @@ function saveTeacherSetup(teacherAccessToken, payload) {
   const normalized = validateTeacherSetupPayload_(payload || {});
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
+  let response;
   try {
     const spreadsheet = getSpreadsheet_();
     ensureWorkbookStructure_(spreadsheet);
@@ -388,7 +389,7 @@ function saveTeacherSetup(teacherAccessToken, payload) {
     const externalSourceCount = 0;
     const chunkCount = syncMaterialChunks_();
 
-    return {
+    response = {
       ok: true,
       message: archivedTurns
         ? '저장되었습니다. 지문이 바뀌어 지난 대화 ' + archivedTurns + '건을 TURNS_ARCHIVE 시트로 옮겼어요. 학생은 새로 시작합니다.'
@@ -406,6 +407,44 @@ function saveTeacherSetup(teacherAccessToken, payload) {
   } finally {
     flushAndReleaseLock_(lock);
   }
+
+  // 모델 호출은 반드시 저장 잠금 밖에서 한다. 분석이 실패해도 위의 교사 자료 저장은 유지된다.
+  try {
+    const analysis = generateKnowledgePackDrafts(
+      teacherAccessToken, response.materialId, false
+    );
+    const analysisCount = (analysis.items || []).length;
+    response.knowledgeDrafts = analysis;
+    if (analysisCount) {
+      response.analysisCount = analysisCount;
+      if (!analysis.reused) {
+        response.message += ' 지문 분석 초안 ' + analysisCount +
+          '개를 만들었어요. 「4. 수업 자료·보충 설명 확인」에서 훑어보고 승인해 주세요.';
+      }
+    }
+  } catch (error) {
+    response.analysisError = safeAIErrorMessage_(error);
+    response.knowledgeDrafts = { generationId: '', items: [] };
+    response.message += ' (지문 분석은 나중에 「4. 수업 자료·보충 설명 확인」에서 만들 수 있어요.)';
+  }
+
+  try {
+    const vocabulary = generateVocabularyDrafts(
+      teacherAccessToken, response.materialId, false
+    );
+    response.vocabularyDrafts = vocabulary.items || [];
+    response.vocabularyDraftCount = Number(vocabulary.wordCount || 0) +
+      Number(vocabulary.themeCount || 0);
+    if (!vocabulary.reused && response.vocabularyDraftCount) {
+      response.message += ' 낱말·주제어 초안 ' + response.vocabularyDraftCount +
+        '개도 만들었어요. 표에서 확인하고 한 번 더 저장하면 학생에게 반영됩니다.';
+    }
+  } catch (error) {
+    response.vocabularyError = safeAIErrorMessage_(error);
+    response.vocabularyDrafts = [];
+    response.message += ' (낱말·주제어 초안은 나중에 다시 만들 수 있어요.)';
+  }
+  return response;
 }
 
 function getStudentWebAppUrl_(material) {

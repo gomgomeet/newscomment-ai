@@ -66,6 +66,7 @@
       .word-missing { color:#92400e; }
       .knowledge-summary { cursor:pointer; padding:9px 0; font-weight:700; }
       .glossary-row { grid-template-columns:1fr 1fr 2fr auto; }
+      .glossary-row[data-source="ai_draft"] { padding:8px; border:1px dashed #f59e0b; border-radius:10px; background:#fffbeb; }
       .generation-progress { display:inline-flex; min-height:42px; max-width:100%; align-items:center; gap:9px; padding:7px 11px; border:1px solid #bfdbfe; border-radius:10px; color:#1e40af; background:#eff6ff; }
       .generation-progress[hidden] { display:none; }
       .generation-progress[data-state="success"] { border-color:#bbf7d0; color:#166534; background:#f0fdf4; }
@@ -95,11 +96,11 @@
   <body data-teacher-access-token="<?= teacherAccessToken ?>">
     <main id="teacher-main" data-initial-section="<?= initialSection ?>">
       <h1>교사 입력 화면</h1>
-      <p class="lead">여기에 입력하면 Google Sheet에 저장되고 학생 앱은 새로고침부터 같은 내용을 사용합니다.</p>
+      <p class="lead">자료를 저장하면 지문 분석·낱말·주제어 초안이 자동으로 준비됩니다. 교사가 확인한 내용만 학생 답변에 반영됩니다.</p>
       <div class="practice-flow" aria-label="챗봇 만들기 실습 순서">
         <div class="practice-step"><strong>1단계</strong>OpenAI API 연결<br><span id="api-status" class="api-needed">확인 중</span></div>
-        <div class="practice-step"><strong>2단계</strong>교사 자료 입력·저장</div>
-        <div class="practice-step"><strong>3단계</strong>필요한 보충 설명 확인</div>
+        <div class="practice-step"><strong>2단계</strong>자료 저장·AI 초안 준비</div>
+        <div class="practice-step"><strong>3단계</strong>초안 확인·승인</div>
       </div>
 
       <section id="readiness-section" class="card" aria-labelledby="readiness-title">
@@ -182,7 +183,7 @@
           <div id="review-list"></div>
           <p id="review-result" role="status" aria-live="polite"></p>
           <details><summary id="word-review-title">전체 보충 설명 확인·수정</summary>
-          <p class="notice">원문은 저장하면 바로 검색됩니다. 원문만으로 설명하기 어려운 낱말 뜻만 보충하세요.</p>
+          <p class="notice">원문은 저장하면 바로 검색됩니다. AI가 제안한 낱말·주제어는 표에서 확인하고 다시 저장해야 학생에게 반영됩니다.</p>
           <h3>전체 단어 뜻·단어군 모아보기</h3>
           <p class="help">검색하거나 단어군을 골라 확인하세요. 뜻 보완 표시는 참고용이며 모든 단어를 채울 필요는 없습니다.</p>
           <div class="word-toolbar">
@@ -194,7 +195,7 @@
           <p id="word-count" role="status"></p>
           <div class="word-table-wrap"><table class="word-table"><thead><tr><th scope="col">단어군</th><th scope="col">단어</th><th scope="col">쉬운 뜻</th><th scope="col">출처·확인 상태</th></tr></thead><tbody id="word-body"></tbody></table></div>
           <details><summary class="knowledge-summary">단어 뜻 한꺼번에 넣기</summary>
-            <p class="help">한 줄에 단어군, 단어, 뜻을 탭으로 나누어 붙여 넣으세요. 같은 단어는 입력란의 뜻과 단어군을 갱신합니다. 아래에서 검토한 후 ‘교사 자료만 저장’을 눌러 반영합니다.</p>
+            <p class="help">한 줄에 단어군, 단어, 뜻을 탭으로 나누어 붙여 넣으세요. 같은 단어는 입력란의 뜻과 단어군을 갱신합니다. 아래에서 검토한 후 ‘자료 저장·AI 초안 준비’를 눌러 반영합니다.</p>
             <textarea id="word-bulk" aria-label="단어군·단어·뜻 일괄 입력" placeholder="단어군&#9;단어&#9;쉬운 뜻"></textarea>
             <button id="word-import" type="button" class="secondary">입력란에 모아 넣기</button>
           </details>
@@ -230,7 +231,7 @@
 
 
         <div class="actions">
-          <button id="save-button" class="primary" type="submit">교사 자료만 저장</button>
+          <button id="save-button" class="primary" type="submit">자료 저장·AI 초안 준비</button>
           <span id="save-progress" class="generation-progress" data-state="idle" role="status" aria-live="polite" aria-atomic="true" hidden>
             <span id="save-icon" class="generation-hourglass" aria-hidden="true">⏳</span>
             <span class="generation-copy">
@@ -301,7 +302,7 @@
         byId('start-question').value = material.startQuestion || '';
         byId('glossary-list').textContent = '';
         (data.glossary || []).forEach(function (item) {
-          addGlossaryRow(item.term || '', item.definition || '', item.group || '');
+          addGlossaryRow(item.term || '', item.definition || '', item.group || '', item.source || 'teacher_confirmed');
         });
         if (!(data.glossary || []).length) addGlossaryRow('', '');
         renderKnowledgePack(data.knowledgeDrafts || { generationId: '', items: [] });
@@ -387,9 +388,13 @@
         }
       }
 
-      function addGlossaryRow(term, definition, group) {
+      function addGlossaryRow(term, definition, group, source) {
         const row = document.createElement('div');
         row.className = 'glossary-row';
+        row.dataset.source = source || 'teacher_confirmed';
+        if (row.dataset.source === 'ai_draft') {
+          row.title = 'AI가 제안한 초안입니다. 낱말과 뜻을 확인한 뒤 저장하면 학생에게 반영됩니다.';
+        }
         const groupInput = document.createElement('input');
         groupInput.className = 'glossary-group';
         groupInput.maxLength = 60;
@@ -420,6 +425,34 @@
         byId('glossary-list').appendChild(row);
       }
 
+      function mergeVocabularyDrafts(items) {
+        if (!Array.isArray(items) || !items.length) return;
+        Array.from(document.querySelectorAll('.glossary-row')).forEach(function (row) {
+          if (!row.querySelector('.glossary-term').value.trim() &&
+              !row.querySelector('.glossary-definition').value.trim()) row.remove();
+        });
+        const normalize = function (text) {
+          return String(text || '').normalize('NFKC').toLowerCase().replace(/[^0-9a-z가-힣]/g, '');
+        };
+        items.forEach(function (item) {
+          const existing = Array.from(document.querySelectorAll('.glossary-row')).find(function (row) {
+            return normalize(row.querySelector('.glossary-term').value) === normalize(item.term);
+          });
+          const source = item.source || (item.status === 'draft' ? 'ai_draft' : 'teacher_confirmed');
+          if (existing) {
+            existing.querySelector('.glossary-term').value = item.term || '';
+            existing.querySelector('.glossary-definition').value = item.definition || '';
+            existing.querySelector('.glossary-group').value = item.group || item.wordGroup || '';
+            existing.dataset.source = source;
+            existing.title = source === 'ai_draft'
+              ? 'AI가 제안한 초안입니다. 낱말과 뜻을 확인한 뒤 저장하면 학생에게 반영됩니다.' : '';
+          } else {
+            addGlossaryRow(item.term || '', item.definition || '', item.group || item.wordGroup || '', source);
+          }
+        });
+        renderWordBoard();
+      }
+
       function buildWordReviewRows(glossary, knowledge) {
         const rows = new Map();
         function add(term, group, definition, source) {
@@ -433,7 +466,12 @@
             if (value && pair[0].indexOf(value) < 0) pair[0].push(value);
           });
         }
-        glossary.forEach(function (item) { add(item.term, item.group || '교사 어휘', item.definition, '교사 보충 풀이 · 입력값 기준'); });
+        glossary.forEach(function (item) {
+          add(item.term, item.group || '교사 어휘', item.definition,
+            item.source === 'ai_draft'
+              ? 'AI 초안 · 교사가 확인하고 저장해야 학생에게 반영'
+              : '교사 확인 어휘 · 입력값 기준');
+        });
         knowledge.filter(function (item) { return ['draft','approved'].indexOf(item.status) >= 0; }).forEach(function (item) {
           const source = (item.status === 'approved' ? '승인 지식' : '검토 중인 지식') + ' · ' + item.title +
             ' · ' + (item.sourceLocation || '') + (item.evidenceQuote ? ' · 원문: ' + item.evidenceQuote : '');
@@ -446,7 +484,7 @@
       function renderWordBoard() {
         const glossary = Array.from(document.querySelectorAll('.glossary-row')).map(function (row) {
           return { term: row.querySelector('.glossary-term').value, definition: row.querySelector('.glossary-definition').value,
-            group: row.querySelector('.glossary-group').value };
+            group: row.querySelector('.glossary-group').value, source: row.dataset.source || 'teacher_confirmed' };
         });
         const rows = buildWordReviewRows(glossary, boardKnowledgeItems);
         const groupControl = byId('word-group');
@@ -498,6 +536,7 @@
           });
           if (existing) {
             existing.querySelector('.glossary-group').value = entry[0]; existing.querySelector('.glossary-definition').value = entry[2];
+            existing.dataset.source = 'teacher_confirmed'; existing.title = '';
           } else addGlossaryRow(entry[1], entry[2], entry[0]);
         });
         renderWordBoard();
@@ -533,15 +572,19 @@
         event.preventDefault();
         if (!byId('teacher-form').reportValidity()) return;
         setBusy(true, '');
-        startSaveProgress('Google Sheet에 저장하고 자료를 색인하는 중…');
+        startSaveProgress('Google Sheet에 저장하고 지문 분석·낱말 초안을 준비하는 중…');
         google.script.run
           .withSuccessHandler(function (result) {
             byId('material-id').value = result.materialId || byId('material-id').value;
             updateStudentLink(result.studentUrl || '');
             if (result.sourceHash) reviewMaterial.sourceHash = result.sourceHash;
+            mergeVocabularyDrafts(result.vocabularyDrafts || []);
+            if (result.knowledgeDrafts && (result.knowledgeDrafts.items || []).length) {
+              renderKnowledgePack(result.knowledgeDrafts);
+            }
             setBusy(false, '');
             finishSaveProgress(
-              result.message + ' 보충 어휘 ' + result.glossaryCount + '개',
+              result.message,
               'success'
             );
           })
@@ -594,6 +637,13 @@
           .withSuccessHandler(function (saved) {
             byId('material-id').value = saved.materialId || byId('material-id').value;
             updateStudentLink(saved.studentUrl || '');
+            mergeVocabularyDrafts(saved.vocabularyDrafts || []);
+            if (saved.knowledgeDrafts && (saved.knowledgeDrafts.items || []).length) {
+              renderKnowledgePack(saved.knowledgeDrafts);
+              setBusy(false, saved.knowledgeDrafts.message || saved.message);
+              finishKnowledgeProgress('3/3 ' + (saved.knowledgeDrafts.message || saved.message), 'success');
+              return;
+            }
             setKnowledgeStage('2/3 AI가 지문 전체를 분석하고 원문 인용을 검증하는 중…');
             google.script.run
               .withSuccessHandler(function (result) {

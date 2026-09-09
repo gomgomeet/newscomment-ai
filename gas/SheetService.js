@@ -271,10 +271,22 @@ function saveActiveMaterial_(materialInput) {
   return getActiveMaterial_();
 }
 
-function getTeacherGlossaryEntries_(materialId, version) {
-  return getApprovedVocabularyEntries_().filter(function (row) {
-    return String(row.sourceId) === String(materialId) && (!version || String(row.version || 'v1') === String(version));
-  }).map(function (row) { return { term: row.term, definition: row.easyDefinition, group: row.wordGroup || '' }; });
+function getTeacherGlossaryEntries_(materialId, version, sourceHash) {
+  return getRowsAsObjects_('VOCABULARY_LIBRARY').filter(function (row) {
+    const status = String(row.status || '').toLowerCase();
+    const visible = (isTruthy_(row.active) && isApprovedStatus_(status)) || status === 'draft';
+    return visible && String(row.sourceId) === String(materialId) &&
+      (!version || String(row.version || 'v1') === String(version)) &&
+      (!sourceHash || String(row.sourceHash || '') === String(sourceHash));
+  }).map(function (row) {
+    const draft = String(row.status || '').toLowerCase() === 'draft';
+    return {
+      term: row.term,
+      definition: row.easyDefinition,
+      group: row.wordGroup || '',
+      source: draft ? 'ai_draft' : 'teacher_confirmed'
+    };
+  });
 }
 
 function syncManagedSheetRows_(sheet, isManaged, keyFor, desired) {
