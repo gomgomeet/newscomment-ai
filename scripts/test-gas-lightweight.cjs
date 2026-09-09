@@ -196,12 +196,17 @@ run('setupProject()');
 run(`appendObjectsToSheet_(getSpreadsheet_().getSheetByName('MATERIALS'), [{
   materialId:'MAT-1', title:'고추장 수업', grade:'초등 4학년', gradeCode:'E4', standard:'글의 내용을 이해한다',
   text:'학생들은 고추장을 만들 때 고춧가루와 찹쌀을 섞었다. 학교의 정책은 식생활 교육을 통해 정체성을 배우는 것이다.',
-  startQuestion:'무엇을 만들었나요?', version:'v1', active:true, status:'approved', activityMode:'discussion'
+  startQuestion:'무엇을 만들었나요?', version:'v1', active:true, status:'approved', activityMode:'exploration'
 }]); syncMaterialChunks_();`);
 const material = run('getActiveMaterial_()');
 const bootstrap = run(`getBootstrapData({}, '03-012')`);
 assert.equal(bootstrap.sessionId, 'MAT-1:3-12');
 assert.equal(bootstrap.studentCode, '3-12');
+assert.equal(bootstrap.activityMode, 'exploration');
+assert.equal(run(`resolveActivityMode_({activityMode:'evaluation'},{ALLOW_GENERAL_ANSWER:'TRUE'})`), 'evaluation');
+assert.equal(run(`resolveActivityMode_({activityMode:'exploration'},{ALLOW_GENERAL_ANSWER:'FALSE'})`), 'exploration');
+assert.equal(run(`getAISettings_(configForActivityMode_({},'evaluation')).allowGeneralAnswer`), false);
+assert.equal(run(`getAISettings_(configForActivityMode_({},'exploration')).allowGeneralAnswer`), true);
 assert.throws(() => run(`getBootstrapData({}, '홍길동')`), /반-번호/);
 context.testPayload = {sessionId: bootstrap.sessionId, lesson: bootstrap.lesson, message: '고추장은 어떤 재료로 만들었나요?'};
 const reply = run('submitTurn(testPayload)');
@@ -239,6 +244,12 @@ run(`resolveSupplementReview(getOrCreateTeacherAccessToken_(), reviewPayload)`);
 assert.equal(run('getPendingSupplementReviews_(getActiveMaterial_()).total'),0);
 run(`setConfigValue_('AI_ENABLED','FALSE')`);
 assert.ok(run('submitTurn(testPayload)').reply.includes('학교가 정한 일의 방향'));
+context.evaluationVocabulary = run(`getApprovedVocabularyEntries_().find(function (item) { return item.term === '정책'; })`);
+context.evaluationRetrieval = {vocabulary:[context.evaluationVocabulary],knowledge:[],cards:[],chunks:[]};
+context.evaluationAnalysis = {studentMove:'ask_definition'};
+context.evaluationBase = {sourceStatus:'supported'};
+assert.equal(run(`shouldUseEvaluationVocabularyAnswer_('정책은 무슨 뜻이에요?',evaluationAnalysis,evaluationRetrieval,evaluationBase)`), true);
+assert.match(run(`renderVocabularyDefinition_(evaluationVocabulary)`), /^정책은 /);
 // Knowledge survives contraction without stored generation/version/approval metadata.
 context.knowledgeFixture = {knowledgeId:'KN-TEST-01',materialId:'MAT-1',sourceHash:material.sourceHash,
   knowledgeType:'concept',title:'식생활 교육',content:'정체성을 배운다.',easyExplanation:'먹는 문화를 배운다.',
@@ -406,7 +417,7 @@ assert.ok(beforeArchive > 0);
 context.setupPayload = {appName:'질문이', subject:'국어', greetingMessage:'안녕!', glossary:[],
   material:{materialId:'MAT-1', title:'고추장 수업 (제목만 고침)', grade:'초등 4학년', standard:'글의 내용을 이해한다',
     text:'학생들은 고추장을 만들 때 고춧가루와 찹쌀을 섞었다. 학교의 정책은 식생활 교육을 통해 정체성을 배우는 것이다.',
-    startQuestion:'무엇을 만들었나요?', version:'v1'}};
+    startQuestion:'무엇을 만들었나요?', version:'v1', activityMode:'exploration'}};
 const knowledgeInstructions = run(`makeKnowledgePackRequest_(getActiveMaterial_(), getApprovedMaterialChunks_('MAT-1','v1'), 'test-model', getAISettings_(readConfig_()), readConfig_()).instructions`);
 assert.match(knowledgeInstructions, /문단의 요약/);
 assert.doesNotMatch(knowledgeInstructions, /문단별 요약을 반복 생성하지 마세요/);
@@ -458,3 +469,25 @@ assert.ok(!run(`getApprovedVocabularyEntries_()`).some(item => item.term === '�
 assert.ok(run(`getRowsAsObjects_('VOCABULARY_LIBRARY')`).some(item => item.term === '장독대' && item.status === 'rejected'));
 assert.ok(approvedVocabulary.vocabularyDrafts.some(item => item.term === '메주' && item.status === 'approved'));
 console.log('PASS stage 10-11: material replacement archives turns, auto-creates review drafts outside the lock, and teacher save approves vocabulary');
+
+// 운영 모드는 교사가 저장하며, 변경하면 이전 조건의 대화를 보관한다. 평가 모드의 정확한 승인 낱말은 AI를 부르지 않는다.
+run(`setConfigValue_('AI_ENABLED','FALSE')`);
+context.modeBefore = run(`getBootstrapData({}, '96-1')`);
+context.modeTurn = {sessionId:context.modeBefore.sessionId,lesson:context.modeBefore.lesson,message:'안녕하세요?'};
+run('submitTurn(modeTurn)');
+context.setupPayload.material.activityMode = 'evaluation';
+const modeChanged = run('saveTeacherSetup(getOrCreateTeacherAccessToken_(), setupPayload)');
+assert.equal(modeChanged.archivedTurns, 2);
+assert.equal(run(`getRowsAsObjects_('TURNS_ARCHIVE').slice(-1)[0].archiveReason`), '대화 모드 변경 exploration → evaluation');
+context.evaluationBootstrap = run(`getBootstrapData({}, '96-2')`);
+assert.equal(context.evaluationBootstrap.activityMode, 'evaluation');
+run(`setConfigValue_('AI_ENABLED','TRUE')`);
+const modeCallsBefore = aiRequests.length;
+context.evaluationTurn = {sessionId:context.evaluationBootstrap.sessionId,lesson:context.evaluationBootstrap.lesson,message:'메주는 무슨 뜻이에요?'};
+const evaluationReply = run('submitTurn(evaluationTurn)');
+assert.equal(aiRequests.length, modeCallsBefore);
+assert.equal(evaluationReply.aiStatus, 'compose:skipped_evaluation_vocabulary');
+assert.equal(evaluationReply.reviewQueued, false);
+assert.equal(evaluationReply.activityMode, 'evaluation');
+assert.match(evaluationReply.reply, /^메주는 /);
+console.log('PASS activity modes: teacher selection, session boundary, evaluation-mode direct vocabulary and zero AI call');

@@ -162,11 +162,24 @@ function rankVocabularyEntries_(query, dialogue, material, entries, limit) {
 }
 
 function renderVocabularyDefinition_(entry) {
-  let text = '“' + entry.term + '”의 뜻은 ‘' + entry.easyDefinition + '’이에요.';
+  const term = String(entry.term || '').trim();
+  let definition = String(entry.easyDefinition || '').trim();
+  if (definition && !/[.!?。！？]$/.test(definition)) {
+    definition += /(?:요|다|니다|예요|이에요)$/.test(definition) ? '.' : '이에요.';
+  }
+  let text = term + koreanTopicParticle_(term) + ' ' + definition;
   if (entry.exampleText) {
-    text += ' 지문에서는 “' + shortenEvidence_(entry.exampleText, 100) + '”처럼 쓰였어요.';
+    text += ' 글에서는 “' + shortenEvidence_(entry.exampleText, 100) + '”처럼 쓰였어요.';
   }
   return text;
+}
+
+function koreanTopicParticle_(value) {
+  const text = String(value || '').trim();
+  if (!text) return '은(는)';
+  const code = text.charCodeAt(text.length - 1);
+  if (code >= 0xAC00 && code <= 0xD7A3) return (code - 0xAC00) % 28 ? '은' : '는';
+  return '는';
 }
 
 function parseVocabularyEvidence_(evidenceText, keywords) {

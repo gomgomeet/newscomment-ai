@@ -158,6 +158,13 @@
             <label>자료 버전
               <input id="version" maxlength="30" required placeholder="예: v1">
             </label>
+            <label class="wide">챗봇 운영 모드
+              <select id="activity-mode" required>
+                <option value="evaluation">평가 모드 · 승인 자료 중심, AI 호출 절약</option>
+                <option value="exploration">탐색 모드 · 관련된 확장 질문도 답변</option>
+              </select>
+            </label>
+            <p class="wide help">학생에게는 선택된 모드만 표시됩니다. 모드를 바꾸면 서로 다른 평가 조건이 섞이지 않도록 이전 대화를 보관하고 새로 시작합니다.</p>
             <label class="wide">주제·지문 제목
               <input id="title" maxlength="120" required>
             </label>
@@ -296,6 +303,7 @@
         byId('material-id').value = material.materialId || '';
         byId('grade').value = gradeLabelFor_(material.gradeCode) || material.grade || '';
         byId('version').value = material.version || 'v1';
+        byId('activity-mode').value = material.activityMode === 'exploration' ? 'exploration' : 'evaluation';
         byId('title').value = material.title || '';
         byId('standard').value = material.standard || '';
         byId('material-text').value = material.text || '';
@@ -556,6 +564,7 @@
             standard: byId('standard').value,
             text: byId('material-text').value,
             startQuestion: byId('start-question').value,
+            activityMode: byId('activity-mode').value
           },
           glossary: Array.from(document.querySelectorAll('.glossary-row')).map(function (row) {
             return {
