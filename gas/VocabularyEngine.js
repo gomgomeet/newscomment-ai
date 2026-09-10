@@ -84,9 +84,23 @@ function syncTeacherGlossaryVocabulary_(material, glossary) {
   const rows = (glossary || []).map(function (item) {
     return Object.assign(makeVocabularyRow_(material, item.term, item.definition, policy, '교사 직접 입력'), { wordGroup: item.group || '' });
   });
+  const wanted = {};
+  rows.forEach(function (row) {
+    wanted[String(row.version || 'v1') + '|' + normalizeVocabularyTerm_(row.term)] = true;
+  });
   syncManagedSheetRows_(sheet, function (row) {
     return String(row.sourceId) === String(material.materialId);
   }, function (row) { return String(row.version || 'v1') + '|' + normalizeVocabularyTerm_(row.term); }, rows);
+  // 교사가 AI 초안을 입력 목록에서 지웠다면 다음 저장 때 다시 나타나지 않도록 폐기한다.
+  const headers = getHeaderMap_(sheet);
+  getRowsAsObjects_('VOCABULARY_LIBRARY').forEach(function (row) {
+    const key = String(row.version || 'v1') + '|' + normalizeVocabularyTerm_(row.term);
+    if (String(row.sourceId) !== String(material.materialId) ||
+        String(row.sourceHash || '') !== String(material.sourceHash || '') ||
+        String(row.status || '').toLowerCase() !== 'draft' || wanted[key]) return;
+    if (headers.status) sheet.getRange(row.__rowNumber, headers.status).setValue('rejected');
+    if (headers.active) sheet.getRange(row.__rowNumber, headers.active).setValue(false);
+  });
   // 이전 사전카드는 이관 후 비활성화만 하며, 새 카드를 생성하지 않습니다.
   syncManagedSheetRows_(getSpreadsheet_().getSheetByName('CARDS'), function (row) {
     return String(row.materialId) === String(material.materialId) && String(row.teacherNote) === '교사 입력 웹앱 사전카드';
@@ -148,11 +162,24 @@ function rankVocabularyEntries_(query, dialogue, material, entries, limit) {
 }
 
 function renderVocabularyDefinition_(entry) {
-  let text = '“' + entry.term + '”의 뜻은 ‘' + entry.easyDefinition + '’이에요.';
+  const term = String(entry.term || '').trim();
+  let definition = String(entry.easyDefinition || '').trim();
+  if (definition && !/[.!?。！？]$/.test(definition)) {
+    definition += /(?:요|다|니다|예요|이에요)$/.test(definition) ? '.' : '이에요.';
+  }
+  let text = term + koreanTopicParticle_(term) + ' ' + definition;
   if (entry.exampleText) {
-    text += ' 지문에서는 “' + shortenEvidence_(entry.exampleText, 100) + '”처럼 쓰였어요.';
+    text += ' 글에서는 “' + shortenEvidence_(entry.exampleText, 100) + '”처럼 쓰였어요.';
   }
   return text;
+}
+
+function koreanTopicParticle_(value) {
+  const text = String(value || '').trim();
+  if (!text) return '은(는)';
+  const code = text.charCodeAt(text.length - 1);
+  if (code >= 0xAC00 && code <= 0xD7A3) return (code - 0xAC00) % 28 ? '은' : '는';
+  return '는';
 }
 
 function parseVocabularyEvidence_(evidenceText, keywords) {

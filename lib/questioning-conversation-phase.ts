@@ -24,7 +24,21 @@ const COMPREHENSION_MEDIUM_PROMPT =
 const COMPREHENSION_HIGH_PROMPT =
   "글에 나온 결과와 그 까닭을 구분해서 말해 줄래요?";
 
-type PhaseQuestionKind = "comprehension_medium" | "comprehension_followup" | "standard" | "opinion";
+export type QuestioningManagedKind =
+  | ""
+  | "b1"
+  | "b2"
+  | "explain_sentence"
+  | "comprehension_medium"
+  | "comprehension_followup"
+  | "standard"
+  | "opinion"
+  | "done";
+
+type PhaseQuestionKind = Exclude<
+  QuestioningManagedKind,
+  "" | "b1" | "b2" | "explain_sentence" | "done"
+>;
 type Difficulty = "하" | "중" | "상";
 
 type PhaseQuestion = {
@@ -434,6 +448,40 @@ function withoutManagedPhasePrompts(reply: string) {
     .replace(/\s+/g, " ")
     .trim();
   return stripped || "말해 준 내용을 바탕으로 지문을 계속 살펴볼게요.";
+}
+
+/** 저장 어댑터가 웹과 같은 국면 메타데이터를 남길 때 쓰는 공통 판정입니다. */
+export function getQuestioningTurnMetadata({
+  result,
+  currentTurn,
+  conversation,
+  material,
+  standard,
+  teacherMemo = "",
+}: {
+  result: ChatResult;
+  currentTurn: string;
+  conversation: QuestioningConversationEntry[];
+  material: MaterialAnalysis;
+  standard: string;
+  teacherMemo?: string;
+}) {
+  const targets = buildStandardTargets(standard, teacherMemo);
+  const currentQuestion = classifyAssistantQuestion(result.studentReply, targets);
+  const previousQuestion = lastAssistantQuestion(conversation, targets);
+  let managedKind: QuestioningManagedKind = "";
+  if (result.studentReply.includes(PHASE_B1_PROMPT)) managedKind = "b1";
+  else if (result.studentReply.includes(PHASE_B2_PROMPT)) managedKind = "b2";
+  else if (SENTENCE_DIFFICULTY.test(currentTurn) && result.primaryMove === "offer_clue") {
+    managedKind = "explain_sentence";
+  } else if (currentQuestion) managedKind = currentQuestion.kind;
+  else if (result.conversationPhase === 2 && !result.expectsStudentReply) managedKind = "done";
+
+  return {
+    managedKind,
+    relatedQuestion: isPassageRelatedQuestion(currentTurn, material),
+    responseScore: previousQuestion ? answerScore(previousQuestion, currentTurn, material) : null,
+  };
 }
 
 export function applyQuestioningConversationPhase({

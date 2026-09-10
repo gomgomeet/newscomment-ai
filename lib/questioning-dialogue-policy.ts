@@ -36,7 +36,7 @@ function normalized(value: string) {
 
 function hasClosingSignal(value: string) {
   const compact = normalized(value.toLowerCase());
-  return /(네|응|아|오케이|ㅇㅋ)?(이제)?(됐어요|됐어|알겠어요|알겠어|알겠음그만|알겠음|그만할래|그만할게요|그만할게|끝낼래|끝낼게요|끝낼게|여기까지만할게요|여기까지만할게|여기까지만|안할래|쉬고싶|ㅇㅋ이제끝|ㅇㅋ끝|그만)([.!?？]|$)/.test(
+  return /(네|응|아|오케이|ㅇㅋ)?(이제)?(됐어요|됐어|알겠어요|알겠어|알겠음그만|알겠음|그만할래|그만할게요|그만할게|마칠래요|마칠래|마칠게요|마칠게|끝낼래|끝낼게요|끝낼게|여기까지만할게요|여기까지만할게|여기까지만|안할래|쉬고싶|ㅇㅋ이제끝|ㅇㅋ끝|그만)([.!?？]|$)/.test(
     compact,
   );
 }
@@ -46,7 +46,7 @@ function hasUncertaintySignal(value: string) {
   return (
     /^(그래도\s*)?(잘\s*)?(모르겠는데요|모르겠어|모르겠어요|모르겠|몰라요|몰라)([.!?？]|$)/.test(
       normalizedValue,
-    ) || /(글쎄|그냥\s*그런|생각\s*안\s*나|어려워|뭘\s*보|무슨\s*말)/.test(normalizedValue)
+    ) || /(글쎄|그냥\s*그런|생각\s*안\s*나|어려워|힌트|뭘\s*보|무슨\s*말)/.test(normalizedValue)
   );
 }
 

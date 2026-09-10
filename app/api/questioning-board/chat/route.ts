@@ -7,10 +7,12 @@ import {
 } from "@/lib/questioning-lesson-connections";
 import { saveQuestioningResultToNotion } from "@/lib/notion/questioning-chatbot";
 import { checkQuestioningChatRateLimit } from "@/lib/questioning-chat-rate-limit";
-import { applyQuestioningConversationPhase } from "@/lib/questioning-conversation-phase";
+import {
+  applyQuestioningSharedPolicy,
+  createQuestioningLocalBaseResult,
+} from "@/lib/questioning-engine-core";
 import { verifyQuestioningPreviewToken } from "@/lib/questioning-preview-token";
 import {
-  createLocalQuestionResult,
   normalizeQuestioningChatbotConfig,
   normalizeQuestioningChatbotBehavior,
   type ChatResult,
@@ -336,26 +338,10 @@ export async function POST(request: Request) {
       } catch {
         localFallback = true;
         providerUnavailable = true;
-        result = createLocalQuestionResult({
-          studentTurn: question,
-          material: config.material,
-          rubric: config.rubric,
-          behavior,
-          conversation,
-          curriculumCompass: config.curriculumCompass,
-          targetGrade: config.targetGrade,
-        });
+        result = createQuestioningLocalBaseResult({ config, question, conversation });
       }
     } else {
-      result = createLocalQuestionResult({
-        studentTurn: question,
-        material: config.material,
-        rubric: config.rubric,
-        behavior,
-        conversation,
-        curriculumCompass: config.curriculumCompass,
-        targetGrade: config.targetGrade,
-      });
+      result = createQuestioningLocalBaseResult({ config, question, conversation });
     }
 
     // 자료에 없지만 주제와 이어지는 질문은 웹에서 찾아 출처와 함께 답해 준다.
@@ -410,13 +396,11 @@ export async function POST(request: Request) {
 
     // 로컬·Gemini가 만든 답 위에 같은 국면 규칙과 판정 채점을 적용한다.
     // 서버 상태를 따로 저장하지 않고 최근 대화만으로 B1/B2와 2국면 순서를 복원한다.
-    result = applyQuestioningConversationPhase({
+    result = applyQuestioningSharedPolicy({
+      config,
       result,
-      currentTurn: question,
+      question,
       conversation,
-      material: config.material,
-      standard: config.standard,
-      teacherMemo: config.material.questionFocusMemo,
     });
 
     const studentProfile = isTeacherPreview ? null : normalizeStudentProfile(body.studentProfile);

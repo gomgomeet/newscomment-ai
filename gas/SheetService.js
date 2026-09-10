@@ -204,7 +204,7 @@ function validateTeacherSetupPayload_(payload) {
     if (item.definition.length > 300) throw new Error('사전카드 뜻은 300자 이내로 입력해 주세요.');
   });
 
-  const activityMode = 'discussion';
+  const activityMode = normalizeActivityMode_(materialInput.activityMode) || 'evaluation';
   const externalSources = [];
   return {
     appName: required(payload.appName, '챗봇 이름', 40),
@@ -263,7 +263,7 @@ function saveActiveMaterial_(materialInput) {
     sourceUrl: materialInput.sourceUrl,
     status: 'approved',
     approvedAt: new Date(),
-    activityMode: materialInput.activityMode || 'discussion'
+    activityMode: normalizeActivityMode_(materialInput.activityMode) || 'evaluation'
   };
 
   rowObject.sourceHash = makeMaterialSourceHash_(rowObject);
@@ -271,10 +271,22 @@ function saveActiveMaterial_(materialInput) {
   return getActiveMaterial_();
 }
 
-function getTeacherGlossaryEntries_(materialId, version) {
-  return getApprovedVocabularyEntries_().filter(function (row) {
-    return String(row.sourceId) === String(materialId) && (!version || String(row.version || 'v1') === String(version));
-  }).map(function (row) { return { term: row.term, definition: row.easyDefinition, group: row.wordGroup || '' }; });
+function getTeacherGlossaryEntries_(materialId, version, sourceHash) {
+  return getRowsAsObjects_('VOCABULARY_LIBRARY').filter(function (row) {
+    const status = String(row.status || '').toLowerCase();
+    const visible = (isTruthy_(row.active) && isApprovedStatus_(status)) || status === 'draft';
+    return visible && String(row.sourceId) === String(materialId) &&
+      (!version || String(row.version || 'v1') === String(version)) &&
+      (!sourceHash || String(row.sourceHash || '') === String(sourceHash));
+  }).map(function (row) {
+    const draft = String(row.status || '').toLowerCase() === 'draft';
+    return {
+      term: row.term,
+      definition: row.easyDefinition,
+      group: row.wordGroup || '',
+      source: draft ? 'ai_draft' : 'teacher_confirmed'
+    };
+  });
 }
 
 function syncManagedSheetRows_(sheet, isManaged, keyFor, desired) {
@@ -407,6 +419,21 @@ function materialFromRow_(row) {
   };
   material.sourceHash = makeMaterialSourceHash_(material);
   return material;
+}
+
+// discussion/research는 이전 버전 호환용이다. 새 교사 화면은 evaluation/exploration만 저장한다.
+function normalizeActivityMode_(value) {
+  const mode = String(value || '').trim().toLowerCase();
+  if (mode === 'evaluation') return 'evaluation';
+  if (mode === 'exploration' || mode === 'research') return 'exploration';
+  return '';
+}
+
+function resolveActivityMode_(material, config) {
+  const explicit = normalizeActivityMode_(material && material.activityMode);
+  if (explicit) return explicit;
+  // 기존 discussion 자료는 배포 당시의 일반 답변 설정을 그대로 이어 간다.
+  return isTruthy_(config && config.ALLOW_GENERAL_ANSWER) ? 'exploration' : 'evaluation';
 }
 
 function validateTeacherMaterial_() {

@@ -8,7 +8,7 @@
     closed: false,
     progressStep: 1,
     materialFontStep: 1,
-    activityMode: 'discussion',
+    activityMode: 'evaluation',
     lessonSelector: { lessonId: '', version: '', sourceHash: '' }
   };
 
@@ -17,6 +17,7 @@
   window.addEventListener('load', function () {
     elements.appName = document.getElementById('app-name');
     elements.activityModeLabel = document.getElementById('activity-mode-label');
+    elements.activityModeDescription = document.getElementById('activity-mode-description');
     elements.chatKicker = document.getElementById('chat-kicker');
     elements.subjectChip = document.getElementById('subject-chip');
     elements.studentCode = document.getElementById('student-code');
@@ -105,23 +106,23 @@
 
   function startApp(data) {
     state.bootstrapData = data;
-    state.activityMode = data.activityMode === 'research' ? 'research' : 'discussion';
+    state.activityMode = data.activityMode === 'exploration' ? 'exploration' : 'evaluation';
     state.sessionId = data.sessionId;
     state.studentCode = data.studentCode;
     elements.appName.textContent = data.appName;
-    elements.activityModeLabel.textContent = state.activityMode === 'research' ? '조사학습' : '생각 나누기';
+    elements.activityModeLabel.textContent = state.activityMode === 'exploration' ? '탐색 모드' : '평가 모드';
     elements.chatKicker.textContent = data.appName + '와 대화하기';
-    elements.subjectChip.textContent = state.activityMode === 'research'
-      ? (data.subject ? data.subject + ' · 조사학습' : '조사학습')
-      : (data.subject || '생각 나누기');
+    elements.subjectChip.textContent = data.subject
+      ? data.subject + ' · ' + (state.activityMode === 'exploration' ? '탐색' : '평가')
+      : (state.activityMode === 'exploration' ? '탐색' : '평가');
+    elements.activityModeDescription.textContent = state.activityMode === 'exploration'
+      ? '탐색 모드예요. 글과 이어지는 궁금증은 글 밖의 내용도 짧게 알아볼 수 있어요.'
+      : '평가 모드예요. 선생님이 확인한 자료를 중심으로 질문하고 생각을 나눠요.';
     elements.studentCode.textContent = '활동 코드 · ' + String(data.studentCode || '').replace(/^익명-/, '');
     elements.materialTitle.textContent = data.material.title;
     elements.materialMeta.textContent = [data.subject, data.material.grade].filter(Boolean).join(' · ');
     elements.materialStandard.textContent = data.material.standard || '지문을 읽고 생각과 근거를 나누어 봅니다.';
-    elements.researchButton.hidden = state.activityMode !== 'research';
-    if (state.activityMode === 'research') {
-      // 9단계 ⑤: 단계 표시(생각·근거·다듬기)는 화면에서 뺐다.
-    }
+    elements.researchButton.hidden = true;
     renderMaterialText();
     updateProgress(1);
     addMessage('bot', data.greetingMessage || ('안녕! 나는 ' + data.appName + '야.'), {
@@ -201,8 +202,7 @@
         studentCode: state.studentCode,
         lesson: state.lessonSelector,
         message: message,
-        action: action === 'message' && state.activityMode === 'research' && /조사하고 싶어요/.test(message)
-          ? 'research' : action
+        action: action
       });
   }
 

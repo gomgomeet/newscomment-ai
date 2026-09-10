@@ -262,7 +262,7 @@ function getBootstrapData(lessonSelector, studentCode) {
     greetingMessage: formatGreetingMessage_(config.GREETING_MESSAGE || '안녕! 나는 {appName}야.', config.APP_NAME || '질문이'),
     introMessage: '지문을 읽고 궁금한 점을 물어보세요.', sessionId: sessionId, studentCode: code,
     isPreview: /^99-/.test(code),
-    material: material, activityMode: 'discussion', history: history.map(function (row) {
+    material: material, activityMode: resolveActivityMode_(material, config), history: history.map(function (row) {
       return { speaker: row.speaker, text: row.text, primaryMove: row.primaryMove, turnNo: row.turnNo };
     }), isClosing: history.length > 0 && history[history.length - 1].primaryMove === 'close',
     lesson: { lessonId: material.materialId, version: material.version, sourceHash: material.sourceHash } };
@@ -289,6 +289,7 @@ function getTeacherSetupData(teacherAccessToken) {
     };
   }
   const aiSettings = getAISettings_(config);
+  material.activityMode = resolveActivityMode_(material, config);
   return {
     appName: config.APP_NAME || '질문이',
     subject: config.SUBJECT || '',
@@ -296,7 +297,7 @@ function getTeacherSetupData(teacherAccessToken) {
       config.GREETING_MESSAGE ||
       '안녕! 나는 {appName}야. 함께 지문을 읽고 질문을 나눠 보자.',
     material: material,
-    glossary: getTeacherGlossaryEntries_(material.materialId, material.version),
+    glossary: getTeacherGlossaryEntries_(material.materialId, material.version, material.sourceHash),
     pendingReviews: getPendingSupplementReviews_(material),
     knowledgeDrafts: getLatestKnowledgePack_(material),
     ai: {
@@ -339,7 +340,7 @@ function resolveSupplementReview(teacherAccessToken, payload) {
       if (!term || term.length > 50 || !definition || definition.length > 300 || group.length > 60) throw new Error('낱말은 50자, 뜻은 300자, 단어군은 60자 이내로 입력해 주세요.');
       const normalized = normalizeVocabularyTerm_(term);
       if (!normalized) throw new Error('검색할 수 있는 낱말을 입력해 주세요.');
-      const glossary = getTeacherGlossaryEntries_(material.materialId, material.version);
+      const glossary = getTeacherGlossaryEntries_(material.materialId, material.version, material.sourceHash);
       if (glossary.length >= 120 && !glossary.some(function (item) { return normalizeVocabularyTerm_(item.term) === normalized; })) throw new Error('보충 어휘가 120개입니다. 기존 어휘를 정리한 뒤 추가해 주세요.');
       const vocabulary = Object.assign(makeVocabularyRow_(material, term, definition,
         requireSupportedGrade_(material.gradeCode || material.grade), '교사 직접 입력'), { wordGroup: group });
@@ -366,6 +367,7 @@ function saveTeacherSetup(teacherAccessToken, payload) {
   const normalized = validateTeacherSetupPayload_(payload || {});
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
+  let response;
   try {
     const spreadsheet = getSpreadsheet_();
     ensureWorkbookStructure_(spreadsheet);
@@ -374,24 +376,34 @@ function saveTeacherSetup(teacherAccessToken, payload) {
     let previous = null;
     try { previous = getActiveMaterial_(); } catch (error) { previous = null; }
     const material = saveActiveMaterial_(normalized.material);
-    // 10단계: 지문이나 버전이 바뀌면 이 자료의 지난 대화를 보관 시트로 옮긴다 — 학생은 새로 시작, 기록은 남는다.
+    const currentConfig = readConfig_();
+    const previousMode = previous ? resolveActivityMode_(previous, currentConfig) : '';
+    const nextMode = resolveActivityMode_(material, currentConfig);
+    // 지문·버전·운영 모드가 바뀌면 지난 대화를 보관한다 — 서로 다른 평가 조건의 기록을 섞지 않는다.
     // 제목·시작 질문·성취기준만 고친 경우는 대화를 이어간다.
     let archivedTurns = 0;
+    let archiveReason = '';
     if (previous && String(previous.materialId) === String(material.materialId) &&
         (normalizeMaterialText_(previous.text) !== normalizeMaterialText_(material.text) ||
-         String(previous.version || 'v1') !== String(material.version || 'v1'))) {
+         String(previous.version || 'v1') !== String(material.version || 'v1') ||
+         previousMode !== nextMode)) {
+      archiveReason = previousMode !== nextMode &&
+          normalizeMaterialText_(previous.text) === normalizeMaterialText_(material.text) &&
+          String(previous.version || 'v1') === String(material.version || 'v1')
+        ? '대화 모드 변경 ' + previousMode + ' → ' + nextMode
+        : '지문 교체 ' + String(previous.version || 'v1') + ' → ' + String(material.version || 'v1');
       archivedTurns = archiveTurnsForMaterial_(material.materialId,
-        '지문 교체 ' + String(previous.version || 'v1') + ' → ' + String(material.version || 'v1'), { locked: true });
+        archiveReason, { locked: true });
     }
     archiveStaleKnowledgeItems_(material);
     const vocabularyCount = syncTeacherGlossaryVocabulary_(material, normalized.glossary);
     const externalSourceCount = 0;
     const chunkCount = syncMaterialChunks_();
 
-    return {
+    response = {
       ok: true,
       message: archivedTurns
-        ? '저장되었습니다. 지문이 바뀌어 지난 대화 ' + archivedTurns + '건을 TURNS_ARCHIVE 시트로 옮겼어요. 학생은 새로 시작합니다.'
+        ? '저장되었습니다. 수업 조건이 바뀌어 지난 대화 ' + archivedTurns + '건을 TURNS_ARCHIVE 시트로 옮겼어요. 학생은 새로 시작합니다.'
         : '저장되었습니다. 학생 앱 새로고침부터 바로 반영됩니다.',
       archivedTurns: archivedTurns,
       materialId: material.materialId,
@@ -399,6 +411,7 @@ function saveTeacherSetup(teacherAccessToken, payload) {
       glossaryCount: normalized.glossary.length,
       vocabularyCount: vocabularyCount,
       sourceHash: material.sourceHash,
+      activityMode: nextMode,
       externalSourceCount: externalSourceCount,
       newChunkCount: chunkCount,
       studentUrl: getStudentWebAppUrl_(material)
@@ -406,6 +419,44 @@ function saveTeacherSetup(teacherAccessToken, payload) {
   } finally {
     flushAndReleaseLock_(lock);
   }
+
+  // 모델 호출은 반드시 저장 잠금 밖에서 한다. 분석이 실패해도 위의 교사 자료 저장은 유지된다.
+  try {
+    const analysis = generateKnowledgePackDrafts(
+      teacherAccessToken, response.materialId, false
+    );
+    const analysisCount = (analysis.items || []).length;
+    response.knowledgeDrafts = analysis;
+    if (analysisCount) {
+      response.analysisCount = analysisCount;
+      if (!analysis.reused) {
+        response.message += ' 지문 분석 초안 ' + analysisCount +
+          '개를 만들었어요. 「4. 수업 자료·보충 설명 확인」에서 훑어보고 승인해 주세요.';
+      }
+    }
+  } catch (error) {
+    response.analysisError = safeAIErrorMessage_(error);
+    response.knowledgeDrafts = { generationId: '', items: [] };
+    response.message += ' (지문 분석은 나중에 「4. 수업 자료·보충 설명 확인」에서 만들 수 있어요.)';
+  }
+
+  try {
+    const vocabulary = generateVocabularyDrafts(
+      teacherAccessToken, response.materialId, false
+    );
+    response.vocabularyDrafts = vocabulary.items || [];
+    response.vocabularyDraftCount = Number(vocabulary.wordCount || 0) +
+      Number(vocabulary.themeCount || 0);
+    if (!vocabulary.reused && response.vocabularyDraftCount) {
+      response.message += ' 낱말·주제어 초안 ' + response.vocabularyDraftCount +
+        '개도 만들었어요. 표에서 확인하고 한 번 더 저장하면 학생에게 반영됩니다.';
+    }
+  } catch (error) {
+    response.vocabularyError = safeAIErrorMessage_(error);
+    response.vocabularyDrafts = [];
+    response.message += ' (낱말·주제어 초안은 나중에 다시 만들 수 있어요.)';
+  }
+  return response;
 }
 
 function getStudentWebAppUrl_(material) {
@@ -429,6 +480,8 @@ function submitTurn(payload) {
   const config = readConfig_();
   const context = getActiveSessionContext_(payload.sessionId, payload.lesson);
   const material = context.material;
+  const activityMode = resolveActivityMode_(material, config);
+  const effectiveConfig = configForActivityMode_(config, activityMode);
   const historyCursor = getSessionTurnsCursor_(payload.sessionId);
   const history = historyCursor.turns;
   if (history.length && history[history.length - 1].primaryMove === 'close') throw new Error('이미 마친 대화입니다.');
@@ -451,15 +504,19 @@ function submitTurn(payload) {
   }
   plan.expectsStudentReply = decision.allowQuestion &&
     (Boolean(decision.managedQuestion) || plan.expectsStudentReply);
-  const retrieval = retrieveApprovedEvidence_({ query: safeMessage, analysis: analysis, plan: plan, material: material, config: config, history: history });
+  const retrieval = retrieveApprovedEvidence_({ query: safeMessage, analysis: analysis, plan: plan, material: material, config: effectiveConfig, history: history });
   const baseResponse = renderResponse_({ plan: plan, analysis: analysis, material: material, retrieval: retrieval });
-  const aiComposeResult = composeResponseWithAI_({ message: safeMessage, plan: plan, analysis: analysis,
-    material: material, retrieval: retrieval, history: history, config: config, baseResponse: baseResponse,
-    taskLine: buildTaskLine(decision) });
+  const directEvaluationAnswer = activityMode === 'evaluation' &&
+    shouldUseEvaluationVocabularyAnswer_(safeMessage, analysis, retrieval, baseResponse);
+  const aiComposeResult = directEvaluationAnswer
+    ? { responseResult: baseResponse, status: 'skipped_evaluation_vocabulary', model: '', usedEvidenceIds: [] }
+    : composeResponseWithAI_({ message: safeMessage, plan: plan, analysis: analysis,
+      material: material, retrieval: retrieval, history: history, config: effectiveConfig, baseResponse: baseResponse,
+      taskLine: buildTaskLine(decision) });
   const responseResult = aiComposeResult.responseResult;
   let reviewId = '';
   const reason = getReviewReasonCode_(analysis, plan, retrieval);
-  if (shouldQueueReview_(guard, analysis, plan, retrieval)) {
+  if (!directEvaluationAnswer && shouldQueueReview_(guard, analysis, plan, retrieval)) {
     reviewId = upsertReviewItem_({ studentCode: context.session.studentCode, materialId: material.materialId,
       question: safeMessage, reasonCode: reason, sourceHash: material.sourceHash,
       candidateCardIds: retrieval.retrievedCardIds, candidateChunkIds: retrieval.retrievedChunkIds,
@@ -488,11 +545,41 @@ function submitTurn(payload) {
       relatedQuestion: decision.relatedQuestion })
   ], historyCursor);
   return { reply: responseResult.text, primaryMove: plan.primaryMove, hintLevel: plan.hintLevel,
-    sourceStatus: responseResult.sourceStatus, teacherInterventionFlag: plan.teacherInterventionFlag || Boolean(reviewId),
+    sourceStatus: responseResult.sourceStatus,
+    teacherInterventionFlag: directEvaluationAnswer ? false : plan.teacherInterventionFlag || Boolean(reviewId),
     expectsStudentReply: plan.expectsStudentReply, isClosing: plan.isClosing, retrievalConfidence: retrieval.confidence,
     aiStatus: aiStatus, aiModel: aiComposeResult.model || '',
-    phase: decision.phase, managedKind: decision.kind || '',
+    phase: decision.phase, managedKind: decision.kind || '', activityMode: activityMode,
     evidence: isTruthy_(config.SHOW_EVIDENCE) ? responseResult.evidence : [], reviewQueued: Boolean(reviewId) };
+}
+
+function shouldUseEvaluationVocabularyAnswer_(message, analysis, retrieval, baseResponse) {
+  if (!analysis || analysis.studentMove !== 'ask_definition' ||
+      !baseResponse || baseResponse.sourceStatus !== 'supported') return false;
+  const query = normalizeForSearch_(message);
+  const matches = (retrieval.vocabulary || []).filter(function (entry) {
+    const term = normalizeForSearch_(entry.term);
+    return term.length >= 2 && query.indexOf(term) >= 0 &&
+      Boolean(entry.easyDefinition) && isApprovedStatus_(entry.status) && isTruthy_(entry.active);
+  });
+  if (!matches.length) return false;
+  // "식품첨가물" 안의 "식품"처럼 짧은 포함 낱말은 별도 질문으로 세지 않는다.
+  // 다만 학생이 차이·비교를 물었다면 한 낱말만 답하지 않고 AI 조립으로 보낸다.
+  if (matches.length > 1 && /(차이|비교|같|다르|와|과|랑|하고)/.test(String(message || ''))) return false;
+  const longestLength = Math.max.apply(null, matches.map(function (entry) {
+    return normalizeForSearch_(entry.term).length;
+  }));
+  const longest = matches.filter(function (entry) {
+    return normalizeForSearch_(entry.term).length === longestLength;
+  });
+  return longest.length === 1 &&
+    String(longest[0].vocabularyId || '') === String((retrieval.vocabulary[0] || {}).vocabularyId || '');
+}
+
+function configForActivityMode_(config, activityMode) {
+  return Object.assign({}, config || {}, {
+    ALLOW_GENERAL_ANSWER: activityMode === 'exploration' ? 'TRUE' : 'FALSE'
+  });
 }
 
 function shouldQueueReview_(guard, analysis, plan, retrieval) {
