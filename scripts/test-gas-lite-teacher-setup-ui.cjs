@@ -59,8 +59,13 @@ class Element {
   removeChild(child) { this.children = this.children.filter((item) => item !== child); }
   addEventListener(name, callback) { (this.listeners[name] ||= []).push(callback); }
   dispatch(name) {
-    const event = { defaultPrevented:false, preventDefault() { this.defaultPrevented = true; } };
-    for (const callback of this.listeners[name] || []) callback.call(this, event);
+    const event = { target:this, defaultPrevented:false, preventDefault() { this.defaultPrevented = true; } };
+    const propagationPath = [this];
+    for (let ancestor = this.parentElement; ancestor; ancestor = ancestor.parentElement) propagationPath.push(ancestor);
+    for (const element of propagationPath) {
+      event.currentTarget = element;
+      for (const callback of element.listeners[name] || []) callback.call(element, event);
+    }
     return event;
   }
   descendants() { return this.children.flatMap((child) => [child, ...child.descendants()]); }
@@ -131,15 +136,23 @@ function parseForm() {
   return elements;
 }
 
-const readyData = (settings) => ({
+// Use the real server readiness rules. An empty checks array would let a stale
+// evaluation report survive every toggle test without being noticed.
+const readinessContext = vm.createContext({});
+vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'gas-lite', 'SetupService.js'), 'utf8'),
+  readinessContext, { filename:'SetupService.js' });
+const readyData = (settings, context = {}) => ({
   settings,
   api: { configured:true, verified:true },
-  readiness: { distributionReady:true, runtimeReady:true, setupReady:true, checks:[] },
+  readiness:readinessContext.buildLiteReadiness_(settings, {
+    apiConfigured:true, apiVerified:true, engineConfigured:true, engineVerified:true,
+    previewVerified:true, lessonOpen:true, studentUrl:'https://example.test/student', ...context,
+  }),
   studentUrl:'https://example.test/student',
   previewUrl:'https://example.test/student?preview=99-999',
 });
 
-function createUi(settings) {
+function createUi(settings, initialData = readyData(settings)) {
   const elements = parseForm();
   const byId = (id) => {
     const element = elements.find((item) => item.id === id);
@@ -193,7 +206,7 @@ function createUi(settings) {
     return request;
   }
   windowEvents.load();
-  takeRequest('getLiteTeacherSetupData').success(readyData(settings));
+  takeRequest('getLiteTeacherSetupData').success(initialData);
   return {
     byId, context, requests, copied, takeRequest,
     click(id) { if (!byId(id).disabled) byId(id).dispatch('click'); },
@@ -208,6 +221,10 @@ function createUi(settings) {
       if (control.disabled) return;
       control.value = mode;
       control.dispatch('change');
+    },
+    edit(id, value) {
+      byId(id).value = value;
+      byId(id).dispatch('input');
     },
     submit() { return byId('setup-form').dispatch('submit'); },
     flushTimers() { while (timers.length) timers.shift()(); },
@@ -245,6 +262,84 @@ function assertLinksReady(ui) {
   assert.equal(ui.byId('open-student').getAttribute('aria-disabled'), 'false');
   assert.equal(ui.byId('open-student').href, readyData(settings).previewUrl);
 }
+
+function readinessItem(ui, label) {
+  const item = ui.byId('readiness-list').children.find((entry) =>
+    entry.children.some((child) => child.tagName === 'strong' && child.textContent.includes(label)));
+  assert.ok(item, `Step 4 shows the ${label} readiness check`);
+  return item;
+}
+
+function assertDraft(ui) {
+  assert.notEqual(ui.byId('readiness-badge').textContent, '학생 배포 준비 완료',
+    'Unsaved settings must not be represented as the deployed lesson');
+  assert.match(ui.byId('readiness-badge').textContent, /저장/);
+  assert.match(ui.byId('readiness-summary').textContent, /저장/);
+  assert.equal(ui.byId('readiness-badge').classList.contains('pass'), false);
+  assertLinksDisabled(ui);
+}
+
+function assertBackwardReadiness(ui, enabled, complete = true) {
+  const item = readinessItem(ui, '백워드 평가 설계');
+  assert.equal(item.dataset.state, !enabled || complete ? 'pass' : 'block');
+  assert.match(item.textContent, enabled ? (complete ? /준비|완료/ : /필수|입력/) : /사용 안 함/);
+  const mode = readinessItem(ui, '운영 모드');
+  assert.equal(mode.dataset.state, 'pass');
+  assert.match(mode.textContent, enabled ? /평가모드/ : /자료 탐색모드/);
+}
+
+// Regression: switching off a partially configured saved evaluation lesson must
+// immediately update step 4, without pretending that the draft is already saved.
+const missingDesign = Object.fromEntries(Object.values(designFields).map((key) => [key, '']));
+const incompleteSettings = { ...settings, ...missingDesign };
+const oldEvaluationReport = readyData(incompleteSettings);
+const originalReportJson = JSON.stringify(oldEvaluationReport);
+const draftUi = createUi(incompleteSettings, oldEvaluationReport);
+assertBackwardReadiness(draftUi, true, false);
+draftUi.switchTo(false);
+draftUi.context.showStep(3);
+assertBackwardReadiness(draftUi, false);
+assertDraft(draftUi);
+assert.equal(JSON.stringify(oldEvaluationReport), originalReportJson, 'Rendering must not mutate the saved report');
+draftUi.click('refresh-readiness');
+draftUi.takeRequest('getLiteTeacherSetupData').success(oldEvaluationReport);
+assertMode(draftUi, false);
+assertBackwardReadiness(draftUi, false);
+assertDraft(draftUi);
+assert.equal(JSON.stringify(oldEvaluationReport), originalReportJson, 'Refresh must not mutate server state');
+draftUi.switchTo(true);
+assertBackwardReadiness(draftUi, true, false);
+assert.equal(draftUi.byId('readiness-badge').textContent, '필수 설정 필요');
+draftUi.switchTo(false);
+draftUi.submit();
+const failedDraftSave = draftUi.takeRequest('saveLiteTeacherSetup');
+failedDraftSave.failure({ message:'일시적인 저장 실패' });
+assertBackwardReadiness(draftUi, false);
+assertDraft(draftUi);
+draftUi.submit();
+const successfulDraftSave = draftUi.takeRequest('saveLiteTeacherSetup');
+const storedExploration = { ...incompleteSettings, activityMode:'exploration' };
+successfulDraftSave.success({ ...readyData(storedExploration), lessonId:settings.lessonId, message:'저장했습니다.' });
+assertBackwardReadiness(draftUi, false);
+assert.equal(draftUi.byId('readiness-badge').textContent, '학생 배포 준비 완료');
+assertLinksReady(draftUi);
+
+// Match the reported screenshot: a new lesson can have verified connections
+// while its persisted mode, material, code, and backward design are still blank.
+const newLessonSettings = { ...incompleteSettings, activityMode:'', materialText:'', joinCode:'' };
+const newLessonUi = createUi(newLessonSettings);
+newLessonUi.switchTo(false);
+newLessonUi.context.showStep(3);
+assertBackwardReadiness(newLessonUi, false);
+assertDraft(newLessonUi);
+assert.equal(readinessItem(newLessonUi, '수업자료').dataset.state, 'block');
+assert.match(newLessonUi.byId('join-code').value, /^\d{6}$/);
+assert.equal(readinessItem(newLessonUi, '학생 참여코드').dataset.state, 'pass',
+  'The generated unsaved code is displayed as current input, with the global save-required warning');
+newLessonUi.edit('join-code', '');
+assert.equal(readinessItem(newLessonUi, '학생 참여코드').dataset.state, 'block');
+assert.equal(readinessItem(newLessonUi, '개인 API 연결 확인').dataset.state, 'pass');
+assert.equal(readinessItem(newLessonUi, '기존 챗봇 연결 확인').dataset.state, 'pass');
 
 const ui = createUi(settings);
 assert.equal(ui.byId('backward-design-enabled').getAttribute('role'), 'switch');
@@ -318,4 +413,73 @@ assert.equal(reopened.byId('setup-form').reportedValidity, true);
 assert.match(reopened.byId('form-status').textContent, /필수 항목/);
 assertLinksDisabled(reopened);
 
-console.log('GAS lite teacher setup UI: toggle, preservation, validation, and saved-mode gates passed');
+// Other form edits must also block old lesson links, and reverting exactly to
+// the captured saved form restores the server's authoritative ready state.
+const editedUi = createUi(settings);
+editedUi.edit('lesson-title', '저장 전 새 수업명');
+assertDraft(editedUi);
+editedUi.context.copyStudentUrl();
+assert.equal(editedUi.copied.length, 0);
+editedUi.click('refresh-readiness');
+editedUi.takeRequest('getLiteTeacherSetupData').success(readyData(settings));
+assert.equal(editedUi.byId('lesson-title').value, '저장 전 새 수업명', 'Refresh must keep unsaved text');
+assertDraft(editedUi);
+editedUi.edit('lesson-title', settings.lessonTitle);
+assert.equal(editedUi.byId('readiness-badge').textContent, '학생 배포 준비 완료');
+assertLinksReady(editedUi);
+
+// Text fields remain editable during a save. Its success may acknowledge only
+// the captured request, never text entered after the request was dispatched.
+editedUi.edit('lesson-title', '이번 요청에서 저장할 수업명');
+editedUi.submit();
+const inFlightSave = editedUi.takeRequest('saveLiteTeacherSetup');
+const inFlightPayload = JSON.parse(JSON.stringify(inFlightSave.args[1]));
+editedUi.edit('material-title', '저장 응답 전에 추가한 제목');
+inFlightSave.success({ ...readyData(inFlightPayload), lessonId:settings.lessonId, message:'저장했습니다.' });
+assert.equal(editedUi.byId('material-title').value, '저장 응답 전에 추가한 제목');
+assertDraft(editedUi);
+editedUi.submit();
+const latestSave = editedUi.takeRequest('saveLiteTeacherSetup');
+const latestPayload = JSON.parse(JSON.stringify(latestSave.args[1]));
+latestSave.success({ ...readyData(latestPayload), lessonId:settings.lessonId, message:'저장했습니다.' });
+assert.equal(editedUi.byId('readiness-badge').textContent, '학생 배포 준비 완료');
+assertLinksReady(editedUi);
+
+// A response from a refresh requested before saving must not overwrite the
+// newer saved result, nor surface its obsolete error after success.
+const raceUi = createUi(incompleteSettings);
+raceUi.switchTo(false);
+raceUi.click('refresh-readiness');
+const staleRefresh = raceUi.takeRequest('getLiteTeacherSetupData');
+raceUi.submit();
+const raceSave = raceUi.takeRequest('saveLiteTeacherSetup');
+raceSave.success({ ...readyData(storedExploration), lessonId:settings.lessonId, message:'새 설정을 저장했습니다.' });
+staleRefresh.success(readyData(incompleteSettings));
+assertBackwardReadiness(raceUi, false);
+assert.equal(raceUi.byId('readiness-badge').textContent, '학생 배포 준비 완료');
+assert.equal(raceUi.byId('form-status').textContent, '새 설정을 저장했습니다.');
+assertLinksReady(raceUi);
+staleRefresh.failure({ message:'이전 요청의 만료 오류' });
+assert.equal(raceUi.byId('form-status').textContent, '새 설정을 저장했습니다.');
+
+// Likewise, only the most recently requested readiness refresh can win.
+raceUi.click('refresh-readiness');
+const olderRefresh = raceUi.takeRequest('getLiteTeacherSetupData');
+raceUi.click('refresh-readiness');
+const newerRefresh = raceUi.takeRequest('getLiteTeacherSetupData');
+newerRefresh.success(readyData(storedExploration));
+olderRefresh.success(readyData(storedExploration, { previewVerified:false }));
+assert.equal(raceUi.byId('readiness-badge').textContent, '학생 배포 준비 완료');
+assertLinksReady(raceUi);
+
+// First-save lesson IDs come from the server and are part of the new baseline,
+// not a spurious dirty change made after the request.
+const firstSaveUi = createUi({ ...settings, lessonId:'' });
+firstSaveUi.submit();
+const firstSave = firstSaveUi.takeRequest('saveLiteTeacherSetup');
+firstSave.success({ ...readyData(settings), lessonId:settings.lessonId, message:'새 수업을 저장했습니다.' });
+assert.equal(firstSaveUi.byId('lesson-id').value, settings.lessonId);
+assert.equal(firstSaveUi.byId('readiness-badge').textContent, '학생 배포 준비 완료');
+assertLinksReady(firstSaveUi);
+
+console.log('GAS lite teacher setup UI: draft readiness, toggle, preservation, validation, and saved-payload gates passed');

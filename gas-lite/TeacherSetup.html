@@ -201,6 +201,7 @@
           <h2 id="title-check">4단계. 저장하고 배포 준비 점검</h2>
           <p>설정 저장이 끝나도 기존 질문중심 챗봇 연결과 학생용 웹앱 배포가 준비되기 전에는 학생에게 주소를 보내지 않습니다.</p>
           <p><span id="readiness-badge" class="badge">확인 중</span></p>
+          <p id="readiness-draft-note" class="notice hidden" role="status" aria-live="polite"></p>
           <ul id="readiness-list" class="readiness"></ul>
           <div class="summary">
             <strong id="readiness-summary">준비 상태를 불러오는 중입니다.</strong>
@@ -243,6 +244,10 @@
       let latestDistributionReady = false;
       let latestStudentUrl = '';
       let savedActivityMode = 'evaluation';
+      let savedSetupSnapshot = null;
+      let latestReadinessData = null;
+      let readinessVersion = 0;
+      let controlsBusy = false;
       const byId = function (id) { return document.getElementById(id); };
       const teacherAccessToken = document.body.dataset.teacherAccessToken || '';
 
@@ -253,6 +258,8 @@
         byId('prev-step').addEventListener('click', function () { showStep(currentStep - 1); });
         byId('next-step').addEventListener('click', function () { showStep(currentStep + 1); });
         byId('setup-form').addEventListener('submit', saveSetup);
+        byId('setup-form').addEventListener('input', updateReadinessDisplay);
+        byId('setup-form').addEventListener('change', updateReadinessDisplay);
         byId('save-api').addEventListener('click', saveApi);
         byId('test-api').addEventListener('click', testApi);
         byId('clear-api').addEventListener('click', clearApi);
@@ -277,6 +284,11 @@
         return byId('activity-mode').value !== savedActivityMode;
       }
 
+      function hasUnsavedSetupChanges() {
+        return savedSetupSnapshot === null || hasUnsavedModeChange() ||
+          JSON.stringify(collectPayload()) !== savedSetupSnapshot;
+      }
+
       function syncBackwardDesign(changed) {
         const enabled = byId('activity-mode').value !== 'exploration';
         byId('backward-design-enabled').checked = enabled;
@@ -291,11 +303,9 @@
           ? '켬 · 목표와 평가 근거를 먼저 정하는 평가모드입니다.'
           : '끔 · 평가 항목 없이 자료 탐색모드로 운영합니다. 작성한 내용은 보관되어 다시 켜면 나타납니다.';
         if (changed) {
-          byId('copy-student-url').disabled = true;
-          byId('open-student').removeAttribute('href');
-          byId('open-student').setAttribute('aria-disabled', 'true');
           setStatus('백워드 평가 설계를 ' + (enabled ? '켰습니다.' : '껐습니다.') + ' 4단계에서 저장한 뒤 준비 상태와 미리보기를 다시 확인해 주세요.');
         }
+        updateReadinessDisplay();
       }
 
       function showStep(index) {
@@ -309,6 +319,7 @@
         byId('prev-step').classList.toggle('hidden', currentStep === 0);
         byId('next-step').classList.toggle('hidden', currentStep === steps.length - 1);
         byId('save-setup').classList.toggle('hidden', currentStep !== steps.length - 1);
+        if (steps[currentStep] === 'check') updateReadinessDisplay();
         document.querySelector('main').scrollTo({ top:0, behavior:'smooth' });
       }
 
@@ -327,6 +338,8 @@
         Object.keys(mapping).forEach(function (id) {
           byId(id).value = value[mapping[id]] == null ? '' : value[mapping[id]];
         });
+        // Keep the persisted baseline separate from defaults filled only in this form.
+        savedSetupSnapshot = JSON.stringify(collectPayload());
         byId('activity-mode').value = value.activityMode === 'exploration' ? 'exploration' : 'evaluation';
         savedActivityMode = byId('activity-mode').value;
         if (!byId('version').value) byId('version').value = 'v1';
@@ -367,13 +380,16 @@
           setStatus('입력하지 않은 필수 항목을 확인해 주세요.', true);
           return;
         }
-        setStatus('평가 설계와 수업자료를 저장하는 중입니다.');
+        setStatus('수업 설정과 자료를 저장하는 중입니다.');
         const payload = collectPayload();
+        readinessVersion += 1;
         setButtonsDisabled(true);
         google.script.run
           .withSuccessHandler(function (result) {
             byId('lesson-id').value = result.lessonId || '';
+            payload.lessonId = byId('lesson-id').value;
             savedActivityMode = payload.activityMode;
+            savedSetupSnapshot = JSON.stringify(payload);
             renderReadiness(result.readiness || {}, result.studentUrl || '', result.previewUrl || '');
             setStatus(result.message || '저장했습니다.');
             setButtonsDisabled(false);
@@ -427,13 +443,17 @@
       }
 
       function refreshData(message) {
+        const requestVersion = ++readinessVersion;
         google.script.run
           .withSuccessHandler(function (data) {
+            if (requestVersion !== readinessVersion) return;
             updateApi(data.api || {});
             renderReadiness(data.readiness || {}, data.studentUrl || '', data.previewUrl || '');
             setStatus(message || '준비 상태를 갱신했습니다.');
           })
-          .withFailureHandler(showError)
+          .withFailureHandler(function (error) {
+            if (requestVersion === readinessVersion) showError(error);
+          })
           .getLiteTeacherSetupData(teacherAccessToken);
       }
 
@@ -444,25 +464,87 @@
       }
 
       function renderReadiness(report, studentUrl, previewUrl) {
+        readinessVersion += 1;
+        latestReadinessData = { report:report, studentUrl:studentUrl, previewUrl:previewUrl };
         latestDistributionReady = Boolean(report.distributionReady);
         latestStudentUrl = studentUrl || '';
+        updateReadinessDisplay();
+      }
+
+      function updateReadinessDisplay() {
+        const enabled = byId('activity-mode').value !== 'exploration';
+        byId('save-setup').textContent = enabled ? '평가 설계·수업자료 저장' : '자료 탐색 설정·수업자료 저장';
+        if (!latestReadinessData) return;
+        const report = latestReadinessData.report;
+        const studentUrl = latestReadinessData.studentUrl;
+        const previewUrl = latestReadinessData.previewUrl;
+        const dirty = hasUnsavedSetupChanges();
+        const payload = collectPayload();
+        const hasText = function (value) { return Boolean(String(value || '').trim()); };
+        const backwardReady = !enabled || ['lessonGoal', 'achievementStandard', 'assessmentCriteria',
+          'rubricHigh', 'rubricMeet', 'rubricDeveloping', 'evidenceDescription'].every(function (key) {
+          return hasText(payload[key]);
+        });
+        const materialReady = hasText(payload.lessonTitle) && hasText(payload.materialTitle) &&
+          payload.materialText.trim().length >= 30 && hasText(payload.startQuestion);
+        const codeReady = /^\d{6}$/.test(payload.joinCode);
+        const modeReady = payload.activityMode === 'evaluation' || payload.activityMode === 'exploration';
+        const inputChecks = {
+          backwardDesign: {
+            label: enabled ? '백워드 평가 설계' : '백워드 평가 설계 · 사용 안 함',
+            state: backwardReady ? 'pass' : 'block', enabled:enabled,
+            detail: !enabled ? '사용 안 함 — 자료 탐색모드에서는 백워드 평가 설계를 적용하지 않습니다.'
+              : backwardReady ? '목표·성취기준·평가기준·평가 근거가 준비되었습니다.'
+              : '목표부터 평가 근거까지 필수 항목을 입력해 주세요.'
+          },
+          mode: {
+            state: modeReady ? 'pass' : 'block',
+            detail: !enabled ? '자료 탐색모드로 운영합니다.' : modeReady ? '평가모드로 운영합니다.'
+              : '평가모드 또는 자료 탐색모드를 선택해 주세요.'
+          },
+          material: {
+            state: materialReady ? 'pass' : 'block',
+            detail: materialReady ? '학생 질문의 근거 자료와 시작 질문이 준비되었습니다.'
+              : '30자 이상의 수업자료와 시작 질문을 입력해 주세요.'
+          },
+          lessonAccess: {
+            state: codeReady ? 'pass' : 'block',
+            detail: codeReady ? '학생에게만 안내할 숫자 6자리 참여코드가 준비되었습니다.'
+              : '학생 참여코드를 숫자 6자리로 정해 주세요.'
+          }
+        };
+        const note = byId('readiness-draft-note');
+        note.classList.toggle('hidden', !dirty);
+        note.textContent = dirty
+          ? '현재 입력 기준: 백워드 평가 설계 ' + (enabled ? '켬 · 평가모드' : '끔 · 자료 탐색모드') +
+            '. 아직 저장 전입니다. 아래 저장 버튼을 눌러 운영 설정에 반영해 주세요. 준비 상태 새로고침은 설정을 저장하지 않습니다.'
+          : '';
         const badge = byId('readiness-badge');
-        badge.className = 'badge ' + (report.distributionReady ? 'pass' : report.setupReady ? '' : 'block');
-        badge.textContent = report.distributionReady ? '학생 배포 준비 완료' : report.setupReady ? '교사 입력 완료' : '필수 설정 필요';
+        badge.className = 'badge ' + (dirty ? '' : report.distributionReady ? 'pass' : report.setupReady ? '' : 'block');
+        badge.textContent = dirty ? '변경 사항 저장 필요' : report.distributionReady ? '학생 배포 준비 완료' : report.setupReady ? '교사 입력 완료' : '필수 설정 필요';
         const list = byId('readiness-list'); list.textContent = '';
-        (report.checks || []).forEach(function (check) {
+        (report.checks || []).forEach(function (savedCheck) {
+          // The local projection never changes the saved server report or its runtime gates.
+          const check = Object.assign({}, savedCheck, inputChecks[savedCheck.key] || {});
+          if (dirty && check.key === 'preview') {
+            check.state = 'block';
+            check.detail = '변경한 설정을 먼저 저장한 뒤 99-999 미리보기를 다시 확인해 주세요.';
+          }
           const item = document.createElement('li'); item.dataset.state = check.state || 'block';
+          item.dataset.key = check.key || '';
           const title = document.createElement('strong');
           title.textContent = (check.state === 'pass' ? '✓ ' : '! ') + check.label;
           const detail = document.createElement('span'); detail.textContent = check.detail || '';
           item.appendChild(title); item.appendChild(detail); list.appendChild(item);
         });
-        byId('readiness-summary').textContent = report.summary || '준비 상태를 확인해 주세요.';
+        byId('readiness-summary').textContent = dirty
+          ? '변경한 수업 설정을 저장해야 운영에 반영됩니다. 저장 후 현재 수업 미리보기를 확인해 주세요.'
+          : report.summary || '준비 상태를 확인해 주세요.';
         byId('student-url').textContent = studentUrl || '아직 학생용 주소가 없습니다.';
         const link = byId('open-student');
-        if (previewUrl && report.runtimeReady && !hasUnsavedModeChange()) { link.href = previewUrl; link.setAttribute('aria-disabled', 'false'); }
+        if (previewUrl && report.runtimeReady && !dirty && !controlsBusy) { link.href = previewUrl; link.setAttribute('aria-disabled', 'false'); }
         else { link.removeAttribute('href'); link.setAttribute('aria-disabled', 'true'); }
-        byId('copy-student-url').disabled = hasUnsavedModeChange() || !(studentUrl && report.distributionReady);
+        byId('copy-student-url').disabled = controlsBusy || dirty || !(studentUrl && report.distributionReady);
         const toggle = byId('toggle-lesson');
         toggle.dataset.open = report.lessonOpen === false ? 'false' : 'true';
         toggle.textContent = report.lessonOpen === false ? '현재 수업 다시 열기' : '현재 수업 배포 종료';
@@ -470,7 +552,7 @@
 
       function copyStudentUrl() {
         const value = byId('student-url').textContent.trim();
-        if (!value || byId('copy-student-url').disabled) return;
+        if (!value || byId('copy-student-url').disabled || hasUnsavedSetupChanges() || controlsBusy) return;
         const copied = function () { setStatus('학생용 주소를 복사했습니다. 학생에게는 이 주소만 공유하세요.'); };
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(value).then(copied).catch(function () { fallbackCopy(value, copied); });
@@ -518,10 +600,12 @@
       }
 
       function setButtonsDisabled(disabled) {
+        controlsBusy = disabled;
         document.querySelectorAll('button').forEach(function (button) { button.disabled = disabled; });
         byId('backward-design-enabled').disabled = disabled;
         byId('activity-mode').disabled = disabled;
-        if (!disabled) byId('copy-student-url').disabled = hasUnsavedModeChange() || !(latestStudentUrl && latestDistributionReady);
+        if (!disabled) byId('copy-student-url').disabled = hasUnsavedSetupChanges() || !(latestStudentUrl && latestDistributionReady);
+        updateReadinessDisplay();
       }
 
       function setStatus(message, isError) {

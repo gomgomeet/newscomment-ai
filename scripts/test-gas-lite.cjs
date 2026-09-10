@@ -1817,7 +1817,10 @@ assert.match(teacherHtml, /99-999/);
 assert.match(teacherHtml, /체험 · 강사 챗봇/);
 assert.match(teacherHtml, /이해 · 구조와 결과/);
 assert.match(teacherHtml, /latestDistributionReady/);
-assert.match(teacherHtml, /copy-student-url'\)\.disabled = hasUnsavedModeChange\(\) \|\| !\(latestStudentUrl && latestDistributionReady\)/);
+assert.ok(/const dirty = hasUnsavedSetupChanges\(\)/.test(teacherHtml),
+  'Readiness must gate links on the whole unsaved form, not only the activity mode');
+assert.ok(/copy-student-url'\)\.disabled = controlsBusy \|\| dirty \|\| !\(studentUrl && report\.distributionReady\)/.test(teacherHtml),
+  'Student link copying requires saved settings, no active operation, and server distribution readiness');
 assert.match(teacherHtml, /id="test-engine"/);
 assert.match(teacherHtml, /id="copy-student-url"/);
 assert.match(teacherHtml, /id="toggle-lesson"/);
