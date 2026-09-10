@@ -21,7 +21,7 @@
 
 개인 설정용 Apps Script 프로젝트는 기존 v37 배포본과 분리하지만, 대화 판단 서버를 새로 만들지는 않는다. 기존 질문중심 챗봇 앱 `https://newscomment-ai.vercel.app` 안의 `/api/lite-engine/plan`과 `/api/lite-engine/finalize`가 웹 챗봇과 같은 `questioning-dialogue-v2` 공통 코어를 호출한다. 현재 저장소 기준으로 1차 기능 코드는 완성했지만, 기존 프로덕션 복구·기능 브랜치 병합·연결키 설정·교사 사본별 웹앱 배포·실제 API·25명 동시 제출 및 30명 분산 제출 검증이 끝나기 전에는 **연수 현장 배포 승인**으로 표시하지 않는다.
 
-2026-09-10 운영 점검에서 `https://newscomment-ai.vercel.app/`, `/questioning-chatbot`, `/api/health`가 모두 HTTP 500을 반환했다. 로컬에서도 `NEXT_PUBLIC_SUPABASE_URL`과 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`가 없을 때 같은 오류를 재현했으므로, Production 환경변수와 런타임 로그를 먼저 확인한다. 기능 브랜치가 아직 `main`에 병합되지 않은 상태에서는 두 lite 경로도 운영 중으로 간주하지 않는다.
+2026-09-10 운영 점검에서 `https://newscomment-ai.vercel.app/`, `/questioning-chatbot`, `/api/health`가 모두 HTTP 500을 반환했다. 로컬에서도 `NEXT_PUBLIC_SUPABASE_URL`과 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`가 없을 때 같은 오류를 재현했으므로, Production 환경변수와 런타임 로그를 먼저 확인한다. 이는 원인 후보이며 운영 로그를 확인하기 전에는 환경변수 누락으로 확정하지 않는다. 기능 브랜치가 아직 `main`에 병합되지 않은 상태에서는 두 lite 경로도 운영 중으로 간주하지 않는다. 최신 배포 대상과 확인 근거는 [배포 실행 기록](LIGHTWEIGHT_APP_DEPLOYMENT.md)을 따른다.
 
 Google Sheet 사본에는 바운드 Apps Script가 함께 복사되지만 웹앱 배포 주소까지 자동으로 생기지는 않는다. 따라서 연수생 사본마다 최초 1회 `배포 → 새 배포 → 웹 앱`과 Google 권한 승인이 필요하다. 코드를 편집하는 단계는 아니며, 이 제약을 없애려면 후속 버전에서 중앙 학생 웹앱과 교사별 인증·저장 연결 구조로 바꿔야 한다. [Google 바운드 스크립트](https://developers.google.com/apps-script/guides/bound), [Apps Script 배포](https://developers.google.com/apps-script/concepts/deployments)
 

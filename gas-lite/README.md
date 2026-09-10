@@ -45,15 +45,19 @@ Apps Script 웹앱을 `배포 사용자로 실행`하면 학생 요청이 모두
 
 1. 기능 브랜치의 Vercel Preview에서 임시 Preview plan 주소로 인증·계약 검사를 마친다.
 2. 기능 브랜치를 `main`에 병합해 기존 `newscomment-ai` 프로덕션으로 배포하거나 해당 배포를 Production으로 승격한다.
-3. Production의 Supabase 환경변수를 복구해 `/api/health`와 `/questioning-chatbot`이 정상 응답하는지 먼저 확인한다.
+3. Production의 런타임 로그와 환경변수 적용 범위를 확인해 HTTP 500의 원인을 해결하고 `/api/health`와 `/questioning-chatbot`이 정상 응답하는지 확인한다. 로컬에서는 Supabase 공개 환경변수 누락으로 같은 증상을 재현했지만, 운영 오류의 원인은 로그 확인 전까지 확정하지 않는다.
 4. Production 서버 전용 환경변수 `LITE_ENGINE_ACCESS_KEY`에 32자 이상의 임의 값을 설정한다.
 5. 같은 값을 로컬 환경변수 `LITE_ENGINE_ACCESS_KEY`에 넣고 저장소 루트에서 `npm run build:gas-lite-distribution`을 실행한다. 이 명령은 키가 주입된 `tmp/gas-lite-distribution/`을 만들며, 실제 키를 로그에 출력하거나 저장소에 커밋하지 않는다. 연수생이 이 값을 입력하게 하지 않는다.
 6. `LITE_CENTRAL_ENGINE_URL_`은 기존 질문중심 챗봇의 Production plan 경로로 유지한다. 다른 서버 주소를 새로 만들지 않는다.
 7. 인증된 GET plan이 `schemaVersion: 1`, `engineFamily: questioning-dialogue-v2`, `sharedWithWebChatbot: true`를 반환하고, 유효한 예제로 POST plan·finalize가 성공하는지 검사한다. 잘못된 키는 401, 서버 키 누락은 503이 정상이다.
-8. 빈 Google Sheet에 생성된 `tmp/gas-lite-distribution/`의 파일을 연결하고, 교사 화면의 **기존 챗봇 연결 확인**을 성공시킨다.
+8. 빈 Google Sheet에 생성된 `tmp/gas-lite-distribution/`의 `.js`·`.html`·`appsscript.json` 11개 파일을 연결하고, 교사 화면의 **기존 챗봇 연결 확인**을 성공시킨다. README와 `DISTRIBUTION-NOTICE.txt`는 스크립트 파일로 올리지 않는다.
 9. 웹앱은 실행 사용자를 `배포 사용자`, 접근 사용자를 학교 정책이 허용하는 범위에서 학생이 접속할 수 있도록 배포한다.
 10. Sheet의 `1. 최초 준비`를 실행해 교사 접근 토큰과 다섯 시트를 만든다.
 11. 운영용 수업·학생 결과·개인 API 키가 남지 않은 깨끗한 템플릿을 사본 만들기 링크로 공유한다.
+
+실제 배포 대상, 확인된 운영 상태와 계정 접근이 필요한 다음 단계는 [배포 실행 기록](../LIGHTWEIGHT_APP_DEPLOYMENT.md)에 정리한다. `gas/.clasp.json`은 기존 학생용 앱의 프로젝트다. 새 경량앱 파일을 그 프로젝트로 push하지 않고, 새 빈 Sheet에 연결된 별도 Apps Script 프로젝트를 사용한다.
+
+`LITE_ENGINE_TEST_BASE_URL`에 점검 대상 origin을 명시하고 `npm run check:lite-deployment`로 읽기 전용 접속 검사를 실행할 수 있다. 연결키 없는 검사는 인증 완료로 표시하지 않으며, 이 검사가 통과해도 실제 개인 API·학생 기록·교사 검수 확인은 별도로 필요하다.
 
 교사 API 키는 Script Properties에 저장되므로 Google Sheet 사본에는 포함되지 않는다. 각 교사가 자신의 사본에서 직접 입력해야 한다.
 학생 반-번호는 본인 인증값이 아니라 익명 기록 표지다. 숫자 6자리 수업 참여코드는 링크만 아는 외부인의 우발적 진입을 줄이지만 학생 개인을 인증하지는 않는다. 대화·자동평가는 브라우저 탭별 기기값으로 분리되므로 같은 번호를 다른 기기에서 입력해도 기존 대화는 노출되거나 점수가 합쳐지지 않으며, 교사 대시보드에 중복 접속으로 표시된다. 수업 중 번호 입력은 교사가 안내·확인하고, 원격·무감독 배포에는 명부별 PIN 또는 학교 인증을 후속 적용한다. 입장만으로는 Sheet에 행을 만들지 않고 첫 질문을 보낼 때 시작 질문과 첫 턴을 함께 기록한다.

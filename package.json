@@ -17,6 +17,8 @@
     "build:gas-lite-distribution": "node scripts/build-gas-lite-distribution.mjs",
     "test:gas-lite": "node scripts/test-gas-lite.cjs && node scripts/test-gas-lite-distribution.cjs && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types scripts/test-questioning-chat-rate-limit.mts",
     "test:lite-engine-http": "node scripts/test-lite-engine-http.mjs",
+    "check:lite-deployment": "node scripts/check-lite-deployment-preflight.mjs",
+    "test:lite-deployment-preflight": "node --test scripts/test-lite-deployment-preflight.mjs",
     "eval:questioning:holdout": "node scripts/run-questioning-dialogue-eval.mjs --suite=holdout"
   },
   "dependencies": {
