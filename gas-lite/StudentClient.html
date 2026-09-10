@@ -100,7 +100,7 @@
     elements.retryBootstrapButton.hidden = true;
     renderLesson(lesson, false);
     elements.onboarding.hidden = false;
-    addMessage('bot', '안녕! 먼저 반-번호로 들어온 뒤, 수업자료를 읽고 떠오른 생각이나 질문을 들려줘.', lesson.appName || '질문이');
+    addMessage('bot', '안녕! 먼저 반-번호로 들어온 뒤, 수업자료를 읽고 떠오른 생각이나 질문을 들려줘.', lesson.appName || 'simbot');
     const memoryKey = studentCodeStorageKey(lesson);
     if (!data.previewAccess) {
       try { elements.studentCodeInput.value = sessionStorage.getItem(memoryKey) || ''; } catch (error) {}
@@ -175,12 +175,12 @@
   }
 
   function renderLesson(lesson, unlocked) {
-    elements.appName.textContent = lesson.appName || '질문이';
+    elements.appName.textContent = lesson.appName || 'simbot';
     elements.activityModeLabel.textContent = lesson.activityMode === 'exploration' ? '자료 탐색 모드' : '평가 모드';
     elements.activityModeDescription.textContent = lesson.activityMode === 'exploration'
       ? '자료 탐색 모드예요. 글 안의 근거를 자유롭게 찾아 질문할 수 있어요.'
       : '평가 모드예요. 선생님이 확인한 자료를 중심으로 질문하고 생각을 나눠요.';
-    elements.chatKicker.textContent = (lesson.appName || '질문이') + '와 대화하기';
+    elements.chatKicker.textContent = (lesson.appName || 'simbot') + ' · 질문 대화';
     elements.subjectChip.textContent = unlocked
       ? [lesson.subject, lesson.activityMode === 'exploration' ? '탐색' : '평가'].filter(Boolean).join(' · ')
       : '수업 입장 전';
@@ -386,9 +386,9 @@
     item.className = 'message ' + (role === 'student' ? 'student' : 'bot');
     const label = document.createElement('div'); label.className = 'message-label';
     const icon = document.createElement('span'); icon.className = 'message-label-icon';
-    icon.textContent = role === 'student' ? '나' : '질';
+    icon.textContent = role === 'student' ? '나' : 's';
     const name = document.createElement('span');
-    name.textContent = role === 'student' ? '내 생각' : (botName || (state.bootstrapData && state.bootstrapData.lesson.appName) || '질문이');
+    name.textContent = role === 'student' ? '내 생각' : (botName || (state.bootstrapData && state.bootstrapData.lesson.appName) || 'simbot');
     label.appendChild(icon); label.appendChild(name);
     const body = document.createElement('div'); body.className = 'message-body'; body.textContent = text || '';
     item.appendChild(label); item.appendChild(body); elements.messages.appendChild(item);

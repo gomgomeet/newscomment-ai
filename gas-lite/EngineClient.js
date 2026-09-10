@@ -680,7 +680,7 @@ function checkLiteEngineConnection_() {
   try { body = JSON.parse(response.getContentText()); }
   catch (error) { throw new Error('중앙 정책 엔진의 응답 형식을 확인해 주세요.'); }
   if (!body || body.ok !== true || Number(body.schemaVersion) !== 1) {
-    throw new Error('중앙 정책 엔진의 버전이 경량앱과 맞지 않습니다.');
+    throw new Error('중앙 정책 엔진의 버전이 simbot과 맞지 않습니다.');
   }
   if (String(body.engineFamily || '') !== 'questioning-dialogue-v2' || body.sharedWithWebChatbot !== true) {
     throw new Error('현재 웹 챗봇과 같은 대화 엔진인지 확인하지 못했습니다.');

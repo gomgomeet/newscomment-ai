@@ -4,9 +4,16 @@
     <base target="_top">
     <meta charset="UTF-8">
     <style>
+      @font-face {
+        font-family:"Pretendard Variable";
+        font-style:normal;
+        font-weight:45 920;
+        font-display:swap;
+        src:url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2/PretendardVariable.woff2") format("woff2-variations");
+      }
       :root { --ink:#172033; --muted:#64748b; --line:#dbe3ee; --blue:#2563eb; --soft:#eff6ff; --green:#166534; }
       * { box-sizing:border-box; }
-      body { margin:0; color:var(--ink); background:#f6f8fc; font:15px/1.55 Arial,"Noto Sans KR",sans-serif; }
+      body { margin:0; color:var(--ink); background:#f6f8fc; font:15px/1.55 "Pretendard Variable","Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif; }
       main { max-width:980px; margin:0 auto; padding:22px; }
       h1,h2,h3 { margin:0 0 8px; }
       .lead,.muted,.status { color:var(--muted); }
