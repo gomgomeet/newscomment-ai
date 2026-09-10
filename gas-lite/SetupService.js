@@ -3,16 +3,28 @@
  * API 키는 Script Properties에만 저장하며 Sheet 행으로 만들지 않습니다.
  */
 
-const LITE_APP_VERSION_ = '0.3.0';
+const LITE_APP_VERSION_ = '0.5.0';
 const LITE_API_KEY_PROPERTY_ = 'TEACHER_OPENAI_API_KEY';
 const LITE_SPREADSHEET_ID_PROPERTY_ = 'TEACHER_SPREADSHEET_ID';
 const LITE_ENGINE_ENDPOINT_PROPERTY_ = 'CENTRAL_ENGINE_ENDPOINT';
 const LITE_TEACHER_ACCESS_TOKEN_PROPERTY_ = 'LITE_TEACHER_ACCESS_TOKEN';
+const LITE_API_VERIFIED_FINGERPRINT_PROPERTY_ = 'LITE_API_VERIFIED_FINGERPRINT';
+const LITE_API_VERIFIED_AT_PROPERTY_ = 'LITE_API_VERIFIED_AT';
+const LITE_ENGINE_VERIFIED_ENDPOINT_PROPERTY_ = 'LITE_ENGINE_VERIFIED_ENDPOINT';
+const LITE_ENGINE_VERIFIED_POLICY_PROPERTY_ = 'LITE_ENGINE_VERIFIED_POLICY';
+const LITE_ENGINE_VERIFIED_AT_PROPERTY_ = 'LITE_ENGINE_VERIFIED_AT';
+const LITE_PREVIEW_VERIFIED_LESSON_PROPERTY_ = 'LITE_PREVIEW_VERIFIED_LESSON';
+const LITE_CLOSED_LESSON_PROPERTY_ = 'LITE_CLOSED_LESSON';
+const LITE_PREVIEW_ACCESS_TOKEN_PROPERTY_ = 'LITE_PREVIEW_ACCESS_TOKEN';
+const LITE_PREVIEW_ACCESS_LESSON_PROPERTY_ = 'LITE_PREVIEW_ACCESS_LESSON';
+const LITE_PREVIEW_ACCESS_EXPIRES_PROPERTY_ = 'LITE_PREVIEW_ACCESS_EXPIRES';
+const LITE_DEPLOYMENT_ID_PROPERTY_ = 'LITE_DEPLOYMENT_ID';
+const LITE_PREVIEW_ACCESS_TTL_MS_ = 8 * 60 * 60 * 1000;
 
 const LITE_SHEET_HEADERS_ = {
   '시작하기': ['항목', '상태', '안내'],
   '수업 자료': [
-    'lessonId', 'appName', 'subject', 'grade', 'lessonTitle', 'lessonGoal',
+    'lessonId', 'appName', 'subject', 'grade', 'lessonTitle', 'joinCode', 'lessonGoal',
     'achievementStandardCode', 'achievementStandard', 'assessmentCriteria',
     'rubricHigh', 'rubricMeet', 'rubricDeveloping', 'evidenceDescription',
     'materialTitle', 'materialText', 'materialUrl', 'startQuestion',
@@ -23,14 +35,16 @@ const LITE_SHEET_HEADERS_ = {
     'progressStatus', 'isPreview'
   ],
   '질문과 답변': [
-    'timestamp', 'requestId', 'sessionId', 'studentCode', 'turnNo', 'speaker',
+    'timestamp', 'requestId', 'sessionId', 'studentCode', 'lessonId', 'turnNo', 'speaker',
     'text', 'activityMode', 'phase', 'managedKind', 'relatedQuestion', 'responseScore',
     'questionType', 'engagementState', 'curriculumRelation', 'supportLevel',
-    'sourceStatus', 'sourceCue', 'evidenceIds', 'isClosing',
-    'engineStatus', 'aiStatus', 'isPreview', 'lessonRevision', 'sourceHash'
+    'sourceStatus', 'sourceCue', 'primaryMove', 'safetyFlag', 'evidenceIds', 'rubricScoresJson', 'isClosing',
+    'engineStatus', 'aiStatus', 'apiModel', 'apiInputTokens', 'apiOutputTokens', 'apiTotalTokens',
+    'isPreview', 'lessonRevision', 'sourceHash'
   ],
   '교사 평가': [
     'studentCode', 'sessionId', 'lessonId', 'lessonRevision', 'automaticJudgment', 'evidenceSummary',
+    'evidenceRequestIds',
     'questioningBest', 'passageComprehensionBest', 'achievementStandardBest', 'reflectionOpinionBest',
     'teacherDecision', 'teacherFeedback', 'improvementSuggestion',
     'nextLessonSuggestion', 'finalStatus', 'finalizedAt'
@@ -40,6 +54,21 @@ const LITE_SHEET_HEADERS_ = {
 function liteText_(value, maxLength) {
   const result = String(value == null ? '' : value).trim();
   return maxLength ? result.slice(0, maxLength) : result;
+}
+
+function escapeLiteSheetText_(value) {
+  const text = String(value == null ? '' : value);
+  // 학생·교사·외부 엔진 문자열이 Google Sheets 수식으로 실행되지 않게 한다.
+  return /^[=+\-@]/.test(text) ? "'" + text : text;
+}
+
+function unescapeLiteSheetText_(value) {
+  const text = String(value == null ? '' : value);
+  return /^'[=+\-@]/.test(text) ? text.slice(1) : text;
+}
+
+function liteSheetSafeValue_(value) {
+  return typeof value === 'string' ? escapeLiteSheetText_(value) : value;
 }
 
 function liteRequired_(value, label, maxLength) {
@@ -63,6 +92,161 @@ function validateLiteApiKey_(value) {
     throw new Error('OpenAI API 키 형식을 확인해 주세요. 키는 sk-로 시작합니다.');
   }
   return key;
+}
+
+function validateLiteJoinCode_(value) {
+  const code = liteText_(value);
+  if (!/^\d{6}$/.test(code)) throw new Error('학생 참여코드는 숫자 6자리로 정해 주세요.');
+  return code;
+}
+
+function liteClientData_(value) {
+  return JSON.parse(JSON.stringify(value == null ? {} : value));
+}
+
+function liteFingerprint_(value, length) {
+  const digest = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    String(value || ''),
+    Utilities.Charset.UTF_8
+  );
+  return Utilities.base64EncodeWebSafe(digest).replace(/=+$/g, '').slice(0, length || 24);
+}
+
+function getOrCreateLiteDeploymentId_() {
+  const properties = PropertiesService.getScriptProperties();
+  let deploymentId = properties.getProperty(LITE_DEPLOYMENT_ID_PROPERTY_);
+  if (/^LD-[A-Za-z0-9_-]{16,64}$/.test(String(deploymentId || ''))) return deploymentId;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    deploymentId = properties.getProperty(LITE_DEPLOYMENT_ID_PROPERTY_);
+    if (!/^LD-[A-Za-z0-9_-]{16,64}$/.test(String(deploymentId || ''))) {
+      deploymentId = 'LD-' + Utilities.getUuid().replace(/-/g, '');
+      properties.setProperty(LITE_DEPLOYMENT_ID_PROPERTY_, deploymentId);
+    }
+    return deploymentId;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function clearLiteApiVerification_() {
+  const properties = PropertiesService.getScriptProperties();
+  properties.deleteProperty(LITE_API_VERIFIED_FINGERPRINT_PROPERTY_);
+  properties.deleteProperty(LITE_API_VERIFIED_AT_PROPERTY_);
+}
+
+function markLiteApiVerified_(apiKey) {
+  const properties = PropertiesService.getScriptProperties();
+  properties.setProperty(LITE_API_VERIFIED_FINGERPRINT_PROPERTY_, liteFingerprint_(apiKey, 24));
+  properties.setProperty(LITE_API_VERIFIED_AT_PROPERTY_, new Date().toISOString());
+}
+
+function isLiteApiVerified_() {
+  const properties = PropertiesService.getScriptProperties();
+  const apiKey = properties.getProperty(LITE_API_KEY_PROPERTY_);
+  const verified = properties.getProperty(LITE_API_VERIFIED_FINGERPRINT_PROPERTY_);
+  return Boolean(apiKey && verified && verified === liteFingerprint_(apiKey, 24));
+}
+
+function clearLiteEngineVerification_() {
+  const properties = PropertiesService.getScriptProperties();
+  properties.deleteProperty(LITE_ENGINE_VERIFIED_ENDPOINT_PROPERTY_);
+  properties.deleteProperty(LITE_ENGINE_VERIFIED_POLICY_PROPERTY_);
+  properties.deleteProperty(LITE_ENGINE_VERIFIED_AT_PROPERTY_);
+}
+
+function markLiteEngineVerified_(endpoint, policyVersion) {
+  const properties = PropertiesService.getScriptProperties();
+  properties.setProperty(LITE_ENGINE_VERIFIED_ENDPOINT_PROPERTY_, String(endpoint || ''));
+  properties.setProperty(LITE_ENGINE_VERIFIED_POLICY_PROPERTY_, String(policyVersion || ''));
+  properties.setProperty(LITE_ENGINE_VERIFIED_AT_PROPERTY_, new Date().toISOString());
+}
+
+function isLiteEngineVerified_() {
+  const properties = PropertiesService.getScriptProperties();
+  const endpoint = getLiteEngineEndpoint_();
+  return Boolean(endpoint && properties.getProperty(LITE_ENGINE_VERIFIED_ENDPOINT_PROPERTY_) === endpoint);
+}
+
+function liteLessonVerificationKey_(settings) {
+  settings = settings || {};
+  return [
+    liteText_(settings.lessonId, 80),
+    'r' + Math.max(1, Number(settings.lessonRevision || 1)),
+    liteText_(settings.sourceHash, 24)
+  ].join(':');
+}
+
+function litePreviewVerificationKey_(settings) {
+  const properties = PropertiesService.getScriptProperties();
+  return [
+    liteLessonVerificationKey_(settings),
+    'api:' + String(properties.getProperty(LITE_API_VERIFIED_FINGERPRINT_PROPERTY_) || ''),
+    'engine:' + String(properties.getProperty(LITE_ENGINE_VERIFIED_ENDPOINT_PROPERTY_) || ''),
+    'policy:' + String(properties.getProperty(LITE_ENGINE_VERIFIED_POLICY_PROPERTY_) || '')
+  ].join('|');
+}
+
+function markLitePreviewVerified_(settings) {
+  PropertiesService.getScriptProperties().setProperty(
+    LITE_PREVIEW_VERIFIED_LESSON_PROPERTY_, litePreviewVerificationKey_(settings)
+  );
+}
+
+function isLitePreviewVerified_(settings) {
+  const expected = litePreviewVerificationKey_(settings);
+  return Boolean(settings && settings.lessonId && expected &&
+    PropertiesService.getScriptProperties().getProperty(LITE_PREVIEW_VERIFIED_LESSON_PROPERTY_) === expected);
+}
+
+function clearLitePreviewAccess_() {
+  const properties = PropertiesService.getScriptProperties();
+  properties.deleteProperty(LITE_PREVIEW_ACCESS_TOKEN_PROPERTY_);
+  properties.deleteProperty(LITE_PREVIEW_ACCESS_LESSON_PROPERTY_);
+  properties.deleteProperty(LITE_PREVIEW_ACCESS_EXPIRES_PROPERTY_);
+}
+
+function getOrCreateLitePreviewAccessToken_(settings) {
+  const properties = PropertiesService.getScriptProperties();
+  const lessonKey = liteLessonVerificationKey_(settings);
+  const token = properties.getProperty(LITE_PREVIEW_ACCESS_TOKEN_PROPERTY_);
+  const savedLesson = properties.getProperty(LITE_PREVIEW_ACCESS_LESSON_PROPERTY_);
+  const expiresAt = Number(properties.getProperty(LITE_PREVIEW_ACCESS_EXPIRES_PROPERTY_) || 0);
+  if (token && savedLesson === lessonKey && expiresAt > Date.now()) return token;
+  const nextToken = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
+  properties.setProperty(LITE_PREVIEW_ACCESS_TOKEN_PROPERTY_, nextToken);
+  properties.setProperty(LITE_PREVIEW_ACCESS_LESSON_PROPERTY_, lessonKey);
+  properties.setProperty(LITE_PREVIEW_ACCESS_EXPIRES_PROPERTY_, String(Date.now() + LITE_PREVIEW_ACCESS_TTL_MS_));
+  return nextToken;
+}
+
+function isLitePreviewAccessToken_(token, settings) {
+  const candidate = liteText_(token, 128);
+  if (!/^[A-Za-z0-9_-]{32,128}$/.test(candidate)) return false;
+  const properties = PropertiesService.getScriptProperties();
+  return candidate === properties.getProperty(LITE_PREVIEW_ACCESS_TOKEN_PROPERTY_) &&
+    liteLessonVerificationKey_(settings) === properties.getProperty(LITE_PREVIEW_ACCESS_LESSON_PROPERTY_) &&
+    Number(properties.getProperty(LITE_PREVIEW_ACCESS_EXPIRES_PROPERTY_) || 0) > Date.now();
+}
+
+function getLiteTeacherPreviewUrl_(settings) {
+  const studentUrl = getLiteStudentUrl_();
+  if (!studentUrl || !settings || !settings.lessonId) return '';
+  const separator = studentUrl.indexOf('?') >= 0 ? '&' : '?';
+  return studentUrl + separator + 'preview=' + encodeURIComponent(getOrCreateLitePreviewAccessToken_(settings));
+}
+
+function isLiteLessonOpen_(settings) {
+  const closed = PropertiesService.getScriptProperties().getProperty(LITE_CLOSED_LESSON_PROPERTY_);
+  return !closed || closed !== liteLessonVerificationKey_(settings);
+}
+
+function setLiteLessonOpen_(settings, open) {
+  const properties = PropertiesService.getScriptProperties();
+  if (open) properties.deleteProperty(LITE_CLOSED_LESSON_PROPERTY_);
+  else properties.setProperty(LITE_CLOSED_LESSON_PROPERTY_, liteLessonVerificationKey_(settings));
 }
 
 function getOrCreateLiteTeacherAccessToken_() {
@@ -100,6 +284,7 @@ function validateLiteTeacherSetup_(payload) {
     subject: liteRequired_(payload.subject, '교과', 40),
     grade: liteRequired_(payload.grade, '학년', 40),
     lessonTitle: liteRequired_(payload.lessonTitle, '수업명', 120),
+    joinCode: validateLiteJoinCode_(payload.joinCode),
     lessonGoal: liteRequired_(payload.lessonGoal, '수업 목표', 500),
     achievementStandardCode: liteText_(payload.achievementStandardCode, 80),
     achievementStandard: liteRequired_(payload.achievementStandard, '성취기준', 1000),
@@ -137,6 +322,17 @@ function sanitizeLiteSettingsForStudent_(settings) {
   };
 }
 
+function sanitizeLiteBootstrapForStudent_(settings) {
+  settings = settings || {};
+  return {
+    lessonId: liteText_(settings.lessonId, 80),
+    appName: liteText_(settings.appName, 40) || '질문이',
+    activityMode: settings.activityMode === 'exploration' ? 'exploration' : 'evaluation',
+    sourceHash: liteText_(settings.sourceHash, 24),
+    lessonRevision: Math.max(1, Number(settings.lessonRevision || 1))
+  };
+}
+
 function buildLiteReadiness_(settings, context) {
   settings = settings || {};
   context = context || {};
@@ -149,12 +345,24 @@ function buildLiteReadiness_(settings, context) {
     settings.lessonTitle && settings.materialTitle &&
     String(settings.materialText || '').trim().length >= 30 && settings.startQuestion
   );
+  const apiConfigured = Boolean(context.apiConfigured);
+  const apiVerified = apiConfigured && Boolean(context.apiVerified);
+  const engineConfigured = Boolean(context.engineConfigured);
+  const engineVerified = engineConfigured && Boolean(context.engineVerified);
+  const previewVerified = Boolean(context.previewVerified);
+  const lessonOpen = context.lessonOpen !== false;
   const checks = [
     {
-      key: 'api',
-      label: '개인 API',
-      state: context.apiConfigured ? 'pass' : 'block',
-      detail: context.apiConfigured ? '교사 소유 설정 저장소에 연결되어 있습니다.' : 'API 키를 저장하고 연결을 확인해 주세요.'
+      key: 'apiSaved',
+      label: '개인 API 저장',
+      state: apiConfigured ? 'pass' : 'block',
+      detail: apiConfigured ? '교사 소유 설정 저장소에 저장되어 있습니다.' : '개인 API 키를 저장해 주세요.'
+    },
+    {
+      key: 'apiVerified',
+      label: '개인 API 연결 확인',
+      state: apiVerified ? 'pass' : 'block',
+      detail: apiVerified ? '현재 저장된 키로 실제 연결을 확인했습니다.' : '키를 저장한 뒤 “연결 확인”을 실행해 주세요.'
     },
     {
       key: 'backwardDesign',
@@ -169,6 +377,12 @@ function buildLiteReadiness_(settings, context) {
       detail: materialReady ? '학생 질문의 근거 자료와 시작 질문이 준비되었습니다.' : '30자 이상의 수업자료와 시작 질문을 입력해 주세요.'
     },
     {
+      key: 'lessonAccess',
+      label: '학생 참여코드',
+      state: /^\d{6}$/.test(String(settings.joinCode || '')) ? 'pass' : 'block',
+      detail: /^\d{6}$/.test(String(settings.joinCode || '')) ? '학생에게만 안내할 숫자 6자리 참여코드가 준비되었습니다.' : '학생 참여코드를 숫자 6자리로 정해 주세요.'
+    },
+    {
       key: 'mode',
       label: '운영 모드',
       state: settings.activityMode === 'evaluation' || settings.activityMode === 'exploration' ? 'pass' : 'block',
@@ -176,30 +390,71 @@ function buildLiteReadiness_(settings, context) {
     },
     {
       key: 'engine',
-      label: '중앙 엔진',
-      state: context.engineConfigured ? 'pass' : 'block',
-      detail: context.engineConfigured ? '중앙 정책 엔진 주소가 연결되었습니다.' : '2단계에서 중앙 정책 엔진을 연결해야 합니다.'
+      label: '기존 챗봇 엔진',
+      state: engineConfigured ? 'pass' : 'block',
+      detail: engineConfigured ? '기존 질문중심 챗봇의 공통 엔진이 배포본에 연결되었습니다.' : '운영자가 기존 질문중심 챗봇 주소와 배포본 연결키를 준비해야 합니다.'
+    },
+    {
+      key: 'engineVerified',
+      label: '기존 챗봇 연결 확인',
+      state: engineVerified ? 'pass' : 'block',
+      detail: engineVerified ? '현재 웹 챗봇과 같은 공통 질문 엔진의 버전과 응답을 확인했습니다.' : '“기존 챗봇 연결 확인”을 실행해 주세요.'
     },
     {
       key: 'deployment',
       label: '학생용 배포',
       state: context.studentUrl ? 'pass' : 'block',
       detail: context.studentUrl ? '학생용 웹앱 주소가 준비되었습니다.' : '웹앱으로 새 배포한 뒤 학생 주소를 확인해 주세요.'
+    },
+    {
+      key: 'preview',
+      label: '현재 수업 미리보기',
+      state: previewVerified ? 'pass' : 'block',
+      detail: previewVerified ? '현재 수업 버전에서 99-999 실제 대화를 확인했습니다.' : '학생 화면에서 99-999로 질문을 한 번 보내고 상태를 새로고침해 주세요.'
+    },
+    {
+      key: 'lessonOpen',
+      label: '수업 배포 상태',
+      state: lessonOpen ? 'pass' : 'block',
+      detail: lessonOpen ? '학생 참여를 받을 수 있도록 열려 있습니다.' : '현재 수업 배포를 종료했습니다. 다시 열기 전에는 학생이 참여할 수 없습니다.'
     }
   ];
-  const setupReady = checks.slice(0, 4).every(function (item) { return item.state === 'pass'; });
-  const distributionReady = checks.every(function (item) { return item.state === 'pass'; });
+  const requiredForSetup = ['apiSaved', 'backwardDesign', 'material', 'lessonAccess', 'mode'];
+  const setupReady = checks.filter(function (item) {
+    return requiredForSetup.indexOf(item.key) >= 0;
+  }).every(function (item) { return item.state === 'pass'; });
+  const runtimeReady = setupReady && apiVerified && engineVerified && lessonOpen;
+  const distributionReady = runtimeReady && Boolean(context.studentUrl) && previewVerified;
   return {
     level: distributionReady ? 'distribution_ready' : setupReady ? 'setup_ready' : 'draft',
     setupReady: setupReady,
+    runtimeReady: runtimeReady,
+    lessonOpen: lessonOpen,
     distributionReady: distributionReady,
     checks: checks,
-    summary: distributionReady
-      ? '학생 배포 준비가 완료되었습니다. 99-999로 마지막 미리보기를 해 주세요.'
-      : setupReady
-        ? '교사 입력은 완료되었습니다. 중앙 엔진 연결과 웹앱 배포가 남았습니다.'
+    summary: !lessonOpen
+      ? '현재 수업 배포가 종료되었습니다. 다시 열기 전에는 학생이 참여할 수 없습니다.'
+      : distributionReady
+      ? '학생 배포 준비가 완료되었습니다. 현재 수업의 99-999 미리보기 기록도 확인했습니다.'
+      : runtimeReady && context.studentUrl
+        ? '학생 화면에서 99-999로 질문을 한 번 보낸 뒤 준비 상태를 새로고침해 주세요.'
+        : setupReady
+          ? '교사 입력은 완료되었습니다. 개인 API와 기존 질문중심 챗봇의 실제 연결 확인이 남았습니다.'
         : '위에서 “필수”로 표시된 교사 설정부터 완료해 주세요.'
   };
+}
+
+function buildLiteCurrentReadiness_(settings) {
+  settings = settings || readLiteTeacherSettings_();
+  return buildLiteReadiness_(settings, {
+    apiConfigured: hasLiteApiKey_(),
+    apiVerified: isLiteApiVerified_(),
+    engineConfigured: hasLiteEngineEndpoint_(),
+    engineVerified: isLiteEngineVerified_(),
+    studentUrl: getLiteStudentUrl_(),
+    previewVerified: isLitePreviewVerified_(settings),
+    lessonOpen: isLiteLessonOpen_(settings)
+  });
 }
 
 function getLiteSpreadsheet_() {
@@ -270,14 +525,35 @@ function writeLiteStartHere_(spreadsheet) {
   }
 }
 
+function updateLiteStartHereStatus_(spreadsheet, readiness) {
+  const sheet = spreadsheet.getSheetByName('시작하기');
+  if (!sheet || sheet.getLastRow() < 6) return;
+  const checks = {};
+  (readiness && readiness.checks || []).forEach(function (item) { checks[item.key] = item.state === 'pass'; });
+  const statuses = [
+    checks.apiSaved && checks.apiVerified ? '완료' : checks.apiSaved ? '연결 확인 필요' : '입력 필요',
+    checks.backwardDesign ? '완료' : '입력 필요',
+    checks.material && checks.mode ? '완료' : '입력 필요',
+    checks.preview ? '완료' : readiness && readiness.runtimeReady ? '99-999 점검 필요' : '연결 준비 필요',
+    readiness && readiness.distributionReady ? '배포 가능' : readiness && readiness.lessonOpen === false ? '수업 종료' : '점검 필요'
+  ];
+  sheet.getRange(2, 2, statuses.length, 1).setValues(statuses.map(function (value) { return [value]; }));
+}
+
 function liteRowsAsObjects_(sheet) {
   if (!sheet || sheet.getLastRow() < 2) return [];
   const values = sheet.getDataRange().getValues();
   const headers = values[0].map(function (value) { return String(value).trim(); });
-  return values.slice(1).map(function (row) {
+  return values.slice(1).map(function (row, rowIndex) {
     const object = {};
     headers.forEach(function (header, index) {
-      if (header) object[header] = row[index];
+      if (header) object[header] = typeof row[index] === 'string'
+        ? unescapeLiteSheetText_(row[index])
+        : row[index];
+    });
+    Object.defineProperty(object, '__liteRowNumber', {
+      value:rowIndex + 2,
+      enumerable:false
     });
     return object;
   }).filter(function (row) {
@@ -285,9 +561,9 @@ function liteRowsAsObjects_(sheet) {
   });
 }
 
-function readLiteTeacherSettings_() {
-  const spreadsheet = getLiteSpreadsheet_();
-  ensureLiteWorkbook_(spreadsheet);
+function readLiteTeacherSettings_(spreadsheet, options) {
+  spreadsheet = spreadsheet || getLiteSpreadsheet_();
+  if (!(options && options.skipEnsure)) ensureLiteWorkbook_(spreadsheet);
   const rows = liteRowsAsObjects_(spreadsheet.getSheetByName('수업 자료'));
   const settings = rows[0] || {};
   // 0.1.x 사본은 개정 열이 없으므로, 다시 저장하기 전에도 새 중앙 엔진을 사용할 수 있게
@@ -299,7 +575,14 @@ function readLiteTeacherSettings_() {
   return settings;
 }
 
-function saveLiteTeacherSettings_(settings) {
+function liteRowsByColumnValue_(sheet, columnName, value) {
+  return liteRowsAsObjects_(sheet).filter(function (row) {
+    return String(row[columnName]) === String(value);
+  });
+}
+
+function saveLiteTeacherSettings_(settings, options) {
+  options = options || {};
   const spreadsheet = getLiteSpreadsheet_();
   ensureLiteWorkbook_(spreadsheet);
   const sheet = spreadsheet.getSheetByName('수업 자료');
@@ -307,16 +590,19 @@ function saveLiteTeacherSettings_(settings) {
     .map(function (value) { return String(value).trim(); });
   const previous = liteRowsAsObjects_(sheet)[0] || {};
   const sourceHash = makeLiteSettingsHash_(settings);
-  const changed = String(previous.sourceHash || '') !== sourceHash;
+  const newLesson = Boolean(options.newLesson);
+  const changed = newLesson || String(previous.sourceHash || '') !== sourceHash;
   const previousRevision = Math.max(0, Number(previous.lessonRevision || 0));
   const row = Object.assign({}, settings, {
-    lessonId: settings.lessonId || previous.lessonId || ('LESSON-' + Utilities.getUuid().slice(0, 8).toUpperCase()),
+    lessonId: newLesson
+      ? ('LESSON-' + Utilities.getUuid().replace(/-/g, '').slice(-12).toUpperCase())
+      : settings.lessonId || previous.lessonId || ('LESSON-' + Utilities.getUuid().replace(/-/g, '').slice(-12).toUpperCase()),
     sourceHash: sourceHash,
-    lessonRevision: changed ? previousRevision + 1 : Math.max(1, previousRevision),
+    lessonRevision: newLesson ? 1 : changed ? previousRevision + 1 : Math.max(1, previousRevision),
     updatedAt: new Date()
   });
   const values = headers.map(function (header) {
-    return Object.prototype.hasOwnProperty.call(row, header) ? row[header] : '';
+    return Object.prototype.hasOwnProperty.call(row, header) ? liteSheetSafeValue_(row[header]) : '';
   });
   if (sheet.getLastRow() < 2) {
     sheet.getRange(2, 1, 1, headers.length).setValues([values]);
@@ -326,12 +612,13 @@ function saveLiteTeacherSettings_(settings) {
       sheet.getRange(3, 1, sheet.getLastRow() - 2, headers.length).clearContent();
     }
   }
+  if (changed) clearLitePreviewAccess_();
   return row;
 }
 
 function makeLiteSettingsHash_(settings) {
   const fields = [
-    'appName', 'subject', 'grade', 'lessonTitle', 'lessonGoal',
+    'appName', 'subject', 'grade', 'lessonTitle', 'joinCode', 'lessonGoal',
     'achievementStandardCode', 'achievementStandard', 'assessmentCriteria', 'rubricHigh',
     'rubricMeet', 'rubricDeveloping', 'evidenceDescription', 'materialTitle',
     'materialText', 'materialUrl', 'startQuestion', 'activityMode', 'version'

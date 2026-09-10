@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 
 const baseUrl = String(process.env.LITE_ENGINE_TEST_BASE_URL || 'http://localhost:3000').replace(/\/$/, '');
+const accessKey = String(process.env.LITE_ENGINE_TEST_ACCESS_KEY || 'local-test-lite-engine-key-1234567890');
+const deploymentId = 'LD-localtestdeployment1234567890';
 const materialText = [
   '학교는 일회용 컵을 줄이기 위해 개인 물병 사용을 권했습니다.',
   '학생들은 개인 물병을 사용하면 쓰레기를 줄일 수 있다고 말했습니다.',
@@ -40,7 +42,14 @@ function makeInput(studentMessage, activityMode = 'evaluation', materialOverride
 }
 
 async function jsonRequest(pathname, init = {}, expectedStatus = 200) {
-  const response = await fetch(`${baseUrl}${pathname}`, init);
+  const response = await fetch(`${baseUrl}${pathname}`, {
+    ...init,
+    headers: {
+      'x-lite-engine-key': accessKey,
+      'x-lite-deployment-id': deploymentId,
+      ...(init.headers || {}),
+    },
+  });
   const text = await response.text();
   let body;
   try { body = JSON.parse(text); }
@@ -60,6 +69,17 @@ async function planFor(message, activityMode, materialOverride) {
 }
 
 (async () => {
+  const unauthorized = await fetch(`${baseUrl}/api/lite-engine/plan`);
+  assert.equal(unauthorized.status, 401, 'lite engine must reject requests without the bundle key');
+
+  const invalidDeployment = await fetch(`${baseUrl}/api/lite-engine/plan`, {
+    headers: {
+      'x-lite-engine-key': accessKey,
+      'x-lite-deployment-id': 'not-a-deployment-id',
+    },
+  });
+  assert.equal(invalidDeployment.status, 401, 'lite engine must reject an invalid deployment id');
+
   const descriptor = await jsonRequest('/api/lite-engine/plan');
   assert.equal(descriptor.sharedWithWebChatbot, true);
   assert.equal(descriptor.acceptsTeacherApiKey, false);
@@ -156,6 +176,21 @@ async function planFor(message, activityMode, materialOverride) {
   assert.notEqual(gameAsMedia.plan.observation.sourceStatus, 'out_of_scope');
   const youtubeComparison = await planFor('유튜브가 뉴스보다 믿을 만해요?', 'exploration', mediaMaterial);
   assert.notEqual(youtubeComparison.plan.observation.sourceStatus, 'out_of_scope');
+
+  const escapedMaterial = (
+    '자료의 근거를 확인합니다. '.repeat(10) +
+    '"'.repeat(19_800) +
+    '\u0001'.repeat(10_000)
+  ).slice(0, 30_000);
+  const largeInput = makeInput('자료에는 어떤 말이 반복되나요?', 'evaluation', escapedMaterial);
+  const largeBody = JSON.stringify(largeInput);
+  assert.ok(largeBody.length > 64_000, 'test payload must cover the former route limit');
+  const largePlan = await jsonRequest('/api/lite-engine/plan', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: largeBody,
+  });
+  assert.equal(largePlan.schemaVersion, 1);
 
   const closing = await planFor('이제 그만할게요');
   assert.equal(closing.plan.skipModel, true);

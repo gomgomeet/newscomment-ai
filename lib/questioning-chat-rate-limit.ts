@@ -10,13 +10,16 @@ type RateEntry = {
 const WINDOW_MS = 60_000;
 const MAX_REQUESTS_PER_WINDOW = 20;
 const MAX_ADDRESS_REQUESTS_PER_WINDOW = 120;
+const MAX_SCOPED_SOURCE_REQUESTS_PER_WINDOW = 360;
+const MAX_RATE_ENTRIES = 5_000;
 const rateEntries = new Map<string, RateEntry>();
+let nextCleanupAt = 0;
 
 function hashedRateKey(value: string) {
   return createHash("sha256").update(value).digest("hex").slice(0, 16);
 }
 
-function clientKeys(request: Request, lessonCode: string, sessionId?: string) {
+function clientKeys(request: Request, lessonCode: string, sessionId?: string, addressScope?: string) {
   const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
   const address = forwardedFor || request.headers.get("x-real-ip")?.trim() || "local";
   // Apps Script 경량앱은 base64url 세션 ID를 사용하므로 `_`도 정상 문자로 받는다.
@@ -25,8 +28,24 @@ function clientKeys(request: Request, lessonCode: string, sessionId?: string) {
   const lesson = lessonCode || "local";
   return {
     session: `${lesson}:session:${hashedRateKey(sessionKey)}`,
-    address: `${lesson}:address:${hashedRateKey(address)}`,
+    // 공개 입력인 lessonId를 바꾸어도 주소/배포본 전체 한도를 우회할 수 없게 한다.
+    address: `address:${hashedRateKey(address)}`,
+    scope: addressScope ? `scope:${hashedRateKey(addressScope)}` : "",
   };
+}
+
+function cleanupRateEntries(now: number) {
+  if (now < nextCleanupAt && rateEntries.size <= MAX_RATE_ENTRIES) return;
+  for (const [key, entry] of rateEntries) {
+    if (entry.resetAt <= now) rateEntries.delete(key);
+  }
+  if (rateEntries.size > MAX_RATE_ENTRIES) {
+    const oldest = [...rateEntries.entries()].sort((left, right) => left[1].resetAt - right[1].resetAt);
+    for (let index = 0; index < oldest.length - MAX_RATE_ENTRIES; index += 1) {
+      rateEntries.delete(oldest[index][0]);
+    }
+  }
+  nextCleanupAt = now + WINDOW_MS;
 }
 
 function consumeRateEntry(key: string, maximum: number, now: number) {
@@ -45,10 +64,26 @@ function consumeRateEntry(key: string, maximum: number, now: number) {
   return { allowed: true, retryAfterSeconds: 0 };
 }
 
-export function checkQuestioningChatRateLimit(request: Request, lessonCode: string, sessionId?: string) {
+export function checkQuestioningChatRateLimit(
+  request: Request,
+  lessonCode: string,
+  sessionId?: string,
+  options?: { addressScope?: string },
+) {
   const now = Date.now();
-  const keys = clientKeys(request, lessonCode, sessionId);
-  const addressResult = consumeRateEntry(keys.address, MAX_ADDRESS_REQUESTS_PER_WINDOW, now);
+  cleanupRateEntries(now);
+  const keys = clientKeys(request, lessonCode, sessionId, options?.addressScope);
+  // Apps Script 출구 IP는 여러 교사가 공유할 수 있어 scope가 있을 때 주소 상한을 넓게 두되,
+  // 위조 가능한 배포 식별자만 바꿔도 무제한이 되지 않도록 IP 상한을 함께 적용한다.
+  const addressResult = consumeRateEntry(
+    keys.address,
+    keys.scope ? MAX_SCOPED_SOURCE_REQUESTS_PER_WINDOW : MAX_ADDRESS_REQUESTS_PER_WINDOW,
+    now,
+  );
   if (!addressResult.allowed) return addressResult;
+  if (keys.scope) {
+    const scopeResult = consumeRateEntry(keys.scope, MAX_ADDRESS_REQUESTS_PER_WINDOW, now);
+    if (!scopeResult.allowed) return scopeResult;
+  }
   return consumeRateEntry(keys.session, MAX_REQUESTS_PER_WINDOW, now);
 }

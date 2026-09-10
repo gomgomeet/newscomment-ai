@@ -10,7 +10,7 @@
       main { max-width:980px; margin:0 auto; padding:22px; }
       h1,h2,h3 { margin:0 0 8px; }
       .lead,.muted,.status { color:var(--muted); }
-      .stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:16px 0; }
+      .stats { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:10px; margin:16px 0; }
       .stat,.card { padding:16px; border:1px solid var(--line); border-radius:13px; background:white; }
       .stat strong { display:block; color:#1d4ed8; font-size:25px; }
       .toolbar { display:flex; flex-wrap:wrap; gap:9px; align-items:center; margin:12px 0; }
@@ -23,6 +23,9 @@
       .evaluation-head { display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between; }
       .badge { padding:4px 9px; border-radius:999px; color:#1d4ed8; background:var(--soft); font-weight:800; }
       .warning { padding:9px 11px; border-radius:9px; color:#92400e; background:#fffbeb; }
+      .criteria-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:12px; }
+      .criterion { padding:11px; border-radius:9px; background:#f8fafc; white-space:pre-wrap; }
+      .criterion strong { display:block; margin-bottom:4px; color:#1d4ed8; }
       .evidence { max-height:150px; overflow:auto; padding:10px; white-space:pre-wrap; background:#f8fafc; }
       .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:11px; }
       .wide { grid-column:1 / -1; }
@@ -30,7 +33,7 @@
       input,textarea,select { width:100%; padding:9px 10px; border:1px solid #94a3b8; border-radius:8px; font:inherit; }
       textarea { min-height:78px; resize:vertical; }
       .empty { padding:28px; border:1px dashed #94a3b8; border-radius:13px; text-align:center; background:white; }
-      @media(max-width:700px) { .stats,.grid { grid-template-columns:1fr; } .wide { grid-column:auto; } }
+      @media(max-width:700px) { .stats,.grid,.criteria-grid { grid-template-columns:1fr; } .wide { grid-column:auto; } }
     </style>
   </head>
   <body data-teacher-access-token="<?= teacherAccessToken ?>">
@@ -41,7 +44,22 @@
         <div class="stat"><strong id="student-count">0</strong>참여 번호</div>
         <div class="stat"><strong id="question-count">0</strong>전체 질문</div>
         <div class="stat"><strong id="review-count">0</strong>검수할 평가</div>
+        <div class="stat"><strong id="api-request-count">0</strong>학생 API 호출</div>
+        <div class="stat"><strong id="api-preview-count">0</strong>미리보기 호출</div>
+        <div class="stat"><strong id="api-token-count">0</strong>전체 사용 토큰</div>
       </div>
+      <p class="muted">전체 사용 토큰에는 교사 미리보기와 응답 형식 검증에 실패한 유료 응답도 포함합니다. 기록 누락 가능성이 있으므로 정확한 청구 금액과 전체 사용량은 교사의 API 제공자 화면에서 확인하세요.</p>
+      <details class="card" open>
+        <summary><strong>이 수업의 평가기준과 수준별 기준</strong></summary>
+        <div class="criteria-grid">
+          <div class="criterion"><strong>성취기준</strong><span id="achievement-standard"></span></div>
+          <div class="criterion"><strong>평가기준</strong><span id="assessment-criteria"></span></div>
+          <div class="criterion"><strong>도달</strong><span id="rubric-high"></span></div>
+          <div class="criterion"><strong>성장 중</strong><span id="rubric-meet"></span></div>
+          <div class="criterion"><strong>도움 필요</strong><span id="rubric-developing"></span></div>
+          <div class="criterion"><strong>확인할 평가 근거</strong><span id="evidence-description"></span></div>
+        </div>
+      </details>
       <section class="card">
         <h2>참여 현황</h2>
         <p class="muted">이 화면에는 질문 전문을 표시하지 않습니다. 전문은 `질문과 답변` 시트에서 교사만 확인합니다.</p>
@@ -77,10 +95,20 @@
         const lesson = data.lesson || {};
         const students = data.students || [];
         const evaluations = data.evaluations || [];
+        const apiUsage = data.apiUsage || {};
         byId('lesson-title').textContent = lesson.lessonTitle || '아직 설정한 수업이 없습니다.';
+        byId('achievement-standard').textContent = lesson.achievementStandard || '입력된 성취기준이 없습니다.';
+        byId('assessment-criteria').textContent = lesson.assessmentCriteria || '입력된 평가기준이 없습니다.';
+        byId('rubric-high').textContent = lesson.rubricHigh || '입력된 기준이 없습니다.';
+        byId('rubric-meet').textContent = lesson.rubricMeet || '입력된 기준이 없습니다.';
+        byId('rubric-developing').textContent = lesson.rubricDeveloping || '입력된 기준이 없습니다.';
+        byId('evidence-description').textContent = lesson.evidenceDescription || '입력된 평가 근거가 없습니다.';
         byId('student-count').textContent = String(Number(data.uniqueStudentCount || 0));
         byId('question-count').textContent = String(students.reduce(function (sum, row) { return sum + Number(row.questionCount || 0); }, 0));
         byId('review-count').textContent = String(evaluations.filter(function (row) { return row.finalStatus !== '최종 확정'; }).length);
+        byId('api-request-count').textContent = Number(apiUsage.studentRequests || apiUsage.requests || 0).toLocaleString('ko-KR');
+        byId('api-preview-count').textContent = Number(apiUsage.previewRequests || 0).toLocaleString('ko-KR');
+        byId('api-token-count').textContent = Number(apiUsage.totalTokens || 0).toLocaleString('ko-KR');
         renderStudents(students);
         renderEvaluations(evaluations);
         setStatus('최근 저장 내용을 표시했습니다.');
@@ -92,7 +120,9 @@
         rows.forEach(function (row) {
           const item = document.createElement('div'); item.className = 'student';
           item.textContent = row.studentCode + (row.sessionConflict ? ' · 접속 ' + row.sessionLabel : '') +
-            ' · 질문 ' + Number(row.questionCount || 0) + '개';
+            ' · 질문 ' + Number(row.questionCount || 0) + '개' +
+            (row.progressStatus ? ' · ' + row.progressStatus : '') +
+            (row.lastActiveAt ? ' · ' + formatTime(row.lastActiveAt) : '');
           root.appendChild(item);
         });
       }
@@ -130,8 +160,8 @@
         const grid = document.createElement('div'); grid.className = 'grid';
         grid.appendChild(selectField('교사 판단', 'teacherDecision', ['판단 보류','도달','성장 중','도움 필요'], row.teacherDecision || '판단 보류'));
         grid.appendChild(selectField('검수 상태', 'finalStatus', ['검수 중','최종 확정'], row.finalStatus === '최종 확정' ? '최종 확정' : '검수 중'));
-        grid.appendChild(textareaField('교사 피드백', 'teacherFeedback', row.teacherFeedback || '', true));
-        grid.appendChild(textareaField('학생 향상 방법', 'improvementSuggestion', row.improvementSuggestion || '', true));
+        grid.appendChild(textareaField('교사 피드백 · 최종 확정 시 필수', 'teacherFeedback', row.teacherFeedback || '', true));
+        grid.appendChild(textareaField('학생 향상 방법 · 최종 확정 시 필수', 'improvementSuggestion', row.improvementSuggestion || '', true));
         grid.appendChild(textareaField('다음 수업 제안', 'nextLessonSuggestion', row.nextLessonSuggestion || '', true));
         card.appendChild(grid);
         const save = document.createElement('button'); save.type = 'button'; save.className = 'primary'; save.textContent = '교사 검수 저장';
@@ -165,6 +195,7 @@
           .saveLiteTeacherEvaluation(teacherAccessToken, {
             studentCode:row.studentCode, sessionId:row.sessionId,
             lessonId:row.lessonId, lessonRevision:row.lessonRevision || 1,
+            expectedReviewVersion:row.reviewVersion,
             teacherDecision:value('teacherDecision'), teacherFeedback:value('teacherFeedback'),
             improvementSuggestion:value('improvementSuggestion'), nextLessonSuggestion:value('nextLessonSuggestion'),
             finalStatus:value('finalStatus')
@@ -173,6 +204,10 @@
 
       function setStatus(message) { byId('status').textContent = message || ''; }
       function showError(error) { setStatus(error && error.message ? error.message : String(error)); }
+      function formatTime(value) {
+        const date = new Date(value);
+        return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('ko-KR', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' });
+      }
     </script>
   </body>
 </html>

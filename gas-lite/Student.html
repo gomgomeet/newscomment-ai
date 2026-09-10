@@ -3,9 +3,10 @@
   <head>
     <base target="_top">
     <meta charset="UTF-8">
+    <meta name="referrer" content="no-referrer">
     <?!= includeLite_('StudentStyles'); ?>
   </head>
-  <body>
+  <body data-preview-token="<?= previewAccessToken ?>">
     <div class="app-shell">
       <header class="app-header">
         <div class="brand-mark" aria-hidden="true">질</div>
@@ -20,13 +21,13 @@
         </div>
       </header>
 
-      <nav class="mobile-tabs" aria-label="학습 화면 선택">
-        <button type="button" class="mobile-tab" data-panel="material" aria-controls="material-panel" aria-selected="false">지문 보기</button>
-        <button type="button" class="mobile-tab active" data-panel="chat" aria-controls="chat-panel" aria-selected="true">대화하기</button>
+      <nav class="mobile-tabs" role="tablist" aria-label="학습 화면 선택">
+        <button id="material-tab" type="button" role="tab" class="mobile-tab" data-panel="material" aria-controls="material-panel" aria-selected="false" tabindex="-1">지문 보기</button>
+        <button id="chat-tab" type="button" role="tab" class="mobile-tab active" data-panel="chat" aria-controls="chat-panel" aria-selected="true" tabindex="0">대화하기</button>
       </nav>
 
       <main class="learning-workspace">
-        <section id="material-panel" class="workspace-panel material-panel" aria-labelledby="material-title">
+        <section id="material-panel" role="tabpanel" class="workspace-panel material-panel" aria-labelledby="material-tab material-title">
           <header class="panel-header material-header">
             <div>
               <p class="section-kicker">읽고 생각할 글</p>
@@ -50,7 +51,7 @@
           <article id="material-text" class="material-text" tabindex="-1"></article>
         </section>
 
-        <section id="chat-panel" class="workspace-panel chat-panel active" aria-label="질문 챗봇 대화">
+        <section id="chat-panel" role="tabpanel" class="workspace-panel chat-panel active" aria-labelledby="chat-tab">
           <header class="panel-header chat-header">
             <div>
               <p id="chat-kicker" class="section-kicker">질문 챗봇과 대화하기</p>
@@ -65,10 +66,13 @@
               <p id="student-code-prompt">반-번호를 입력해 주세요. 이름은 입력하지 않아요.</p>
               <label for="student-code-input">반-번호(필수)</label>
               <input id="student-code-input" maxlength="6" autocomplete="off" placeholder="예: 3-12">
+              <label for="join-code-input">수업 참여코드(필수)</label>
+              <input id="join-code-input" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" placeholder="선생님이 알려 준 숫자 6자리">
               <div class="button-row">
                 <button type="button" id="start-button" class="primary-button">대화 시작</button>
+                <button type="button" id="retry-bootstrap-button" class="text-button" hidden>수업 다시 불러오기</button>
               </div>
-              <small>반-번호와 대화는 선생님의 수업 기록에 저장됩니다. 이름은 입력하지 마세요.</small>
+              <small>반-번호와 대화는 선생님의 수업 기록에 저장되며, 답변을 만들기 위해 대표적인 개인정보 형식을 자동으로 가린 뒤 공통 대화 엔진과 선생님의 AI API로 전송됩니다. 자동 가림은 완전하지 않으므로 이름·주소·전화번호·계정정보는 입력하지 마세요.</small>
             </section>
           </div>
 
@@ -80,7 +84,10 @@
               <button type="button" id="evidence-button" class="quick-action"><span aria-hidden="true">💬</span> 내 생각 말하기</button>
               <button type="button" id="revise-button" class="quick-action"><span aria-hidden="true">↺</span> 다시 생각하기</button>
             </div>
-            <div id="status" class="status" role="status" aria-live="polite"></div>
+            <div class="status-row">
+              <div id="status" class="status" role="status" aria-live="polite"></div>
+              <button id="retry-turn-button" type="button" class="text-button" hidden>전송 결과 확인</button>
+            </div>
             <form id="chat-form" class="composer">
               <label class="visually-hidden" for="message-input">내 생각이나 질문</label>
               <div class="input-wrap">

@@ -1,12 +1,21 @@
 import { checkQuestioningChatRateLimit } from "@/lib/questioning-chat-rate-limit";
+import { authorizeLiteEngineRequest } from "@/lib/lite-engine-auth";
 import { finalizeLiteEngineReply } from "@/lib/lite-engine-plan";
 
 export const runtime = "nodejs";
 
-const MAX_BODY_LENGTH = 64_000;
+// plan 입력에 모델 후보 답변·근거가 더해지는 정상 최댓값을 수용한다.
+const MAX_BODY_LENGTH = 160_000;
 
 export async function POST(request: Request) {
   try {
+    const authorization = authorizeLiteEngineRequest(request);
+    if (!authorization.ok) {
+      return Response.json(
+        { error: authorization.error },
+        { status: authorization.status, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     const raw = await request.text();
     if (!raw || raw.length > MAX_BODY_LENGTH) {
       return Response.json(
@@ -28,7 +37,9 @@ export async function POST(request: Request) {
       ? candidate.lesson.lessonId.replace(/[^A-Za-z0-9-]/g, "").slice(0, 40)
       : "lite-finalize";
     const sessionKey = typeof candidate.sessionKey === "string" ? candidate.sessionKey : undefined;
-    const rateLimit = checkQuestioningChatRateLimit(request, lessonKey || "lite-finalize", sessionKey);
+    const rateLimit = checkQuestioningChatRateLimit(request, lessonKey || "lite-finalize", sessionKey, {
+      addressScope: `lite:${authorization.deploymentId}`,
+    });
     if (!rateLimit.allowed) {
       return Response.json(
         { error: "최종 확인 요청이 한꺼번에 들어오고 있어요. 잠시 뒤 다시 보내 주세요." },

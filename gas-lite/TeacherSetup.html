@@ -52,6 +52,10 @@
       .readiness [data-state="block"] strong { color:var(--red); }
       .summary { display:grid; gap:8px; padding:13px; border:1px solid #bfdbfe; border-radius:10px; background:var(--blue-soft); }
       .summary code { overflow-wrap:anywhere; white-space:normal; }
+      .button-row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+      .deployment-guide { margin-top:12px; padding:11px 13px; border:1px solid var(--line); border-radius:10px; background:#f8fafc; }
+      .deployment-guide summary { cursor:pointer; font-weight:800; }
+      .deployment-guide ol { margin-bottom:0; padding-left:22px; }
       .button-link { display:inline-flex; align-items:center; justify-content:center; width:max-content; color:white; background:var(--blue); text-decoration:none; }
       .button-link[aria-disabled="true"] { pointer-events:none; color:#64748b; background:#e2e8f0; }
       .hidden { display:none !important; }
@@ -65,11 +69,11 @@
   <body data-teacher-access-token="<?= teacherAccessToken ?>">
     <main>
       <h1>내 수업 질문챗봇 만들기</h1>
-      <p class="lead">1차시에서 학생으로 체험한 웹 챗봇과 같은 대화 엔진·학생 화면을 사용합니다. 여기서는 내 API, 내 수업 설정, 내 결과 Sheet만 연결합니다.</p>
+      <p class="lead">1차시에서 학생으로 체험한 웹 챗봇과 같은 대화 엔진·화면 구조·학습 흐름을 사용합니다. 여기서는 내 API, 내 수업 설정, 내 결과 Sheet만 연결합니다.</p>
       <div class="training-path" aria-label="연수에서 사용하는 순서">
-        <div><strong>1. 강사 설정 보기</strong><span>목표→평가기준→자료 순서를 관찰합니다.</span></div>
-        <div><strong>2. 학생으로 체험</strong><span>같은 학생 화면에서 질문하고 결과가 남는 것을 봅니다.</span></div>
-        <div><strong>3. 내 수업 설정</strong><span>이 화면에서 개인 API와 수업 내용을 연결합니다.</span></div>
+        <div><strong>체험 · 강사 챗봇</strong><span>완성된 학생 화면에서 먼저 질문하고 생각을 나눕니다.</span></div>
+        <div><strong>이해 · 구조와 결과</strong><span>설정과 학생 활동이 평가 근거로 이어지는 과정을 봅니다.</span></div>
+        <div><strong>제작 · 내 챗봇</strong><span>2차시부터 개인 API와 내 수업 내용을 연결합니다.</span></div>
       </div>
 
       <nav class="flow" aria-label="설정 순서">
@@ -81,7 +85,7 @@
 
       <section id="panel-api" class="panel active" aria-labelledby="title-api">
         <h2 id="title-api">1단계. 내 API 연결</h2>
-        <p>연수에서 제공한 공통 챗봇이 아니라, 교사 본인의 사용량으로 수업 챗봇을 운영하기 위한 설정입니다.</p>
+        <p>1차시 강사 운영본과 같은 기존 질문챗봇 엔진을 사용하되, AI 사용량·수업 설정·결과 저장은 교사 본인의 것으로 연결합니다.</p>
         <div class="api-row">
           <label>OpenAI API 키
             <input id="api-key" type="password" autocomplete="new-password" placeholder="sk-로 시작하는 키">
@@ -89,7 +93,7 @@
           <button id="save-api" type="button" class="primary">키 저장</button>
           <button id="test-api" type="button" class="secondary">연결 확인</button>
         </div>
-        <p class="privacy">API 키는 이 Google Sheet를 소유한 교사의 Apps Script 설정에만 저장합니다. Sheet 셀, 학생 화면, 중앙 엔진에는 보내지 않습니다.</p>
+        <p class="privacy">API 키는 이 Google Sheet를 소유한 교사의 Apps Script 설정에만 저장합니다. Sheet 셀, 학생 화면, 기존 질문중심 챗봇에는 보내지 않습니다. 제한형 프로젝트 키를 쓸 때는 Models 읽기와 Responses 쓰기 권한이 필요합니다.</p>
         <p>현재 상태: <span id="api-badge" class="badge">확인 중</span></p>
         <button id="clear-api" type="button" class="danger">저장된 API 키 삭제</button>
       </section>
@@ -162,6 +166,10 @@
             <label class="wide">시작 질문
               <textarea id="start-question" maxlength="500" required placeholder="예: 이 기사에서 가장 궁금한 점은 무엇인가요?"></textarea>
             </label>
+            <label>학생 참여코드 · 숫자 6자리
+              <input id="join-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required placeholder="예: 482731">
+              <span class="help">학생 링크와 함께 수업 시간에만 안내합니다.</span>
+            </label>
             <label class="wide">챗봇 운영 모드
               <select id="activity-mode" required>
                 <option value="evaluation">평가모드 · 승인한 자료와 기준 중심, 비용 절약</option>
@@ -173,15 +181,32 @@
 
         <section id="panel-check" class="panel" aria-labelledby="title-check">
           <h2 id="title-check">4단계. 저장하고 배포 준비 점검</h2>
-          <p>설정 저장이 끝나도 중앙 엔진과 학생용 웹앱 배포가 준비되기 전에는 학생에게 주소를 보내지 않습니다.</p>
+          <p>설정 저장이 끝나도 기존 질문중심 챗봇 연결과 학생용 웹앱 배포가 준비되기 전에는 학생에게 주소를 보내지 않습니다.</p>
           <p><span id="readiness-badge" class="badge">확인 중</span></p>
           <ul id="readiness-list" class="readiness"></ul>
           <div class="summary">
             <strong id="readiness-summary">준비 상태를 불러오는 중입니다.</strong>
             <span>학생 미리보기 코드: <strong>99-999</strong></span>
+            <span>학생에게는 링크와 직접 정한 숫자 6자리 참여코드를 함께 안내합니다.</span>
             <code id="student-url">아직 학생용 주소가 없습니다.</code>
-            <a id="open-student" class="button-link" target="_blank" rel="noopener noreferrer" aria-disabled="true">학생 화면 미리보기</a>
+            <div class="button-row">
+              <button id="test-engine" type="button" class="secondary">기존 챗봇 연결 확인</button>
+              <button id="refresh-readiness" type="button" class="secondary">준비 상태 새로고침</button>
+              <a id="open-student" class="button-link" target="_blank" rel="noopener noreferrer" aria-disabled="true">99-999 미리보기</a>
+              <button id="copy-student-url" type="button" class="primary" disabled>학생 링크 복사</button>
+              <button id="toggle-lesson" type="button" class="danger">현재 수업 배포 종료</button>
+              <button id="duplicate-lesson" type="button" class="secondary">이 설정으로 새 수업 만들기</button>
+            </div>
           </div>
+          <details class="deployment-guide">
+            <summary>학생용 주소가 없을 때: 최초 1회 웹앱 배포</summary>
+            <ol>
+              <li>Google Sheet에서 <strong>확장 프로그램 → Apps Script</strong>를 엽니다. 코드는 수정하지 않습니다.</li>
+              <li>오른쪽 위 <strong>배포 → 새 배포</strong>를 누르고 유형을 <strong>웹 앱</strong>으로 선택합니다.</li>
+              <li>실행 사용자는 <strong>나</strong>, 액세스 사용자는 학교 정책이 허용할 때 <strong>모든 사용자</strong>로 정합니다.</li>
+              <li>배포와 권한 승인을 마친 뒤 이 화면에서 <strong>준비 상태 새로고침</strong>을 누릅니다.</li>
+            </ol>
+          </details>
         </section>
 
         <input id="lesson-id" type="hidden">
@@ -197,6 +222,8 @@
     <script>
       const steps = ['api', 'design', 'material', 'check'];
       let currentStep = 0;
+      let latestDistributionReady = false;
+      let latestStudentUrl = '';
       const byId = function (id) { return document.getElementById(id); };
       const teacherAccessToken = document.body.dataset.teacherAccessToken || '';
 
@@ -210,6 +237,11 @@
         byId('save-api').addEventListener('click', saveApi);
         byId('test-api').addEventListener('click', testApi);
         byId('clear-api').addEventListener('click', clearApi);
+        byId('test-engine').addEventListener('click', testEngine);
+        byId('refresh-readiness').addEventListener('click', function () { refreshData('준비 상태를 새로고침했습니다.'); });
+        byId('copy-student-url').addEventListener('click', copyStudentUrl);
+        byId('toggle-lesson').addEventListener('click', toggleLesson);
+        byId('duplicate-lesson').addEventListener('click', duplicateLesson);
         setStatus('현재 설정을 불러오는 중입니다.');
         google.script.run
           .withSuccessHandler(fillData)
@@ -240,14 +272,16 @@
           'rubric-high':'rubricHigh', 'rubric-meet':'rubricMeet', 'rubric-developing':'rubricDeveloping',
           'evidence-description':'evidenceDescription', 'material-title':'materialTitle',
           'material-text':'materialText', 'material-url':'materialUrl', 'start-question':'startQuestion',
+          'join-code':'joinCode',
           'activity-mode':'activityMode', version:'version'
         };
         Object.keys(mapping).forEach(function (id) {
           if (value[mapping[id]] !== undefined && value[mapping[id]] !== '') byId(id).value = value[mapping[id]];
         });
         if (!byId('app-name').value) byId('app-name').value = '질문이';
+        if (!byId('join-code').value) byId('join-code').value = String(Math.floor(100000 + Math.random() * 900000));
         updateApi(data.api || {});
-        renderReadiness(data.readiness || {}, data.studentUrl || '');
+        renderReadiness(data.readiness || {}, data.studentUrl || '', data.previewUrl || '');
         setStatus('설정을 확인하고 순서대로 입력해 주세요.');
       }
 
@@ -264,13 +298,19 @@
           evidenceDescription:byId('evidence-description').value,
           materialTitle:byId('material-title').value, materialText:byId('material-text').value,
           materialUrl:byId('material-url').value, startQuestion:byId('start-question').value,
+          joinCode:byId('join-code').value,
           activityMode:byId('activity-mode').value, version:byId('version').value
         };
       }
 
       function saveSetup(event) {
         event.preventDefault();
-        if (!byId('setup-form').reportValidity()) {
+        if (!byId('setup-form').checkValidity()) {
+          const invalid = byId('setup-form').querySelector(':invalid');
+          const panel = invalid && invalid.closest('.panel');
+          const invalidStep = panel ? steps.indexOf(panel.id.replace('panel-', '')) : -1;
+          if (invalidStep >= 0) showStep(invalidStep);
+          window.setTimeout(function () { byId('setup-form').reportValidity(); }, 0);
           setStatus('입력하지 않은 필수 항목을 확인해 주세요.', true);
           return;
         }
@@ -279,7 +319,7 @@
         google.script.run
           .withSuccessHandler(function (result) {
             byId('lesson-id').value = result.lessonId || '';
-            renderReadiness(result.readiness || {}, result.studentUrl || '');
+            renderReadiness(result.readiness || {}, result.studentUrl || '', result.previewUrl || '');
             setStatus(result.message || '저장했습니다.');
             setButtonsDisabled(false);
           })
@@ -291,34 +331,51 @@
         const key = byId('api-key').value.trim();
         if (!key) { setStatus('저장할 API 키를 입력해 주세요.', true); return; }
         setStatus('API 키를 안전한 설정 저장소에 저장하는 중입니다.');
+        setButtonsDisabled(true);
         google.script.run
           .withSuccessHandler(function (result) {
-            byId('api-key').value = ''; updateApi(result); refreshData(result.message);
+            byId('api-key').value = ''; updateApi(result); refreshData(result.message); setButtonsDisabled(false);
           })
-          .withFailureHandler(showError)
+          .withFailureHandler(function (error) { setButtonsDisabled(false); showError(error); })
           .saveLiteApiKey(teacherAccessToken, key);
       }
 
       function testApi() {
         setStatus('API 연결을 확인하는 중입니다.');
+        setButtonsDisabled(true);
         google.script.run
-          .withSuccessHandler(function (result) { updateApi(result); setStatus(result.message); })
-          .withFailureHandler(showError)
+          .withSuccessHandler(function (result) { updateApi(result); refreshData(result.message); setButtonsDisabled(false); })
+          .withFailureHandler(function (error) { setButtonsDisabled(false); showError(error); })
           .testLiteApiConnection(teacherAccessToken);
       }
 
-      function clearApi() {
-        setStatus('저장된 API 키를 삭제하는 중입니다.');
+      function testEngine() {
+        setStatus('중앙 질문 엔진의 버전과 응답을 확인하는 중입니다.');
+        setButtonsDisabled(true);
         google.script.run
-          .withSuccessHandler(function (result) { updateApi(result); refreshData(result.message); })
-          .withFailureHandler(showError)
+          .withSuccessHandler(function (result) {
+            refreshData(result.message || '기존 질문중심 챗봇 연결을 확인했습니다.');
+            setButtonsDisabled(false);
+          })
+          .withFailureHandler(function (error) { setButtonsDisabled(false); showError(error); })
+          .testLiteEngineConnection(teacherAccessToken);
+      }
+
+      function clearApi() {
+        if (!window.confirm('저장된 개인 API 키를 삭제할까요? 삭제 후에는 다시 연결하기 전까지 학생 챗봇이 멈춥니다.')) return;
+        setStatus('저장된 API 키를 삭제하는 중입니다.');
+        setButtonsDisabled(true);
+        google.script.run
+          .withSuccessHandler(function (result) { updateApi(result); refreshData(result.message); setButtonsDisabled(false); })
+          .withFailureHandler(function (error) { setButtonsDisabled(false); showError(error); })
           .clearLiteApiKeyForTeacher(teacherAccessToken);
       }
 
       function refreshData(message) {
         google.script.run
           .withSuccessHandler(function (data) {
-            updateApi(data.api || {}); renderReadiness(data.readiness || {}, data.studentUrl || '');
+            updateApi(data.api || {});
+            renderReadiness(data.readiness || {}, data.studentUrl || '', data.previewUrl || '');
             setStatus(message || '준비 상태를 갱신했습니다.');
           })
           .withFailureHandler(showError)
@@ -327,11 +384,13 @@
 
       function updateApi(api) {
         const badge = byId('api-badge');
-        badge.className = 'badge ' + (api.configured ? 'pass' : 'block');
-        badge.textContent = api.configured ? '저장됨' : '연결 필요';
+        badge.className = 'badge ' + (api.verified ? 'pass' : api.configured ? '' : 'block');
+        badge.textContent = api.verified ? '연결 확인됨' : api.configured ? '저장됨 · 확인 필요' : '연결 필요';
       }
 
-      function renderReadiness(report, studentUrl) {
+      function renderReadiness(report, studentUrl, previewUrl) {
+        latestDistributionReady = Boolean(report.distributionReady);
+        latestStudentUrl = studentUrl || '';
         const badge = byId('readiness-badge');
         badge.className = 'badge ' + (report.distributionReady ? 'pass' : report.setupReady ? '' : 'block');
         badge.textContent = report.distributionReady ? '학생 배포 준비 완료' : report.setupReady ? '교사 입력 완료' : '필수 설정 필요';
@@ -346,12 +405,66 @@
         byId('readiness-summary').textContent = report.summary || '준비 상태를 확인해 주세요.';
         byId('student-url').textContent = studentUrl || '아직 학생용 주소가 없습니다.';
         const link = byId('open-student');
-        if (studentUrl) { link.href = studentUrl; link.setAttribute('aria-disabled', 'false'); }
+        if (previewUrl && report.runtimeReady) { link.href = previewUrl; link.setAttribute('aria-disabled', 'false'); }
         else { link.removeAttribute('href'); link.setAttribute('aria-disabled', 'true'); }
+        byId('copy-student-url').disabled = !(studentUrl && report.distributionReady);
+        const toggle = byId('toggle-lesson');
+        toggle.dataset.open = report.lessonOpen === false ? 'false' : 'true';
+        toggle.textContent = report.lessonOpen === false ? '현재 수업 다시 열기' : '현재 수업 배포 종료';
+      }
+
+      function copyStudentUrl() {
+        const value = byId('student-url').textContent.trim();
+        if (!value || byId('copy-student-url').disabled) return;
+        const copied = function () { setStatus('학생용 주소를 복사했습니다. 학생에게는 이 주소만 공유하세요.'); };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(value).then(copied).catch(function () { fallbackCopy(value, copied); });
+        } else {
+          fallbackCopy(value, copied);
+        }
+      }
+
+      function fallbackCopy(value, onSuccess) {
+        const area = document.createElement('textarea');
+        area.value = value; area.setAttribute('readonly', ''); area.style.position = 'fixed'; area.style.opacity = '0';
+        document.body.appendChild(area); area.select();
+        try { document.execCommand('copy'); onSuccess(); }
+        catch (error) { setStatus('주소를 길게 눌러 직접 복사해 주세요.', true); }
+        document.body.removeChild(area);
+      }
+
+      function toggleLesson() {
+        const button = byId('toggle-lesson');
+        const shouldOpen = button.dataset.open === 'false';
+        if (!shouldOpen && !window.confirm('현재 수업을 종료할까요? 학생의 새 입장과 질문은 차단되지만 저장된 기록은 남습니다.')) return;
+        setButtonsDisabled(true);
+        google.script.run
+          .withSuccessHandler(function (result) {
+            renderReadiness(result.readiness || {}, result.studentUrl || '', result.previewUrl || '');
+            setStatus(result.message || '수업 상태를 변경했습니다.');
+            setButtonsDisabled(false);
+          })
+          .withFailureHandler(function (error) { setButtonsDisabled(false); showError(error); })
+          .setLiteLessonOpenForTeacher(teacherAccessToken, shouldOpen);
+      }
+
+      function duplicateLesson() {
+        if (!window.confirm('현재 평가 설계와 자료를 복사해 새 수업으로 전환할까요? 기존 학생 기록은 삭제되지 않습니다.')) return;
+        setButtonsDisabled(true);
+        google.script.run
+          .withSuccessHandler(function (result) {
+            fillData(result);
+            showStep(1);
+            setStatus(result.message || '새 수업으로 복제했습니다.');
+            setButtonsDisabled(false);
+          })
+          .withFailureHandler(function (error) { setButtonsDisabled(false); showError(error); })
+          .duplicateLiteLessonForTeacher(teacherAccessToken);
       }
 
       function setButtonsDisabled(disabled) {
         document.querySelectorAll('button').forEach(function (button) { button.disabled = disabled; });
+        if (!disabled) byId('copy-student-url').disabled = !(latestStudentUrl && latestDistributionReady);
       }
 
       function setStatus(message, isError) {
