@@ -1,20 +1,30 @@
 # 경량 교사·학생 앱 배포 실행 기록
 
-## 현재 판정 — 2026-09-10 10:46 KST 점검
+## 현재 판정 — 2026-09-10 운영 로그·환경변수 확인 반영
 
 **코드와 미리보기 빌드는 준비됐지만, 실제 교사·학생 운영 연결은 아직 미완료다.** 빌드 성공, 웹 접속 성공, 실제 수업 검증은 서로 다른 완료 조건이다.
 
 | 대상 | 확인 결과 | 다음 조치 |
 | --- | --- | --- |
-| [PR #65](https://github.com/gomgomeet/newscomment-ai/pull/65) | 점검 시 HEAD `9df957d`, OPEN, MERGEABLE, Vercel 빌드 SUCCESS | 접근 가능한 미리보기에서 연결 계약 확인 후 기존 Production에 반영 |
-| 기존 Production `/api/health` | HTTP 500 | 런타임 로그로 원인 확인 |
-| 기존 Production `/api/lite-engine/plan` | HTTP 500 | 기능 브랜치 반영 여부와 라우트 진입 전 오류를 구분 |
-| [PR 미리보기](https://newscomment-oufapqw3u-jinalee07-8924s-projects.vercel.app) | curl HEAD는 Vercel SSO로 HTTP 302, Node GET 점검은 세 경로 모두 HTTP 401 | 소유 계정으로 로그인해 확인. 보호 기능은 임의 해제하지 않음 |
-| Vercel 연결 도구 | 팀은 조회되지만 프로젝트 목록은 빈 배열, 해당 프로젝트·배포는 404 | 프로젝트 접근권한 확인. 프로젝트 삭제나 빌드 실패로 단정하지 않음 |
+| [PR #65](https://github.com/gomgomeet/newscomment-ai/pull/65) | 점검 시 HEAD `92d5653`, OPEN, Vercel 빌드 SUCCESS | 접근 가능한 미리보기에서 연결 계약 확인 후 기존 Production에 반영 |
+| 기존 Production `/api/health` | HTTP 500. 운영 로그에서 Supabase URL·공개 키 누락 예외 확인 | 기존 두 변수의 Production 적용과 재배포에 대한 사용자 승인 대기 |
+| 기존 Production `/api/lite-engine/plan` | HTTP 500. 현재 운영 SHA에는 lite 라우트가 없으며 구형 전역 proxy에서 먼저 실패 | Supabase 복구와 PR #65 기능 배포를 별도 단계로 진행 |
+| [PR 미리보기](https://newscomment-ai-git-claude-today-679f3c-jinalee07-8924s-projects.vercel.app) | Vercel 빌드는 성공. 이전 비인증 요청은 SSO 보호에서 302/401 | 인증된 엔진 계약 확인은 별도 필요. 보호 기능은 임의 해제하지 않음 |
+| Vercel 접근 | 연결 도구는 프로젝트 목록이 비어 있으나, 로그인된 Chrome에서 실제 프로젝트·운영 로그·환경변수 범위 조회 성공 | 연결 도구의 404를 실제 프로젝트 부재로 해석하지 않음 |
 | 새 경량 Apps Script | 저장소에 새 Sheet·script ID 및 Google 웹앱 deployment ID·`/exec` URL 없음 | 별도 빈 Sheet의 바운드 프로젝트를 확정한 후 배포 |
 | 실제 API·Sheet 왕복·현장 실증 | 아직 검증하지 않음 | 아래 순서대로 수행하고 결과를 기록 |
 
-공개 응답 확인은 키·학생자료 없이 수행했다. 운영 오류의 상세 로그는 아직 읽지 못했다. Supabase 공개 환경변수가 없는 로컬 환경에서 비슷한 500을 재현했지만, 이것만으로 Production의 원인을 확정하지 않는다.
+공개 응답과 운영 로그 확인은 키·학생자료를 복사하지 않고 수행했다. 환경변수 값의 공개·변경, Production 적용 범위 변경, 재배포는 아직 수행하지 않았다.
+
+### 확인된 운영 오류와 복구 순서
+
+- 실제 Production은 `Ready`이며 배포 ID는 `4XZeHUwb5XkFBvtPq9BHUc8dwkeF`, 원본 SHA는 main의 `b0dc8087e298dc5aafcb29074c1eda6ff5040c34`다. 빌드 상태가 Ready여도 런타임 요청은 실패할 수 있다.
+- 2026-09-10 운영 로그에서 `/api/health`, `/questioning-chatbot`, `/api/lite-engine/plan`, `/` 요청이 Supabase 클라이언트 초기화 중 URL과 Key가 필요하다는 예외로 실패한 것을 확인했다.
+- 프로젝트 환경변수 목록에서 `NEXT_PUBLIC_SUPABASE_URL`과 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`는 모두 **Preview에만 적용**되어 있었다. 이 두 값이 Production에 없는 것이 현재 부팅 오류의 원인이다. 값 자체는 열어 보거나 기록하지 않았다.
+- 기존 값을 유지하면서 Production에도 적용하면 운영 앱이 Preview와 같은 Supabase 프로젝트를 사용한다. 이 연결 대상 선택과 재배포에 대해 사용자 확인을 요청했으며, 승인 전에는 설정을 변경하지 않는다. 새 DB 생성·기존 DB 교체·키 회전·서비스 비밀 키의 공개 변수 전환은 필요하지 않다.
+- 승인 후 두 변수의 Production 범위를 추가하고 새 Production 빌드를 배포한 뒤, `/api/health`와 챗봇 페이지 접속 및 오류 로그를 다시 확인한다. 환경변수 저장만으로 복구 완료로 판정하지 않는다.
+- 현재 운영 SHA에는 lite 엔진 라우트가 없다. 같은 SHA에서 Supabase 오류만 복구하면 `/api/lite-engine/plan`은 404가 예상된다. PR #65의 plan·finalize 라우트와 인증 설정을 배포해야 경량앱 연결 검증으로 넘어갈 수 있다.
+- PR #65는 lite 경로를 Supabase proxy에서 제외하지만 일반 웹 경로는 여전히 위 두 값이 필요하다. `LITE_ENGINE_ACCESS_KEY`는 현재 프로젝트 변수 목록에 없으며, PR 반영 후에도 미설정 상태라면 lite 경로는 503을 반환한다. 별도의 안전한 키 설정·인증 계약 검증이 남아 있다.
 
 ## 기존 챗봇과 새 경량앱을 구분한다
 
