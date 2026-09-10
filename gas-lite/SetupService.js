@@ -80,6 +80,14 @@ function liteRequired_(value, label, maxLength) {
   return result;
 }
 
+function liteOptional_(value, label, maxLength) {
+  const result = liteText_(value);
+  if (maxLength && result.length > maxLength) {
+    throw new Error(label + '은(는) ' + maxLength + '자 이내로 입력해 주세요.');
+  }
+  return result;
+}
+
 function normalizeLiteMode_(value) {
   const mode = liteText_(value).toLowerCase();
   if (mode === 'evaluation' || mode === 'exploration') return mode;
@@ -346,6 +354,9 @@ function validateLiteTeacherSetup_(payload) {
   if (materialUrl && !/^https?:\/\//i.test(materialUrl)) {
     throw new Error('수업자료 링크는 http:// 또는 https://로 시작해 주세요.');
   }
+  const activityMode = normalizeLiteMode_(payload.activityMode);
+  // 탐색모드에서는 설계를 적용하지 않지만, 다시 켤 수 있도록 입력 내용은 보존한다.
+  const designField = activityMode === 'exploration' ? liteOptional_ : liteRequired_;
 
   return {
     lessonId: liteText_(payload.lessonId, 80),
@@ -354,19 +365,19 @@ function validateLiteTeacherSetup_(payload) {
     grade: liteRequired_(payload.grade, '학년', 40),
     lessonTitle: liteRequired_(payload.lessonTitle, '수업명', 120),
     joinCode: validateLiteJoinCode_(payload.joinCode),
-    lessonGoal: liteRequired_(payload.lessonGoal, '수업 목표', 500),
+    lessonGoal: designField(payload.lessonGoal, '수업 목표', 500),
     achievementStandardCode: liteText_(payload.achievementStandardCode, 80),
-    achievementStandard: liteRequired_(payload.achievementStandard, '성취기준', 1000),
-    assessmentCriteria: liteRequired_(payload.assessmentCriteria, '평가기준', 1500),
-    rubricHigh: liteRequired_(payload.rubricHigh, '도달 수준 기준', 1000),
-    rubricMeet: liteRequired_(payload.rubricMeet, '성장 중 수준 기준', 1000),
-    rubricDeveloping: liteRequired_(payload.rubricDeveloping, '도움 필요 수준 기준', 1000),
-    evidenceDescription: liteRequired_(payload.evidenceDescription, '평가 근거', 1000),
+    achievementStandard: designField(payload.achievementStandard, '성취기준', 1000),
+    assessmentCriteria: designField(payload.assessmentCriteria, '평가기준', 1500),
+    rubricHigh: designField(payload.rubricHigh, '도달 수준 기준', 1000),
+    rubricMeet: designField(payload.rubricMeet, '성장 중 수준 기준', 1000),
+    rubricDeveloping: designField(payload.rubricDeveloping, '도움 필요 수준 기준', 1000),
+    evidenceDescription: designField(payload.evidenceDescription, '평가 근거', 1000),
     materialTitle: liteRequired_(payload.materialTitle, '수업자료 제목', 120),
     materialText: materialText,
     materialUrl: materialUrl,
     startQuestion: liteRequired_(payload.startQuestion, '시작 질문', 500),
-    activityMode: normalizeLiteMode_(payload.activityMode),
+    activityMode: activityMode,
     version: liteText_(payload.version, 30) || 'v1'
   };
 }
@@ -379,7 +390,7 @@ function sanitizeLiteSettingsForStudent_(settings) {
     subject: liteText_(settings.subject, 40),
     grade: liteText_(settings.grade, 40),
     lessonTitle: liteText_(settings.lessonTitle, 120),
-    lessonGoal: liteText_(settings.lessonGoal, 500),
+    lessonGoal: settings.activityMode === 'exploration' ? '' : liteText_(settings.lessonGoal, 500),
     materialTitle: liteText_(settings.materialTitle, 120),
     materialText: liteText_(settings.materialText, 30000),
     materialUrl: liteText_(settings.materialUrl, 1000),
@@ -405,7 +416,8 @@ function sanitizeLiteBootstrapForStudent_(settings) {
 function buildLiteReadiness_(settings, context) {
   settings = settings || {};
   context = context || {};
-  const backwardReady = Boolean(
+  const backwardDesignEnabled = settings.activityMode !== 'exploration';
+  const backwardReady = !backwardDesignEnabled || Boolean(
     settings.lessonGoal && settings.achievementStandard && settings.assessmentCriteria &&
     settings.rubricHigh && settings.rubricMeet && settings.rubricDeveloping &&
     settings.evidenceDescription
@@ -437,7 +449,10 @@ function buildLiteReadiness_(settings, context) {
       key: 'backwardDesign',
       label: '백워드 평가 설계',
       state: backwardReady ? 'pass' : 'block',
-      detail: backwardReady ? '목표·성취기준·평가기준·평가 근거가 준비되었습니다.' : '목표부터 평가 근거까지 필수 항목을 입력해 주세요.'
+      enabled: backwardDesignEnabled,
+      detail: !backwardDesignEnabled
+        ? '사용 안 함 — 자료 탐색모드에서는 백워드 평가 설계를 적용하지 않습니다.'
+        : backwardReady ? '목표·성취기준·평가기준·평가 근거가 준비되었습니다.' : '목표부터 평가 근거까지 필수 항목을 입력해 주세요.'
     },
     {
       key: 'material',
@@ -497,6 +512,7 @@ function buildLiteReadiness_(settings, context) {
   return {
     level: distributionReady ? 'distribution_ready' : setupReady ? 'setup_ready' : 'draft',
     setupReady: setupReady,
+    backwardDesignEnabled: backwardDesignEnabled,
     runtimeReady: runtimeReady,
     lessonOpen: lessonOpen,
     distributionReady: distributionReady,
@@ -581,7 +597,7 @@ function writeLiteStartHere_(spreadsheet) {
   const rows = [
     ['항목', '상태', '안내'],
     ['1. API 연결', '', 'simbot → 교사 설정 열기에서 개인 API를 저장합니다.'],
-    ['2. 평가 설계', '', '수업 목표 → 성취기준 → 평가기준 → 평가 근거 순서로 입력합니다.'],
+    ['2. 평가 설계', '', '백워드 평가 설계를 켜면 목표부터 평가 근거까지 입력합니다. 끄면 자료 탐색모드로 운영하며 입력한 설계는 보관합니다.'],
     ['3. 수업자료', '', '학생이 질문할 본문과 시작 질문, 운영 모드를 입력합니다.'],
     ['4. 미리보기', '', '학생용 주소에서 99-999로 전체 과정을 점검합니다.'],
     ['5. 학생 배포', '', '점검이 모두 통과한 뒤 학생용 /exec 주소만 공유합니다.']
@@ -601,7 +617,7 @@ function updateLiteStartHereStatus_(spreadsheet, readiness) {
   (readiness && readiness.checks || []).forEach(function (item) { checks[item.key] = item.state === 'pass'; });
   const statuses = [
     checks.apiSaved && checks.apiVerified ? '완료' : checks.apiSaved ? '연결 확인 필요' : '입력 필요',
-    checks.backwardDesign ? '완료' : '입력 필요',
+    readiness && readiness.backwardDesignEnabled === false ? '사용 안 함' : checks.backwardDesign ? '완료' : '입력 필요',
     checks.material && checks.mode ? '완료' : '입력 필요',
     checks.preview ? '완료' : readiness && readiness.runtimeReady ? '99-999 점검 필요' : '연결 준비 필요',
     readiness && readiness.distributionReady ? '배포 가능' : readiness && readiness.lessonOpen === false ? '수업 종료' : '점검 필요'

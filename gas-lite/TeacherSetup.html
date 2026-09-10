@@ -32,6 +32,9 @@
       .panel.active { display:block; }
       .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:13px; }
       .wide { grid-column:1 / -1; }
+      .design-toggle { display:flex; align-items:center; gap:10px; margin:14px 0 6px; padding:12px; border:1px solid var(--line); border-radius:10px; }
+      .design-toggle input { width:22px; height:22px; margin:0; accent-color:var(--blue); }
+      #backward-design-fields { min-width:0; margin:14px 0 0; padding:0; border:0; }
       label { display:grid; gap:5px; font-weight:700; }
       input,textarea,select { width:100%; padding:10px 11px; border:1px solid #94a3b8; border-radius:9px; color:var(--ink); background:white; font:inherit; }
       textarea { min-height:92px; resize:vertical; }
@@ -105,10 +108,15 @@
         <button id="clear-api" type="button" class="danger">저장된 API 키 삭제</button>
       </section>
 
-      <form id="setup-form">
+      <form id="setup-form" novalidate>
         <section id="panel-design" class="panel" aria-labelledby="title-design">
           <h2 id="title-design">2단계. 목표에서 평가 근거까지 설계</h2>
-          <p class="notice">학생 결과물을 본 뒤 기준을 만드는 것이 아닙니다. 먼저 무엇을 배우고 어떤 증거로 판단할지 정합니다.</p>
+          <label class="design-toggle" for="backward-design-enabled">
+            <input id="backward-design-enabled" type="checkbox" role="switch" checked aria-controls="backward-design-fields" aria-describedby="backward-design-status">
+            백워드 평가 설계 사용
+          </label>
+          <p id="backward-design-status" class="notice" role="status" aria-live="polite">켬 · 목표와 평가 근거를 먼저 정하는 평가모드입니다.</p>
+          <p class="help">언제든 다시 끄거나 켤 수 있습니다. 끄면 자료 탐색모드로 전환되며, 작성한 평가 내용은 지우지 않습니다. 변경 후 4단계에서 저장해 주세요.</p>
           <div class="grid">
             <label>챗봇 이름
               <input id="app-name" maxlength="40" required placeholder="예: 생각이">
@@ -128,6 +136,8 @@
             <label>수업명
               <input id="lesson-title" maxlength="120" required placeholder="예: 신문기사를 읽고 근거 있는 의견 쓰기">
             </label>
+          </div>
+          <fieldset id="backward-design-fields" class="grid" aria-label="백워드 평가 설계 입력">
             <label class="wide">① 수업 목표
               <textarea id="lesson-goal" maxlength="500" required placeholder="수업이 끝났을 때 학생이 할 수 있어야 하는 일을 씁니다."></textarea>
             </label>
@@ -152,7 +162,7 @@
             <label class="wide">④ 수집할 평가 근거
               <textarea id="evidence-description" maxlength="1000" required placeholder="예: 기사 핵심을 묻는 질문, 근거를 찾은 답변, 자신의 의견과 이유"></textarea>
             </label>
-          </div>
+          </fieldset>
         </section>
 
         <section id="panel-material" class="panel" aria-labelledby="title-material">
@@ -182,6 +192,7 @@
                 <option value="evaluation">평가모드 · 승인한 자료와 기준 중심, 비용 절약</option>
                 <option value="exploration">자료 탐색모드 · 평가 기록 부담 없이 글 안의 근거 탐색</option>
               </select>
+              <span class="help">2단계의 백워드 평가 설계 스위치와 함께 바뀝니다. 탐색모드에서는 평가 설계 입력이 필요하지 않습니다.</span>
             </label>
           </div>
         </section>
@@ -231,6 +242,7 @@
       let currentStep = 0;
       let latestDistributionReady = false;
       let latestStudentUrl = '';
+      let savedActivityMode = 'evaluation';
       const byId = function (id) { return document.getElementById(id); };
       const teacherAccessToken = document.body.dataset.teacherAccessToken || '';
 
@@ -249,12 +261,42 @@
         byId('copy-student-url').addEventListener('click', copyStudentUrl);
         byId('toggle-lesson').addEventListener('click', toggleLesson);
         byId('duplicate-lesson').addEventListener('click', duplicateLesson);
+        byId('backward-design-enabled').addEventListener('change', function () {
+          byId('activity-mode').value = this.checked ? 'evaluation' : 'exploration';
+          syncBackwardDesign(true);
+        });
+        byId('activity-mode').addEventListener('change', function () { syncBackwardDesign(true); });
         setStatus('현재 설정을 불러오는 중입니다.');
         google.script.run
           .withSuccessHandler(fillData)
           .withFailureHandler(showError)
           .getLiteTeacherSetupData(teacherAccessToken);
       });
+
+      function hasUnsavedModeChange() {
+        return byId('activity-mode').value !== savedActivityMode;
+      }
+
+      function syncBackwardDesign(changed) {
+        const enabled = byId('activity-mode').value !== 'exploration';
+        byId('backward-design-enabled').checked = enabled;
+        const fields = byId('backward-design-fields');
+        fields.disabled = !enabled;
+        fields.classList.toggle('hidden', !enabled);
+        ['lesson-goal', 'achievement-standard', 'assessment-criteria', 'rubric-high',
+          'rubric-meet', 'rubric-developing', 'evidence-description'].forEach(function (id) {
+          byId(id).required = enabled;
+        });
+        byId('backward-design-status').textContent = enabled
+          ? '켬 · 목표와 평가 근거를 먼저 정하는 평가모드입니다.'
+          : '끔 · 평가 항목 없이 자료 탐색모드로 운영합니다. 작성한 내용은 보관되어 다시 켜면 나타납니다.';
+        if (changed) {
+          byId('copy-student-url').disabled = true;
+          byId('open-student').removeAttribute('href');
+          byId('open-student').setAttribute('aria-disabled', 'true');
+          setStatus('백워드 평가 설계를 ' + (enabled ? '켰습니다.' : '껐습니다.') + ' 4단계에서 저장한 뒤 준비 상태와 미리보기를 다시 확인해 주세요.');
+        }
+      }
 
       function showStep(index) {
         currentStep = Math.max(0, Math.min(steps.length - 1, index));
@@ -283,8 +325,12 @@
           'activity-mode':'activityMode', version:'version'
         };
         Object.keys(mapping).forEach(function (id) {
-          if (value[mapping[id]] !== undefined && value[mapping[id]] !== '') byId(id).value = value[mapping[id]];
+          byId(id).value = value[mapping[id]] == null ? '' : value[mapping[id]];
         });
+        byId('activity-mode').value = value.activityMode === 'exploration' ? 'exploration' : 'evaluation';
+        savedActivityMode = byId('activity-mode').value;
+        if (!byId('version').value) byId('version').value = 'v1';
+        syncBackwardDesign(false);
         if (!byId('app-name').value) byId('app-name').value = 'simbot';
         if (!byId('join-code').value) byId('join-code').value = String(Math.floor(100000 + Math.random() * 900000));
         updateApi(data.api || {});
@@ -322,16 +368,18 @@
           return;
         }
         setStatus('평가 설계와 수업자료를 저장하는 중입니다.');
+        const payload = collectPayload();
         setButtonsDisabled(true);
         google.script.run
           .withSuccessHandler(function (result) {
             byId('lesson-id').value = result.lessonId || '';
+            savedActivityMode = payload.activityMode;
             renderReadiness(result.readiness || {}, result.studentUrl || '', result.previewUrl || '');
             setStatus(result.message || '저장했습니다.');
             setButtonsDisabled(false);
           })
           .withFailureHandler(function (error) { setButtonsDisabled(false); showError(error); })
-          .saveLiteTeacherSetup(teacherAccessToken, collectPayload());
+          .saveLiteTeacherSetup(teacherAccessToken, payload);
       }
 
       function saveApi() {
@@ -412,9 +460,9 @@
         byId('readiness-summary').textContent = report.summary || '준비 상태를 확인해 주세요.';
         byId('student-url').textContent = studentUrl || '아직 학생용 주소가 없습니다.';
         const link = byId('open-student');
-        if (previewUrl && report.runtimeReady) { link.href = previewUrl; link.setAttribute('aria-disabled', 'false'); }
+        if (previewUrl && report.runtimeReady && !hasUnsavedModeChange()) { link.href = previewUrl; link.setAttribute('aria-disabled', 'false'); }
         else { link.removeAttribute('href'); link.setAttribute('aria-disabled', 'true'); }
-        byId('copy-student-url').disabled = !(studentUrl && report.distributionReady);
+        byId('copy-student-url').disabled = hasUnsavedModeChange() || !(studentUrl && report.distributionReady);
         const toggle = byId('toggle-lesson');
         toggle.dataset.open = report.lessonOpen === false ? 'false' : 'true';
         toggle.textContent = report.lessonOpen === false ? '현재 수업 다시 열기' : '현재 수업 배포 종료';
@@ -471,7 +519,9 @@
 
       function setButtonsDisabled(disabled) {
         document.querySelectorAll('button').forEach(function (button) { button.disabled = disabled; });
-        if (!disabled) byId('copy-student-url').disabled = !(latestStudentUrl && latestDistributionReady);
+        byId('backward-design-enabled').disabled = disabled;
+        byId('activity-mode').disabled = disabled;
+        if (!disabled) byId('copy-student-url').disabled = hasUnsavedModeChange() || !(latestStudentUrl && latestDistributionReady);
       }
 
       function setStatus(message, isError) {

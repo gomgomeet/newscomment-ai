@@ -193,6 +193,41 @@ assert.throws(
   /평가모드 또는 탐색모드/
 );
 
+const backwardDesignLimits = {
+  lessonGoal:500, achievementStandard:1000, assessmentCriteria:1500,
+  rubricHigh:1000, rubricMeet:1000, rubricDeveloping:1000, evidenceDescription:1000
+};
+const emptyBackwardDesign = Object.fromEntries(Object.keys(backwardDesignLimits).map((field) => [field, '']));
+const explorationWithoutDesign = context.validateLiteTeacherSetup_({
+  ...valid, ...emptyBackwardDesign, activityMode:'exploration'
+});
+Object.entries(backwardDesignLimits).forEach(([field, limit]) => {
+  assert.equal(explorationWithoutDesign[field], '');
+  assert.throws(
+    () => context.validateLiteTeacherSetup_({ ...valid, [field]:'' }),
+    /입력해 주세요/,
+    `평가모드에서는 ${field} 필수 검사를 유지해야 한다`
+  );
+  ['evaluation', 'exploration'].forEach((activityMode) => {
+    assert.throws(
+      () => context.validateLiteTeacherSetup_({ ...valid, activityMode, [field]:'가'.repeat(limit + 1) }),
+      new RegExp(`${limit}자 이내`),
+      `${activityMode}의 ${field} 길이 제한을 우회하거나 잘라 저장하면 안 된다`
+    );
+  });
+  assert.equal(context.validateLiteTeacherSetup_({
+    ...valid, activityMode:'exploration', [field]:'가'.repeat(limit)
+  })[field], '가'.repeat(limit));
+});
+assert.throws(
+  () => context.validateLiteTeacherSetup_({ ...explorationWithoutDesign, activityMode:'evaluation' }),
+  /수업 목표/
+);
+assert.throws(
+  () => context.validateLiteTeacherSetup_({ ...explorationWithoutDesign, materialText:'짧은 자료' }),
+  /30자 이상/
+);
+
 assert.equal(context.validateLiteApiKey_('sk-abcdefghijklmnop'), 'sk-abcdefghijklmnop');
 assert.throws(() => context.validateLiteApiKey_('not-a-key'), /sk-/);
 assert.equal(context.validateLiteJoinCode_('482731'), '482731');
@@ -261,6 +296,101 @@ const distributionReady = context.buildLiteReadiness_(normalized, {
 assert.equal(distributionReady.level, 'distribution_ready');
 assert.equal(distributionReady.runtimeReady, true);
 assert.equal(distributionReady.distributionReady, true);
+assert.equal(distributionReady.backwardDesignEnabled, true);
+
+const explorationReadiness = context.buildLiteReadiness_(explorationWithoutDesign, {
+  apiConfigured:true, apiVerified:true, engineConfigured:true, engineVerified:true,
+  previewVerified:true, studentUrl:'https://script.google.com/macros/s/example/exec'
+});
+const explorationDesignCheck = explorationReadiness.checks.find((check) => check.key === 'backwardDesign');
+assert.equal(explorationReadiness.setupReady, true);
+assert.equal(explorationReadiness.runtimeReady, true);
+assert.equal(explorationReadiness.distributionReady, true);
+assert.equal(explorationReadiness.backwardDesignEnabled, false);
+assert.equal(explorationDesignCheck.state, 'pass');
+assert.equal(explorationDesignCheck.enabled, false);
+assert.match(explorationDesignCheck.detail, /사용 안 함/);
+assert.doesNotMatch(explorationDesignCheck.detail, /준비되었습니다|완료/);
+const incompleteEvaluationReadiness = context.buildLiteReadiness_({
+  ...explorationWithoutDesign, activityMode:'evaluation'
+}, { apiConfigured:true });
+assert.equal(incompleteEvaluationReadiness.setupReady, false);
+assert.equal(incompleteEvaluationReadiness.checks.find((check) => check.key === 'backwardDesign').state, 'block');
+
+// 별도 시트에서 켜기 → 끄기 → 다시 켜기 저장·재열기와 미리보기 무효화를 검증한다.
+const toggleSpreadsheet = new SpreadsheetMock('teacher-toggle-sheet');
+const toggleProperties = new Map();
+const toggleContext = vm.createContext({
+  ...gasGlobals,
+  SpreadsheetApp:{
+    ...gasGlobals.SpreadsheetApp,
+    getActiveSpreadsheet:() => toggleSpreadsheet,
+    openById:() => toggleSpreadsheet
+  },
+  PropertiesService:{
+    getScriptProperties:() => ({
+      getProperty:(key) => toggleProperties.get(key) || null,
+      setProperty:(key, value) => toggleProperties.set(key, String(value)),
+      deleteProperty:(key) => toggleProperties.delete(key)
+    })
+  }
+});
+vm.runInContext(setupSource, toggleContext, { filename:'gas-lite/SetupService.js' });
+const formulaPrefixes = ['=', '+', '-', '@'];
+const preservedDesign = Object.fromEntries(Object.keys(backwardDesignLimits).map((field, index) => [
+  field, formulaPrefixes[index % formulaPrefixes.length] + valid[field]
+]));
+preservedDesign.achievementStandardCode = '=[4국02-04]';
+const originalToggleInput = toggleContext.validateLiteTeacherSetup_({ ...valid, ...preservedDesign });
+const originalToggleSettings = toggleContext.saveLiteTeacherSettings_(originalToggleInput);
+toggleContext.markLitePreviewVerified_(originalToggleSettings);
+const originalTogglePreviewToken = toggleContext.getOrCreateLitePreviewAccessToken_(originalToggleSettings);
+assert.equal(toggleContext.isLitePreviewVerified_(originalToggleSettings), true);
+
+const disabledToggleSettings = toggleContext.saveLiteTeacherSettings_(toggleContext.validateLiteTeacherSetup_({
+  ...toggleContext.readLiteTeacherSettings_(), activityMode:'exploration'
+}));
+assert.equal(disabledToggleSettings.lessonId, originalToggleSettings.lessonId);
+assert.equal(disabledToggleSettings.lessonRevision, originalToggleSettings.lessonRevision + 1);
+assert.notEqual(disabledToggleSettings.sourceHash, originalToggleSettings.sourceHash);
+assert.equal(toggleContext.isLitePreviewVerified_(disabledToggleSettings), false);
+assert.equal(toggleContext.isLitePreviewAccessToken_(originalTogglePreviewToken, disabledToggleSettings), false);
+const reopenedDisabledSettings = toggleContext.readLiteTeacherSettings_();
+assert.equal(reopenedDisabledSettings.activityMode, 'exploration');
+assert.equal(toggleContext.sanitizeLiteSettingsForStudent_(reopenedDisabledSettings).lessonGoal, '');
+const toggleDataSheet = toggleSpreadsheet.getSheetByName('수업 자료');
+const toggleHeaders = toggleDataSheet.getRange(1, 1, 1, toggleDataSheet.getLastColumn()).getValues()[0];
+Object.entries(preservedDesign).forEach(([field, value]) => {
+  assert.equal(reopenedDisabledSettings[field], value, `${field}을 끌 때 삭제하면 안 된다`);
+  assert.equal(toggleDataSheet.getCell(2, toggleHeaders.indexOf(field) + 1), "'" + value);
+});
+const unchangedDisabledSettings = toggleContext.saveLiteTeacherSettings_(toggleContext.validateLiteTeacherSetup_(reopenedDisabledSettings));
+assert.equal(unchangedDisabledSettings.sourceHash, disabledToggleSettings.sourceHash);
+assert.equal(unchangedDisabledSettings.lessonRevision, disabledToggleSettings.lessonRevision);
+toggleContext.markLitePreviewVerified_(disabledToggleSettings);
+const disabledTogglePreviewToken = toggleContext.getOrCreateLitePreviewAccessToken_(disabledToggleSettings);
+const enabledToggleSettings = toggleContext.saveLiteTeacherSettings_(toggleContext.validateLiteTeacherSetup_({
+  ...reopenedDisabledSettings, activityMode:'evaluation'
+}));
+assert.equal(enabledToggleSettings.lessonId, originalToggleSettings.lessonId);
+assert.equal(enabledToggleSettings.lessonRevision, disabledToggleSettings.lessonRevision + 1);
+assert.equal(enabledToggleSettings.sourceHash, originalToggleSettings.sourceHash);
+assert.equal(toggleContext.isLitePreviewVerified_(enabledToggleSettings), false);
+assert.equal(toggleContext.isLitePreviewAccessToken_(disabledTogglePreviewToken, enabledToggleSettings), false);
+const reopenedEnabledSettings = toggleContext.readLiteTeacherSettings_();
+assert.equal(toggleContext.sanitizeLiteSettingsForStudent_(reopenedEnabledSettings).lessonGoal, preservedDesign.lessonGoal);
+Object.entries(originalToggleInput).forEach(([field, value]) => {
+  if (field !== 'lessonId') assert.equal(reopenedEnabledSettings[field], value, `${field}은 다시 켠 뒤에도 유지되어야 한다`);
+});
+const savedEmptyExploration = toggleContext.saveLiteTeacherSettings_(explorationWithoutDesign);
+assert.equal(toggleContext.readLiteTeacherSettings_().activityMode, 'exploration');
+Object.keys(backwardDesignLimits).forEach((field) => assert.equal(savedEmptyExploration[field], ''));
+toggleContext.updateLiteStartHereStatus_(toggleSpreadsheet, explorationReadiness);
+assert.equal(toggleSpreadsheet.getSheetByName('시작하기').getCell(3, 2), '사용 안 함');
+toggleContext.updateLiteStartHereStatus_(toggleSpreadsheet, distributionReady);
+assert.equal(toggleSpreadsheet.getSheetByName('시작하기').getCell(3, 2), '완료');
+toggleContext.updateLiteStartHereStatus_(toggleSpreadsheet, incompleteEvaluationReadiness);
+assert.equal(toggleSpreadsheet.getSheetByName('시작하기').getCell(3, 2), '입력 필요');
 
 const headers = vm.runInContext('LITE_SHEET_HEADERS_', context);
 assert.deepEqual(
@@ -1687,7 +1817,7 @@ assert.match(teacherHtml, /99-999/);
 assert.match(teacherHtml, /체험 · 강사 챗봇/);
 assert.match(teacherHtml, /이해 · 구조와 결과/);
 assert.match(teacherHtml, /latestDistributionReady/);
-assert.match(teacherHtml, /copy-student-url'\)\.disabled = !\(latestStudentUrl && latestDistributionReady\)/);
+assert.match(teacherHtml, /copy-student-url'\)\.disabled = hasUnsavedModeChange\(\) \|\| !\(latestStudentUrl && latestDistributionReady\)/);
 assert.match(teacherHtml, /id="test-engine"/);
 assert.match(teacherHtml, /id="copy-student-url"/);
 assert.match(teacherHtml, /id="toggle-lesson"/);

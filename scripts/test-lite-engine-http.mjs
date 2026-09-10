@@ -85,7 +85,7 @@ async function planFor(message, activityMode, materialOverride) {
   assert.equal(descriptor.acceptsTeacherApiKey, false);
 
   const supported = await planFor('학교는 무엇을 줄이기 위해 개인 물병 사용을 권했나요?');
-  assert.equal(supported.plan.policyVersion, 'questioning-dialogue-v2-lite-adapter-v3');
+  assert.equal(supported.plan.policyVersion, 'questioning-dialogue-v2-lite-adapter-v4');
   assert.equal(supported.plan.modelRequest.outputContract, 'lead_evidence_quote_v1');
   assert.equal(supported.plan.skipModel, false);
   assert.equal(supported.plan.observation.sourceStatus, 'supported');
@@ -105,6 +105,35 @@ async function planFor(message, activityMode, materialOverride) {
   });
   assert.equal(finalized.localFallback, false);
   assert.match(finalized.studentReply, /자료 근거는/);
+
+  const explorationInput = makeInput('학교는 무엇을 줄이기 위해 개인 물병 사용을 권했나요?', 'exploration');
+  for (const field of ['lessonGoal', 'achievementStandard', 'assessmentCriteria', 'rubricHigh', 'rubricMeet', 'rubricDeveloping', 'evidenceDescription']) {
+    explorationInput.lesson[field] = '';
+  }
+  const explorationPlan = await jsonRequest('/api/lite-engine/plan', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(explorationInput),
+  });
+  assert.equal(explorationPlan.skipModel, false);
+  const explorationFinalized = await jsonRequest('/api/lite-engine/finalize', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      ...explorationInput,
+      candidateReply: '좋은 질문이에요.',
+      candidateEvidenceQuote: explorationPlan.observation.sourceCue,
+      policyVersion: explorationPlan.policyVersion,
+      planDigest: explorationPlan.planDigest,
+    }),
+  });
+  assert.equal(explorationFinalized.localFallback, false);
+  const missingDesign = await jsonRequest('/api/lite-engine/plan', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ...explorationInput, activityMode: 'evaluation' }),
+  }, 400);
+  assert.match(missingDesign.error, /수업 목표/);
 
   const rejectedQuote = await jsonRequest('/api/lite-engine/finalize', {
     method: 'POST',

@@ -22,7 +22,7 @@ import {
 } from "@/lib/questioning-conversation-phase";
 
 export const LITE_ENGINE_SCHEMA_VERSION = 1;
-export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v3";
+export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v4";
 
 export type LiteMode = "evaluation" | "exploration";
 
@@ -143,6 +143,13 @@ function optionalText(value: unknown, max: number) {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
 }
 
+function designText(value: unknown, label: string, max: number, activityMode: LiteMode) {
+  if (activityMode === "evaluation") return requiredText(value, label, max);
+  const text = typeof value === "string" ? value.trim() : "";
+  if (text.length > max) throw new Error(`${label}은(는) ${max}자 이내여야 합니다.`);
+  return text;
+}
+
 function normalizeHistory(value: unknown): QuestioningConversationEntry[] {
   if (!Array.isArray(value)) return [];
   const entries = value
@@ -210,13 +217,13 @@ export function normalizeLiteEngineInput(value: unknown): NormalizedLiteEnginePl
       subject: requiredText(lesson.subject, "교과", 40),
       grade: requiredText(lesson.grade, "학년", 40),
       lessonTitle: requiredText(lesson.lessonTitle, "수업명", 120),
-      lessonGoal: requiredText(lesson.lessonGoal, "수업 목표", 500),
-      achievementStandard: requiredText(lesson.achievementStandard, "성취기준", 1_000),
-      assessmentCriteria: requiredText(lesson.assessmentCriteria, "평가기준", 1_500),
-      rubricHigh: requiredText(lesson.rubricHigh, "도달 수준", 1_000),
-      rubricMeet: requiredText(lesson.rubricMeet, "성장 중 수준", 1_000),
-      rubricDeveloping: requiredText(lesson.rubricDeveloping, "도움 필요 수준", 1_000),
-      evidenceDescription: requiredText(lesson.evidenceDescription, "평가 근거", 1_000),
+      lessonGoal: designText(lesson.lessonGoal, "수업 목표", 500, activityMode),
+      achievementStandard: designText(lesson.achievementStandard, "성취기준", 1_000, activityMode),
+      assessmentCriteria: designText(lesson.assessmentCriteria, "평가기준", 1_500, activityMode),
+      rubricHigh: designText(lesson.rubricHigh, "도달 수준", 1_000, activityMode),
+      rubricMeet: designText(lesson.rubricMeet, "성장 중 수준", 1_000, activityMode),
+      rubricDeveloping: designText(lesson.rubricDeveloping, "도움 필요 수준", 1_000, activityMode),
+      evidenceDescription: designText(lesson.evidenceDescription, "평가 근거", 1_000, activityMode),
       materialTitle: requiredText(lesson.materialTitle, "자료 제목", 120),
       materialText,
       startQuestion: requiredText(lesson.startQuestion, "시작 질문", 500),
@@ -271,15 +278,18 @@ export function createLiteQuestioningConfig(
   lesson: LiteLessonInput,
   activityMode: LiteMode,
 ): QuestioningChatbotConfig {
+  const backwardDesignEnabled = activityMode === "evaluation";
+  // 꺼 둔 설계는 요청 식별값에는 남기되 대화 정책과 개인 API 입력에는 적용하지 않는다.
+  const standard = backwardDesignEnabled ? lesson.achievementStandard : "";
   const material: MaterialAnalysis = {
     materialTitle: lesson.materialTitle,
     summary: summarizeMaterial(lesson.materialText),
     visibleText: lesson.materialText,
-    questionFocusMemo: [
+    questionFocusMemo: backwardDesignEnabled ? [
       `수업 목표: ${lesson.lessonGoal}`,
       `평가기준: ${lesson.assessmentCriteria}`,
       `수집할 평가 근거: ${lesson.evidenceDescription}`,
-    ].join(" "),
+    ].join(" ") : "",
     keyConcepts: extractKeyConcepts(lesson.materialText),
     vocabulary: [],
     possibleMisconceptions: [],
@@ -289,18 +299,18 @@ export function createLiteQuestioningConfig(
   };
   const behavior = createDefaultQuestioningChatbotBehavior();
   const config: QuestioningChatbotConfig = {
-    standard: lesson.achievementStandard,
+    standard,
     targetGrade: lesson.grade,
     subjectUnit: `${lesson.subject} · ${lesson.lessonTitle}`,
     material,
-    rubric: buildLiteRubric(lesson),
+    rubric: backwardDesignEnabled ? buildLiteRubric(lesson) : buildRubric(""),
     behavior,
-    curriculumCompass: buildCurriculumCompass(lesson.achievementStandard),
-    prdText: [
+    curriculumCompass: buildCurriculumCompass(standard),
+    prdText: backwardDesignEnabled ? [
       `수업 목표: ${lesson.lessonGoal}`,
       `평가기준: ${lesson.assessmentCriteria}`,
       `수준 기준: 도달=${lesson.rubricHigh}; 성장 중=${lesson.rubricMeet}; 도움 필요=${lesson.rubricDeveloping}`,
-    ].join("\n"),
+    ].join("\n") : "",
     liveResearchEnabled: activityMode === "exploration",
     updatedAt: new Date().toISOString(),
   };
@@ -456,7 +466,7 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
       ].join(" "),
       input: [
         `[수업명] ${lesson.lessonTitle}`,
-        `[수업 목표] ${lesson.lessonGoal}`,
+        ...(input.activityMode === "evaluation" ? [`[수업 목표] ${lesson.lessonGoal}`] : []),
         `[관련 자료 근거] ${source.slice(0, 2_500)}`,
         `[최근 대화]\n${historyForPrompt(input.history)}`,
         `[학생 말] ${input.studentMessage}`,
