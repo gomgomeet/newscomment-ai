@@ -1,11 +1,11 @@
 /**
- * 교사용 경량 질문챗봇 공개 진입점.
+ * simbot(simple bot) 공개 진입점.
  * 기존 gas/ 공개 체험본과 별도 Apps Script 프로젝트로 배포합니다.
  */
 
 function onOpen() {
   SpreadsheetApp.getUi()
-    .createMenu('내 수업 질문챗봇')
+    .createMenu('simbot')
     .addItem('1. 최초 준비', 'setupLiteProject')
     .addItem('2. 교사 설정 열기', 'showLiteTeacherSetup')
     .addSeparator()
@@ -24,7 +24,7 @@ function showLiteTeacherDashboard() {
   const html = template.evaluate()
     .setWidth(1040)
     .setHeight(760);
-  SpreadsheetApp.getUi().showModalDialog(html, '내 수업 질문챗봇 · 학생 현황과 평가 검수');
+  SpreadsheetApp.getUi().showModalDialog(html, 'simbot · 학생 현황과 평가 검수');
 }
 
 function setupLiteProject() {
@@ -38,7 +38,7 @@ function setupLiteProject() {
   ensureLiteWorkbook_(spreadsheet);
   spreadsheet.toast(
     '교사용 시트 다섯 장을 준비했습니다. 이제 교사 설정을 열어 주세요.',
-    '내 수업 질문챗봇',
+    'simbot',
     7
   );
   showLiteTeacherSetup();
@@ -52,7 +52,7 @@ function showLiteTeacherSetup() {
   const html = template.evaluate()
     .setWidth(1040)
     .setHeight(760);
-  SpreadsheetApp.getUi().showModalDialog(html, '내 수업 질문챗봇 · 교사 설정');
+  SpreadsheetApp.getUi().showModalDialog(html, 'simbot · 교사 설정');
 }
 
 function includeLite_(filename) {
@@ -165,7 +165,7 @@ function clearLiteApiKeyFromMenu() {
   if (answer !== ui.Button.YES) return;
   clearLiteApiKey_();
   SpreadsheetApp.getActiveSpreadsheet().toast(
-    '저장된 API 키를 삭제했습니다.', '내 수업 질문챗봇', 5
+    '저장된 API 키를 삭제했습니다.', 'simbot', 5
   );
 }
 
@@ -186,7 +186,10 @@ function showLiteStudentLink() {
   const joinCode = String(settings.joinCode || '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const html = HtmlService.createHtmlOutput(
-    '<div style="font:15px/1.6 Arial,sans-serif;padding:20px">' +
+    '<style>@font-face{font-family:"Pretendard Variable";font-style:normal;font-weight:45 920;font-display:swap;' +
+    'src:url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2/PretendardVariable.woff2") format("woff2-variations");}' +
+    'body{font:15px/1.6 "Pretendard Variable","Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif;}button,input,textarea{font:inherit;}</style>' +
+    '<div style="padding:20px">' +
     '<h2>학생용 주소</h2><p>설정 준비 점검을 통과한 뒤 이 주소와 참여코드를 학생에게 공유합니다.</p>' +
     '<p><a target="_blank" rel="noopener noreferrer" href="' + escaped + '">' + escaped + '</a></p>' +
     '<p>수업 참여코드: <strong style="font-size:20px;letter-spacing:.12em">' + joinCode + '</strong></p>' +
@@ -201,14 +204,14 @@ function showLiteStudentLink() {
     'if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(u).then(function(){s.textContent="복사했습니다.";});}' +
     'else{var a=document.createElement("textarea");a.value=u;document.body.appendChild(a);a.select();document.execCommand("copy");a.remove();s.textContent="복사했습니다.";}}<\\/script></div>'
   ).setWidth(640).setHeight(390);
-  SpreadsheetApp.getUi().showModalDialog(html, '내 수업 질문챗봇 · 학생 배포');
+  SpreadsheetApp.getUi().showModalDialog(html, 'simbot · 학생 배포');
 }
 
 function doGet(e) {
   const template = HtmlService.createTemplateFromFile('Student');
   template.previewAccessToken = liteText_(e && e.parameter && e.parameter.preview, 128);
   return template.evaluate()
-    .setTitle('내 수업 질문챗봇')
+    .setTitle('simbot')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
@@ -286,5 +289,5 @@ function closeLiteLessonFromMenu() {
   );
   if (answer !== ui.Button.YES) return;
   setLiteLessonOpen_(settings, false);
-  spreadsheet.toast('현재 수업 배포를 종료했습니다.', '내 수업 질문챗봇', 6);
+  spreadsheet.toast('현재 수업 배포를 종료했습니다.', 'simbot', 6);
 }

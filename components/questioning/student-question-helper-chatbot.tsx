@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import localFont from "next/font/local";
 import {
   AlertTriangle,
   ChevronDown,
@@ -29,6 +30,14 @@ import {
   type StudentChatResponse,
 } from "@/lib/questioning-board";
 import { cn } from "@/lib/utils";
+
+const chatbotFont = localFont({
+  src: "../../public/fonts/pretendard/PretendardVariable.woff2",
+  weight: "45 920",
+  style: "normal",
+  display: "swap",
+  fallback: ["Arial", "sans-serif"],
+});
 
 const quickQuestions = [
   "제목에서 달라진 점 보기",
@@ -625,11 +634,10 @@ export function StudentQuestionHelperChatbot() {
 
   return (
     <div
-      className="min-h-screen bg-[linear-gradient(135deg,#fde7c6_0%,#bdebf0_46%,#ddd6fe_100%)] text-slate-800"
-      style={{
-        fontFamily:
-          '"Gaegu", "Gowun Dodum", "Jua", "배달의민족 주아", "BMJUA", "Arial Rounded MT Bold", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif',
-      }}
+      className={cn(
+        chatbotFont.className,
+        "min-h-screen bg-[linear-gradient(135deg,#fde7c6_0%,#bdebf0_46%,#ddd6fe_100%)] text-slate-800",
+      )}
     >
       <header className="border-b border-teal-100 bg-white/90 shadow-sm backdrop-blur">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-5 sm:px-6 lg:px-8">

@@ -1,5 +1,5 @@
 /**
- * 교사용 경량 질문챗봇 — 설정과 교사 소유 Sheet만 담당합니다.
+ * simbot — 설정과 교사 소유 Sheet만 담당합니다.
  * API 키는 Script Properties에만 저장하며 Sheet 행으로 만들지 않습니다.
  */
 
@@ -332,7 +332,7 @@ function assertLiteTeacherAccess_(token) {
   const expected = PropertiesService.getScriptProperties()
     .getProperty(LITE_TEACHER_ACCESS_TOKEN_PROPERTY_);
   if (!expected || !token || String(expected) !== String(token)) {
-    throw new Error('교사용 Google Sheet의 경량 질문챗봇 메뉴에서 다시 열어 주세요.');
+    throw new Error('교사용 Google Sheet의 simbot 메뉴에서 다시 열어 주세요.');
   }
 }
 
@@ -375,7 +375,7 @@ function sanitizeLiteSettingsForStudent_(settings) {
   settings = settings || {};
   return {
     lessonId: liteText_(settings.lessonId, 80),
-    appName: liteText_(settings.appName, 40) || '질문이',
+    appName: liteText_(settings.appName, 40) || 'simbot',
     subject: liteText_(settings.subject, 40),
     grade: liteText_(settings.grade, 40),
     lessonTitle: liteText_(settings.lessonTitle, 120),
@@ -395,7 +395,7 @@ function sanitizeLiteBootstrapForStudent_(settings) {
   settings = settings || {};
   return {
     lessonId: liteText_(settings.lessonId, 80),
-    appName: liteText_(settings.appName, 40) || '질문이',
+    appName: liteText_(settings.appName, 40) || 'simbot',
     activityMode: settings.activityMode === 'exploration' ? 'exploration' : 'evaluation',
     sourceHash: liteText_(settings.sourceHash, 24),
     lessonRevision: Math.max(1, Number(settings.lessonRevision || 1))
@@ -531,7 +531,7 @@ function getLiteSpreadsheet_() {
   const savedId = properties.getProperty(LITE_SPREADSHEET_ID_PROPERTY_);
   if (savedId) return SpreadsheetApp.openById(savedId);
   const active = SpreadsheetApp.getActiveSpreadsheet();
-  if (!active) throw new Error('교사용 Google Sheet에서 경량앱을 실행해 주세요.');
+  if (!active) throw new Error('교사용 Google Sheet에서 simbot을 실행해 주세요.');
   properties.setProperty(LITE_SPREADSHEET_ID_PROPERTY_, active.getId());
   return active;
 }
@@ -546,7 +546,7 @@ function requireLiteTeacherContext_() {
   if (!active) throw new Error('교사용 Google Sheet의 메뉴에서 열어 주세요.');
   const savedId = PropertiesService.getScriptProperties().getProperty(LITE_SPREADSHEET_ID_PROPERTY_);
   if (savedId && String(savedId) !== String(active.getId())) {
-    throw new Error('이 경량앱과 연결된 교사용 Google Sheet에서 실행해 주세요.');
+    throw new Error('이 simbot과 연결된 교사용 Google Sheet에서 실행해 주세요.');
   }
   return active;
 }
@@ -580,7 +580,7 @@ function writeLiteStartHere_(spreadsheet) {
   const sheet = spreadsheet.getSheetByName('시작하기');
   const rows = [
     ['항목', '상태', '안내'],
-    ['1. API 연결', '', '내 수업 질문챗봇 → 교사 설정 열기에서 개인 API를 저장합니다.'],
+    ['1. API 연결', '', 'simbot → 교사 설정 열기에서 개인 API를 저장합니다.'],
     ['2. 평가 설계', '', '수업 목표 → 성취기준 → 평가기준 → 평가 근거 순서로 입력합니다.'],
     ['3. 수업자료', '', '학생이 질문할 본문과 시작 질문, 운영 모드를 입력합니다.'],
     ['4. 미리보기', '', '학생용 주소에서 99-999로 전체 과정을 점검합니다.'],
