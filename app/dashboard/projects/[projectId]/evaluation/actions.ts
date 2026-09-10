@@ -514,7 +514,7 @@ export async function saveEvaluation(formData: FormData) {
     .maybeSingle();
 
   if (activePrepError || !activePrep?.active_version_id) {
-    redirect(`/dashboard/projects/${projectId}?message=${encodeURIComponent("교사 평가를 확정하려면 평가 준비 프렙을 먼저 6/6로 활성화해 주세요.")}`);
+    redirect(`/dashboard/projects/${projectId}?message=${encodeURIComponent("교사 평가를 확정하려면 평가 준비 4단계를 완료하고 활성화해 주세요.")}`);
   }
 
   const { data: comment, error: commentError } = await supabase
@@ -664,7 +664,7 @@ export async function generateAiEvaluation(formData: FormData) {
     .maybeSingle();
 
   if (activePrepError || !activePrep?.active_version_id) {
-    redirect(`/dashboard/projects/${projectId}?message=${encodeURIComponent("AI 초안을 만들기 전에 평가 준비 프렙을 6/6로 활성화해 주세요.")}`);
+    redirect(`/dashboard/projects/${projectId}?message=${encodeURIComponent("AI 초안을 만들기 전에 평가 준비 4단계를 완료하고 활성화해 주세요.")}`);
   }
 
   const { data: existingAiDraft } = await supabase
@@ -830,7 +830,7 @@ export async function generateProjectAiDrafts(formData: FormData) {
   ]);
 
   if (!activePrep?.active_version_id) {
-    redirect(`/dashboard/projects/${projectId}?message=${encodeURIComponent("AI 초안을 만들기 전에 평가 준비 프렙을 6/6로 활성화해 주세요.")}`);
+    redirect(`/dashboard/projects/${projectId}?message=${encodeURIComponent("AI 초안을 만들기 전에 평가 준비 4단계를 완료하고 활성화해 주세요.")}`);
   }
   if (!rubric || !criteria?.length) {
     redirect(`/dashboard/projects/${projectId}?message=루브릭 평가 기준을 준비해 주세요.`);

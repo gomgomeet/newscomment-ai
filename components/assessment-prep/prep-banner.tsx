@@ -41,7 +41,7 @@ export function AssessmentPrepBanner({
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <span className="rounded-full bg-indigo-100 px-3 py-1 text-sm font-semibold text-indigo-800">
-            {readiness.completedCount}/6 완료
+            {readiness.completedCount}/{readiness.stages.length} 완료
           </span>
           <Button asChild size="sm">
             <Link href={readiness.nextStage?.href ?? "/dashboard/prep"}>
@@ -52,7 +52,7 @@ export function AssessmentPrepBanner({
         </div>
       </div>
 
-      <div className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+      <div className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         {readiness.stages.map((stage, index) => (
           <Link
             key={stage.key}

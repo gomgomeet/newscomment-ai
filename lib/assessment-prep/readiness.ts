@@ -1,7 +1,7 @@
 import type { Json } from "@/lib/db/types";
 
 export type AssessmentPrepStage = {
-  key: "context" | "standards" | "rubric" | "notion" | "guidance" | "sample";
+  key: "context" | "standards" | "rubric" | "notion";
   label: string;
   description: string;
   complete: boolean;
@@ -67,7 +67,6 @@ export function buildAssessmentPrepReadiness({
   criterionCount,
   notionConnectionConfigured,
   notionResultCount,
-  teacherEvaluationCount,
   assessmentPrep,
 }: {
   project: {
@@ -81,7 +80,6 @@ export function buildAssessmentPrepReadiness({
   criterionCount: number;
   notionConnectionConfigured: boolean;
   notionResultCount: number;
-  teacherEvaluationCount: number;
   assessmentPrep?: {
     id: string;
     grade_level: string;
@@ -146,26 +144,6 @@ export function buildAssessmentPrepReadiness({
           : "학생 결과물 데이터베이스와 읽기 위치를 연결합니다."
         : "서버의 Notion 읽기 연결을 먼저 설정합니다.",
       complete: notionConnectionConfigured && hasNotionMapping,
-      href: prepHref,
-    },
-    {
-      key: "guidance",
-      label: "학생 안내·안전",
-      description: "학생 안내와 개인정보·AI 사용 규칙을 확인합니다.",
-      complete: Boolean(
-        assessmentPrep
-        && hasText(assessmentPrep.student_guidance)
-        && hasText(assessmentPrep.safety_rules),
-      ),
-      href: prepHref,
-    },
-    {
-      key: "sample",
-      label: "샘플 시험 평가",
-      description: teacherEvaluationCount > 0
-        ? `예시 적용을 점검합니다. 현재 교사 평가 ${teacherEvaluationCount}건이 있습니다.`
-        : "예시 결과물로 기준 적용을 점검합니다.",
-      complete: Boolean(assessmentPrep && hasText(assessmentPrep.sample_evaluation_notes)),
       href: prepHref,
     },
   ];

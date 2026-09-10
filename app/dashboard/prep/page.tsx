@@ -13,7 +13,7 @@ import { getEvaluationNotionConnectionStatus } from "@/lib/notion/teacher-connec
 
 export default async function AssessmentPrepPage() {
   const { supabase, user } = await requireUser();
-  const [projectsResult, rubricsResult, criteriaResult, commentsResult, evaluationsResult, prepsResult, notionConnection] = await Promise.all([
+  const [projectsResult, rubricsResult, criteriaResult, commentsResult, prepsResult, notionConnection] = await Promise.all([
     supabase
       .from("projects")
       .select("id, title, description, status, rubric_id, notion_source, updated_at")
@@ -26,11 +26,6 @@ export default async function AssessmentPrepPage() {
     supabase.from("rubric_criteria").select("id, rubric_id"),
     supabase.from("comments").select("id, project_id, metadata"),
     supabase
-      .from("evaluations")
-      .select("id, project_id")
-      .eq("evaluator_id", user.id)
-      .eq("source", "teacher-manual"),
-    supabase
       .from("assessment_preps")
       .select("*")
       .eq("owner_id", user.id),
@@ -41,7 +36,6 @@ export default async function AssessmentPrepPage() {
     ?? rubricsResult.error
     ?? criteriaResult.error
     ?? commentsResult.error
-    ?? evaluationsResult.error
     ?? prepsResult.error;
   if (queryError) throw new Error(queryError.message);
 
@@ -49,12 +43,10 @@ export default async function AssessmentPrepPage() {
   const rubrics = rubricsResult.data ?? [];
   const criteria = criteriaResult.data ?? [];
   const comments = commentsResult.data ?? [];
-  const evaluations = evaluationsResult.data ?? [];
   const prepByProjectId = new Map((prepsResult.data ?? []).map((prep) => [prep.project_id, prep]));
   const rubricById = new Map(rubrics.map((rubric) => [rubric.id, rubric]));
   const criterionCountByRubric = new Map<string, number>();
   const notionResultCountByProject = new Map<string, number>();
-  const teacherEvaluationCountByProject = new Map<string, number>();
   const notionConfigured = notionConnection.configured;
 
   for (const criterion of criteria) {
@@ -73,13 +65,6 @@ export default async function AssessmentPrepPage() {
     }
   }
 
-  for (const evaluation of evaluations) {
-    teacherEvaluationCountByProject.set(
-      evaluation.project_id,
-      (teacherEvaluationCountByProject.get(evaluation.project_id) ?? 0) + 1,
-    );
-  }
-
   const rows = projects.map((project) => {
     const rubric = project.rubric_id ? rubricById.get(project.rubric_id) : null;
     const prep = prepByProjectId.get(project.id) ?? null;
@@ -89,7 +74,6 @@ export default async function AssessmentPrepPage() {
       criterionCount: project.rubric_id ? criterionCountByRubric.get(project.rubric_id) ?? 0 : 0,
       notionConnectionConfigured: notionConfigured,
       notionResultCount: notionResultCountByProject.get(project.id) ?? 0,
-      teacherEvaluationCount: teacherEvaluationCountByProject.get(project.id) ?? 0,
       assessmentPrep: prep,
     });
 
@@ -164,7 +148,7 @@ export default async function AssessmentPrepPage() {
                       </CardDescription>
                     </div>
                     <span className="rounded-full bg-indigo-50 px-3 py-1 text-sm font-semibold text-indigo-700">
-                      {readiness.completedCount}/6
+                      {readiness.completedCount}/{readiness.stages.length}
                     </span>
                   </div>
                 </CardHeader>
@@ -186,7 +170,7 @@ export default async function AssessmentPrepPage() {
                     {prep ? (
                       <Button asChild size="sm" variant="outline">
                         <Link href={`/dashboard/prep/${prep.id}`}>
-                          {readiness.completedCount === 6 ? "평가 준비안 열기" : `${readiness.nextStage?.label ?? "평가 준비"} 이어서 하기`}
+                          {readiness.completedCount === readiness.stages.length ? "평가 준비안 열기" : `${readiness.nextStage?.label ?? "평가 준비"} 이어서 하기`}
                           <ArrowRight className="h-4 w-4" />
                         </Link>
                       </Button>
