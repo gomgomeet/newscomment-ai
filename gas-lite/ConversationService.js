@@ -141,6 +141,50 @@ function assertLiteStudentAccessReady_(studentCode, settings, previewAccessToken
   return readiness;
 }
 
+function liteTurnMatchesSettingsIdentity_(turn, settings) {
+  return Boolean(turn && settings && settings.lessonId) &&
+    liteText_(turn.lessonId, 80) === liteText_(settings.lessonId, 80) &&
+    Number(turn.lessonRevision || 0) === Number(settings.lessonRevision || 1) &&
+    liteText_(turn.sourceHash, 24) === liteText_(settings.sourceHash, 24);
+}
+
+// 이미 처리 중이거나 기록된 동일 requestId를 먼저 찾기 위한 최소 정보입니다.
+// 참여코드·수업 공개 상태는 새 요청으로 판명된 뒤 prepareLiteStudentTurn_에서 검사합니다.
+function prepareLiteRecoveryTurn_(payload, settings) {
+  payload = payload || {};
+  settings = settings || {};
+  const lessonId = liteRequired_(payload.lessonId, '수업 정보', 80);
+  const lessonRevision = Number(payload.lessonRevision);
+  const sourceHash = liteText_(payload.sourceHash, 24);
+  if (!isFinite(lessonRevision) || lessonRevision < 1 || Math.floor(lessonRevision) !== lessonRevision ||
+      !/^[A-Za-z0-9_-]{24}$/.test(sourceHash)) {
+    throw new Error('수업 연결 정보를 확인하지 못했습니다. 화면을 새로고침해 주세요.');
+  }
+  const studentCode = normalizeLiteStudentCode_(payload.studentCode);
+  const deviceToken = normalizeLiteDeviceToken_(payload.deviceToken);
+  const identity = {
+    lessonId:lessonId,
+    lessonRevision:lessonRevision,
+    sourceHash:sourceHash
+  };
+  const currentIdentity = liteTurnMatchesSettingsIdentity_(identity, settings);
+  return {
+    requestId:normalizeLiteRequestId_(payload.requestId),
+    studentCode:studentCode,
+    deviceToken:deviceToken,
+    sessionId:makeLiteSessionId_(lessonId, lessonRevision, sourceHash, studentCode, deviceToken),
+    message:redactLiteStudentText_(payload.message),
+    isPreview:studentCode === '99-999',
+    activityMode:currentIdentity
+      ? (settings.activityMode === 'exploration' ? 'exploration' : 'evaluation')
+      : '',
+    lessonId:lessonId,
+    lessonRevision:lessonRevision,
+    sourceHash:sourceHash,
+    startQuestion:currentIdentity ? liteText_(settings.startQuestion, 500) : ''
+  };
+}
+
 function prepareLiteStudentTurn_(payload, settings) {
   payload = payload || {};
   settings = settings || {};
@@ -148,22 +192,25 @@ function prepareLiteStudentTurn_(payload, settings) {
   assertLiteClientLesson_(payload, settings);
   const studentCode = normalizeLiteStudentCode_(payload.studentCode);
   assertLiteStudentAccessReady_(studentCode, settings, payload.previewAccessToken, payload.joinCode);
-  const deviceToken = normalizeLiteDeviceToken_(payload.deviceToken);
-  const turn = {
-    requestId: normalizeLiteRequestId_(payload.requestId),
-    studentCode: studentCode,
-    deviceToken: deviceToken,
-    sessionId: makeLiteSessionId_(
-      settings.lessonId, settings.lessonRevision || 1, settings.sourceHash || '', studentCode, deviceToken
-    ),
-    message: redactLiteStudentText_(payload.message),
-    isPreview: studentCode === '99-999',
-    activityMode: settings.activityMode === 'exploration' ? 'exploration' : 'evaluation',
-    lessonId: settings.lessonId,
-    lessonRevision: Math.max(1, Number(settings.lessonRevision || 1)),
-    sourceHash: liteText_(settings.sourceHash, 24),
-    startQuestion: liteText_(settings.startQuestion, 500)
-  };
+  const turn = prepareLiteRecoveryTurn_(payload, settings);
+  // 미리보기 통과는 이 요청을 시작할 때 검증된 API·엔진 조합에만 귀속한다.
+  const previewSnapshot = turn.isPreview
+    ? readLitePreviewVerificationSnapshot_(settings)
+    : { verificationKey:'', markerFingerprint:'' };
+  turn.previewVerificationKey = turn.isPreview
+    ? liteFingerprint_(previewSnapshot.verificationKey, 48)
+    : '';
+  turn.previewExpectedMarker = turn.isPreview ? previewSnapshot.markerFingerprint : '';
+  // 이미 받은 유료 후보를 어느 중앙 엔진 세대에서 finalize할 수 있는지도 함께 고정한다.
+  const engineRuntime = typeof readLiteEngineRuntimeSnapshot_ === 'function'
+    ? readLiteEngineRuntimeSnapshot_()
+    : { endpoint:'', key:'' };
+  if (!engineRuntime.endpoint || !engineRuntime.key) {
+    throw new Error('공통 대화 엔진의 연결 상태가 바뀌었습니다. 잠시 뒤 다시 시도해 주세요.');
+  }
+  turn.engineEndpoint = engineRuntime.endpoint;
+  turn.enginePolicyVersion = engineRuntime.policyVersion;
+  turn.engineVerificationKey = engineRuntime.key;
   return turn;
 }
 

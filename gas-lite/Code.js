@@ -133,7 +133,7 @@ function testLiteApiConnection(teacherAccessToken) {
 function testLiteEngineConnection(teacherAccessToken) {
   assertLiteTeacherAccess_(teacherAccessToken);
   const result = checkLiteEngineConnection_();
-  markLiteEngineVerified_(getLiteEngineEndpoint_(), result.policyVersion);
+  markLiteEngineVerified_(result.endpoint, result.policyVersion);
   return {
     ok: true,
     configured: true,

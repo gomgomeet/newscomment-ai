@@ -3,8 +3,11 @@
     bootstrapData:null, ready:false, busy:false, closed:false,
     studentCode:'', sessionId:'', joinCode:'', materialFontStep:1,
     deviceToken:getOrCreateDeviceToken(), pendingRequest:null,
-    previewAccessToken:document.body.dataset.previewToken || '', retryTimer:null
+    previewAccessToken:document.body.dataset.previewToken || '', retryTimer:null,
+    bootstrapRecoveryChecked:false, bootstrapRecoveryPending:null, recoveryNotice:''
   };
+  const ACTIVE_PENDING_STORAGE_KEY = 'lite-pending-request:active';
+  const ACTIVE_PENDING_MAX_AGE_MS = 25 * 60 * 60 * 1000;
   const elements = {};
 
   window.addEventListener('load', function () {
@@ -60,6 +63,14 @@
   });
 
   function loadBootstrap() {
+    if (!state.bootstrapRecoveryChecked) {
+      state.bootstrapRecoveryChecked = true;
+      const activePending = readActivePendingRequest();
+      if (activePending) {
+        recoverPendingBeforeBootstrap(activePending, 0);
+        return;
+      }
+    }
     state.bootstrapData = null;
     elements.retryBootstrapButton.hidden = true;
     elements.startButton.disabled = true;
@@ -94,7 +105,7 @@
     if (!data.previewAccess) {
       try { elements.studentCodeInput.value = sessionStorage.getItem(memoryKey) || ''; } catch (error) {}
     }
-    setBusy(false, data.chatReady
+    const defaultStatus = data.chatReady
       ? data.previewAccess
         ? '교사 전용 미리보기입니다. 99-999로 실제 질문을 한 번 보내 주세요.'
         : data.distributionReady
@@ -102,9 +113,65 @@
           : '선생님이 학생 배포 전 미리보기를 진행하고 있습니다.'
       : data.engineReady
         ? '선생님이 개인 API와 수업 설정을 확인하고 있습니다.'
-        : '선생님이 기존 질문중심 챗봇 연결을 확인하고 있습니다.');
-    elements.startButton.disabled = !data.chatReady;
+        : '선생님이 기존 질문중심 챗봇 연결을 확인하고 있습니다.';
+    setBusy(false, state.recoveryNotice || defaultStatus);
+    state.recoveryNotice = '';
+    elements.startButton.disabled = !data.chatReady || Boolean(state.bootstrapRecoveryPending);
+    if (state.bootstrapRecoveryPending) {
+      elements.retryTurnButton.dataset.action = 'recover-bootstrap';
+      elements.retryTurnButton.textContent = '이전 전송 결과 확인';
+      elements.retryTurnButton.hidden = false;
+    }
     elements.studentCodeInput.focus();
+  }
+
+  function recoverPendingBeforeBootstrap(pending, attempts) {
+    state.bootstrapRecoveryPending = pending;
+    elements.retryTurnButton.hidden = true;
+    setComposerEnabled(false);
+    setBusy(true, '새로고침 전에 보내던 질문의 기록을 먼저 확인하고 있어요.');
+    google.script.run
+      .withSuccessHandler(function (result) {
+        if (result && result.retrySameRequest) {
+          if (attempts < 5) {
+            state.retryTimer = window.setTimeout(function () {
+              recoverPendingBeforeBootstrap(pending, attempts + 1);
+            }, Math.min(8000, 1400 + attempts * 1000));
+            return;
+          }
+          pauseBootstrapRecovery(pending, result.warning || '이전 전송 결과를 아직 확인하고 있어요.');
+          return;
+        }
+        clearStoredPendingRequest(pending);
+        state.bootstrapRecoveryPending = null;
+        state.recoveryNotice = result && result.ok
+          ? '새로고침 전에 보낸 질문을 안전하게 기록했습니다.'
+          : (result && result.reply) || '이전 전송 기록 확인을 마쳤습니다.';
+        loadBootstrap();
+      })
+      .withFailureHandler(function (error) {
+        const message = error && error.message ? error.message : '이전 전송 기록의 연결을 확인하지 못했어요.';
+        if (isPermanentTurnError(message)) {
+          clearStoredPendingRequest(pending);
+          state.bootstrapRecoveryPending = null;
+          state.recoveryNotice = message;
+          loadBootstrap();
+        } else if (attempts < 3) {
+          state.retryTimer = window.setTimeout(function () {
+            recoverPendingBeforeBootstrap(pending, attempts + 1);
+          }, 1600 + attempts * 1200);
+        } else {
+          pauseBootstrapRecovery(pending, message);
+        }
+      })
+      .submitLiteTurn(pendingPayload(pending));
+  }
+
+  function pauseBootstrapRecovery(pending, message) {
+    state.bootstrapRecoveryPending = pending;
+    state.recoveryNotice = (message || '이전 전송 결과를 확인하지 못했어요.') +
+      ' 아래 버튼으로 같은 전송 번호를 다시 확인할 수 있어요.';
+    loadBootstrap();
   }
 
   function renderLesson(lesson, unlocked) {
@@ -160,8 +227,9 @@
         try {
           sessionStorage.setItem(studentCodeStorageKey(state.bootstrapData.lesson), result.studentCode);
         } catch (error) {}
-        if (state.closed) clearStoredStudentSession();
-        const resumed = !state.closed && resumeStoredPendingRequest(result.history || []);
+        // 닫힘 행이 먼저 저장되고 요약·평가 보정만 남았을 수 있으므로 pending 복구를 먼저 시도한다.
+        const resumed = resumeStoredPendingRequest(result.history || []);
+        if (state.closed && !resumed) clearStoredStudentSession();
         setComposerEnabled(!state.closed && !resumed);
         if (!resumed) {
           setBusy(false, state.closed ? '이미 마친 대화입니다.' : '궁금한 점이나 생각을 이어 가 보세요.');
@@ -175,7 +243,11 @@
   }
 
   function sendTurn(action, message) {
-    if (!state.ready || state.busy || state.closed) return;
+    const recoveringClosedRequest = Boolean(
+      state.closed && state.pendingRequest && state.pendingRequest.alreadyInHistory &&
+      state.pendingRequest.action === action && state.pendingRequest.message === String(message || '').trim()
+    );
+    if (!state.ready || state.busy || (state.closed && !recoveringClosedRequest)) return;
     const value = String(message || '').trim();
     if (!value || value.indexOf('___') >= 0) {
       setStatus(value ? '밑줄을 내 생각이나 궁금한 낱말로 바꿔 주세요.' : '생각이나 질문을 먼저 적어 주세요.');
@@ -188,7 +260,10 @@
       : newRequestId();
     state.pendingRequest = reusingPendingRequest
       ? pending
-      : { requestId:requestId, action:action, message:value, retryAttempts:0, alreadyInHistory:false };
+      : {
+          requestId:requestId, action:action, message:value, retryAttempts:0,
+          alreadyInHistory:false, createdAt:Date.now()
+        };
     saveStoredPendingRequest();
     if (!reusingPendingRequest) addMessage('student', value);
     elements.messageInput.value = '';
@@ -231,7 +306,7 @@
   }
 
   function schedulePendingRetry(message, maxAttempts) {
-    if (!state.pendingRequest || state.closed) return;
+    if (!state.pendingRequest || (state.closed && !state.pendingRequest.alreadyInHistory)) return;
     window.clearTimeout(state.retryTimer);
     const attempts = Number(state.pendingRequest.retryAttempts || 0) + 1;
     state.pendingRequest.retryAttempts = attempts;
@@ -251,7 +326,7 @@
     setComposerEnabled(false);
     setBusy(true, (message || '처리 결과를 확인하고 있어요.') + ' 자동으로 다시 확인합니다.');
     state.retryTimer = window.setTimeout(function () {
-      if (!state.pendingRequest || state.closed) return;
+      if (!state.pendingRequest || (state.closed && !state.pendingRequest.alreadyInHistory)) return;
       const pending = state.pendingRequest;
       state.busy = false;
       sendTurn(pending.action, pending.message);
@@ -265,18 +340,23 @@
   }
 
   function retryPendingTurn() {
+    if (elements.retryTurnButton.dataset.action === 'recover-bootstrap') {
+      const pending = state.bootstrapRecoveryPending || readActivePendingRequest();
+      if (pending) recoverPendingBeforeBootstrap(pending, 0);
+      return;
+    }
     if (elements.retryTurnButton.dataset.action === 'refresh') {
       window.location.reload();
       return;
     }
-    if (!state.pendingRequest || state.closed) return;
+    if (!state.pendingRequest || (state.closed && !state.pendingRequest.alreadyInHistory)) return;
     elements.retryTurnButton.hidden = true;
     state.busy = false;
     sendTurn(state.pendingRequest.action, state.pendingRequest.message);
   }
 
   function isPermanentTurnError(message) {
-    return /수업자료를 새로|수업 활동을 마쳤|전용 주소|이미 마친 대화|화면을 새로고침|연결을 확인하고 있습니다/.test(String(message || ''));
+    return /수업자료를 새로|수업 활동을 마쳤|전용 주소|이미 마친 대화|화면을 새로고침/.test(String(message || ''));
   }
 
   function stopPendingForRefresh(message) {
@@ -357,6 +437,9 @@
   function setBusy(busy, message) {
     state.busy = busy;
     elements.status.classList.toggle('busy', busy);
+    if (elements.exitSessionButton) {
+      elements.exitSessionButton.disabled = busy || Boolean(state.pendingRequest);
+    }
     setStatus(message);
   }
 
@@ -376,17 +459,63 @@
     return 'lite-student-code:' + String(lesson.lessonId || lesson.materialTitle || 'lesson') + ':r' + String(lesson.lessonRevision || 1);
   }
 
-  function pendingRequestStorageKey() {
-    const identity = lessonIdentity();
+  function pendingRequestStorageKey(identityOverride, studentCodeOverride, deviceTokenOverride) {
+    const identity = identityOverride || lessonIdentity();
     return [
       'lite-pending-request', identity.lessonId, 'r' + identity.lessonRevision,
-      state.studentCode || 'unknown', state.deviceToken
+      studentCodeOverride || state.studentCode || 'unknown', deviceTokenOverride || state.deviceToken
     ].join(':');
+  }
+
+  function pendingPayload(pending) {
+    return {
+      requestId:String(pending.requestId || ''),
+      studentCode:String(pending.studentCode || ''),
+      joinCode:String(pending.joinCode || ''),
+      deviceToken:String(pending.deviceToken || ''),
+      message:String(pending.message || ''),
+      action:String(pending.action || 'message'),
+      lessonId:String(pending.lessonId || ''),
+      lessonRevision:Number(pending.lessonRevision || 0),
+      sourceHash:String(pending.sourceHash || ''),
+      previewAccessToken:String(pending.previewAccessToken || '')
+    };
+  }
+
+  function isValidStoredPending(pending) {
+    const createdAt = Number(pending && pending.createdAt || 0);
+    return Boolean(pending) && createdAt > 0 && createdAt <= Date.now() + 5 * 60 * 1000 &&
+      Date.now() - createdAt <= ACTIVE_PENDING_MAX_AGE_MS &&
+      /^[A-Za-z0-9_-]{12,100}$/.test(String(pending.requestId || '')) &&
+      /^\d{1,2}\s*-\s*\d{1,3}$/.test(String(pending.studentCode || '')) &&
+      /^[A-Za-z0-9_-]{16,100}$/.test(String(pending.deviceToken || '')) &&
+      Boolean(String(pending.lessonId || '')) &&
+      Number(pending.lessonRevision || 0) >= 1 &&
+      /^[A-Za-z0-9_-]{24}$/.test(String(pending.sourceHash || '')) &&
+      Boolean(pending.message) && Boolean(pending.action);
+  }
+
+  function readActivePendingRequest() {
+    try {
+      const value = JSON.parse(sessionStorage.getItem(ACTIVE_PENDING_STORAGE_KEY) || 'null');
+      return isValidStoredPending(value) ? value : null;
+    } catch (error) { return null; }
   }
 
   function saveStoredPendingRequest() {
     if (!state.pendingRequest || !state.studentCode) return;
-    try { sessionStorage.setItem(pendingRequestStorageKey(), JSON.stringify(state.pendingRequest)); }
+    const identity = lessonIdentity();
+    const stored = Object.assign({}, state.pendingRequest, identity, {
+      studentCode:state.studentCode,
+      joinCode:state.joinCode,
+      deviceToken:state.deviceToken,
+      previewAccessToken:state.previewAccessToken,
+      createdAt:Number(state.pendingRequest.createdAt || Date.now())
+    });
+    try {
+      sessionStorage.setItem(pendingRequestStorageKey(), JSON.stringify(state.pendingRequest));
+      sessionStorage.setItem(ACTIVE_PENDING_STORAGE_KEY, JSON.stringify(stored));
+    }
     catch (error) {}
   }
 
@@ -399,9 +528,17 @@
     } catch (error) { return null; }
   }
 
-  function clearStoredPendingRequest() {
-    if (!state.studentCode || !state.bootstrapData) return;
-    try { sessionStorage.removeItem(pendingRequestStorageKey()); }
+  function clearStoredPendingRequest(pendingOverride) {
+    const pending = pendingOverride || readActivePendingRequest();
+    try {
+      if (state.studentCode && state.bootstrapData) sessionStorage.removeItem(pendingRequestStorageKey());
+      if (pending) {
+        sessionStorage.removeItem(pendingRequestStorageKey({
+          lessonId:pending.lessonId, lessonRevision:pending.lessonRevision
+        }, pending.studentCode, pending.deviceToken));
+      }
+      sessionStorage.removeItem(ACTIVE_PENDING_STORAGE_KEY);
+    }
     catch (error) {}
   }
 
@@ -411,6 +548,11 @@
     pending.alreadyInHistory = (history || []).some(function (row) {
       return String(row.requestId || '') === String(pending.requestId);
     });
+    if (state.closed && !pending.alreadyInHistory) {
+      clearStoredPendingRequest();
+      state.pendingRequest = null;
+      return false;
+    }
     state.pendingRequest = pending;
     if (!pending.alreadyInHistory) addMessage('student', pending.message);
     schedulePendingRetry('전송 중이던 질문의 결과를 확인하고 있어요.', 20);
@@ -426,6 +568,10 @@
   }
 
   function leaveDeviceSession() {
+    if (state.busy || state.pendingRequest) {
+      setStatus('전송 중인 질문의 기록을 확인한 뒤 이 기기에서 나갈 수 있어요.');
+      return;
+    }
     if (!window.confirm('이 기기의 대화 연결을 끝낼까요? 다시 들어오면 새 대화로 시작됩니다.')) return;
     clearPendingRetry();
     state.pendingRequest = null;

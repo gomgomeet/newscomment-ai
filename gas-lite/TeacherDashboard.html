@@ -154,7 +154,8 @@
         auto.appendChild(autoStrong); auto.appendChild(document.createTextNode(row.automaticJudgment || '판단 보류'));
         card.appendChild(auto);
         const details = document.createElement('details');
-        const summary = document.createElement('summary'); summary.textContent = '자동 판단 근거 확인';
+        const summary = document.createElement('summary');
+        summary.textContent = '자동 판단 근거 확인 · 관찰 ' + Number(row.evidenceObservationCount || 0) + '회';
         const evidence = document.createElement('p'); evidence.className = 'evidence'; evidence.textContent = row.evidenceSummary || '아직 근거가 없습니다.';
         details.appendChild(summary); details.appendChild(evidence); card.appendChild(details);
         const grid = document.createElement('div'); grid.className = 'grid';

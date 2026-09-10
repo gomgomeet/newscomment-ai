@@ -158,16 +158,52 @@ function clearLiteEngineVerification_() {
 }
 
 function markLiteEngineVerified_(endpoint, policyVersion) {
+  endpoint = liteText_(endpoint, 1000);
+  policyVersion = liteText_(policyVersion, 120);
+  if (!endpoint || !policyVersion) throw new Error('확인한 중앙 엔진 정보가 비어 있습니다.');
   const properties = PropertiesService.getScriptProperties();
-  properties.setProperty(LITE_ENGINE_VERIFIED_ENDPOINT_PROPERTY_, String(endpoint || ''));
-  properties.setProperty(LITE_ENGINE_VERIFIED_POLICY_PROPERTY_, String(policyVersion || ''));
-  properties.setProperty(LITE_ENGINE_VERIFIED_AT_PROPERTY_, new Date().toISOString());
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    if (getLiteEngineEndpoint_() !== endpoint) {
+      throw new Error('연결을 확인하는 동안 중앙 엔진 주소가 변경되었습니다. 다시 확인해 주세요.');
+    }
+    properties.setProperty(LITE_ENGINE_VERIFIED_ENDPOINT_PROPERTY_, endpoint);
+    properties.setProperty(LITE_ENGINE_VERIFIED_POLICY_PROPERTY_, policyVersion);
+    properties.setProperty(LITE_ENGINE_VERIFIED_AT_PROPERTY_, new Date().toISOString());
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function invalidateLiteEngineVerificationIfMatches_(endpoint, policyVersion) {
+  endpoint = liteText_(endpoint, 1000);
+  policyVersion = liteText_(policyVersion, 120);
+  if (!endpoint || !policyVersion) return false;
+  const properties = PropertiesService.getScriptProperties();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    if (getLiteEngineEndpoint_() !== endpoint ||
+        properties.getProperty(LITE_ENGINE_VERIFIED_ENDPOINT_PROPERTY_) !== endpoint ||
+        properties.getProperty(LITE_ENGINE_VERIFIED_POLICY_PROPERTY_) !== policyVersion) {
+      return false;
+    }
+    properties.deleteProperty(LITE_ENGINE_VERIFIED_ENDPOINT_PROPERTY_);
+    properties.deleteProperty(LITE_ENGINE_VERIFIED_POLICY_PROPERTY_);
+    properties.deleteProperty(LITE_ENGINE_VERIFIED_AT_PROPERTY_);
+    return true;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function isLiteEngineVerified_() {
   const properties = PropertiesService.getScriptProperties();
   const endpoint = getLiteEngineEndpoint_();
-  return Boolean(endpoint && properties.getProperty(LITE_ENGINE_VERIFIED_ENDPOINT_PROPERTY_) === endpoint);
+  return Boolean(endpoint &&
+    properties.getProperty(LITE_ENGINE_VERIFIED_ENDPOINT_PROPERTY_) === endpoint &&
+    properties.getProperty(LITE_ENGINE_VERIFIED_POLICY_PROPERTY_));
 }
 
 function liteLessonVerificationKey_(settings) {
@@ -189,10 +225,43 @@ function litePreviewVerificationKey_(settings) {
   ].join('|');
 }
 
+function readLitePreviewVerificationSnapshot_(settings) {
+  const properties = PropertiesService.getScriptProperties();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    return {
+      verificationKey:litePreviewVerificationKey_(settings),
+      markerFingerprint:liteFingerprint_(
+        properties.getProperty(LITE_PREVIEW_VERIFIED_LESSON_PROPERTY_) || '', 48
+      )
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function markLitePreviewVerifiedKey_(verificationKey, expectedMarkerFingerprint) {
+  const desired = String(verificationKey || '');
+  const expected = liteText_(expectedMarkerFingerprint, 80);
+  if (!desired) return false;
+  const properties = PropertiesService.getScriptProperties();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const current = properties.getProperty(LITE_PREVIEW_VERIFIED_LESSON_PROPERTY_) || '';
+    if (current === desired) return true;
+    if (!expected || liteFingerprint_(current, 48) !== expected) return false;
+    properties.setProperty(LITE_PREVIEW_VERIFIED_LESSON_PROPERTY_, desired);
+    return true;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function markLitePreviewVerified_(settings) {
-  PropertiesService.getScriptProperties().setProperty(
-    LITE_PREVIEW_VERIFIED_LESSON_PROPERTY_, litePreviewVerificationKey_(settings)
-  );
+  const snapshot = readLitePreviewVerificationSnapshot_(settings);
+  return markLitePreviewVerifiedKey_(snapshot.verificationKey, snapshot.markerFingerprint);
 }
 
 function isLitePreviewVerified_(settings) {

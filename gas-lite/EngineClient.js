@@ -20,7 +20,9 @@ const LITE_ENGINE_REQUESTS_PER_STUDENT_LESSON_ = 20;
 const LITE_ENGINE_MINUTE_BUDGET_PROPERTY_ = 'LITE_ENGINE_MINUTE_BUDGET';
 const LITE_ENGINE_DAILY_BUDGET_PROPERTY_ = 'LITE_ENGINE_DAILY_BUDGET';
 const LITE_PENDING_RESULT_TTL_MS_ = 10 * 60 * 1000;
-const LITE_PENDING_DURABLE_TTL_MS_ = 24 * 60 * 60 * 1000;
+// 학생 브라우저의 활성 전송 포인터(25시간)보다 오래 보존해 자동 복구 중인
+// 같은 requestId가 먼저 사라져 유료 API를 다시 호출하는 틈을 만들지 않는다.
+const LITE_PENDING_DURABLE_TTL_MS_ = 26 * 60 * 60 * 1000;
 const LITE_PENDING_MAX_ENTRIES_ = 32;
 const LITE_PENDING_PROPERTY_PREFIX_ = 'LITE_PENDING_';
 
@@ -37,13 +39,32 @@ function liteSessionClaimKey_(sessionId) {
   return liteRequestClaimKey_('session:' + String(sessionId)).replace('LITE_INFLIGHT_', 'LITE_SESSION_INFLIGHT_');
 }
 
+function liteStudentLessonClaimKey_(turn) {
+  const identity = [
+    turn && turn.lessonId, turn && turn.lessonRevision,
+    turn && turn.sourceHash, turn && turn.studentCode
+  ].join('|');
+  return liteRequestClaimKey_('student-lesson:' + identity)
+    .replace('LITE_INFLIGHT_', 'LITE_STUDENT_INFLIGHT_');
+}
+
+function deleteLitePropertyBestEffort_(properties, key) {
+  try { properties.deleteProperty(key); }
+  catch (error) {
+    // 일시적인 Properties 오류 한 번 때문에 10분 잠금이 남지 않도록 한 번 더 정리한다.
+    try { properties.deleteProperty(key); }
+    catch (secondError) {}
+  }
+}
+
 function cleanupLiteStaleClaims_(properties, now) {
   const cleanupAfter = Number(properties.getProperty(LITE_CLAIM_CLEANUP_AFTER_PROPERTY_) || 0);
   if (cleanupAfter > now) return;
   const all = properties.getProperties();
   Object.keys(all).forEach(function (propertyKey) {
     let claimedAt = 0;
-    if (propertyKey.indexOf('LITE_SESSION_INFLIGHT_') === 0) {
+    if (propertyKey.indexOf('LITE_SESSION_INFLIGHT_') === 0 ||
+        propertyKey.indexOf('LITE_STUDENT_INFLIGHT_') === 0) {
       try { claimedAt = Number(JSON.parse(all[propertyKey] || '{}').claimedAt || 0); }
       catch (error) {}
     } else if (propertyKey.indexOf('LITE_INFLIGHT_') === 0) {
@@ -52,7 +73,7 @@ function cleanupLiteStaleClaims_(properties, now) {
       return;
     }
     if (!claimedAt || now - claimedAt >= LITE_REQUEST_CLAIM_TTL_MS_) {
-      properties.deleteProperty(propertyKey);
+      deleteLitePropertyBestEffort_(properties, propertyKey);
     }
   });
   properties.setProperty(
@@ -61,61 +82,133 @@ function cleanupLiteStaleClaims_(properties, now) {
   );
 }
 
-function claimLiteInFlightRequest_(requestId, sessionId) {
+function claimLiteInFlightRequest_(requestId, sessionId, studentLessonKey) {
   const key = liteRequestClaimKey_(requestId);
   const sessionKey = sessionId ? liteSessionClaimKey_(sessionId) : '';
+  const scopedKeys = [sessionKey, studentLessonKey].filter(Boolean);
   const properties = PropertiesService.getScriptProperties();
   const lock = LockService.getScriptLock();
+  const writtenKeys = [];
   lock.waitLock(30000);
   try {
     const now = Date.now();
     cleanupLiteStaleClaims_(properties, now);
     const claimedAt = Number(properties.getProperty(key) || 0);
     if (claimedAt && now - claimedAt < LITE_REQUEST_CLAIM_TTL_MS_) return false;
-    if (sessionKey) {
-      let sessionClaim = {};
-      try { sessionClaim = JSON.parse(properties.getProperty(sessionKey) || '{}'); }
+    const scopeBlocked = scopedKeys.some(function (scopeKey) {
+      let scopeClaim = {};
+      try { scopeClaim = JSON.parse(properties.getProperty(scopeKey) || '{}'); }
       catch (error) {}
-      if (Number(sessionClaim.claimedAt || 0) &&
-          now - Number(sessionClaim.claimedAt) < LITE_REQUEST_CLAIM_TTL_MS_ &&
-          String(sessionClaim.requestId || '') !== String(requestId)) return false;
-    }
-    properties.setProperty(key, String(now));
-    if (sessionKey) {
-      properties.setProperty(sessionKey, JSON.stringify({ claimedAt:now, requestId:String(requestId) }));
+      return Number(scopeClaim.claimedAt || 0) &&
+        now - Number(scopeClaim.claimedAt) < LITE_REQUEST_CLAIM_TTL_MS_ &&
+        String(scopeClaim.requestId || '') !== String(requestId);
+    });
+    if (scopeBlocked) return false;
+    try {
+      writtenKeys.push(key);
+      properties.setProperty(key, String(now));
+      scopedKeys.forEach(function (scopeKey) {
+        writtenKeys.push(scopeKey);
+        properties.setProperty(scopeKey, JSON.stringify({ claimedAt:now, requestId:String(requestId) }));
+      });
+    } catch (error) {
+      writtenKeys.reverse().forEach(function (writtenKey) {
+        deleteLitePropertyBestEffort_(properties, writtenKey);
+      });
+      throw error;
     }
     return true;
   } finally {
-    lock.releaseLock();
+    try { lock.releaseLock(); }
+    catch (error) {
+      writtenKeys.reverse().forEach(function (writtenKey) {
+        deleteLitePropertyBestEffort_(properties, writtenKey);
+      });
+      throw error;
+    }
   }
 }
 
-function releaseLiteInFlightRequest_(requestId, sessionId) {
+function claimLiteInFlightScopes_(requestId, sessionId, studentLessonKey) {
+  const properties = PropertiesService.getScriptProperties();
+  const requestKey = liteRequestClaimKey_(requestId);
+  const scopedKeys = [sessionId ? liteSessionClaimKey_(sessionId) : '', studentLessonKey].filter(Boolean);
+  const lock = LockService.getScriptLock();
+  const writtenKeys = [];
+  lock.waitLock(30000);
+  try {
+    const now = Date.now();
+    const requestClaimedAt = Number(properties.getProperty(requestKey) || 0);
+    if (!requestClaimedAt || now - requestClaimedAt >= LITE_REQUEST_CLAIM_TTL_MS_) {
+      throw new Error('요청 잠금이 먼저 확보되지 않았습니다.');
+    }
+    const scopeBlocked = scopedKeys.some(function (scopeKey) {
+      let scopeClaim = {};
+      try { scopeClaim = JSON.parse(properties.getProperty(scopeKey) || '{}'); }
+      catch (error) {}
+      return Number(scopeClaim.claimedAt || 0) &&
+        now - Number(scopeClaim.claimedAt) < LITE_REQUEST_CLAIM_TTL_MS_ &&
+        String(scopeClaim.requestId || '') !== String(requestId);
+    });
+    if (scopeBlocked) return false;
+    try {
+      scopedKeys.forEach(function (scopeKey) {
+        writtenKeys.push(scopeKey);
+        properties.setProperty(scopeKey, JSON.stringify({ claimedAt:now, requestId:String(requestId) }));
+      });
+    } catch (error) {
+      writtenKeys.reverse().forEach(function (writtenKey) {
+        deleteLitePropertyBestEffort_(properties, writtenKey);
+      });
+      throw error;
+    }
+    return true;
+  } finally {
+    try { lock.releaseLock(); }
+    catch (error) {
+      writtenKeys.reverse().forEach(function (writtenKey) {
+        deleteLitePropertyBestEffort_(properties, writtenKey);
+      });
+      throw error;
+    }
+  }
+}
+
+function releaseLiteInFlightRequest_(requestId, sessionId, studentLessonKey) {
   const properties = PropertiesService.getScriptProperties();
   // Apps Script 실행 상한보다 claim TTL이 길다. request key를 마지막에 지우면
   // 같은 requestId의 재시도가 중간에 claim을 다시 얻어 새 session claim을 덮지 못한다.
-  if (sessionId) {
-    const sessionKey = liteSessionClaimKey_(sessionId);
-    let sessionClaim = {};
-    try { sessionClaim = JSON.parse(properties.getProperty(sessionKey) || '{}'); }
-    catch (error) {}
-    if (String(sessionClaim.requestId || '') === String(requestId)) {
-      properties.deleteProperty(sessionKey);
-    }
-  }
-  properties.deleteProperty(liteRequestClaimKey_(requestId));
+  const scopedKeys = [sessionId ? liteSessionClaimKey_(sessionId) : '', studentLessonKey].filter(Boolean);
+  scopedKeys.forEach(function (scopeKey) {
+    let scopeClaim = {};
+    try {
+      scopeClaim = JSON.parse(properties.getProperty(scopeKey) || '{}');
+      if (String(scopeClaim.requestId || '') === String(requestId)) {
+        deleteLitePropertyBestEffort_(properties, scopeKey);
+      }
+    } catch (error) {}
+  });
+  deleteLitePropertyBestEffort_(properties, liteRequestClaimKey_(requestId));
 }
 
-function safeClaimLiteInFlightRequest_(requestId, sessionId) {
+function safeClaimLiteInFlightRequest_(requestId, sessionId, studentLessonKey) {
   try {
-    return { claimed:claimLiteInFlightRequest_(requestId, sessionId), reason:'' };
+    return { claimed:claimLiteInFlightRequest_(requestId, sessionId, studentLessonKey), reason:'' };
   } catch (error) {
     return { claimed:false, reason:'claim_failed' };
   }
 }
 
-function safeReleaseLiteInFlightRequest_(requestId, sessionId) {
-  try { releaseLiteInFlightRequest_(requestId, sessionId); }
+function safeClaimLiteInFlightScopes_(requestId, sessionId, studentLessonKey) {
+  try {
+    return { claimed:claimLiteInFlightScopes_(requestId, sessionId, studentLessonKey), reason:'' };
+  } catch (error) {
+    return { claimed:false, reason:'claim_failed' };
+  }
+}
+
+function safeReleaseLiteInFlightRequest_(requestId, sessionId, studentLessonKey) {
+  try { releaseLiteInFlightRequest_(requestId, sessionId, studentLessonKey); }
   catch (error) {}
 }
 
@@ -123,8 +216,35 @@ function litePendingResultKey_(requestId) {
   return liteRequestClaimKey_('pending:' + String(requestId)).replace('LITE_INFLIGHT_', LITE_PENDING_PROPERTY_PREFIX_);
 }
 
+function readLiteEngineRuntimeSnapshot_() {
+  const properties = PropertiesService.getScriptProperties();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const endpoint = liteText_(getLiteEngineEndpoint_(), 1000);
+    const verifiedEndpoint = liteText_(
+      properties.getProperty(LITE_ENGINE_VERIFIED_ENDPOINT_PROPERTY_), 1000
+    );
+    const policyVersion = liteText_(
+      properties.getProperty(LITE_ENGINE_VERIFIED_POLICY_PROPERTY_), 120
+    );
+    const verified = /^https:\/\//i.test(endpoint) && endpoint === verifiedEndpoint && Boolean(policyVersion);
+    return {
+      endpoint:endpoint,
+      verifiedEndpoint:verifiedEndpoint,
+      policyVersion:policyVersion,
+      key:verified
+        ? liteFingerprint_([endpoint, verifiedEndpoint, policyVersion].join('|'), 48)
+        : ''
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function litePendingMaxAge_(value) {
-  return value && (value.state === 'result_ready' || value.state === 'result_unrecoverable')
+  return value && (value.state === 'provider_started' || value.state === 'candidate_ready' || value.state === 'result_ready' ||
+      value.state === 'result_unrecoverable')
     ? LITE_PENDING_DURABLE_TTL_MS_
     : LITE_PENDING_RESULT_TTL_MS_;
 }
@@ -156,7 +276,17 @@ function saveLitePendingState_(turn, state, output) {
   const value = {
     state:state,
     at:Date.now(),
-    turnFingerprint:liteTurnFingerprint_(turn)
+    turnFingerprint:liteTurnFingerprint_(turn),
+    turnSnapshot:{
+      activityMode:turn.activityMode === 'exploration' ? 'exploration' : 'evaluation',
+      startQuestion:liteText_(turn.startQuestion, 500),
+      isPreview:Boolean(turn.isPreview),
+      previewVerificationKey:liteText_(turn.previewVerificationKey, 80),
+      previewExpectedMarker:liteText_(turn.previewExpectedMarker, 80),
+      engineEndpoint:liteText_(turn.engineEndpoint, 1000),
+      enginePolicyVersion:liteText_(turn.enginePolicyVersion, 120),
+      engineVerificationKey:liteText_(turn.engineVerificationKey, 80)
+    }
   };
   if (output) value.output = output;
   const serialized = JSON.stringify(value);
@@ -210,6 +340,163 @@ function trySaveLitePreparedResult_(turn, output) {
       return false;
     }
   }
+}
+
+function buildLiteCandidateState_(plan, modelResult) {
+  const usage = modelResult && modelResult.usage || {};
+  return {
+    candidateReply:liteText_(modelResult && modelResult.text, 3000),
+    candidateEvidenceQuote:liteText_(modelResult && modelResult.evidenceQuote, 500),
+    plan:{
+      policyVersion:liteText_(plan && plan.policyVersion, 120),
+      planDigest:liteText_(plan && plan.planDigest, 100),
+      fallbackReply:liteText_(plan && plan.fallbackReply, 3000),
+      enforcement:{
+        managedQuestion:liteText_(plan && plan.enforcement && plan.enforcement.managedQuestion, 500),
+        maximumQuestionCount:Number(plan && plan.enforcement && plan.enforcement.maximumQuestionCount || 0)
+      },
+      observation:compactLitePreparedObservation_(plan && plan.observation)
+    },
+    model:{
+      model:liteText_(modelResult && modelResult.model, 80),
+      responseId:liteText_(modelResult && modelResult.responseId, 100),
+      inputTokens:Math.max(0, Number(usage.input_tokens || usage.inputTokens || 0)),
+      outputTokens:Math.max(0, Number(usage.output_tokens || usage.outputTokens || 0)),
+      totalTokens:Math.max(0, Number(usage.total_tokens || usage.totalTokens || 0))
+    }
+  };
+}
+
+function trySaveLiteCandidateState_(turn, candidate) {
+  try {
+    saveLitePendingState_(turn, 'candidate_ready', candidate);
+    return candidate;
+  } catch (error) {
+    const compactObservation = compactLitePreparedObservation_(
+      candidate && candidate.plan && candidate.plan.observation
+    );
+    compactObservation.sourceCue = liteText_(compactObservation.sourceCue, 60);
+    compactObservation.rubricScores = (compactObservation.rubricScores || []).map(function (item) {
+      return {
+        criterionKey:liteText_(item.criterionKey, 50),
+        score:Number(item.score || 0),
+        rationale:liteText_(item.rationale, 40)
+      };
+    });
+    const compact = Object.assign({}, candidate, {
+      candidateReply:liteText_(candidate && candidate.candidateReply, 800),
+      candidateEvidenceQuote:liteText_(candidate && candidate.candidateEvidenceQuote, 300),
+      plan:Object.assign({}, candidate && candidate.plan, {
+        fallbackReply:liteText_(candidate && candidate.plan && candidate.plan.fallbackReply, 800),
+        enforcement:Object.assign({}, candidate && candidate.plan && candidate.plan.enforcement, {
+          managedQuestion:liteText_(
+            candidate && candidate.plan && candidate.plan.enforcement &&
+              candidate.plan.enforcement.managedQuestion,
+            300
+          )
+        }),
+        observation:compactObservation
+      })
+    });
+    try {
+      saveLitePendingState_(turn, 'candidate_ready', compact);
+      return compact;
+    } catch (secondError) {
+      try { saveLitePendingState_(turn, 'result_unrecoverable', null); }
+      catch (thirdError) {}
+      return null;
+    }
+  }
+}
+
+function prepareLiteCandidateResult_(turn, settings, history, candidate) {
+  candidate = candidate || {};
+  const plan = candidate.plan || {};
+  if (!turn.enginePolicyVersion ||
+      String(plan.policyVersion || '') !== String(turn.enginePolicyVersion)) {
+    return prepareLiteCandidateFallback_(candidate);
+  }
+  const model = candidate.model || {};
+  let reply = liteText_(plan.fallbackReply, 3000);
+  let observation = compactLitePreparedObservation_(plan.observation);
+  let engineStatus = 'ok:' + liteText_(plan.policyVersion, 80);
+  let aiStatus = 'generated:' + liteText_(model.model, 80);
+  let warning = '';
+  let finalizedByEngine = false;
+  try {
+    const finalized = requestLiteEngineFinalize_(
+      turn, settings, history, candidate.candidateReply, candidate.candidateEvidenceQuote, plan,
+      turn.engineEndpoint
+    );
+    reply = finalized.studentReply;
+    observation = finalized.observation || observation;
+    engineStatus = 'finalized:' + liteText_(finalized.policyVersion, 80);
+    finalizedByEngine = true;
+    if (finalized.localFallback) {
+      aiStatus = 'generated_not_used:central_rejected';
+      warning = '개인 API 답변이 공통 안전·근거 검사를 통과하지 않아 기본 답변을 사용했습니다.';
+    } else {
+      aiStatus = 'ok:' + liteText_(model.model, 80);
+    }
+  } catch (error) {
+    // 후보는 이미 저장했으므로 재시도해도 개인 API를 다시 호출하지 않는다.
+    reply = plan.fallbackReply;
+    engineStatus = 'finalize_failed_fallback:' + liteText_(error && error.message, 140);
+    aiStatus = 'generated_not_used';
+    warning = '개인 API 답변을 공통 엔진에서 최종 확인하지 못해 안전한 기본 답변을 사용했습니다.';
+  }
+  if (!finalizedByEngine) reply = enforceLiteReply_(reply, plan);
+  return {
+    reply:liteText_(reply, 1600),
+    observation:compactLitePreparedObservation_(observation),
+    engineStatus:engineStatus,
+    aiStatus:aiStatus,
+    warning:warning,
+    apiModel:liteText_(model.model, 80),
+    apiInputTokens:Math.max(0, Number(model.inputTokens || 0)),
+    apiOutputTokens:Math.max(0, Number(model.outputTokens || 0)),
+    apiTotalTokens:Math.max(0, Number(model.totalTokens || 0))
+  };
+}
+
+function prepareLiteCandidateFallback_(candidate) {
+  candidate = candidate || {};
+  const plan = candidate.plan || {};
+  const model = candidate.model || {};
+  return {
+    reply:liteText_(enforceLiteReply_(plan.fallbackReply, plan), 1600),
+    observation:compactLitePreparedObservation_(plan.observation),
+    engineStatus:'finalize_skipped_recovery:runtime_changed',
+    aiStatus:'generated_not_used:runtime_changed',
+    warning:'수업 또는 공통 엔진 설정이 바뀐 뒤 유료 응답을 복구하여, 기존 계획의 안전한 기본 답변을 기록했습니다.',
+    apiModel:liteText_(model.model, 80),
+    apiInputTokens:Math.max(0, Number(model.inputTokens || 0)),
+    apiOutputTokens:Math.max(0, Number(model.outputTokens || 0)),
+    apiTotalTokens:Math.max(0, Number(model.totalTokens || 0))
+  };
+}
+
+function hydrateLiteRecoveryTurn_(turn, pendingState) {
+  const snapshot = pendingState && pendingState.turnSnapshot || {};
+  if (snapshot.activityMode === 'evaluation' || snapshot.activityMode === 'exploration') {
+    turn.activityMode = snapshot.activityMode;
+  }
+  turn.startQuestion = liteText_(snapshot.startQuestion || turn.startQuestion, 500);
+  turn.previewVerificationKey = liteText_(snapshot.previewVerificationKey, 80);
+  turn.previewExpectedMarker = liteText_(snapshot.previewExpectedMarker, 80);
+  turn.engineEndpoint = liteText_(snapshot.engineEndpoint, 1000);
+  turn.enginePolicyVersion = liteText_(snapshot.enginePolicyVersion, 120);
+  turn.engineVerificationKey = liteText_(snapshot.engineVerificationKey, 80);
+  return turn;
+}
+
+function liteRecoverySettings_(currentSettings, turn) {
+  return Object.assign({}, currentSettings || {}, {
+    lessonId:turn.lessonId,
+    lessonRevision:turn.lessonRevision,
+    sourceHash:turn.sourceHash,
+    activityMode:turn.activityMode === 'exploration' ? 'exploration' : 'evaluation'
+  });
 }
 
 function readLitePendingState_(turn) {
@@ -368,9 +655,15 @@ function setLiteCentralEngineEndpointForOwner_(url) {
   if (!/^https:\/\//i.test(endpoint)) {
     throw new Error('중앙 엔진 주소는 https://로 시작해야 합니다.');
   }
-  PropertiesService.getScriptProperties().setProperty(LITE_ENGINE_ENDPOINT_PROPERTY_, endpoint);
-  clearLiteEngineVerification_();
-  return { ok: true, endpoint: endpoint };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    PropertiesService.getScriptProperties().setProperty(LITE_ENGINE_ENDPOINT_PROPERTY_, endpoint);
+    clearLiteEngineVerification_();
+    return { ok: true, endpoint: endpoint };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function checkLiteEngineConnection_() {
@@ -392,9 +685,12 @@ function checkLiteEngineConnection_() {
   if (String(body.engineFamily || '') !== 'questioning-dialogue-v2' || body.sharedWithWebChatbot !== true) {
     throw new Error('현재 웹 챗봇과 같은 대화 엔진인지 확인하지 못했습니다.');
   }
+  const policyVersion = liteText_(body.policyVersion, 120);
+  if (!policyVersion) throw new Error('중앙 정책 엔진의 정책 버전을 확인하지 못했습니다.');
   return {
     ok: true,
-    policyVersion: String(body.policyVersion || ''),
+    endpoint:endpoint,
+    policyVersion:policyVersion,
     engineFamily: String(body.engineFamily || '')
   };
 }
@@ -446,7 +742,7 @@ function compactLiteEngineHistory_(history) {
 }
 
 function requestLiteEnginePlan_(turn, settings, history) {
-  const endpoint = getLiteEngineEndpoint_();
+  const endpoint = liteText_(turn && turn.engineEndpoint, 1000) || getLiteEngineEndpoint_();
   if (!endpoint) throw new Error('중앙 정책 엔진이 아직 연결되지 않았습니다.');
   const payload = buildLiteEnginePayload_(turn, settings, history);
   // 개인 API 키·Google Sheet ID·교사 이메일은 payload에 포함하지 않는다.
@@ -464,18 +760,32 @@ function requestLiteEnginePlan_(turn, settings, history) {
   if (status < 200 || status >= 300) {
     throw new Error(liteText_(body && body.error, 240) || '중앙 정책 엔진이 요청을 처리하지 못했습니다.');
   }
-  validateLiteEnginePlan_(body, turn.requestId);
+  if (turn.enginePolicyVersion &&
+      liteText_(body && body.policyVersion, 120) !== String(turn.enginePolicyVersion)) {
+    invalidateLiteEngineVerificationIfMatches_(turn.engineEndpoint, turn.enginePolicyVersion);
+  }
+  validateLiteEnginePlan_(body, turn.requestId, turn.enginePolicyVersion);
   return body;
 }
 
-function getLiteFinalizeEndpoint_() {
-  return getLiteEngineEndpoint_().replace(/\/plan\/?(?:\?.*)?$/, '/finalize');
+function getLiteFinalizeEndpoint_(planEndpoint) {
+  const source = liteText_(planEndpoint || getLiteEngineEndpoint_(), 1000);
+  return source.replace(/\/plan\/?(?:\?.*)?$/, '/finalize');
 }
 
-function requestLiteEngineFinalize_(turn, settings, history, candidateReply, candidateEvidenceQuote, plan) {
-  const endpoint = getLiteFinalizeEndpoint_();
-  if (!endpoint || endpoint === getLiteEngineEndpoint_()) {
+function requestLiteEngineFinalize_(
+  turn, settings, history, candidateReply, candidateEvidenceQuote, plan, endpointOverride
+) {
+  const planEndpoint = liteText_(
+    endpointOverride || (turn && turn.engineEndpoint) || getLiteEngineEndpoint_(), 1000
+  );
+  const endpoint = getLiteFinalizeEndpoint_(planEndpoint);
+  if (!endpoint || endpoint === planEndpoint) {
     throw new Error('중앙 최종 확인 주소를 찾지 못했습니다.');
+  }
+  if (!turn.enginePolicyVersion ||
+      String(plan && plan.policyVersion || '') !== String(turn.enginePolicyVersion)) {
+    throw new Error('중앙 정책 엔진의 확인된 정책 버전과 계획 버전이 다릅니다.');
   }
   const payload = buildLiteEnginePayload_(turn, settings, history);
   payload.candidateReply = liteRequired_(candidateReply, '개인 API 답변', 3000);
@@ -496,6 +806,10 @@ function requestLiteEngineFinalize_(turn, settings, history, candidateReply, can
   if (status < 200 || status >= 300) {
     throw new Error(liteText_(body && body.error, 240) || '중앙 최종 확인에 실패했습니다.');
   }
+  if (turn.enginePolicyVersion &&
+      liteText_(body && body.policyVersion, 120) !== String(turn.enginePolicyVersion)) {
+    invalidateLiteEngineVerificationIfMatches_(turn.engineEndpoint, turn.enginePolicyVersion);
+  }
   if (!body || Number(body.schemaVersion) !== 2 || String(body.requestId) !== String(turn.requestId) ||
       String(body.policyVersion) !== String(plan.policyVersion) || String(body.planDigest) !== String(plan.planDigest) ||
       !body.engine || body.engine.family !== 'questioning-dialogue-v2' || !body.observation || !body.studentReply) {
@@ -504,7 +818,7 @@ function requestLiteEngineFinalize_(turn, settings, history, candidateReply, can
   return body;
 }
 
-function validateLiteEnginePlan_(plan, requestId) {
+function validateLiteEnginePlan_(plan, requestId, expectedPolicyVersion) {
   if (!plan || Number(plan.schemaVersion) !== 1 || String(plan.requestId) !== String(requestId)) {
     throw new Error('중앙 정책 엔진 응답의 요청 정보가 맞지 않습니다.');
   }
@@ -513,6 +827,10 @@ function validateLiteEnginePlan_(plan, requestId) {
   }
   if (!plan.engine || plan.engine.family !== 'questioning-dialogue-v2' || plan.engine.sharedCore !== true) {
     throw new Error('현재 웹 챗봇과 같은 대화 엔진 계획이 아닙니다.');
+  }
+  const policyVersion = liteText_(plan.policyVersion, 120);
+  if (!policyVersion || (expectedPolicyVersion && policyVersion !== String(expectedPolicyVersion))) {
+    throw new Error('중앙 정책 엔진의 확인된 정책 버전과 계획 버전이 다릅니다.');
   }
   if (typeof plan.skipModel !== 'boolean' || typeof plan.modelRequest !== 'object' ||
       typeof plan.enforcement !== 'object' || typeof plan.observation !== 'object') {
@@ -637,8 +955,8 @@ function findLiteDuplicateRequest_(requestId, expectedTurn, rowsOverride, spread
     rows = liteRowsByColumnValue_(sheet, 'requestId', requestId);
   }
   if (!rows.length) return null;
+  const student = rows.find(function (row) { return String(row.speaker) === 'student'; });
   if (expectedTurn) {
-    const student = rows.find(function (row) { return String(row.speaker) === 'student'; });
     const contextMatches = student && rows.every(function (row) {
       return liteTurnRowMatches_(row, expectedTurn);
     });
@@ -678,6 +996,9 @@ function findLiteDuplicateRequest_(requestId, expectedTurn, rowsOverride, spread
     sourceStatus: observation.sourceStatus,
     engineStatus: String(bot.engineStatus || ''),
     aiStatus: String(bot.aiStatus || ''),
+    activityMode:String(bot.activityMode || student && student.activityMode || ''),
+    isPreview:String(bot.isPreview || student && student.isPreview) === 'true' ||
+      bot.isPreview === true || Boolean(student && student.isPreview === true),
     retryable: String(bot.engineStatus || '').indexOf('engine_failed:') === 0,
     observation: observation
   };
@@ -758,9 +1079,16 @@ function commitLitePreparedResult_(settings, turn, prepared, runtimeContext) {
     sessionRows:runtimeContext.sessionRows
   });
   const evaluationWarning = saved.evaluationWarning || '';
-  if (turn.isPreview && /^ok:/.test(String(prepared.aiStatus || '')) &&
+  const previewSettings = runtimeContext.currentSettings || settings;
+  const capturedPreviewKey = liteText_(turn.previewVerificationKey, 80);
+  const currentPreviewVerificationKey = turn.isPreview
+    ? litePreviewVerificationKey_(previewSettings)
+    : '';
+  if (turn.isPreview && capturedPreviewKey &&
+      capturedPreviewKey === liteFingerprint_(currentPreviewVerificationKey, 48) &&
+      /^ok:/.test(String(prepared.aiStatus || '')) &&
       /^finalized:/.test(String(prepared.engineStatus || ''))) {
-    markLitePreviewVerified_(settings);
+    markLitePreviewVerifiedKey_(currentPreviewVerificationKey, turn.previewExpectedMarker);
   }
   const repairRequired = Boolean(evaluationWarning);
   if (!repairRequired) clearLitePendingState_(turn.requestId);
@@ -784,13 +1112,35 @@ function commitLitePreparedResult_(settings, turn, prepared, runtimeContext) {
   };
 }
 
-function handleLiteDuplicateRequest_(duplicate, settings, turn, spreadsheet, sessionRows) {
+function handleLiteDuplicateRequest_(
+  duplicate, settings, turn, spreadsheet, sessionRows, pendingState, currentSettings
+) {
   let repairFailed = false;
   if (!duplicate.retryable) {
-    if (turn.isPreview && /^ok:/.test(duplicate.aiStatus) && /^finalized:/.test(duplicate.engineStatus)) {
-      markLitePreviewVerified_(settings);
-    }
-    if (!turn.isPreview) {
+    if (turn.isPreview) {
+      // exact pending 저널이 있을 때만 요청 시작 당시 fingerprint를 신뢰한다.
+      // 완료 행만 있는 일반 duplicate로 현재 API·엔진의 미리보기를 통과시키지는 않는다.
+      const capturedPreviewKey = liteText_(
+        pendingState && pendingState.turnSnapshot &&
+          pendingState.turnSnapshot.previewVerificationKey,
+        80
+      );
+      const currentPreviewVerificationKey = currentSettings
+        ? litePreviewVerificationKey_(currentSettings)
+        : '';
+      const capturedExpectedMarker = liteText_(
+        pendingState && pendingState.turnSnapshot &&
+          pendingState.turnSnapshot.previewExpectedMarker,
+        80
+      );
+      if (capturedPreviewKey && currentSettings &&
+          capturedExpectedMarker &&
+          capturedPreviewKey === liteFingerprint_(currentPreviewVerificationKey, 48) &&
+          /^ok:/.test(duplicate.aiStatus) && /^finalized:/.test(duplicate.engineStatus)) {
+        try { markLitePreviewVerifiedKey_(currentPreviewVerificationKey, capturedExpectedMarker); }
+        catch (error) { repairFailed = true; }
+      }
+    } else {
       try { repairLiteStudentSummary_(spreadsheet, turn, duplicate.observation, sessionRows); }
       catch (error) { repairFailed = true; }
       if (turn.activityMode === 'evaluation') {
@@ -830,14 +1180,17 @@ function handleLiteDuplicateRequest_(duplicate, settings, turn, spreadsheet, ses
 
 function submitLiteTurn(payload) {
   const spreadsheet = getLiteSpreadsheet_();
-  // 학생 입장 전에 준비 검사가 끝났으므로, 매 턴마다 다섯 시트의 스키마를 다시 쓰지 않는다.
-  const settings = readLiteTeacherSettings_(spreadsheet, { skipEnsure:true });
-  const turn = prepareLiteStudentTurn_(payload, settings);
-  const requestClaim = safeClaimLiteInFlightRequest_(turn.requestId, turn.sessionId);
+  const currentSettings = readLiteTeacherSettings_(spreadsheet, { skipEnsure:true });
+  // requestId 잠금과 O(1) 복구 저널 확인만 접근 검사보다 먼저 한다.
+  // 새 요청의 잘못된 참여코드가 학생 범위 잠금이나 Sheet 전체 읽기를 일으키지 않게 한다.
+  let turn = prepareLiteRecoveryTurn_(payload, currentSettings);
+  const claimedTurn = turn;
+  let studentLessonClaimKey = '';
+  const requestClaim = safeClaimLiteInFlightRequest_(claimedTurn.requestId);
   if (!requestClaim.claimed) {
     const claimFailed = requestClaim.reason === 'claim_failed';
     return {
-      ok:false, retryable:true, sessionId:turn.sessionId,
+      ok:false, retryable:true, sessionId:claimedTurn.sessionId,
       retrySameRequest:true,
       reply:claimFailed
         ? '요청을 안전하게 시작하지 못했어요. 잠시 뒤 같은 질문을 다시 보내 주세요.'
@@ -846,6 +1199,58 @@ function submitLiteTurn(payload) {
     };
   }
   try {
+  const pendingState = readLitePendingState_(turn);
+  if (pendingState) hydrateLiteRecoveryTurn_(turn, pendingState);
+  if (pendingState && pendingState.state === 'provider_started') {
+    const providerMayStillFinish = Date.now() - Number(pendingState.at || 0) <
+      LITE_REQUEST_CLAIM_TTL_MS_;
+    if (!providerMayStillFinish) {
+      // Apps Script 최대 실행시간보다 긴 claim TTL이 지났는데 후보가 없다면
+      // 과금 여부를 안전하게 판정할 수 없다. 같은 requestId의 자동 재호출을 중단한다.
+      try { saveLitePendingState_(turn, 'result_unrecoverable', null); }
+      catch (error) {}
+    }
+    return {
+      ok:false,
+      retryable:providerMayStillFinish,
+      retrySameRequest:providerMayStillFinish,
+      sessionId:turn.sessionId,
+      isClosing:!providerMayStillFinish,
+      reply:providerMayStillFinish
+        ? '이미 보낸 질문의 결과를 확인하고 있어요. 잠시만 기다려 주세요.'
+        : '답변 생성은 시작됐지만 결과 기록을 확인하지 못했어요. 같은 질문을 다시 보내지 말고 선생님께 알려 주세요.',
+      warning:providerMayStillFinish
+        ? '유료 API 중복 호출 방지 중'
+        : '과금 여부가 불명확해 같은 요청의 재호출을 중단했습니다.'
+    };
+  }
+  if (pendingState && pendingState.state === 'result_unrecoverable') {
+    return {
+      ok:false, retryable:false, sessionId:turn.sessionId, isClosing:true,
+      reply:'응답은 만들었지만 안전한 기록을 확인하지 못했어요. 같은 질문을 다시 보내지 말고 선생님께 알려 주세요.',
+      warning:'유료 API 중복 호출을 막기 위해 재호출 중단'
+    };
+  }
+
+  if (!pendingState) {
+    // 기존 저널이 없는 새 요청은 Sheet를 읽기 전에 현재 수업의 모든 접근 조건을 검사한다.
+    turn = prepareLiteStudentTurn_(payload, currentSettings);
+  }
+  studentLessonClaimKey = liteStudentLessonClaimKey_(turn);
+  const scopeClaim = safeClaimLiteInFlightScopes_(
+    turn.requestId, turn.sessionId, studentLessonClaimKey
+  );
+  if (!scopeClaim.claimed) {
+    const scopeFailed = scopeClaim.reason === 'claim_failed';
+    return {
+      ok:false, retryable:true, retrySameRequest:true, sessionId:turn.sessionId,
+      reply:scopeFailed
+        ? '요청의 안전 범위를 확인하지 못했어요. 잠시 뒤 같은 질문을 다시 보내 주세요.'
+        : '같은 학생의 질문을 처리하고 있어요. 잠시 뒤 다시 보내 주세요.',
+      warning:scopeFailed ? '요청 범위 잠금 확인 실패' : '학생별 중복 모델 호출을 막았습니다.'
+    };
+  }
+
   const qaSheet = spreadsheet.getSheetByName('질문과 답변');
   if (!qaSheet) throw new Error('교사가 수업 시트 준비를 다시 실행해 주세요.');
   // 같은 세션 claim을 잡은 뒤 한 번 읽은 행을 중복·횟수·문맥·기록 단계에서 재사용한다.
@@ -858,30 +1263,52 @@ function submitLiteTurn(payload) {
     workbookReady:true,
     prechecked:true,
     allRows:qaRows,
-    sessionRows:sessionRows
+    sessionRows:sessionRows,
+    currentSettings:currentSettings
   };
   const duplicate = findLiteDuplicateRequest_(turn.requestId, turn, qaRows, spreadsheet);
   if (duplicate) {
-    return handleLiteDuplicateRequest_(duplicate, settings, turn, spreadsheet, sessionRows);
+    if (duplicate.activityMode === 'evaluation' || duplicate.activityMode === 'exploration') {
+      turn.activityMode = duplicate.activityMode;
+    }
+    const duplicateSettings = liteRecoverySettings_(currentSettings, turn);
+    return handleLiteDuplicateRequest_(
+      duplicate, duplicateSettings, turn, spreadsheet, sessionRows, pendingState, currentSettings
+    );
   }
 
-  const pendingState = readLitePendingState_(turn);
-  if (pendingState && pendingState.state === 'provider_started') {
-    return {
-      ok:false, retryable:true, retrySameRequest:true, sessionId:turn.sessionId,
-      reply:'이미 보낸 질문의 결과를 확인하고 있어요. 잠시만 기다려 주세요.',
-      warning:'유료 API 중복 호출 방지 중'
-    };
-  }
-  if (pendingState && pendingState.state === 'result_unrecoverable') {
-    return {
-      ok:false, retryable:false, sessionId:turn.sessionId, isClosing:true,
-      reply:'응답은 만들었지만 안전한 기록을 확인하지 못했어요. 같은 질문을 다시 보내지 말고 선생님께 알려 주세요.',
-      warning:'유료 API 중복 호출을 막기 위해 재호출 중단'
-    };
+  const recoverySettings = liteRecoverySettings_(currentSettings, turn);
+  if (pendingState && pendingState.state === 'candidate_ready' && pendingState.output) {
+    const candidateHistory = withLiteVirtualStartQuestion_(
+      getLiteSessionHistory_(turn.sessionId, spreadsheet, qaRows), turn.startQuestion
+    );
+    const currentEngineRuntime = readLiteEngineRuntimeSnapshot_();
+    const canReuseCurrentEngine = liteTurnMatchesSettingsIdentity_(turn, currentSettings) &&
+      Boolean(turn.engineEndpoint) &&
+      Boolean(turn.enginePolicyVersion) &&
+      Boolean(turn.engineVerificationKey) &&
+      turn.engineVerificationKey === currentEngineRuntime.key &&
+      String(pendingState.output.plan && pendingState.output.plan.policyVersion || '') ===
+        String(turn.enginePolicyVersion);
+    const recoveredPrepared = canReuseCurrentEngine
+      ? prepareLiteCandidateResult_(turn, currentSettings, candidateHistory, pendingState.output)
+      : prepareLiteCandidateFallback_(pendingState.output);
+    if (!trySaveLitePreparedResult_(turn, recoveredPrepared)) {
+      recoveredPrepared.warning = [
+        recoveredPrepared.warning, '유료 응답 복구 기록을 확인하지 못했습니다.'
+      ].filter(Boolean).join(' ');
+    }
+    return commitLitePreparedResult_(recoverySettings, turn, recoveredPrepared, runtimeContext);
   }
   if (pendingState && pendingState.state === 'result_ready' && pendingState.output) {
-    return commitLitePreparedResult_(settings, turn, pendingState.output, runtimeContext);
+    return commitLitePreparedResult_(recoverySettings, turn, pendingState.output, runtimeContext);
+  }
+  if (pendingState) {
+    return {
+      ok:false, retryable:false, sessionId:turn.sessionId, isClosing:true,
+      reply:'이전 응답의 복구 정보를 확인하지 못했어요. 같은 질문을 다시 보내지 말고 선생님께 알려 주세요.',
+      warning:'알 수 없는 응답 복구 상태'
+    };
   }
 
   if (!hasLiteEngineEndpoint_()) throw new Error('중앙 정책 엔진 연결을 준비하고 있습니다. 잠시 뒤 다시 시도해 주세요.');
@@ -913,8 +1340,9 @@ function submitLiteTurn(payload) {
   const requestBudget = safeReserveLiteEngineRequest_(turn);
   if (!requestBudget.allowed) {
     const minuteLimited = requestBudget.reason === 'minute_limit';
+    const retrySameRequest = minuteLimited || requestBudget.reason === 'budget_check_failed';
     return {
-      ok:false, retryable:minuteLimited, retrySameRequest:minuteLimited,
+      ok:false, retryable:retrySameRequest, retrySameRequest:retrySameRequest,
       sessionId:turn.sessionId,
       reply:minuteLimited
         ? '친구들의 질문이 한꺼번에 들어오고 있어요. 잠시 뒤 자동으로 다시 확인할게요.'
@@ -927,7 +1355,7 @@ function submitLiteTurn(payload) {
 
   let plan;
   try {
-    plan = requestLiteEnginePlan_(turn, settings, history);
+    plan = requestLiteEnginePlan_(turn, currentSettings, history);
   } catch (error) {
     // 엔진 실패 시 모델을 독자 호출하지 않고 실패 턴을 교사 Sheet에 남긴다.
     const failureReply = '중앙 평가 규칙을 불러오지 못했어요. 잠시 뒤 같은 질문을 다시 보내 주세요.';
@@ -962,27 +1390,35 @@ function submitLiteTurn(payload) {
       } else try {
         providerAttempted = true;
         modelResult = callLiteOpenAI_(plan, turn.requestId);
-        aiStatus = 'generated:' + liteText_(modelResult && modelResult.model, 80);
-        try {
-          const finalized = requestLiteEngineFinalize_(
-            turn, settings, history, modelResult.text, modelResult.evidenceQuote, plan
-          );
-          reply = finalized.studentReply;
-          observation = finalized.observation || observation;
-          engineStatus = 'finalized:' + liteText_(finalized.policyVersion, 80);
-          replyFinalizedByEngine = true;
-          if (finalized.localFallback) {
-            aiStatus = 'generated_not_used:central_rejected';
-            warning = '개인 API 답변이 공통 안전·근거 검사를 통과하지 않아 기본 답변을 사용했습니다.';
-          } else {
-            aiStatus = 'ok:' + liteText_(modelResult && modelResult.model, 80);
-          }
-        } catch (error) {
-          // 공통 후처리를 통과하지 못한 모델 문장은 학생에게 보내지 않는다.
+        // 유료 응답을 받은 즉시 후보를 저장한 뒤 중앙 finalize 통신을 시작한다.
+        // 이 사이 실행이 강제 종료되어도 같은 requestId 재시도는 개인 API를 다시 호출하지 않는다.
+        const savedCandidate = trySaveLiteCandidateState_(
+          turn, buildLiteCandidateState_(plan, modelResult)
+        );
+        if (!savedCandidate) {
           reply = plan.fallbackReply;
-          engineStatus = 'finalize_failed_fallback:' + liteText_(error && error.message, 140);
-          aiStatus = 'generated_not_used';
-          warning = '개인 API 답변을 공통 엔진에서 최종 확인하지 못해 안전한 기본 답변을 사용했습니다.';
+          observation = plan.observation || observation;
+          engineStatus = 'candidate_journal_failed_fallback';
+          aiStatus = 'generated_not_used:journal_failure';
+          warning = '유료 API 응답의 복구 상태를 저장하지 못해 안전한 기본 답변을 사용했습니다.';
+        } else {
+          // plan과 유료 후보 생성 사이에 중앙 엔진 세대가 바뀌었다면 새 endpoint로
+          // 과거 후보를 보내지 않고, 이미 저장한 계획의 fallback만 기록한다.
+          const currentEngineRuntime = readLiteEngineRuntimeSnapshot_();
+          const candidatePrepared = Boolean(turn.engineEndpoint) &&
+              Boolean(turn.enginePolicyVersion) &&
+              Boolean(turn.engineVerificationKey) &&
+              turn.engineVerificationKey === currentEngineRuntime.key &&
+              String(savedCandidate.plan && savedCandidate.plan.policyVersion || '') ===
+                String(turn.enginePolicyVersion)
+            ? prepareLiteCandidateResult_(turn, currentSettings, history, savedCandidate)
+            : prepareLiteCandidateFallback_(savedCandidate);
+          reply = candidatePrepared.reply;
+          observation = candidatePrepared.observation;
+          engineStatus = candidatePrepared.engineStatus;
+          aiStatus = candidatePrepared.aiStatus;
+          warning = candidatePrepared.warning;
+          replyFinalizedByEngine = true;
         }
       } catch (error) {
         if (error && error.usage) {
@@ -1009,8 +1445,8 @@ function submitLiteTurn(payload) {
   if (providerAttempted && !trySaveLitePreparedResult_(turn, prepared)) {
     prepared.warning = [prepared.warning, '유료 응답 복구 기록을 확인하지 못했습니다.'].filter(Boolean).join(' ');
   }
-  return commitLitePreparedResult_(settings, turn, prepared, runtimeContext);
+  return commitLitePreparedResult_(currentSettings, turn, prepared, runtimeContext);
   } finally {
-    safeReleaseLiteInFlightRequest_(turn.requestId, turn.sessionId);
+    safeReleaseLiteInFlightRequest_(claimedTurn.requestId, claimedTurn.sessionId, studentLessonClaimKey);
   }
 }

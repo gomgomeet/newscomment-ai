@@ -209,9 +209,12 @@ function getLiteTeacherDashboardData(teacherAccessToken) {
   });
   const decorate = function (row) {
     const sessionId = String(row.sessionId || '');
+    const evidenceObservationCount = String(row.evidenceRequestIds || '').split('|')
+      .map(function (value) { return value.trim(); }).filter(Boolean).length;
     return Object.assign({}, row, {
       sessionConflict: Number(sessionCounts[String(row.studentCode || '')] || 0) > 1,
       sessionLabel: sessionId ? sessionId.slice(-6) : '',
+      evidenceObservationCount: evidenceObservationCount,
       reviewVersion: row.automaticJudgment ? liteEvaluationReviewVersion_(row) : ''
     });
   };

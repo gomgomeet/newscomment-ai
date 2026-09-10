@@ -15,7 +15,7 @@
     "eval:gas:parity": "node --experimental-strip-types evals/gas/parity.mjs",
     "eval:gas:e2e": "node evals/gas/e2e.mjs",
     "build:gas-lite-distribution": "node scripts/build-gas-lite-distribution.mjs",
-    "test:gas-lite": "node scripts/test-gas-lite.cjs && node scripts/test-gas-lite-distribution.cjs",
+    "test:gas-lite": "node scripts/test-gas-lite.cjs && node scripts/test-gas-lite-distribution.cjs && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types scripts/test-questioning-chat-rate-limit.mts",
     "test:lite-engine-http": "node scripts/test-lite-engine-http.mjs",
     "eval:questioning:holdout": "node scripts/run-questioning-dialogue-eval.mjs --suite=holdout"
   },
