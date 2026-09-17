@@ -411,3 +411,51 @@ test('tampered plan digest cannot be finalized', () => {
     candidateEvidenceQuote: cafeteriaSentences.result,
   }), /최신 계획/);
 });
+
+const substation = {
+  id:'resident-position-incident', title:'감일동 변전소 문제',
+  text:`경기도 하남시 감일동에서는 발전소에서 만들어진 전기를 필요한 곳에 보내는 시설인 동서울변전소를 더 크게 만드는 사업이 진행되고 있습니다. 하지만 주변 주민들이 오랫동안 반대하고 있어 이 사업은 2년 넘게 제대로 진행되지 못하고 있습니다.
+
+정부와 국회의원은 이 문제를 해결하기 위해 주민 참여 공청회를 열었습니다. 주민 참여 공청회는 주민들이 직접 참여하여 자신의 생각과 의견을 이야기하고, 서로의 생각을 들어보는 자리입니다.
+
+공청회에서는 변전소를 지금의 장소에 더 크게 만들 것인지, 다른 장소를 찾아볼 것인지에 대해 여러 의견이 나왔습니다. 정부는 주민들과 함께 두 달 동안 더 이야기를 나누어 보자고 했습니다.
+
+감일동 주민들은 변전소를 더 크게 만들기 전에 주민들이 안전하게 생활할 수 있는 방법과 편의시설을 마련해야 한다고 주장하고 있습니다. 하남시도 주민들의 안전과 의견이 충분히 반영되지 않으면 건축허가를 내주지 않겠다는 입장입니다. 이 공사를 담당하고 있는 한국전력공사는 주민들이 사용할 수 있는 편의시설과 120명 이상이 사용할 수 있는 사무실을 만들어주는 등의 주민과 하남시의 구체적인 보완 요구를 들어주는 것에 망설이고 있습니다.
+
+정부는 동해안에서 만든 전기를 수도권으로 보내기 위해 동서울변전소를 더 크게 만드는 일이 꼭 필요하다고 말합니다. 따라서 두 달 동안 합의가 진행되지 않으면 그대로 변전소 공사를 시작하겠다고 강력하게 이야기 했습니다. 반면 주민들은 나라에 필요한 사업이라도 주민들의 안전과 생활을 먼저 생각해야 한다고 말하고 있습니다.
+
+앞으로 이 문제를 해결하기 위해서는 주민 참여 공청회와 충분한 대화를 통해 정부, 한국전력, 하남시, 주민들이 서로의 의견을 듣고 모두가 납득할 수 있는 방법을 찾는 것이 중요합니다.`,
+};
+
+for (const activityMode of ['evaluation', 'exploration']) {
+  test(`a follow-up about residents' opposition receives their stated concerns in ${activityMode}`, () => {
+    const input = inputFor('주민들은 왜 반대하고 있나요?', substation, {activityMode,
+      history:[
+        {speaker:'bot',text:'감일동에서 어떤 일이 생겼을까요?'},
+        {speaker:'student',text:'동서울 변전소 사업이 진행되고 있는데 주민들이 반대하고 있어요'},
+        {speaker:'bot',text:'답변을 남겼어요. 자료에서 더 궁금한 낱말이나 내용을 질문해 주세요.'},
+      ],
+    });
+    Object.assign(input.lesson, {
+      lessonGoal:'지역 문제에 대한 서로 다른 입장과 주민 참여의 중요성을 설명한다.',
+      assessmentCriteria:'주민의 요구를 지문에서 찾아 설명한다.',
+      rubricHigh:'요구와 이유를 연결한다.',rubricMeet:'주민의 요구를 설명한다.',
+      rubricDeveloping:'관련 사실의 일부를 설명한다.',evidenceDescription:'학생의 근거와 설명',
+      startQuestion:'감일동에서 어떤 일이 생겼을까요?',
+    });
+    const plan = createLiteEnginePlan(input);
+    assert.equal(plan.skipModel,false);
+    assert.equal(plan.observation.safetyFlag,false);
+    assert.match(plan.observation.sourceCue,/주민들.*안전/);
+    const quote = plan.observation.sourceCue.split(/(?<=\.)\s*/).find(sentence=>/주민들.*안전/.test(sentence));
+    assert.ok(quote && substation.text.includes(quote));
+    const answer = '주민들은 안전하게 생활할 수 있는 방법을 먼저 마련해야 한다고 생각하기 때문이에요.';
+    const final = finalize(input,plan,answer,quote);
+    assert.equal(final.localFallback,false);
+    assert.ok(final.studentReply.startsWith(answer));
+    assert.doesNotMatch(final.studentReply,/자료에는.*이유가.*않|완성된 답이나 문단/);
+    const wrong = finalize(input,plan,'자료에는 주민들이 반대하는 이유가 나오지 않습니다.',
+      '하지만 주변 주민들이 오랫동안 반대하고 있어 이 사업은 2년 넘게 제대로 진행되지 못하고 있습니다.');
+    assert.equal(wrong.localFallback,true,'a statement that opposition happened cannot replace the available concern evidence');
+  });
+}

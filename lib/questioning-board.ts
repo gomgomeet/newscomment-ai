@@ -1316,6 +1316,11 @@ export function emptyMaterialAnalysis(): MaterialAnalysis {
   };
 }
 
+function asksForContextualReason(value: string) {
+  if (/(낱말|단어|용어|뜻|의미|(?:이유|까닭|원인)(?:이)?라는\s*말)/.test(value)) return false;
+  return /[가-힣A-Za-z0-9]+\s+(?:이유|까닭|원인)(?:은|는|이|가|을|를)?\s*(?:무엇|뭐|어떤|알려|설명|궁금|모르)/.test(value);
+}
+
 export function isVocabularyQuestion(value: string, vocabularySignals: string[] = []) {
   const normalized = value.trim().toLowerCase();
   const compact = normalized.replace(/\s+/g, "");
@@ -1324,6 +1329,9 @@ export function isVocabularyQuestion(value: string, vocabularySignals: string[] 
   if (/(다는|라는|했다는|였다는|없다는|있다는|줄었다는|늘었다는)뜻/.test(semanticCompact)) {
     return false;
   }
+  // "반대하는 이유는 무엇인가요?" asks about an event, whereas
+  // "이유라는 낱말은 무슨 뜻인가요?" still asks for a definition.
+  if (asksForContextualReason(value)) return false;
 
   // "양 선택제에 대해서 설명해 주세요"처럼 낱말을 콕 집어 설명해 달라는 말.
   // 자료·기사처럼 글 전체를 가리키는 말은 낱말이 아니므로 제외한다.
@@ -1409,6 +1417,7 @@ export function classifyQuestionLocally(
   if (isVocabularyQuestion(question, keywords.vocabulary)) {
     return "vocabulary";
   }
+  if (asksForContextualReason(question)) return "inference";
 
   if (keywords.reflection.some((signal) => normalized.includes(signal.toLowerCase()))) {
     return "reflection";
@@ -1525,6 +1534,49 @@ function normalizeSearchToken(token: string) {
 
 const sourceQuantityPattern = /(?:\d+(?:[.,]\d+)*|한|두|세|네|다섯|여섯|일곱|여덟|아홉|열|백|천)\s*(킬로그램|퍼센트|리터|시간|개월|kg|km|cm|mm|ml|명|개|통|권|원|도|년|월|일|분|초|배|%)/gi;
 
+function comparesPositions(question: string) {
+  const compact = question.replace(/\s+/g, "");
+  return /(입장|의견|주장|요구)/.test(compact) &&
+    (/(비교|차이|다르|다른|각각|서로)/.test(compact) ||
+      /(?:와|과|및).{0,18}(?:입장|의견|주장|요구)/.test(compact));
+}
+
+function positionQuestionActor(question: string) {
+  const compact = question.replace(/\s+/g, "");
+  // A comparison needs both parties' evidence, not one inferred speaker.
+  if (comparesPositions(question)) return "";
+  if (!/(입장|의견|주장|요구|우려|걱정|반대|찬성|거부|반발|원하)/.test(compact) ||
+      !/(왜|이유|까닭|무엇|어떤|뭐|입장|의견|주장|요구)/.test(compact)) return "";
+  const possessive = question.match(/([가-힣A-Za-z0-9]+?)(?:들)?의\s*(?:입장|의견|주장|요구|우려|걱정|반대|찬성)/);
+  const subject = question.match(/(?:^|\s)([가-힣A-Za-z0-9]+?)(?:들은|들이|께서|은|는|이|가)\s/);
+  return normalizeSearchToken(possessive?.[1] || subject?.[1] || "");
+}
+
+function sourcePositionActor(sentence: string) {
+  // A party merely mentioned in another party's statement is not its speaker.
+  // Use the first explicit subject, including plural Korean subject particles.
+  const subject = sentence.match(/(?:^|[\s“‘"'])([가-힣A-Za-z0-9]+?)(?:들은|들이|께서|은|는|이|가|도)\s/);
+  return normalizeSearchToken(subject?.[1] || "");
+}
+
+function positionMatchesQuestionTopic(sentence: string, question: string, actor: string) {
+  const topics = (question.match(/[가-힣A-Za-z0-9]+/g) || []).map(normalizeSearchToken)
+    .filter((term) => term.length >= 2 && term !== actor && !questionSearchStopwords.has(term) &&
+      !questionIntentTerms.has(term) && !/^(입장|의견|주장|요구|우려|걱정|반대|찬성|거부|반발|원하)/.test(term));
+  // If the question names a proposal, a different demand from the same speaker
+  // cannot supply its reason. Without an explicit topic, use that party's text.
+  const compactSentence = sentence.toLowerCase().replace(/\s+/g, "");
+  return !topics.length || topics.some((topic) => compactSentence.includes(topic));
+}
+
+function hasExplicitPosition(sentence: string) {
+  // Opposition alone names the event, not its reason. A reported demand,
+  // concern or statement provides the party's stated grounds without guessing.
+  if (/(?:반대|찬성|거부|반발)(?:한다고|한다는|했다고|하겠다고|하고\s*있다고|할\s*것이라고|(?:의|한다는)?\s*입장).{0,15}(?:말|밝|설명|주장)/.test(sentence) &&
+      !/(때문|덕분|탓|위해|므로|어서|해서|아져|어져|우려|걱정|염려)/.test(sentence)) return false;
+  return /(주장|요구|우려|걱정|염려|입장|(?:다고|라고).{0,15}(?:말|설명|생각|밝|강조))/.test(sentence);
+}
+
 export function scoreSourceSentence(
   sentence: string,
   question: string,
@@ -1541,6 +1593,14 @@ export function scoreSourceSentence(
       : 0
   ), 0);
   let score = topicScore;
+
+  const positionActor = positionQuestionActor(question);
+  if (positionActor) {
+    const sentenceActor = sourcePositionActor(sentence);
+    if (sentenceActor === positionActor && hasExplicitPosition(sentence) &&
+        positionMatchesQuestionTopic(sentence, question, positionActor)) score += 16;
+    else if (sentenceActor && sentenceActor !== positionActor) score -= 8;
+  }
 
   // "설명했다"라는 말만으로 질문한 대상의 원인을 설명한 문장이라고 볼 수 없다.
   // 문장 자체의 관련성과 실제 인과 표현을 함께 보며 이웃 문장의 점수를 빌리지 않는다.
@@ -1630,6 +1690,30 @@ function findRelevantSourceExcerpt(question: string, material: MaterialAnalysis,
     bestSegment.text.length + nextSegment.text.length <= 260
       ? `${bestSegment.text} ${nextSegment.text}`
       : bestSegment.text;
+
+  const positionActor = positionQuestionActor(question);
+  if (positionActor) {
+    // Keep evidence attributed to the requested party even when its explanation
+    // is in a later paragraph. An adjacent opposing statement is not its reason.
+    const statements = scored.filter(({ index }) =>
+      sourcePositionActor(segments[index].text) === positionActor &&
+      hasExplicitPosition(segments[index].text) &&
+      positionMatchesQuestionTopic(segments[index].text, question, positionActor))
+      .sort((left, right) => right.score - left.score);
+    combined = statements.length ? segments[statements[0].index].text : bestSegment.text;
+    const additional = statements.slice(1).find(({ index }) =>
+      combined.length + segments[index].text.length + 2 <= 260);
+    if (additional) combined += `\n\n${segments[additional.index].text}`;
+  }
+  if (comparesPositions(question)) {
+    const previous = segments[best.index - 1];
+    if (previous && previous.paragraphIndex === bestSegment.paragraphIndex &&
+        scored[best.index - 1].score > 0 && sourcePositionActor(previous.text) &&
+        sourcePositionActor(previous.text) !== sourcePositionActor(bestSegment.text) &&
+        previous.text.length + bestSegment.text.length + 1 <= 260) {
+      combined = `${previous.text} ${bestSegment.text}`;
+    }
+  }
 
   // 원인 확정을 물으면 결과뿐 아니라 교사가 제공한 한계도 같은 근거 묶음에 둔다.
   // 요약에서 새 조건을 만들어 보태지 않고 본문 문장을 그대로 사용한다.
