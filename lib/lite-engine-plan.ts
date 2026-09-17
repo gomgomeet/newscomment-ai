@@ -23,7 +23,7 @@ import {
 } from "@/lib/questioning-conversation-phase";
 
 export const LITE_ENGINE_SCHEMA_VERSION = 1;
-export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v6";
+export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v7";
 
 type LiteOutputContract = "lead_evidence_quote_v1" | "grounded_answer_v2";
 
