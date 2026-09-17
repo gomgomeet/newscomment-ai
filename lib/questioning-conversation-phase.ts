@@ -1,8 +1,9 @@
-import type {
-  ChatEvaluation,
-  ChatResult,
-  MaterialAnalysis,
-  QuestioningConversationEntry,
+import {
+  isQuestioningHintRequest,
+  type ChatEvaluation,
+  type ChatResult,
+  type MaterialAnalysis,
+  type QuestioningConversationEntry,
 } from "@/lib/questioning-board";
 import {
   buildStandardTargets,
@@ -108,7 +109,7 @@ function hasLessonWord(text: string, material: MaterialAnalysis) {
 }
 
 function isCountableStudentQuestion(text: string, material: MaterialAnalysis) {
-  if (!isStudentQuestion(text) || BLOCKED_REQUEST.test(text)) return false;
+  if (isQuestioningHintRequest(text) || !isStudentQuestion(text) || BLOCKED_REQUEST.test(text)) return false;
   return !OBVIOUS_OFF_TOPIC.test(text) || hasLessonWord(text, material);
 }
 
@@ -186,7 +187,12 @@ function lastAssistantQuestion(conversation: QuestioningConversationEntry[], tar
   for (let index = conversation.length - 1; index >= 0; index -= 1) {
     const entry = conversation[index];
     if (entry.role !== "assistant") continue;
-    return classifyAssistantQuestion(entry.content, targets);
+    const question = classifyAssistantQuestion(entry.content, targets);
+    if (question) return question;
+    // 힌트 뒤의 실제 답변은 힌트를 요청하기 전의 문항에 대한 답변이다.
+    const request = conversation[index - 1];
+    if (request?.role === "student" && isQuestioningHintRequest(request.content)) continue;
+    return null;
   }
   return null;
 }
@@ -347,7 +353,8 @@ function phaseResponseScores(
     const student = transcript[index];
     const assistant = transcript[index - 1];
     if (student.role !== "student" || assistant.role !== "assistant") continue;
-    const question = classifyAssistantQuestion(assistant.content, targets);
+    if (isQuestioningHintRequest(student.content)) continue;
+    const question = lastAssistantQuestion(transcript.slice(0, index), targets);
     if (!question) continue;
     scores.push({ kind: question.kind, score: answerScore(question, student.content, material) });
   }
@@ -474,18 +481,19 @@ export function getQuestioningTurnMetadata({
   const targets = buildStandardTargets(standard, teacherMemo);
   const currentQuestion = classifyAssistantQuestion(result.studentReply, targets);
   const previousQuestion = lastAssistantQuestion(conversation, targets);
+  const requestsHint = isQuestioningHintRequest(currentTurn);
   let managedKind: QuestioningManagedKind = "";
   if (result.studentReply.includes(PHASE_B1_PROMPT)) managedKind = "b1";
   else if (result.studentReply.includes(PHASE_B2_PROMPT)) managedKind = "b2";
   else if (SENTENCE_DIFFICULTY.test(currentTurn) && result.primaryMove === "offer_clue") {
     managedKind = "explain_sentence";
   } else if (currentQuestion) managedKind = currentQuestion.kind;
-  else if (result.conversationPhase === 2 && !result.expectsStudentReply) managedKind = "done";
+  else if (!requestsHint && result.conversationPhase === 2 && !result.expectsStudentReply) managedKind = "done";
 
   return {
     managedKind,
     relatedQuestion: isPassageRelatedQuestion(currentTurn, material),
-    responseScore: previousQuestion ? answerScore(previousQuestion, currentTurn, material) : null,
+    responseScore: previousQuestion && !requestsHint ? answerScore(previousQuestion, currentTurn, material) : null,
   };
 }
 
@@ -514,7 +522,8 @@ export function applyQuestioningConversationPhase({
   const currentPhaseOneQuestions = [...priorStudentTurns.map((entry) => entry.content), currentTurn].filter((turn) =>
     isPassageRelatedQuestion(turn, material),
   ).length;
-  const protectedMove = result.isClosing || result.primaryMove === "repair" || result.primaryMove === "safety_redirect";
+  const protectedMove = result.isClosing || result.primaryMove === "repair" || result.primaryMove === "safety_redirect" ||
+    isQuestioningHintRequest(currentTurn);
   const paraphrased = paraphraseDifficultSentence(currentTurn, material);
 
   // B1/B2는 이 판정기에서만 결정한다. 기본 생성기가 같은 문구를 우연히
@@ -524,7 +533,7 @@ export function applyQuestioningConversationPhase({
   let supportLevel = result.supportLevel;
   let enteredPhaseTwo = asked.length > 0 || b2Used || currentPhaseOneQuestions >= 4;
 
-  if (paraphrased && !result.isClosing && result.primaryMove !== "safety_redirect") {
+  if (paraphrased && !protectedMove) {
     studentReply = paraphrased;
     primaryMove = "offer_clue";
     supportLevel = 2;

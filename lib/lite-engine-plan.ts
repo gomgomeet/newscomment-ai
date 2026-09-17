@@ -15,15 +15,23 @@ import {
 } from "@/lib/questioning-board";
 import {
   QUESTIONING_ENGINE_FAMILY,
+  createQuestioningLocalBaseResult,
   runQuestioningLocalEngine,
 } from "@/lib/questioning-engine-core";
+import {
+  type AssessmentPlan,
+  type AssessmentProgress,
+  normalizeAssessmentPlan,
+  normalizeAssessmentProgress,
+  runLiteAssessmentTurn,
+} from "@/lib/lite-assessment-plan";
 import {
   getQuestioningTurnMetadata,
   type QuestioningManagedKind,
 } from "@/lib/questioning-conversation-phase";
 
 export const LITE_ENGINE_SCHEMA_VERSION = 1;
-export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v12";
+export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v13";
 
 type LiteOutputContract = "lead_evidence_quote_v1" | "grounded_answer_v2";
 
@@ -51,6 +59,7 @@ export type LiteLessonInput = {
   version: string;
   sourceHash: string;
   lessonRevision: number;
+  assessmentPlan?: AssessmentPlan;
 };
 
 export type LiteEnginePlanInput = {
@@ -62,6 +71,7 @@ export type LiteEnginePlanInput = {
   studentMessage: string;
   history: Array<{ speaker: "student" | "bot"; text: string }>;
   lesson: LiteLessonInput;
+  assessmentProgress?: AssessmentProgress;
 };
 
 export type NormalizedLiteEnginePlanInput = Omit<LiteEnginePlanInput, "history"> & {
@@ -93,6 +103,7 @@ export type LiteEngineObservation = {
   relatedQuestion: boolean;
   responseScore: number | null;
   evidenceIds: string[];
+  assessmentProgress?: AssessmentProgress;
 };
 
 export type LiteEnginePlan = {
@@ -227,7 +238,11 @@ export function normalizeLiteEngineInput(value: unknown): NormalizedLiteEnginePl
     throw new Error("수업 목표 또는 성취기준을 입력해 주세요.");
   }
 
-  return {
+  const assessmentPlan = normalizeAssessmentPlan(lesson.assessmentPlan, materialText, activityMode === "evaluation");
+  if (activityMode === "evaluation" && assessmentPlan.criteria.length && !assessmentPlan.approved) {
+    throw new Error("평가기준별 질문계획을 교사가 확인하고 승인한 뒤 시작해 주세요.");
+  }
+  const normalized: NormalizedLiteEnginePlanInput = {
     schemaVersion: LITE_ENGINE_SCHEMA_VERSION,
     requestId: requiredText(raw.requestId, "요청 ID", 100),
     sessionKey: requiredText(raw.sessionKey, "세션 키", 100),
@@ -259,8 +274,18 @@ export function normalizeLiteEngineInput(value: unknown): NormalizedLiteEnginePl
       version: optionalText(lesson.version, 30) || "v1",
       sourceHash: requiredText(lesson.sourceHash, "수업 설정 해시", 80),
       lessonRevision: Math.max(1, Math.min(10_000, Math.floor(Number(lesson.lessonRevision) || 1))),
+      assessmentPlan,
     },
   };
+  if (activityMode === "evaluation" && assessmentPlan.approved && assessmentPlan.criteria.length) {
+    const progress = normalizeAssessmentProgress(raw.assessmentProgress, assessmentPlan, assessmentLessonIdentity(normalized.lesson));
+    if (progress) normalized.assessmentProgress = progress;
+  }
+  return normalized;
+}
+
+function assessmentLessonIdentity(lesson: LiteLessonInput) {
+  return JSON.stringify([lesson.lessonId, lesson.lessonRevision, lesson.sourceHash]);
 }
 
 function lastQuestionFrom(reply: string) {
@@ -335,7 +360,8 @@ export function createLiteQuestioningConfig(
     keyConcepts: extractKeyConcepts(lesson.materialText),
     vocabulary: [],
     possibleMisconceptions: [],
-    questionSeeds: [lesson.startQuestion],
+    questionSeeds: [backwardDesignEnabled && lesson.assessmentPlan?.approved && lesson.assessmentPlan.criteria.length
+      ? lesson.assessmentPlan.criteria[0].mainQuestion : lesson.startQuestion],
     sourceLimit: "교사가 입력한 수업자료의 범위를 구분해 답합니다.",
     safetyNotice: "학생 이름, 연락처, 주소 등 개인정보를 답에 반복하지 않습니다.",
   };
@@ -485,12 +511,51 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
   const input = normalizeLiteEngineInput(value);
   const lesson = input.lesson;
   const config = createLiteQuestioningConfig(lesson, input.activityMode);
-  const { result: planned } = runQuestioningLocalEngine({
+  const turnInput = {
     config,
     question: input.studentMessage,
     conversation: input.history,
-  });
+  };
+  let { result: planned } = runQuestioningLocalEngine(turnInput);
+  const assessment = input.activityMode === "evaluation" && lesson.assessmentPlan?.approved && lesson.assessmentPlan.criteria.length
+    ? runLiteAssessmentTurn({
+        plan: lesson.assessmentPlan,
+        lessonIdentity: assessmentLessonIdentity(lesson),
+        materialText: lesson.materialText,
+        currentTurn: input.studentMessage,
+        requestId: input.requestId,
+        progress: input.assessmentProgress,
+        history: input.history,
+        // Keep shared safety/topic boundaries, but do not use generic phase questions as assessment answers.
+        baseResult: planned.safetyFlag || planned.isClosing || planned.sourceStatus === "out_of_scope"
+          ? planned : createQuestioningLocalBaseResult(turnInput),
+      })
+    : null;
+  if (assessment) {
+    planned = {
+      ...planned,
+      studentReply: assessment.reply,
+      answer: assessment.reply,
+      followUpQuestion: "",
+      expectsStudentReply: assessment.allowQuestion,
+      isClosing: assessment.isClosing,
+      safetyFlag: planned.safetyFlag || assessment.primaryMove === "safety_redirect",
+      primaryMove: assessment.primaryMove,
+      sourceCue: assessment.sourceCue,
+      sourceStatus: assessment.sourceStatus,
+      conversationPhase: 2,
+      rubricScores: [],
+    };
+  }
   const rawObservation = buildLiteObservation(planned, input, config);
+  if (assessment) {
+    rawObservation.assessmentProgress = assessment.progress;
+    rawObservation.responseScore = null;
+    rawObservation.rubricScores = [];
+    rawObservation.managedKind = assessment.allowQuestion ? "standard" : assessment.progress.stage === "complete" ? "done" : "";
+    rawObservation.evidenceIds = assessment.progress.lastEvent.evidenceVerified
+      ? [`lesson-material:${lesson.lessonId}:r${lesson.lessonRevision}:${lesson.sourceHash}`] : [];
+  }
   const initialAnswerReply = firstEvaluationAnswerReply(input, planned, rawObservation);
   const quantityReply = missingQuantityReply(input.studentMessage, lesson.materialText);
   const replyAdmitsMissingSource =
@@ -513,7 +578,9 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
         evidenceIds: [],
       }
     : rawObservation;
-  const managedQuestion = !initialAnswerReply && planned.expectsStudentReply ? lastQuestionFrom(planned.studentReply) : "";
+  const managedQuestion = assessment
+    ? assessment.managedQuestion
+    : !initialAnswerReply && planned.expectsStudentReply ? lastQuestionFrom(planned.studentReply) : "";
   const verifiedSourceCue = observation.sourceCue?.trim() || "";
   const outputContract: LiteOutputContract = input.supportedOutputContracts?.includes("grounded_answer_v2")
     ? "grounded_answer_v2" : "lead_evidence_quote_v1";
@@ -522,7 +589,7 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
     (observation.questionType === "inference" || observation.primaryMove === "compare_possibilities") &&
     !sourceCannotSupportAnswer;
   const skipModel = Boolean(
-    initialAnswerReply || planned.safetyFlag || planned.isClosing || planned.primaryMove === "repair" ||
+    assessment || initialAnswerReply || planned.safetyFlag || planned.isClosing || planned.primaryMove === "repair" ||
     (observation.sourceStatus !== "supported" && !groundedInference) || !verifiedSourceCue ||
     (!observation.relatedQuestion && observation.responseScore === null)
   );

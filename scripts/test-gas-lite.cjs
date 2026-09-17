@@ -2039,7 +2039,10 @@ assert.match(engineSource, /if \(!replyFinalizedByEngine\) reply = enforceLiteRe
 assert.match(teacherHtml, /id="assessment-criteria"/);
 assert.match(teacherHtml, /id="evidence-description"/);
 assert.match(teacherHtml, /latestDistributionReady/);
-assert.match(teacherHtml, /copy-student-url'\)\.disabled = hasUnsavedSetupChanges\(\) \|\| !\(latestStudentUrl && latestDistributionReady\)/);
+assert.ok(/const dirty = hasUnsavedSetupChanges\(\)/.test(teacherHtml),
+  'Readiness must gate links on the whole unsaved form, not only the activity mode');
+assert.ok(/copy-student-url'\)\.disabled = controlsBusy \|\| dirty \|\| !planReady \|\| !\(studentUrl && report\.distributionReady\)/.test(teacherHtml),
+  'Student link copying requires saved settings, no active operation, and server distribution readiness');
 assert.match(teacherHtml, /id="test-engine"/);
 assert.match(teacherHtml, /id="copy-student-url"/);
 assert.match(teacherHtml, /id="toggle-lesson"/);
@@ -2096,4 +2099,230 @@ assert.match(studentStylesHtml, /max-height:600px/);
 assert.match(engineSource, /LITE_ENGINE_REQUESTS_PER_SESSION_/);
 assert.match(engineSource, /trySaveLitePreparedResult_/);
 
-console.log('gas-lite implementation checks: all passed');
+// Criterion-plan cases use a fresh in-memory workbook; no live API, keys, or student records.
+{
+const planSpreadsheet = new SpreadsheetMock('plan-test-sheet');
+const planProperties = new Map();
+const planContext = vm.createContext({
+  ...gasGlobals,
+  SpreadsheetApp:{ ...gasGlobals.SpreadsheetApp,
+    getActiveSpreadsheet:() => planSpreadsheet, openById:() => planSpreadsheet, flush() {} },
+  PropertiesService:{ getScriptProperties:() => ({
+    getProperty:(key) => planProperties.get(key) || null,
+    getProperties:() => Object.fromEntries(planProperties),
+    setProperty:(key, value) => planProperties.set(key, String(value)),
+    deleteProperty:(key) => planProperties.delete(key)
+  }) },
+  LockService:{ getScriptLock:() => ({ waitLock() {}, tryLock() { return true; }, releaseLock() {} }) }
+});
+[setupSource, conversationSource, engineSource, evaluationSource, codeSource].forEach((source) => vm.runInContext(source, planContext));
+const planCriterion = {
+  id:'reason', criterion:'자료에서 이유 찾기', responseKind:'explanation',
+  mainQuestion:'학교에서 개인 물병을 사용하는 이유는 무엇인가요?',
+  followUpQuestion:'그 이유가 나온 문장을 따옴표로 인용해 줄래요?',
+  evidenceDescription:'학교의 실천과 이유를 연결하여 설명한 실제 학생 답변',
+  sourceQuote:'일회용품 사용을 줄이기 위해 개인 물병을 사용하고 있습니다.',
+  requireSourceEvidence:true
+};
+const approvedPlan = { schemaVersion:1, approved:true, criteria:[planCriterion] };
+const canonicalPlan = planContext.normalizeLiteAssessmentPlan_(JSON.stringify(approvedPlan), valid.materialText);
+assert.deepEqual(JSON.parse(JSON.stringify(canonicalPlan)), approvedPlan);
+assert.deepEqual(JSON.parse(JSON.stringify(planContext.normalizeLiteAssessmentPlan_('', valid.materialText))),
+  { schemaVersion:1, approved:false, criteria:[] });
+assert.throws(() => planContext.normalizeLiteAssessmentPlan_('{broken', valid.materialText), /형식/);
+assert.throws(() => planContext.normalizeLiteAssessmentPlan_({ ...approvedPlan, criteria:Array(6).fill(planCriterion) }, valid.materialText), /최대 5개/);
+assert.throws(() => planContext.normalizeLiteAssessmentPlan_({ ...approvedPlan, criteria:[planCriterion, planCriterion] }, valid.materialText), /ID/);
+assert.throws(() => planContext.normalizeLiteAssessmentPlan_({ ...approvedPlan, approved:'true' }, valid.materialText), /형식/);
+['mainQuestion', 'followUpQuestion'].forEach((field) => {
+  for (const value of ['질문이 없습니다.', '왜? 어떻게?', '왜? 뒤의 문장']) {
+    assert.throws(() => planContext.normalizeLiteAssessmentPlan_({ ...approvedPlan, criteria:[{ ...planCriterion, [field]:value }] }, valid.materialText), /물음표/);
+  }
+});
+assert.throws(() => planContext.normalizeLiteAssessmentPlan_({ ...approvedPlan, criteria:[{ ...planCriterion, sourceQuote:'본문에는 없는 정보' }] }, valid.materialText), /본문/);
+assert.throws(() => planContext.normalizeLiteAssessmentPlan_({ ...approvedPlan, criteria:[{ ...planCriterion, criterion:'가'.repeat(181) }] }, valid.materialText), /180자/);
+assert.equal(planContext.normalizeLiteAssessmentPlan_({ ...approvedPlan, criteria:[{ ...planCriterion, id:'constructor' }] }, valid.materialText).criteria[0].id, 'constructor');
+const inactiveOldPlan = { ...approvedPlan, criteria:[{ ...planCriterion, sourceQuote:'이전 수업에 있던 구절' }] };
+assert.doesNotThrow(() => planContext.validateLiteTeacherSetup_({ ...valid, activityMode:'exploration', assessmentPlanJson:JSON.stringify(inactiveOldPlan) }));
+assert.throws(() => planContext.validateLiteTeacherSetup_({ ...valid, assessmentPlanJson:JSON.stringify(inactiveOldPlan) }), /본문/);
+const planDraft = { schemaVersion:1, approved:false, criteria:[{ ...planCriterion, criterion:'', mainQuestion:'', sourceQuote:'' }] };
+assert.equal(planContext.normalizeLiteAssessmentPlan_(planDraft, valid.materialText).criteria[0].mainQuestion, '');
+const planSettings = planContext.saveLiteTeacherSettings_(planContext.validateLiteTeacherSetup_({ ...valid, assessmentPlanJson:JSON.stringify(approvedPlan) }));
+assert.equal(planContext.readLiteTeacherSettings_().assessmentPlanJson, JSON.stringify(approvedPlan));
+assert.equal(planContext.saveLiteTeacherSettings_({ ...planSettings, assessmentPlanJson:JSON.stringify(approvedPlan, null, 2) }).lessonRevision, planSettings.lessonRevision);
+const draftSettings = planContext.validateLiteTeacherSetup_({ ...valid, assessmentPlanJson:JSON.stringify(planDraft) });
+const readinessContext = { apiConfigured:true, apiVerified:true, engineConfigured:true, engineVerified:true, studentUrl:'test', previewVerified:true };
+assert.equal(planContext.buildLiteReadiness_(draftSettings, readinessContext).runtimeReady, false);
+assert.equal(planContext.buildLiteReadiness_({ ...draftSettings, activityMode:'exploration' }, readinessContext).runtimeReady, true);
+assert.match(planContext.buildLiteReadiness_(valid, readinessContext).checks.find((item) => item.key === 'assessmentPlan').detail, /질문계획 없음/);
+assert.equal(planContext.liteAssessmentStartQuestion_(planSettings), planCriterion.mainQuestion);
+assert.equal(planContext.sanitizeLiteSettingsForStudent_(planSettings).startQuestion, planCriterion.mainQuestion);
+assert.equal(planContext.liteAssessmentStartQuestion_({ ...planSettings, activityMode:'exploration' }), valid.startQuestion);
+assert.doesNotMatch(JSON.stringify(planContext.sanitizeLiteSettingsForStudent_(planSettings)), /assessmentPlan|sourceQuote|evidenceDescription/);
+assert.doesNotMatch(JSON.stringify(planContext.sanitizeLiteBootstrapForStudent_(planSettings)), /assessmentPlan|sourceQuote|evidenceDescription/);
+
+planContext.buildLiteCurrentReadiness_ = () => ({ lessonOpen:true, runtimeReady:true, distributionReady:true });
+planContext.markLiteEngineVerified_(planContext.getLiteEngineEndpoint_(), 'test-plan-policy');
+const planStudentPayload = {
+  requestId:'req_plan_answer_001', studentCode:'4-10', joinCode:valid.joinCode,
+  deviceToken:'device_plan_test_123456', lessonId:planSettings.lessonId,
+  lessonRevision:planSettings.lessonRevision, sourceHash:planSettings.sourceHash,
+  message:'"일회용품 사용을 줄이기 위해 개인 물병을 사용하고 있습니다."'
+};
+const planTurn = planContext.prepareLiteRecoveryTurn_(planStudentPayload, planSettings);
+assert.equal(planTurn.startQuestion, planCriterion.mainQuestion);
+assert.equal(planContext.startLiteStudentSession(planStudentPayload).history[0].text, planCriterion.mainQuestion);
+const progress = {
+  schemaVersion:1, planId:'local_test_plan_identity_1234', activeIndex:1, stage:'complete',
+  items:[{ id:'reason', label:'자료에서 이유 찾기', status:'collected', attempts:1, hintCount:0,
+    assisted:false, answerRequestId:planTurn.requestId, evidenceRequestId:planTurn.requestId }],
+  lastEvent:{ requestId:planTurn.requestId, criterionId:'reason', kind:'answer', evidenceVerified:true }
+};
+const observation = { responseScore:null, rubricScores:[], isClosing:true, sourceStatus:'supported', assessmentProgress:progress };
+const preparedProgress = planContext.compactLitePreparedObservation_(observation).assessmentProgress;
+assert.deepEqual(JSON.parse(JSON.stringify(preparedProgress)), progress);
+assert.throws(() => planContext.normalizeLiteAssessmentProgress_({ ...progress, items:[{ ...progress.items[0], attempts:3 }] }), /횟수/);
+assert.throws(() => planContext.normalizeLiteAssessmentProgress_({ ...progress, items:[progress.items[0], progress.items[0]] }), /기준/);
+const recorded = planContext.commitLitePreparedResult_(planSettings, planTurn, {
+  reply:'응답과 자료인용을 기록했어요. 선생님이 내용을 확인해 주실 거예요.', observation,
+  engineStatus:'ok:test-plan-policy', aiStatus:'skipped_by_policy'
+}, {});
+assert.equal(recorded.ok, true);
+const planRows = planContext.liteRowsAsObjects_(planSpreadsheet.getSheetByName('질문과 답변'));
+assert.equal(planRows[0].text, planCriterion.mainQuestion);
+assert.equal(planRows[1].assessmentProgressJson, '');
+assert.deepEqual(JSON.parse(planRows[2].assessmentProgressJson), progress);
+assert.deepEqual(JSON.parse(JSON.stringify(planContext.findLiteDuplicateRequest_(planTurn.requestId).observation.assessmentProgress)), progress);
+assert.doesNotMatch(JSON.stringify(recorded), /assessmentProgress|evidenceDescription|planId/);
+const longHistoryRows = Array.from({ length:40 }, (_, i) => ({ speaker:'student', text:'짧은 발화', turnNo:i + 1 }));
+longHistoryRows.push({ ...planRows[2], turnNo:41 });
+assert.equal(planContext.latestLiteAssessmentProgress_(longHistoryRows).planId, progress.planId);
+const enginePayload = planContext.buildLiteEnginePayload_({ ...planTurn, assessmentProgress:progress }, planSettings, longHistoryRows);
+assert.deepEqual(JSON.parse(JSON.stringify(enginePayload.assessmentProgress)), progress);
+assert.equal(enginePayload.lesson.assessmentPlan.approved, true);
+assert.equal(enginePayload.lesson.startQuestion, planCriterion.mainQuestion);
+assert.ok(enginePayload.history.length <= 18);
+const offPayload = planContext.buildLiteEnginePayload_({ ...planTurn, activityMode:'exploration', assessmentProgress:progress },
+  { ...planSettings, activityMode:'exploration' }, []);
+assert.equal(offPayload.assessmentProgress, undefined);
+assert.equal(offPayload.lesson.assessmentPlan, undefined);
+// Active approved plans must fail closed if an old/stale central engine drops the protocol.
+const guardedPayload = planContext.buildLiteEnginePayload_(planTurn, planSettings, []);
+const expectedPlanId = createHash('sha256').update(JSON.stringify([
+  JSON.stringify([planSettings.lessonId, planSettings.lessonRevision, planSettings.sourceHash]), approvedPlan
+])).digest('base64url');
+const guardedProgress = { ...progress, planId:expectedPlanId };
+assert.doesNotThrow(() => planContext.assertLiteAssessmentEngineResponse_(guardedPayload, { observation:{ assessmentProgress:guardedProgress } }));
+for (const badProgress of [undefined, {}, { ...guardedProgress, planId:'old-lesson-plan' },
+  { ...guardedProgress, items:[] }, { ...guardedProgress, items:[{ ...guardedProgress.items[0], id:'other' }] },
+  { ...guardedProgress, items:[{ ...guardedProgress.items[0], label:'다른 평가기준' }] },
+  { ...guardedProgress, stage:'main' },
+  { ...guardedProgress, items:[{ ...guardedProgress.items[0], attempts:10 }] }]) {
+  assert.throws(() => planContext.assertLiteAssessmentEngineResponse_(guardedPayload, { observation:{ assessmentProgress:badProgress } }), /중앙 엔진을 업데이트/);
+}
+assert.doesNotThrow(() => planContext.assertLiteAssessmentEngineResponse_(offPayload, { observation:{} }));
+assert.doesNotThrow(() => planContext.assertLiteAssessmentEngineResponse_(
+  planContext.buildLiteEnginePayload_(planTurn, { ...planSettings, assessmentPlanJson:'' }, []), { observation:{} }));
+let guardedBody = { ...safePlan, requestId:planTurn.requestId, observation:{} };
+planContext.UrlFetchApp = { fetch:() => ({ getResponseCode:() => 200, getContentText:() => JSON.stringify(guardedBody) }) };
+const guardedTurn = { ...planTurn, enginePolicyVersion:safePlan.policyVersion };
+assert.throws(() => planContext.requestLiteEnginePlan_(guardedTurn, planSettings, []), /중앙 엔진을 업데이트/);
+guardedBody = { ...guardedBody, observation:{ assessmentProgress:guardedProgress } };
+assert.equal(planContext.requestLiteEnginePlan_(guardedTurn, planSettings, []).observation.assessmentProgress.planId, expectedPlanId);
+guardedBody = { ...guardedBody, schemaVersion:2, studentReply:'검증된 응답입니다.', observation:{} };
+assert.throws(() => planContext.requestLiteEngineFinalize_(guardedTurn, planSettings, [], '응답 후보', '자료 근거', guardedBody), /중앙 엔진을 업데이트/);
+guardedBody.observation = { assessmentProgress:guardedProgress };
+assert.equal(planContext.requestLiteEngineFinalize_(guardedTurn, planSettings, [], '응답 후보', '자료 근거', guardedBody).observation.assessmentProgress.planId, expectedPlanId);
+let planEvaluation = planContext.liteRowsAsObjects_(planSpreadsheet.getSheetByName('교사 평가'))[0];
+assert.equal(planEvaluation.criterionEvidenceJson, JSON.stringify(progress));
+assert.equal(planEvaluation.questioningBest, '');
+assert.equal(planEvaluation.evidenceRequestIds, planTurn.requestId);
+assert.match(planEvaluation.automaticJudgment, /자동 성적이 아님/);
+assert.equal(planContext.getLiteTeacherDashboardData(planContext.getOrCreateLiteTeacherAccessToken_()).evaluations[0].criterionEvidence[0].answerText,
+  planStudentPayload.message);
+const planTeacherToken = planContext.getOrCreateLiteTeacherAccessToken_();
+const firstPlanVersion = planContext.liteEvaluationReviewVersion_(planEvaluation);
+planContext.saveLiteTeacherEvaluation(planTeacherToken, {
+  ...planEvaluation, expectedReviewVersion:firstPlanVersion, teacherDecision:'도달',
+  teacherFeedback:'교사가 원문을 대조하여 확인했습니다.', improvementSuggestion:'다음에는 다른 근거도 비교해 보세요.', finalStatus:'최종 확정'
+});
+const finalizedPlan = planContext.liteRowsAsObjects_(planSpreadsheet.getSheetByName('교사 평가'))[0];
+const finalizedPlanVersion = planContext.liteEvaluationReviewVersion_(finalizedPlan);
+planContext.upsertLiteEvaluationDraft_(planSettings, planTurn, observation);
+assert.equal(planContext.liteRowsAsObjects_(planSpreadsheet.getSheetByName('교사 평가'))[0].finalStatus, '최종 확정');
+const hintTurn = { ...planTurn, requestId:'req_plan_hint_002', message:'힌트가 필요해요.' };
+const hintedProgress = { ...progress, items:[{ ...progress.items[0], assisted:true, hintCount:1 }],
+  lastEvent:{ requestId:hintTurn.requestId, criterionId:'reason', kind:'hint', evidenceVerified:false } };
+planContext.commitLitePreparedResult_(planSettings, hintTurn, { reply:'승인한 본문 구절을 다시 살펴보세요.',
+  observation:{ ...observation, isClosing:false, assessmentProgress:hintedProgress }, engineStatus:'ok:test-plan-policy' }, {});
+planEvaluation = planContext.liteRowsAsObjects_(planSpreadsheet.getSheetByName('교사 평가'))[0];
+assert.equal(planEvaluation.finalStatus, '재검수 필요');
+assert.equal(planEvaluation.teacherFeedback, finalizedPlan.teacherFeedback);
+assert.equal(planEvaluation.evidenceRequestIds, planTurn.requestId, '힌트는 답변 증거 횟수를 늘리지 않는다');
+assert.notEqual(planContext.liteEvaluationReviewVersion_(planEvaluation), finalizedPlanVersion);
+assert.throws(() => planContext.saveLiteTeacherEvaluation(planTeacherToken, {
+  ...finalizedPlan, expectedReviewVersion:finalizedPlanVersion, finalStatus:'최종 확정'
+}), /새 근거/);
+planContext.upsertLiteEvaluationDraft_(planSettings, planTurn, observation);
+assert.equal(JSON.parse(planContext.liteRowsAsObjects_(planSpreadsheet.getSheetByName('교사 평가'))[0].criterionEvidenceJson).items[0].hintCount, 1,
+  '오래된 requestId 재시도가 새 진행을 덮어쓰지 않는다');
+
+const changedPlan = { ...approvedPlan, criteria:[{ ...planCriterion, criterion:'새 수업의 다른 기준명' }] };
+const revisedPlanSettings = planContext.saveLiteTeacherSettings_({ ...planSettings, assessmentPlanJson:JSON.stringify(changedPlan) });
+assert.equal(revisedPlanSettings.lessonRevision, planSettings.lessonRevision + 1);
+assert.notEqual(revisedPlanSettings.sourceHash, planSettings.sourceHash);
+const recoveryPlanSettings = planContext.liteRecoverySettings_(revisedPlanSettings, planTurn);
+planContext.upsertLiteEvaluationDraft_(recoveryPlanSettings, planTurn, observation);
+assert.equal(JSON.parse(planContext.liteRowsAsObjects_(planSpreadsheet.getSheetByName('교사 평가'))[0].criterionEvidenceJson).items[0].label,
+  progress.items[0].label, '예전 개정의 기준명은 새 계획에서 다시 해석하지 않는다');
+const formulaTurn = { ...planTurn, requestId:'req_plan_formula_003', message:'=HYPERLINK("https://example.test","학생 답변")' };
+const formulaProgress = { ...hintedProgress, items:[{ ...hintedProgress.items[0], answerRequestId:formulaTurn.requestId }],
+  lastEvent:{ requestId:formulaTurn.requestId, criterionId:'reason', kind:'answer', evidenceVerified:false } };
+planContext.commitLitePreparedResult_(recoveryPlanSettings, formulaTurn, { reply:'기록했어요.',
+  observation:{ ...observation, assessmentProgress:formulaProgress }, engineStatus:'ok:test-plan-policy' }, {});
+const planQaSheet = planSpreadsheet.getSheetByName('질문과 답변');
+const planQaHeaders = planQaSheet.rows[0];
+assert.match(planQaSheet.rows.find((row) => row[planQaHeaders.indexOf('requestId')] === formulaTurn.requestId)[planQaHeaders.indexOf('text')], /^'=/);
+assert.match(teacherDashboardHtml, /cell\.textContent = value/);
+assert.doesNotMatch(teacherDashboardHtml, /innerHTML\s*=/);
+
+// Full request path ignores forged client progress and reads the latest saved bot state.
+let capturedPlanPayload;
+planContext.requestLiteEnginePlan_ = (incomingTurn, incomingSettings, incomingHistory) => {
+  capturedPlanPayload = planContext.buildLiteEnginePayload_(incomingTurn, incomingSettings, incomingHistory);
+  return { skipModel:true, policyVersion:'test-plan-policy', fallbackReply:'선생님이 확인할 기록을 남겼어요.',
+    enforcement:{ managedQuestion:'', maximumQuestionCount:0 }, observation:{ ...observation, isClosing:false, assessmentProgress:progress } };
+};
+planContext.safeReserveLiteEngineRequest_ = () => ({ allowed:true });
+planContext.hasLiteApiKey_ = () => true;
+const freshPlanPayload = { ...planStudentPayload, requestId:'req_plan_forged_004',
+  lessonRevision:revisedPlanSettings.lessonRevision, sourceHash:revisedPlanSettings.sourceHash,
+  assessmentProgress:{ forged:true } };
+planContext.submitLiteTurn(freshPlanPayload);
+assert.equal(capturedPlanPayload.assessmentProgress, undefined);
+assert.equal(capturedPlanPayload.lesson.assessmentPlan.criteria[0].criterion, changedPlan.criteria[0].criterion);
+planContext.submitLiteTurn({ ...freshPlanPayload, requestId:'req_plan_forged_006', assessmentProgress:{ forged:'ignore again' } });
+assert.deepEqual(JSON.parse(JSON.stringify(capturedPlanPayload.assessmentProgress)), progress,
+  '두 번째 요청은 학생이 보낸 진행이 아닌 마지막 bot 행의 진행을 쓴다');
+
+const maxProgress = { ...progress, planId:'p'.repeat(100), activeIndex:5, items:Array.from({ length:5 }, (_, index) => ({
+  ...progress.items[0], id:'criterion_' + index, label:'가'.repeat(80), hintCount:99, attempts:2,
+  answerRequestId:'a'.repeat(100), evidenceRequestId:'e'.repeat(100)
+})), lastEvent:{ requestId:'r'.repeat(100), criterionId:'criterion_4', kind:'answer', evidenceVerified:true } };
+const maxPrepared = { reply:'가'.repeat(1600), observation:{ ...observation, assessmentProgress:maxProgress } };
+assert.equal(planContext.trySaveLitePreparedResult_({ ...planTurn, requestId:'req_plan_size_005' }, maxPrepared), true);
+const storedMaxPrepared = planContext.readLitePendingState_({ ...planTurn, requestId:'req_plan_size_005' });
+assert.equal(storedMaxPrepared.output.observation.assessmentProgress.items.length, 5);
+assert.ok(Buffer.byteLength(JSON.stringify(storedMaxPrepared), 'utf8') <= 8500);
+const maxCandidate = planContext.buildLiteCandidateState_({
+  policyVersion:'v'.repeat(120), planDigest:'d'.repeat(100), fallbackReply:'가'.repeat(3000),
+  enforcement:{ managedQuestion:'나'.repeat(250), maximumQuestionCount:1 },
+  observation:{ ...observation, assessmentProgress:maxProgress }
+}, { text:'다'.repeat(3000), evidenceQuote:'라'.repeat(500), model:'gpt-5.5', responseId:'r'.repeat(100) });
+const savedMaxCandidate = planContext.trySaveLiteCandidateState_({ ...planTurn, requestId:'req_plan_candidate_007' }, maxCandidate);
+assert.ok(savedMaxCandidate, '최대 기준 진행은 축약된 유료 후보에서도 복구 가능해야 한다');
+assert.equal(savedMaxCandidate.plan.observation.assessmentProgress.items.length, 5);
+assert.ok(Buffer.byteLength(JSON.stringify(planContext.readLitePendingState_({ ...planTurn, requestId:'req_plan_candidate_007' })), 'utf8') <= 8500);
+assert.throws(() => planContext.saveLitePendingState_(planTurn, 'result_ready', { huge:'가'.repeat(3000) }), /저장 크기/);
+}
+
+console.log('gas-lite implementation checks: all passed (including criterion plan storage, recovery, privacy, and size limits)');
