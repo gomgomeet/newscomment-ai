@@ -2792,13 +2792,32 @@ function createGeneralNaturalTurn({
     };
   }
 
+  // A student's intended action is not an assertion of an exclusive cause.
+  const statesPersonalIntention = !asksRatherThanStates(studentTurn) &&
+    (questionType === "application" || questionType === "reflection") &&
+    /(나는|저는|내가|제가|우리)/.test(compactTurn) &&
+    /(실천하고싶|해보고싶|하고싶|받고싶|바꾸고싶|함께.*좋겠)/.test(compactTurn) &&
+    !/(무조건|반드시|확실히|유일한원인|때문이라고단정)/.test(compactTurn);
+  if (statesPersonalIntention) {
+    return {
+      reply: /때문|이유|왜냐하면/.test(compactTurn)
+        ? "앞으로 해 보고 싶은 실천과 그 이유를 말해 줬군요."
+        : "앞으로 해 보고 싶은 실천을 말해 줬군요.",
+      primaryMove: "receive",
+      engagementState: "personally_connecting",
+      curriculumRelation: "productive_extension",
+      sourceStatus: "reasonable_inference",
+      supportLevel: 0,
+    };
+  }
+
   // 학생이 까닭을 제안한 평서문은 발화 전체를 인용해 되돌려 주지 않는다. 가능한
   // 설명과 자료에서 직접 확인한 원인을 구분하면 학생 생각을 존중하면서도 과장을 막는다.
   const statesPossibleCause =
     !asksRatherThanStates(studentTurn) &&
     /(왜냐하면|때문에|때문인|원인은|까닭은|영향을.*수있|해서.*수있)/.test(compactTurn);
   if (statesPossibleCause) {
-    const studentAlreadyLimitedClaim = /(수있다고만|단정하지|확정하지|조심해서|가능성으로)/.test(compactTurn);
+    const studentAlreadyLimitedClaim = /(수있다고만|단정하지|단정할수(?:는)?없|확정하지|확정할수(?:는)?없|조심해서|가능성으로)/.test(compactTurn);
     return {
       reply: studentAlreadyLimitedClaim
         ? "좋아요. 다른 조건도 함께 보고 ‘영향을 주었을 수 있다’고 표현하면, 가능성은 남기면서 원인으로 단정하지 않게 돼요. 스스로 근거의 한계를 반영해 생각을 고친 점이 정확해요."
@@ -2813,6 +2832,8 @@ function createGeneralNaturalTurn({
 
   const limitation = withoutLeadingConnector(sourceLimitationCue(material, studentTurn));
   const studentIdea = compactStudentIdea(studentTurn);
+  const ideaWasTruncated = studentIdea.length === 42 &&
+    studentTurn.replace(/\s/g, "").length > studentIdea.replace(/\s/g, "").length;
   // compactStudentIdea가 물음표를 지우므로, 질문 여부는 반드시 원문으로 본다.
   // 지운 뒤에 판정하면 "이게 맞는 거야?"가 진술로 읽혀 그대로 되받게 된다.
   const studentAsks =
@@ -3101,7 +3122,9 @@ function createGeneralNaturalTurn({
       // "우리가 뭘 할 수 있어요?"는 생각이 아니라 물음이다. 자료 속 실천 사례를 보여 준다.
       reply: studentAsks
         ? `${cue} 자료 속 사람들이 한 방법이에요. 우리 상황에서는 무엇을 바꿔야 할지 하나만 골라 볼까요?`
-        : `“${studentIdea}”처럼 네 상황에 연결한 점이 중요해요. ${cue} 자료의 방법을 그대로 복사하기보다 네 상황에서 달라지는 조건을 함께 보면 돼요.`,
+        : ideaWasTruncated
+          ? `자료와 연결해 생각을 설명했군요. ${cue}`
+          : `“${studentIdea}”처럼 네 상황에 연결한 점이 중요해요. ${cue} 자료의 방법을 그대로 복사하기보다 네 상황에서 달라지는 조건을 함께 보면 돼요.`,
       primaryMove: "follow_student_lead",
       engagementState: "personally_connecting",
       curriculumRelation: "productive_extension",
@@ -3138,7 +3161,7 @@ function createGeneralNaturalTurn({
   }
 
   return {
-    reply: `${receiveStudentIdea(studentIdea)} ${cue}`,
+    reply: `${ideaWasTruncated ? "답을 확인했어요." : receiveStudentIdea(studentIdea)} ${cue}`,
     primaryMove: "receive",
     engagementState: "noticing",
     curriculumRelation: "direct",
