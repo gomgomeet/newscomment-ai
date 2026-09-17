@@ -34,7 +34,7 @@
       .wide { grid-column:1 / -1; }
       .design-toggle { display:flex; align-items:center; gap:10px; margin:14px 0 6px; padding:12px; border:1px solid var(--line); border-radius:10px; }
       .design-toggle input { width:22px; height:22px; margin:0; accent-color:var(--blue); }
-      #backward-design-fields { min-width:0; margin:14px 0 0; padding:0; border:0; }
+      #backward-design-fields,#evaluation-goal-fields { min-width:0; margin:14px 0 0; padding:0; border:0; }
       label { display:grid; gap:5px; font-weight:700; }
       input,textarea,select { width:100%; padding:10px 11px; border:1px solid #94a3b8; border-radius:9px; color:var(--ink); background:white; font:inherit; }
       textarea { min-height:92px; resize:vertical; }
@@ -79,7 +79,7 @@
         .api-row { grid-template-columns:1fr; }
       }
       /* Compact teacher settings: keep unresolved checks and draft state visible. */
-      .flow { grid-template-columns:repeat(3,minmax(0,1fr)); margin:14px 0; }
+      .flow { grid-template-columns:repeat(4,minmax(0,1fr)); margin:14px 0; }
       .flow button { min-height:50px; padding:8px 12px; }
       .compact-settings { margin:12px 0; border:1px solid var(--line); border-radius:10px; background:white; }
       .compact-settings > summary { padding:10px 13px; cursor:pointer; font-weight:700; }
@@ -118,7 +118,8 @@
       <nav class="flow" aria-label="설정 순서">
         <button type="button" data-step="design" aria-current="step"><span class="step-no">1단계</span>수업 설정</button>
         <button type="button" data-step="material"><span class="step-no">2단계</span>자료 넣기</button>
-        <button type="button" data-step="check"><span class="step-no">3단계</span>저장·미리보기</button>
+        <button type="button" data-step="assessment"><span class="step-no">3단계</span><span id="assessment-step-label">질문·평가기준</span></button>
+        <button type="button" data-step="check"><span class="step-no">4단계</span>저장·미리보기</button>
       </nav>
 
       <form id="setup-form" novalidate>
@@ -152,28 +153,60 @@
           </label>
           <input id="backward-design-enabled" type="checkbox" class="hidden" aria-hidden="true" tabindex="-1">
           <p id="backward-design-status" class="help" role="status" aria-live="polite"></p>
-          <fieldset id="backward-design-fields" class="grid" aria-label="백워드 평가 설계 입력">
+          <fieldset id="evaluation-goal-fields" class="grid" aria-label="백워드 평가 설계 입력">
             <p class="wide help">수업 목표 또는 성취기준 중 하나 이상 입력해 주세요.</p>
             <label class="wide">① 수업 목표
               <textarea id="lesson-goal" maxlength="500" placeholder="수업이 끝났을 때 학생이 할 수 있어야 하는 일을 씁니다."></textarea>
             </label>
-            <label>② 성취기준 코드 <span class="help">(선택)</span>
-              <input id="standard-code" maxlength="80" placeholder="예: [4국02-04]">
-            </label>
+            <input id="standard-code" type="hidden">
             <label class="wide">② 성취기준
-              <textarea id="achievement-standard" maxlength="1000"></textarea>
+              <textarea id="achievement-standard" maxlength="1000" placeholder="[성취기준 코드] 성취기준 내용을 함께 붙여 넣으세요."></textarea>
+              <span id="achievement-standard-limit" class="help hidden" role="status">기존 성취기준 내용을 모두 보존했습니다. 코드와 내용을 합하면 1,000자를 넘으므로 생성·저장 전에 1,000자 이내로 정리해 주세요.</span>
             </label>
-            <div class="wide">
-              <button id="generate-assessment" type="button" class="secondary" disabled>AI로 평가기준 초안 만들기</button>
+          </fieldset>
+        </section>
+
+        <section id="panel-material" class="panel" aria-labelledby="title-material">
+          <h2 id="title-material">2. 자료 넣기</h2>
+          <div class="grid">
+            <label class="wide">자료 제목<input id="material-title" maxlength="120" required></label>
+            <label class="wide">수업자료 본문
+              <textarea id="material-text" maxlength="30000" minlength="30" required placeholder="학생이 읽을 본문을 붙여 넣으세요. (30자 이상)"></textarea>
+              <span class="help">링크는 출처용입니다. 본문을 붙여 넣고 ‘설정 저장’을 눌러 주세요. 다음·새로고침은 저장하지 않습니다.</span>
+            </label>
+          </div>
+          <details class="compact-settings"><summary>출처·자료 버전 (선택 설정)</summary>
+            <div class="settings-body grid">
+              <label class="wide">자료 링크 (선택)<input id="material-url" type="url" maxlength="1000" placeholder="https://"></label>
+              <label>자료 버전<input id="version" maxlength="30" required value="v1"></label>
+            </div>
+          </details>
+        </section>
+
+        <section id="panel-assessment" class="panel" aria-labelledby="title-assessment">
+          <h2 id="title-assessment">3. 질문·평가기준</h2>
+            <div id="assessment-ai-section">
+              <button id="generate-assessment" type="button" class="secondary" disabled>자료로 질문·평가기준 만들기</button>
               <p id="assessment-ai-hint" class="help">API 연결을 확인하고 수업 목표 또는 성취기준을 입력해 주세요.</p>
               <p id="assessment-ai-status" class="status" role="status" aria-live="polite"></p>
-              <section id="assessment-draft" class="assessment-draft hidden" aria-label="AI 평가기준 초안">
-                <strong>AI 평가기준 초안 · 4단계</strong>
-                <p class="help">매우잘함·잘함·보통·노력요함 기준을 확인한 뒤 적용하세요. 적용하면 아래 평가기준·수준별 기준·평가 근거만 바뀌며, 저장은 따로 해야 합니다.</p>
+              <section id="assessment-draft" class="assessment-draft hidden" aria-label="AI 질문·평가기준 초안">
+                <strong>AI 질문·평가기준 초안 · 4단계</strong>
+                <p class="help">학생 시작 질문, 교사용 답변 요소와 근거, 4단계 기준을 함께 확인하세요. 적용 후 직접 수정하고 저장할 수 있습니다.</p>
                 <dl id="assessment-draft-content"></dl>
                 <button id="apply-assessment-draft" type="button" class="secondary" disabled>이 초안 적용</button>
               </section>
             </div>
+          <label class="wide">학생 시작 질문
+            <textarea id="start-question" maxlength="500" required placeholder="예: 자료를 근거로 자신의 생각을 설명해 볼까요?"></textarea>
+            <span class="help">학생 화면의 첫 질문입니다. 질문을 고치면 답변 요소와 평가기준도 함께 확인해 주세요.</span>
+          </label>
+          <fieldset id="backward-design-fields" class="grid" aria-label="질문과 평가기준 입력">
+            <label class="wide">답변의 핵심 요소 (교사용)
+              <textarea id="expected-answer" maxlength="1500" placeholder="학생 답변에서 확인할 내용이나 설명 요소를 적습니다. 다양한 의견을 인정할 수 있습니다."></textarea>
+            </label>
+            <label class="wide">자료의 근거 문장 (교사용)
+              <textarea id="assessment-evidence" maxlength="1000" placeholder="평가 질문의 근거가 되는 자료 문장을 그대로 적습니다."></textarea>
+            </label>
             <label class="wide">평가 수준
               <select id="rubric-scheme">
                 <option value="four_levels">4단계 · 매우잘함 / 잘함 / 보통 / 노력요함</option>
@@ -202,26 +235,8 @@
           </fieldset>
         </section>
 
-        <section id="panel-material" class="panel" aria-labelledby="title-material">
-          <h2 id="title-material">2. 자료 넣기</h2>
-          <div class="grid">
-            <label class="wide">자료 제목<input id="material-title" maxlength="120" required></label>
-            <label class="wide">수업자료 본문
-              <textarea id="material-text" maxlength="30000" minlength="30" required placeholder="학생이 읽을 본문을 붙여 넣으세요. (30자 이상)"></textarea>
-              <span class="help">링크는 출처용입니다. 본문을 붙여 넣고 ‘설정 저장’을 눌러 주세요. 다음·새로고침은 저장하지 않습니다.</span>
-            </label>
-            <label class="wide">시작 질문<textarea id="start-question" maxlength="500" required placeholder="예: 이 글에서 가장 궁금한 점은 무엇인가요?"></textarea></label>
-          </div>
-          <details class="compact-settings"><summary>출처·자료 버전 (선택 설정)</summary>
-            <div class="settings-body grid">
-              <label class="wide">자료 링크 (선택)<input id="material-url" type="url" maxlength="1000" placeholder="https://"></label>
-              <label>자료 버전<input id="version" maxlength="30" required value="v1"></label>
-            </div>
-          </details>
-        </section>
-
         <section id="panel-check" class="panel" aria-labelledby="title-check">
-          <h2 id="title-check">3. 저장·미리보기</h2>
+          <h2 id="title-check">4. 저장·미리보기</h2>
           <p><span id="readiness-badge" class="badge">확인 중</span></p>
           <p id="readiness-draft-note" class="notice hidden" role="status" aria-live="polite"></p>
           <ul id="readiness-list" class="readiness"></ul>
@@ -275,7 +290,7 @@
     </main>
 
     <script>
-      const steps = ['design', 'material', 'check'];
+      const steps = ['design', 'material', 'assessment', 'check'];
       let currentStep = 0;
       let latestDistributionReady = false;
       let latestStudentUrl = '';
@@ -289,7 +304,10 @@
       let assessmentEditVersion = 0;
       let assessmentDraft = null;
       const assessmentDraftFields = {
-        assessmentCriteria:['assessment-criteria', '평가기준'],
+        startQuestion:['start-question', '학생 시작 질문', 500],
+        expectedAnswer:['expected-answer', '답변의 핵심 요소 (교사용)', 1500],
+        assessmentEvidence:['assessment-evidence', '자료의 근거 문장 (교사용)', 1000],
+        assessmentCriteria:['assessment-criteria', '평가기준', 1500],
         rubricHigh:['rubric-high', '매우잘함'], rubricGood:['rubric-good', '잘함'],
         rubricMeet:['rubric-meet', '보통'], rubricDeveloping:['rubric-developing', '노력요함'],
         evidenceDescription:['evidence-description', '수집할 평가 근거']
@@ -319,7 +337,7 @@
         ['lesson-id', 'app-name', 'subject', 'grade', 'lesson-title', 'lesson-goal', 'standard-code',
           'achievement-standard', 'assessment-criteria', 'rubric-scheme', 'rubric-high', 'rubric-good',
           'rubric-meet', 'rubric-developing', 'evidence-description', 'material-title', 'material-text',
-          'material-url', 'start-question', 'join-code', 'activity-mode', 'version'].forEach(function (id) {
+          'material-url', 'start-question', 'expected-answer', 'assessment-evidence', 'join-code', 'activity-mode', 'version'].forEach(function (id) {
           ['input', 'change'].forEach(function (eventName) {
             byId(id).addEventListener(eventName, assessmentInputsChanged);
           });
@@ -352,6 +370,11 @@
         const fields = byId('backward-design-fields');
         fields.disabled = !enabled;
         fields.classList.toggle('hidden', !enabled);
+        byId('evaluation-goal-fields').disabled = !enabled;
+        byId('evaluation-goal-fields').classList.toggle('hidden', !enabled);
+        byId('assessment-ai-section').classList.toggle('hidden', !enabled);
+        byId('assessment-step-label').textContent = enabled ? '질문·평가기준' : '시작 질문';
+        byId('title-assessment').textContent = enabled ? '3. 질문·평가기준' : '3. 시작 질문';
         ['assessment-criteria', 'rubric-high',
           'rubric-meet', 'rubric-developing', 'evidence-description'].forEach(function (id) {
           byId(id).required = enabled;
@@ -392,13 +415,39 @@
 
       function updateAssessmentControls() {
         const evaluation = byId('activity-mode').value !== 'exploration';
-        const hasGoal = Boolean(byId('lesson-goal').value.trim() || byId('achievement-standard').value.trim());
-        byId('generate-assessment').disabled = controlsBusy || assessmentGenerating || !evaluation || !apiVerified || !hasGoal;
+        const hasGoal = Boolean(byId('lesson-goal').value.trim() || achievementStandardContent());
+        const hasMaterial = byId('material-text').value.trim().length >= 30;
+        const standardTooLong = byId('achievement-standard').value.trim().length > 1000;
+        byId('achievement-standard-limit').classList.toggle('hidden', !standardTooLong);
+        byId('generate-assessment').disabled = controlsBusy || assessmentGenerating || !evaluation || !apiVerified || !hasGoal || !hasMaterial || standardTooLong;
         byId('apply-assessment-draft').disabled = controlsBusy || assessmentGenerating || !evaluation || !apiVerified || !assessmentDraft;
         byId('assessment-ai-hint').textContent = !apiVerified
           ? '상단 AI 연결을 확인해 주세요.'
-          : !hasGoal ? '수업 목표 또는 성취기준을 입력하면 4단계 평가기준 초안을 만들 수 있습니다.'
-          : '연결한 개인 API를 사용하며 API 사용료가 발생합니다. 수업자료는 나중에 추가해도 됩니다.';
+          : !hasGoal ? '1단계에서 수업 목표 또는 성취기준 내용을 입력해 주세요.'
+          : standardTooLong ? '1단계의 성취기준을 코드와 내용 합계 1,000자 이내로 정리해 주세요.'
+          : !hasMaterial ? '2단계에서 30자 이상의 수업자료 본문을 넣어 주세요.'
+          : '입력한 목표와 자료로 질문·답변 요소·4단계 기준을 함께 만듭니다. 연결한 개인 API 사용료가 발생합니다.';
+      }
+
+      function achievementStandardCode() {
+        const match = byId('achievement-standard').value.trim().match(/^(\[\d{1,2}[가-힣][가-힣\d-]{0,24}-\d{2}\])/);
+        return match ? match[1] : '';
+      }
+
+      function achievementStandardContent() {
+        const text = byId('achievement-standard').value.trim();
+        const code = achievementStandardCode();
+        return code ? text.slice(code.length).trim() : text;
+      }
+
+      function combineAchievementStandard(code, text) {
+        code = String(code || '').trim(); text = String(text || '').trim();
+        if (!text) return code;
+        if (!code || text.indexOf(code) !== -1 || code.indexOf(text) !== -1 || /^\[\d{1,2}[가-힣]/.test(text)) {
+          return code.length > text.length && code.indexOf(text) !== -1 ? code : text;
+        }
+        const bracket = code.match(/^(\[\d{1,2}[가-힣][가-힣\d-]{0,24}-\d{2}\])/);
+        return bracket ? bracket[1] + ' ' + text : text;
       }
 
       function assessmentSnapshot() { return JSON.stringify(collectPayload()); }
@@ -412,7 +461,7 @@
         assessmentDraft = null;
         assessmentGenerating = true;
         byId('assessment-draft').classList.toggle('hidden', true);
-        byId('assessment-ai-status').textContent = '목표에 맞는 평가기준 초안을 만들고 있습니다.';
+        byId('assessment-ai-status').textContent = '목표와 자료에 맞는 질문·답변 요소·평가기준 초안을 만들고 있습니다.';
         setButtonsDisabled(true);
         google.script.run
           .withSuccessHandler(function (result) {
@@ -426,10 +475,10 @@
             const valid = result && result.ok && draft && draft.rubricScheme === 'four_levels' &&
               Object.keys(assessmentDraftFields).every(function (key) {
                 return typeof draft[key] === 'string' && draft[key].trim() &&
-                  draft[key].length <= (key === 'assessmentCriteria' ? 1500 : 1000);
+                  draft[key].length <= (assessmentDraftFields[key][2] || 1000);
               });
             if (!valid) {
-              byId('assessment-ai-status').textContent = '평가기준 초안의 형식을 확인하지 못했습니다. 다시 만들어 주세요.';
+              byId('assessment-ai-status').textContent = '질문·평가기준 초안의 형식을 확인하지 못했습니다. 다시 만들어 주세요.';
               return;
             }
             assessmentDraft = { value:draft, snapshot:snapshot, editVersion:editVersion };
@@ -448,7 +497,7 @@
             setButtonsDisabled(false);
             byId('assessment-ai-status').textContent = error && error.message ? error.message : '초안을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.';
           })
-          .generateLiteAssessmentDraft(teacherAccessToken, {
+          .generateLiteMaterialAssessmentDraft(teacherAccessToken, {
             activityMode:payload.activityMode, subject:payload.subject, grade:payload.grade,
             lessonTitle:payload.lessonTitle, lessonGoal:payload.lessonGoal,
             achievementStandardCode:payload.achievementStandardCode, achievementStandard:payload.achievementStandard,
@@ -471,7 +520,7 @@
         syncRubricScheme();
         updateReadinessDisplay();
         byId('assessment-ai-status').textContent = '초안을 입력란에 적용했습니다. 내용을 검토·수정한 뒤 설정을 저장해 주세요.';
-        setStatus('AI 평가기준을 적용했습니다. 설정을 저장해 주세요.');
+        setStatus('질문·답변 요소·평가기준을 적용했습니다. 검토 후 설정을 저장해 주세요.');
       }
 
       function showStep(index) {
@@ -499,12 +548,14 @@
           'rubric-high':'rubricHigh', 'rubric-good':'rubricGood', 'rubric-meet':'rubricMeet', 'rubric-developing':'rubricDeveloping',
           'evidence-description':'evidenceDescription', 'material-title':'materialTitle',
           'material-text':'materialText', 'material-url':'materialUrl', 'start-question':'startQuestion',
+          'expected-answer':'expectedAnswer', 'assessment-evidence':'assessmentEvidence',
           'join-code':'joinCode',
           'activity-mode':'activityMode', version:'version'
         };
         Object.keys(mapping).forEach(function (id) {
           byId(id).value = value[mapping[id]] == null ? '' : value[mapping[id]];
         });
+        byId('achievement-standard').value = combineAchievementStandard(value.achievementStandardCode, value.achievementStandard);
         byId('activity-mode').value = value.activityMode === 'exploration' ? 'exploration' : 'evaluation';
         byId('rubric-scheme').value = value.rubricScheme === 'four_levels' ? 'four_levels'
           : value.rubricScheme === 'legacy_three' || value.lessonId || value.rubricHigh || value.rubricMeet || value.rubricDeveloping ? 'legacy_three' : 'four_levels';
@@ -525,7 +576,7 @@
           lessonId:byId('lesson-id').value, appName:byId('app-name').value,
           subject:byId('subject').value, grade:byId('grade').value,
           lessonTitle:byId('lesson-title').value, lessonGoal:byId('lesson-goal').value,
-          achievementStandardCode:byId('standard-code').value,
+          achievementStandardCode:achievementStandardCode(),
           achievementStandard:byId('achievement-standard').value,
           assessmentCriteria:byId('assessment-criteria').value,
           rubricScheme:byId('rubric-scheme').value, rubricGood:byId('rubric-good').value,
@@ -534,6 +585,7 @@
           evidenceDescription:byId('evidence-description').value,
           materialTitle:byId('material-title').value, materialText:byId('material-text').value,
           materialUrl:byId('material-url').value, startQuestion:byId('start-question').value,
+          expectedAnswer:byId('expected-answer').value, assessmentEvidence:byId('assessment-evidence').value,
           joinCode:byId('join-code').value,
           activityMode:byId('activity-mode').value, version:byId('version').value
         };
@@ -542,6 +594,13 @@
       function saveSetup(event) {
         event.preventDefault();
         if (controlsBusy || assessmentGenerating) return;
+        if (byId('achievement-standard').value.trim().length > 1000) {
+          showStep(steps.indexOf('design'));
+          byId('evaluation-goal-fields').disabled = false;
+          byId('evaluation-goal-fields').classList.toggle('hidden', false);
+          setStatus('성취기준 내용을 줄이지 않고 보존했습니다. 코드와 내용 합계 1,000자 이내로 정리한 뒤 저장해 주세요.', true);
+          return;
+        }
         if (!byId('setup-form').checkValidity()) {
           const invalid = byId('setup-form').querySelector(':invalid');
           const panel = invalid && invalid.closest('.panel');
@@ -552,7 +611,7 @@
           return;
         }
         if (byId('activity-mode').value === 'evaluation' &&
-            !byId('lesson-goal').value.trim() && !byId('achievement-standard').value.trim()) {
+            !byId('lesson-goal').value.trim() && !achievementStandardContent()) {
           showStep(steps.indexOf('design'));
           setStatus('수업 목표 또는 성취기준 중 하나 이상 입력해 주세요.', true);
           return;
@@ -681,7 +740,7 @@
         byId('save-state').textContent = dirty ? '미저장 변경 있음' : '저장된 설정';
         const payload = collectPayload();
         const hasText = function (value) { return Boolean(String(value || '').trim()); };
-        const backwardReady = !enabled || ((hasText(payload.lessonGoal) || hasText(payload.achievementStandard)) &&
+        const backwardReady = !enabled || ((hasText(payload.lessonGoal) || Boolean(achievementStandardContent())) &&
           ['assessmentCriteria', 'rubricHigh', 'rubricMeet', 'rubricDeveloping', 'evidenceDescription'].every(function (key) {
             return hasText(payload[key]);
           }) && (payload.rubricScheme !== 'four_levels' || hasText(payload.rubricGood)));

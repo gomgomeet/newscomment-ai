@@ -101,6 +101,11 @@ function generateLiteAssessmentDraft(teacherAccessToken, payload) {
   return generateLiteAssessmentDraft_(payload);
 }
 
+function generateLiteMaterialAssessmentDraft(teacherAccessToken, payload) {
+  assertLiteTeacherAccess_(teacherAccessToken);
+  return generateLiteMaterialAssessmentDraft_(payload);
+}
+
 function saveLiteStudentUrlForTeacher(teacherAccessToken, studentUrl) {
   assertLiteTeacherAccess_(teacherAccessToken);
   const confirmedUrl = saveLiteStudentUrl_(studentUrl);

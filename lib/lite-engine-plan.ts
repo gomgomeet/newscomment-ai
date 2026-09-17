@@ -23,7 +23,7 @@ import {
 } from "@/lib/questioning-conversation-phase";
 
 export const LITE_ENGINE_SCHEMA_VERSION = 1;
-export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v8";
+export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v9";
 
 type LiteOutputContract = "lead_evidence_quote_v1" | "grounded_answer_v2";
 
@@ -450,6 +450,25 @@ function liteMaterialDefinesVocabulary(reply: string, materialText: string) {
   return definition.test(materialText) || glossary.test(materialText);
 }
 
+function firstEvaluationAnswerReply(
+  input: NormalizedLiteEnginePlanInput,
+  planned: ChatResult,
+  observation: LiteEngineObservation,
+) {
+  if (input.activityMode !== "evaluation" || input.history.length !== 1 ||
+      input.history[0].role !== "assistant" || input.history[0].content !== input.lesson.startQuestion ||
+      observation.responseScore !== null || planned.safetyFlag || planned.isClosing ||
+      planned.primaryMove === "repair" || planned.sourceStatus === "out_of_scope") return "";
+  const message = input.studentMessage.trim();
+  // A request for clarification still needs its normal grounded answer. Only
+  // acknowledge an attempted response to this exact initial teacher question.
+  if (/[?？]|(?:인가요|나요|까요|뭔가요|뭐예요|뭐야|무슨\s*뜻|궁금해|알려\s*(?:줘|주세요)|설명해\s*(?:줘|주세요))|(?:뜻|의미).*(?:몰라|모르)/.test(message)) return "";
+  if (/^(?:잘\s*)?(?:모르겠|몰라|어려워|이해가\s*안)/.test(message)) {
+    return "자료에서 질문과 관련된 문장을 한 곳 찾아보세요. 이해하기 어려운 낱말이나 내용을 질문해도 좋아요.";
+  }
+  return "답변을 남겼어요. 자료에서 더 궁금한 낱말이나 내용을 질문해 주세요.";
+}
+
 export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
   const input = normalizeLiteEngineInput(value);
   const lesson = input.lesson;
@@ -460,6 +479,7 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
     conversation: input.history,
   });
   const rawObservation = buildLiteObservation(planned, input, config);
+  const initialAnswerReply = firstEvaluationAnswerReply(input, planned, rawObservation);
   const quantityReply = missingQuantityReply(input.studentMessage, lesson.materialText);
   const replyAdmitsMissingSource =
     Boolean(quantityReply) ||
@@ -471,7 +491,9 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
     rawObservation.sourceStatus === "supported" &&
     !liteMaterialDefinesVocabulary(planned.studentReply, lesson.materialText);
   const sourceCannotSupportAnswer = replyAdmitsMissingSource || unsupportedVocabulary;
-  const observation: LiteEngineObservation = sourceCannotSupportAnswer
+  const observation: LiteEngineObservation = initialAnswerReply
+    ? { ...rawObservation, primaryMove: "receive", sourceCue: "", evidenceIds: [], managedKind: "" }
+    : sourceCannotSupportAnswer
     ? {
         ...rawObservation,
         sourceStatus: replyAdmitsMissingSource ? "source_insufficient" : "reasonable_inference",
@@ -479,7 +501,7 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
         evidenceIds: [],
       }
     : rawObservation;
-  const managedQuestion = planned.expectsStudentReply ? lastQuestionFrom(planned.studentReply) : "";
+  const managedQuestion = !initialAnswerReply && planned.expectsStudentReply ? lastQuestionFrom(planned.studentReply) : "";
   const verifiedSourceCue = observation.sourceCue?.trim() || "";
   const outputContract: LiteOutputContract = input.supportedOutputContracts?.includes("grounded_answer_v2")
     ? "grounded_answer_v2" : "lead_evidence_quote_v1";
@@ -488,7 +510,7 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
     (observation.questionType === "inference" || observation.primaryMove === "compare_possibilities") &&
     !sourceCannotSupportAnswer;
   const skipModel = Boolean(
-    planned.safetyFlag || planned.isClosing || planned.primaryMove === "repair" ||
+    initialAnswerReply || planned.safetyFlag || planned.isClosing || planned.primaryMove === "repair" ||
     (observation.sourceStatus !== "supported" && !groundedInference) || !verifiedSourceCue ||
     (!observation.relatedQuestion && observation.responseScore === null)
   );
@@ -513,7 +535,7 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
     planDigest: litePlanDigest(input),
     engine: liteEngineDescriptor(),
     skipModel,
-    fallbackReply: quantityReply || quantityFallback || planned.studentReply,
+    fallbackReply: initialAnswerReply || quantityReply || quantityFallback || planned.studentReply,
     modelRequest: {
       model: process.env.LITE_ENGINE_MODEL?.trim() || "gpt-5.6-terra",
       reasoningEffort: "low",

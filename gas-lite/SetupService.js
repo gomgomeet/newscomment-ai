@@ -3,7 +3,7 @@
  * API 키는 Script Properties에만 저장하며 Sheet 행으로 만들지 않습니다.
  */
 
-const LITE_APP_VERSION_ = '0.6.0';
+const LITE_APP_VERSION_ = '0.7.0';
 const LITE_API_KEY_PROPERTY_ = 'TEACHER_OPENAI_API_KEY';
 const LITE_SPREADSHEET_ID_PROPERTY_ = 'TEACHER_SPREADSHEET_ID';
 const LITE_ENGINE_ENDPOINT_PROPERTY_ = 'CENTRAL_ENGINE_ENDPOINT';
@@ -30,7 +30,7 @@ const LITE_SHEET_HEADERS_ = {
     'rubricHigh', 'rubricMeet', 'rubricDeveloping', 'evidenceDescription',
     'materialTitle', 'materialText', 'materialUrl', 'startQuestion',
     'activityMode', 'version', 'sourceHash', 'lessonRevision', 'updatedAt',
-    'rubricScheme', 'rubricGood'
+    'rubricScheme', 'rubricGood', 'expectedAnswer', 'assessmentEvidence'
   ],
   '학생별 현황': [
     'studentCode', 'lessonId', 'lessonRevision', 'sessionId', 'questionCount', 'relatedQuestionCount', 'lastActiveAt',
@@ -102,6 +102,30 @@ function normalizeLiteRubricScheme_(value) {
   if (!scheme || scheme === 'legacy_three') return 'legacy_three';
   if (scheme === 'four_levels') return scheme;
   throw new Error('평가 수준은 4수준 또는 기존 3수준을 선택해 주세요.');
+}
+
+function normalizeLiteAchievementStandard_(standardValue, codeValue) {
+  let text = liteOptional_(standardValue, '성취기준', 1000);
+  const previousCode = liteText_(codeValue);
+  const codePattern = /\[[0-9가-힣A-Za-z-]{1,24}\d{2}-\d{2}\]/;
+  // 과거 코드 입력란에 기준 전문을 넣은 경우, 유일한 본문을 숨기거나 버리지 않는다.
+  const codeOnly = previousCode.match(codePattern);
+  if (!text && previousCode && (!codeOnly || codeOnly[0] !== previousCode)) {
+    text = liteOptional_(previousCode, '성취기준', 1000);
+  }
+  const extracted = text.match(codePattern);
+  const duplicate = previousCode === text ||
+    (previousCode.length === 80 && text.indexOf(previousCode) === 0);
+  return {
+    achievementStandard: text,
+    achievementStandardCode: extracted ? extracted[0] : duplicate ? '' : liteText_(previousCode, 80)
+  };
+}
+
+function liteAchievementStandardContent_(value) {
+  const text = liteText_(value);
+  const code = normalizeLiteAchievementStandard_(text, '').achievementStandardCode;
+  return code && text.indexOf(code) === 0 ? text.slice(code.length).trim() : text;
 }
 
 function validateLiteApiKey_(value) {
@@ -368,8 +392,9 @@ function validateLiteTeacherSetup_(payload) {
   const rubricScheme = normalizeLiteRubricScheme_(payload.rubricScheme);
   const fourLevels = rubricScheme === 'four_levels';
   const lessonGoal = liteOptional_(payload.lessonGoal, '수업 목표', 500);
-  const achievementStandard = liteOptional_(payload.achievementStandard, '성취기준', 1000);
-  if (activityMode === 'evaluation' && !lessonGoal && !achievementStandard) {
+  const standard = normalizeLiteAchievementStandard_(payload.achievementStandard, payload.achievementStandardCode);
+  const achievementStandard = standard.achievementStandard;
+  if (activityMode === 'evaluation' && !lessonGoal && !liteAchievementStandardContent_(achievementStandard)) {
     throw new Error('평가모드에서는 수업 목표 또는 성취기준을 입력해 주세요.');
   }
   // 탐색모드에서는 설계를 적용하지 않지만, 다시 켤 수 있도록 입력 내용은 보존한다.
@@ -383,7 +408,7 @@ function validateLiteTeacherSetup_(payload) {
     lessonTitle: liteRequired_(payload.lessonTitle, '수업명', 120),
     joinCode: validateLiteJoinCode_(payload.joinCode),
     lessonGoal: lessonGoal,
-    achievementStandardCode: liteText_(payload.achievementStandardCode, 80),
+    achievementStandardCode: standard.achievementStandardCode,
     achievementStandard: achievementStandard,
     assessmentCriteria: designField(payload.assessmentCriteria, '평가기준', 1500),
     rubricScheme: rubricScheme,
@@ -396,6 +421,8 @@ function validateLiteTeacherSetup_(payload) {
     materialText: materialText,
     materialUrl: materialUrl,
     startQuestion: liteRequired_(payload.startQuestion, '시작 질문', 500),
+    expectedAnswer: liteOptional_(payload.expectedAnswer, '예상 답변', 1500),
+    assessmentEvidence: liteOptional_(payload.assessmentEvidence, '평가 문항 근거', 1000),
     activityMode: activityMode,
     version: liteText_(payload.version, 30) || 'v1'
   };
@@ -437,7 +464,7 @@ function buildLiteReadiness_(settings, context) {
   context = context || {};
   const backwardDesignEnabled = settings.activityMode !== 'exploration';
   const backwardReady = !backwardDesignEnabled || Boolean(
-    (settings.lessonGoal || settings.achievementStandard) && settings.assessmentCriteria &&
+    (settings.lessonGoal || liteAchievementStandardContent_(settings.achievementStandard)) && settings.assessmentCriteria &&
     settings.rubricHigh && settings.rubricMeet && settings.rubricDeveloping &&
     (normalizeLiteRubricScheme_(settings.rubricScheme) !== 'four_levels' || settings.rubricGood) &&
     settings.evidenceDescription
@@ -674,6 +701,9 @@ function readLiteTeacherSettings_(spreadsheet, options) {
   if (settings.lessonId) {
     settings.rubricScheme = normalizeLiteRubricScheme_(settings.rubricScheme);
     settings.rubricGood = liteText_(settings.rubricGood, 1000);
+    settings.expectedAnswer = liteText_(settings.expectedAnswer, 1500);
+    settings.assessmentEvidence = liteText_(settings.assessmentEvidence, 1000);
+    Object.assign(settings, normalizeLiteAchievementStandard_(settings.achievementStandard, settings.achievementStandardCode));
   }
   // 0.1.x 사본은 개정 열이 없으므로, 다시 저장하기 전에도 새 중앙 엔진을 사용할 수 있게
   // 같은 설정에서 항상 같은 해시와 첫 개정 번호를 계산해 돌려준다.
@@ -700,8 +730,10 @@ function saveLiteTeacherSettings_(settings, options) {
   const previous = liteRowsAsObjects_(sheet)[0] || {};
   settings = Object.assign({}, settings, {
     rubricScheme: normalizeLiteRubricScheme_(settings.rubricScheme),
-    rubricGood: liteText_(settings.rubricGood, 1000)
-  });
+    rubricGood: liteText_(settings.rubricGood, 1000),
+    expectedAnswer: liteOptional_(settings.expectedAnswer, '예상 답변', 1500),
+    assessmentEvidence: liteOptional_(settings.assessmentEvidence, '평가 문항 근거', 1000)
+  }, normalizeLiteAchievementStandard_(settings.achievementStandard, settings.achievementStandardCode));
   const sourceHash = makeLiteSettingsHash_(settings);
   const newLesson = Boolean(options.newLesson);
   const changed = newLesson || String(previous.sourceHash || '') !== sourceHash;
@@ -742,6 +774,10 @@ function makeLiteSettingsHash_(settings) {
       liteText_(settings && settings.rubricGood)) {
     fields.push('rubricScheme', 'rubricGood');
   }
+  // 새 교사용 답변 안내가 없으면 이전 수업 해시를 그대로 유지한다.
+  ['expectedAnswer', 'assessmentEvidence'].forEach(function (field) {
+    if (liteText_(settings && settings[field])) fields.push(field);
+  });
   const source = fields.map(function (field) {
     return field + '=' + liteText_(settings && settings[field]);
   }).join('\n');
