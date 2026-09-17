@@ -80,14 +80,14 @@ const four = {
 // Add columns at the end: copied legacy sheets and their saved hashes/revisions stay intact.
 context.ensureLiteWorkbook_(spreadsheet);
 const lessonSheet = sheets.get('수업 자료');
-const legacyHeaders = lessonSheet.rows[0].filter((name) => !['rubricScheme', 'rubricGood', 'expectedAnswer', 'assessmentEvidence'].includes(name));
+const legacyHeaders = lessonSheet.rows[0].filter((name) => !['rubricScheme', 'rubricGood', 'expectedAnswer', 'assessmentEvidence', 'rubricBeginning'].includes(name));
 const originalHash = context.makeLiteSettingsHash_(legacy);
 const legacyRow = { ...legacy, lessonId:'LESSON-OLD', lessonRevision:7, sourceHash:originalHash, updatedAt:'2026-09-01' };
 lessonSheet.rows = [legacyHeaders.slice(), legacyHeaders.map((header) => legacyRow[header] || '')];
 const originalCells = structuredClone(lessonSheet.rows[1]);
 const reopened = context.readLiteTeacherSettings_();
 assert.deepEqual(lessonSheet.rows[0].slice(0, legacyHeaders.length), legacyHeaders);
-assert.deepEqual(lessonSheet.rows[0].slice(legacyHeaders.length), ['rubricScheme', 'rubricGood', 'expectedAnswer', 'assessmentEvidence']);
+assert.deepEqual(lessonSheet.rows[0].slice(legacyHeaders.length), ['rubricScheme', 'rubricGood', 'expectedAnswer', 'assessmentEvidence', 'rubricBeginning']);
 assert.deepEqual(lessonSheet.rows[1], originalCells);
 assert.equal(reopened.rubricScheme, 'legacy_three');
 assert.equal(reopened.rubricHigh, legacy.rubricHigh);
@@ -129,7 +129,7 @@ const enginePayload = context.buildLiteEnginePayload_({ activityMode:'evaluation
 assert.equal(enginePayload.lesson.rubricScheme, 'four_levels');
 assert.equal(enginePayload.lesson.rubricGood, editedFour.rubricGood);
 for (const visible of [context.sanitizeLiteSettingsForStudent_(editedFour), context.sanitizeLiteBootstrapForStudent_(editedFour)]) {
-  for (const field of ['rubricScheme', 'rubricHigh', 'rubricGood', 'rubricMeet', 'rubricDeveloping']) {
+  for (const field of ['rubricScheme', 'rubricHigh', 'rubricGood', 'rubricMeet', 'rubricDeveloping', 'rubricBeginning']) {
     assert.equal(Object.hasOwn(visible, field), false);
   }
 }
@@ -172,13 +172,13 @@ assert.equal(oldSaved.rubricScheme, 'legacy_three');
 assert.equal(oldSaved.lessonRevision, 7);
 
 // Appending teacher-only assessment guidance also preserves the existing 25-column workbook.
-const previousHeaders = lessonSheet.rows[0].filter((name) => !['expectedAnswer', 'assessmentEvidence'].includes(name));
+const previousHeaders = lessonSheet.rows[0].filter((name) => !['expectedAnswer', 'assessmentEvidence', 'rubricBeginning'].includes(name));
 assert.equal(previousHeaders.length, 25);
 lessonSheet.rows = [previousHeaders.slice(), previousHeaders.map((header) => editedFour[header] ?? '')];
 const previousCells = structuredClone(lessonSheet.rows[1]);
 const priorFour = context.readLiteTeacherSettings_();
 assert.deepEqual(lessonSheet.rows[0].slice(0, 25), previousHeaders);
-assert.deepEqual(lessonSheet.rows[0].slice(25), ['expectedAnswer', 'assessmentEvidence']);
+assert.deepEqual(lessonSheet.rows[0].slice(25), ['expectedAnswer', 'assessmentEvidence', 'rubricBeginning']);
 assert.deepEqual(plain(lessonSheet.rows[1]), plain(previousCells));
 assert.equal(priorFour.expectedAnswer, '');
 assert.equal(priorFour.assessmentEvidence, '');
@@ -350,4 +350,79 @@ assert.throws(() => context.validateLiteTeacherSetup_({ ...four, lessonGoal:'', 
 assert.equal(context.buildLiteReadiness_({ ...four, lessonGoal:'', achievementStandard:'[4사08-02]' }, {}).checks.find((entry) => entry.key === 'backwardDesign').state, 'block');
 assert.equal(context.liteAchievementStandardContent_(fullStandard), '글에 드러난 사실을 찾아 자신의 생각을 설명한다.');
 
-console.log('gas-lite four-level rubric checks: all passed');
+// A fifth level appends one column and never reinterprets saved three/four-level rows.
+const old27Headers = lessonSheet.rows[0].filter((name) => name !== 'rubricBeginning');
+assert.equal(old27Headers.length, 27);
+lessonSheet.rows = [old27Headers.slice(), old27Headers.map((header) => copiedGuidance[header] ?? '')];
+const old27Cells = plain(lessonSheet.rows[1]);
+const reloaded27 = context.readLiteTeacherSettings_();
+assert.deepEqual(lessonSheet.rows[0].slice(0, 27), old27Headers);
+assert.deepEqual(lessonSheet.rows[0].slice(27), ['rubricBeginning']);
+assert.deepEqual(plain(lessonSheet.rows[1]), old27Cells);
+assert.equal(reloaded27.rubricBeginning, '');
+assert.equal(reloaded27.sourceHash, copiedGuidance.sourceHash);
+assert.equal(context.saveLiteTeacherSettings_(reloaded27).lessonRevision, copiedGuidance.lessonRevision);
+for (const settings of [legacy, four, copiedGuidance]) {
+  assert.equal(context.makeLiteSettingsHash_(settings), context.makeLiteSettingsHash_({ ...settings, rubricBeginning:'' }));
+}
+const five = { ...reloaded27, rubricScheme:'five_levels', rubricBeginning:'자료를 함께 읽고 근거를 찾는 순서부터 연습한다.' };
+assert.equal(context.validateLiteTeacherSetup_(five).rubricBeginning, five.rubricBeginning);
+for (const [field, label] of [['rubricHigh', 'A'], ['rubricGood', 'B'], ['rubricMeet', 'C'], ['rubricDeveloping', 'D'], ['rubricBeginning', 'E']]) {
+  assert.throws(() => context.validateLiteTeacherSetup_({ ...five, [field]:'' }), new RegExp(label + ' 수준 기준'));
+}
+assert.doesNotThrow(() => context.validateLiteTeacherSetup_({ ...five, rubricScheme:'four_levels', rubricBeginning:'' }));
+assert.doesNotThrow(() => context.validateLiteTeacherSetup_({ ...five, rubricScheme:'legacy_three', rubricGood:'', rubricBeginning:'' }));
+for (const rubricScheme of ['legacy_three', 'four_levels', 'five_levels']) {
+  for (const activityMode of ['evaluation', 'exploration']) {
+    assert.throws(() => context.validateLiteTeacherSetup_({ ...five, rubricScheme, activityMode, rubricBeginning:'가'.repeat(1001) }), /1000자/);
+  }
+}
+const noFiveDesign = { ...five, activityMode:'exploration', rubricHigh:'', rubricGood:'', rubricMeet:'', rubricDeveloping:'', rubricBeginning:'' };
+assert.doesNotThrow(() => context.validateLiteTeacherSetup_(noFiveDesign));
+assert.equal(context.buildLiteReadiness_(noFiveDesign, {}).checks.find((entry) => entry.key === 'backwardDesign').state, 'pass');
+assert.equal(context.buildLiteReadiness_({ ...five, rubricBeginning:'' }, {}).checks.find((entry) => entry.key === 'backwardDesign').state, 'block');
+assert.equal(context.buildLiteReadiness_(five, {}).checks.find((entry) => entry.key === 'backwardDesign').state, 'pass');
+assert.notEqual(context.makeLiteSettingsHash_({ ...noFiveDesign, rubricScheme:'four_levels' }), context.makeLiteSettingsHash_(noFiveDesign));
+properties.set('LITE_PREVIEW_ACCESS_TOKEN', 'before-five-level-preview');
+const savedFive = context.saveLiteTeacherSettings_(context.validateLiteTeacherSetup_(five));
+assert.equal(savedFive.lessonRevision, reloaded27.lessonRevision + 1);
+assert.notEqual(savedFive.sourceHash, reloaded27.sourceHash);
+assert.equal(properties.has('LITE_PREVIEW_ACCESS_TOKEN'), false);
+assert.equal(context.readLiteTeacherSettings_().rubricBeginning, five.rubricBeginning);
+assert.notEqual(context.makeLiteSettingsHash_({ ...savedFive, rubricBeginning:five.rubricBeginning + ' 수정' }), savedFive.sourceHash);
+assert.equal(context.saveLiteTeacherSettings_(savedFive).lessonRevision, savedFive.lessonRevision);
+for (const publicSettings of [context.sanitizeLiteSettingsForStudent_(savedFive), context.sanitizeLiteBootstrapForStudent_(savedFive)]) {
+  assert.equal(Object.hasOwn(publicSettings, 'rubricBeginning'), false);
+  assert.equal(JSON.stringify(publicSettings).includes(five.rubricBeginning), false);
+}
+assert.equal(context.buildLiteEnginePayload_({ activityMode:'evaluation' }, savedFive, []).lesson.rubricBeginning, five.rubricBeginning);
+assert.equal(context.buildLiteEnginePayload_({ activityMode:'exploration' }, savedFive, []).lesson.rubricBeginning, '');
+const fiveTurn = { ...turn, sessionId:'S-five-level-assessment', requestId:'request-five-level-assessment', activityMode:'evaluation' };
+context.upsertLiteEvaluationDraft_(savedFive, fiveTurn, observation);
+const fiveDashboard = context.getLiteTeacherDashboardData(token);
+let fiveRow = fiveDashboard.evaluations.find((entry) => entry.sessionId === fiveTurn.sessionId);
+assert.deepEqual(plain(fiveRow.teacherDecisionOptions), ['판단 보류', 'A', 'B', 'C', 'D', 'E']);
+assert.equal(fiveRow.rubricScheme, 'five_levels');
+assert.match(fiveRow.automaticJudgment, /^공통 질문행동 관찰 · 평균 4\/5/);
+assert.doesNotMatch(fiveRow.automaticJudgment, /도달|성장 중|도움 필요/);
+const fiveReview = { ...fiveRow, expectedReviewVersion:fiveRow.reviewVersion, teacherDecision:'E', teacherFeedback:'자료를 함께 읽으며 핵심을 찾아봅시다.', improvementSuggestion:'첫 문장에서 중요한 말을 골라 보세요.', finalStatus:'최종 확정' };
+for (const teacherDecision of ['A', 'B', 'C', 'D', 'E']) {
+  assert.doesNotThrow(() => context.validateLiteTeacherEvaluation_({ ...fiveReview, teacherDecision }, 'five_levels'));
+}
+for (const teacherDecision of ['매우잘함', '잘함', '보통', '노력요함', '많은 노력요함', '도달']) {
+  assert.throws(() => context.validateLiteTeacherEvaluation_({ ...fiveReview, teacherDecision }, 'five_levels'), /저장된 수준/);
+}
+assert.throws(() => context.validateLiteTeacherEvaluation_(fiveReview, 'four_levels'), /저장된 수준/);
+assert.throws(() => context.validateLiteTeacherEvaluation_(fiveReview, 'legacy_three'), /저장된 수준/);
+context.saveLiteTeacherEvaluation(token, { ...fiveReview, rubricScheme:'legacy_three' });
+fiveRow = context.getLiteTeacherDashboardData(token).evaluations.find((entry) => entry.sessionId === fiveTurn.sessionId);
+assert.equal(fiveRow.teacherDecision, 'E');
+assert.equal(fiveRow.rubricScheme, 'five_levels');
+const switchedFour = context.saveLiteTeacherSettings_(context.validateLiteTeacherSetup_({ ...savedFive, rubricScheme:'four_levels' }));
+assert.equal(switchedFour.rubricBeginning, five.rubricBeginning, 'Hidden fifth descriptor remains available if the teacher switches back');
+assert.equal(switchedFour.lessonRevision, savedFive.lessonRevision + 1);
+assert.equal(context.getLiteTeacherDashboardData(token).evaluations.some((entry) => entry.sessionId === fiveTurn.sessionId), false);
+context.saveLiteTeacherEvaluation(token, { ...fiveReview, expectedReviewVersion:fiveRow.reviewVersion });
+assert.equal(context.liteRowsAsObjects_(sheets.get('교사 평가')).find((entry) => entry.sessionId === fiveTurn.sessionId).teacherDecision, 'E');
+
+console.log('gas-lite rubric storage checks (3/4/5 levels): all passed');

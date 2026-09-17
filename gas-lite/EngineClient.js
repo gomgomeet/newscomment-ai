@@ -717,6 +717,7 @@ function buildLiteEnginePayload_(turn, settings, history) {
       rubricGood: settings.rubricGood || '',
       rubricMeet: settings.rubricMeet,
       rubricDeveloping: settings.rubricDeveloping,
+      rubricBeginning: turn.activityMode === 'evaluation' ? settings.rubricBeginning || '' : '',
       evidenceDescription: settings.evidenceDescription,
       materialTitle: settings.materialTitle,
       materialText: settings.materialText,

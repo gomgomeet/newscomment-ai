@@ -362,6 +362,38 @@ assert.equal(legacyUi.byId('rubric-good').required, false);
 assert.equal(legacyUi.byId('rubric-good').disabled, true);
 assert.equal(createUi({}).byId('rubric-scheme').value, 'four_levels', 'New blank setups default to four levels');
 assert.equal(createUi({}).byId('save-state').textContent, '미저장 변경 있음', 'Generated form defaults are not treated as persisted settings');
+const fiveSettings = { ...fourSettings, rubricScheme:'five_levels', rubricBeginning:'단계별 질문을 함께 읽으며 근거를 찾는다.' };
+const fiveUi = createUi(fiveSettings);
+assert.equal(fiveUi.byId('rubric-scheme').value, 'five_levels');
+assert.equal(fiveUi.byId('rubric-good').required, true);
+assert.equal(fiveUi.byId('rubric-beginning').required, true);
+assert.equal(fiveUi.byId('rubric-beginning').value, fiveSettings.rubricBeginning);
+assert.equal(fiveUi.byId('rubric-beginning-field').classList.contains('hidden'), false);
+assert.deepEqual(['high', 'good', 'meet', 'developing'].map((name) => fiveUi.byId('rubric-' + name + '-label').textContent), ['A','B','C','D']);
+assert.equal(fiveUi.byId('rubric-beginning-field').children[0].textContent, 'E');
+fiveUi.byId('rubric-beginning').value = '';
+fiveUi.submit();
+assert.equal(fiveUi.requests.length, 0, 'Five-level evaluation requires its fifth descriptor');
+fiveUi.byId('rubric-beginning').value = fiveSettings.rubricBeginning;
+fiveUi.submit();
+const fiveSave = fiveUi.takeRequest('saveLiteTeacherSetup');
+assert.equal(fiveSave.args[1].rubricScheme, 'five_levels');
+assert.equal(fiveSave.args[1].rubricBeginning, fiveSettings.rubricBeginning);
+fiveSave.success({ ...readyData(fiveSave.args[1]), lessonId:settings.lessonId });
+assert.equal(createUi(fiveSave.args[1]).byId('rubric-beginning').value, fiveSettings.rubricBeginning);
+for (const scheme of ['four_levels', 'legacy_three', 'five_levels']) {
+  fiveUi.byId('rubric-scheme').value = scheme;
+  fiveUi.byId('rubric-scheme').dispatch('change');
+  assert.equal(fiveUi.byId('rubric-beginning').value, fiveSettings.rubricBeginning, 'Manual switches preserve hidden descriptors');
+  assert.equal(fiveUi.byId('rubric-beginning').required, scheme === 'five_levels');
+  assert.equal(fiveUi.byId('rubric-good').required, scheme !== 'legacy_three');
+  assert.equal(fiveUi.byId('rubric-high-label').textContent, scheme === 'five_levels' ? 'A' : scheme === 'four_levels' ? '매우잘함' : '도달');
+  assert.equal(fiveUi.byId('rubric-good-label').textContent, scheme === 'five_levels' ? 'B' : '잘함');
+}
+fiveUi.selectMode('exploration');
+assert.equal(fiveUi.byId('rubric-beginning').required, false);
+assert.equal(fiveUi.byId('rubric-beginning').effectivelyDisabled(), true);
+assert.equal(fiveUi.byId('rubric-beginning').value, fiveSettings.rubricBeginning);
 
 const draft = {
   rubricScheme:'four_levels', startQuestion:'자료에서 사실을 찾고 자신의 의견을 근거와 함께 설명해 볼까요?', expectedAnswer:'자료의 사실과 그에 따른 자신의 의견을 구분해 설명한다.', assessmentEvidence:settings.materialText, assessmentCriteria:'자료의 근거와 자신의 생각을 연결한다.',
@@ -371,7 +403,50 @@ const draft = {
   rubricDeveloping:'함께 읽으며 관련 근거를 찾는 연습이 필요하다.',
   evidenceDescription:'질문, 근거 설명, 자신의 의견과 이유',
 };
-const draftUi = createUi({ ...settings, lessonGoal:'' });
+const selectedLevels = {
+  legacy_three:['도달', '성장 중', '도움 필요'],
+  four_levels:['매우잘함', '잘함', '보통', '노력요함'],
+  five_levels:['A', 'B', 'C', 'D', 'E'],
+};
+for (const [scheme, labels] of Object.entries(selectedLevels)) {
+  const levelUi = createUi(fiveSettings);
+  levelUi.byId('rubric-scheme').value = scheme;
+  levelUi.byId('rubric-scheme').dispatch('change');
+  assert.equal(levelUi.byId('rubric-beginning').value, fiveSettings.rubricBeginning);
+  levelUi.click('generate-assessment');
+  const request = levelUi.takeRequest('generateLiteMaterialAssessmentDraft');
+  assert.equal(request.args[1].rubricScheme, scheme, 'The request carries the selected levels');
+  assert.equal(levelUi.byId('rubric-scheme').disabled, true, 'A paid request locks its level selector');
+  const generated = { ...draft, rubricScheme:scheme };
+  if (scheme === 'legacy_three') delete generated.rubricGood;
+  if (scheme === 'five_levels') generated.rubricBeginning = '작은 단계로 안내받으며 관련 문장을 함께 찾는다.';
+  request.success({ ok:true, draft:generated });
+  assert.equal(levelUi.byId('apply-assessment-draft').disabled, false);
+  assert.equal(levelUi.byId('assessment-draft-title').textContent, `AI 질문·평가기준 초안 · ${labels.length}단계`);
+  const previewLabels = levelUi.byId('assessment-draft-content').children.filter((node) => node.tagName === 'dt').map((node) => node.textContent);
+  assert.deepEqual(previewLabels.slice(4, -1), labels, 'Preview labels match the selected assessment levels');
+  levelUi.click('apply-assessment-draft');
+  assert.equal(levelUi.byId('rubric-scheme').value, scheme);
+  assert.equal(levelUi.byId('rubric-good').value, scheme === 'legacy_three' ? '' : draft.rubricGood);
+  assert.equal(levelUi.byId('rubric-beginning').value, scheme === 'five_levels' ? generated.rubricBeginning : '', 'AI apply clears inactive descriptors');
+  assert.equal(levelUi.requests.length, 0, 'Applying any level count does not autosave');
+}
+const wrongSchemeUi = createUi(settings);
+wrongSchemeUi.click('generate-assessment');
+wrongSchemeUi.takeRequest('generateLiteMaterialAssessmentDraft').success({ ok:true, draft });
+assert.equal(wrongSchemeUi.byId('apply-assessment-draft').disabled, true, 'A different returned level scheme cannot overwrite the teacher selection');
+const staleSchemeUi = createUi(fourSettings);
+staleSchemeUi.click('generate-assessment');
+staleSchemeUi.takeRequest('generateLiteMaterialAssessmentDraft').success({ ok:true, draft });
+staleSchemeUi.byId('rubric-scheme').value = 'five_levels';
+staleSchemeUi.byId('rubric-scheme').dispatch('change');
+assert.equal(staleSchemeUi.byId('apply-assessment-draft').disabled, true, 'Changing levels invalidates the preview');
+assert.equal(staleSchemeUi.byId('assessment-draft').classList.contains('hidden'), true);
+const missingFifthUi = createUi(fiveSettings);
+missingFifthUi.click('generate-assessment');
+missingFifthUi.takeRequest('generateLiteMaterialAssessmentDraft').success({ ok:true, draft:{ ...draft, rubricScheme:'five_levels' } });
+assert.equal(missingFifthUi.byId('apply-assessment-draft').disabled, true, 'Five-level generated drafts require the fifth descriptor');
+const draftUi = createUi({ ...fourSettings, lessonGoal:'' });
 assert.equal(draftUi.byId('generate-assessment').disabled, false, 'A standard plus material enables combined drafting without an extra goal');
 draftUi.click('generate-assessment');
 const draftRequest = draftUi.takeRequest('generateLiteMaterialAssessmentDraft');
@@ -387,7 +462,7 @@ assert.equal(draftUi.requests.length, 0, 'Enter submission cannot race with draf
 draftRequest.success({ ok:true, draft });
 assert.equal(draftUi.byId('assessment-criteria').value, settings.assessmentCriteria, 'Generation does not overwrite the form');
 assert.equal(draftUi.byId('start-question').value, settings.startQuestion, 'Generation does not silently replace the student question');
-assert.equal(draftUi.byId('rubric-scheme').value, 'legacy_three', 'Generation does not silently relabel existing levels');
+assert.equal(draftUi.byId('rubric-scheme').value, 'four_levels', 'Generation keeps the teacher-selected levels');
 assert.equal(draftUi.byId('assessment-draft').classList.contains('hidden'), false);
 assert.equal(draftUi.byId('apply-assessment-draft').disabled, false);
 draftUi.click('apply-assessment-draft');
@@ -496,8 +571,8 @@ assert.equal(longExplorationUi.byId('achievement-standard').effectivelyDisabled(
 assert.equal(longExplorationUi.byId('activity-mode').value, 'exploration', 'Validation must not silently change the operating mode');
 
 for (const editPhase of ['pending', 'preview']) {
- for (const editedField of ['lesson-goal', 'achievement-standard', 'material-text', 'start-question', 'expected-answer', 'assessment-evidence', 'assessment-criteria']) {
-  const staleUi = createUi(settings);
+ for (const editedField of ['lesson-goal', 'achievement-standard', 'material-text', 'start-question', 'expected-answer', 'assessment-evidence', 'assessment-criteria', 'rubric-beginning']) {
+  const staleUi = createUi(fourSettings);
   staleUi.click('generate-assessment');
   const request = staleUi.takeRequest('generateLiteMaterialAssessmentDraft');
   if (editPhase === 'preview') request.success({ ok:true, draft });
@@ -513,7 +588,7 @@ for (const editPhase of ['pending', 'preview']) {
  }
 }
 
-const failureUi = createUi(settings);
+const failureUi = createUi(fourSettings);
 failureUi.click('generate-assessment');
 failureUi.takeRequest('generateLiteMaterialAssessmentDraft').failure({ message:'<img src=x onerror=alert(1)> 연결 실패' });
 assert.equal(failureUi.byId('assessment-ai-status').textContent, '<img src=x onerror=alert(1)> 연결 실패');
@@ -563,6 +638,15 @@ readinessUi.byId('rubric-good').value = '';
 readinessUi.byId('rubric-good').dispatch('input');
 assert.equal(readinessUi.byId('readiness-list').children[0].dataset.state, 'block', 'Local readiness requires all four selected levels');
 assertLinksDisabled(readinessUi);
+const fiveReadinessUi = createUi(fiveSettings);
+fiveReadinessUi.context.renderReadiness({ setupReady:true, runtimeReady:true, distributionReady:true,
+  checks:[{ key:'backwardDesign', label:'평가 설계', state:'pass' }],
+}, readyData(settings).studentUrl, readyData(settings).previewUrl);
+assert.equal(fiveReadinessUi.byId('readiness-list').children[0].dataset.state, 'pass');
+fiveReadinessUi.byId('rubric-beginning').value = '';
+fiveReadinessUi.byId('rubric-beginning').dispatch('input');
+assert.equal(fiveReadinessUi.byId('readiness-list').children[0].dataset.state, 'block', 'Five-level readiness requires E');
+assertLinksDisabled(fiveReadinessUi);
 
 const refreshRaceUi = createUi(settings);
 refreshRaceUi.click('refresh-readiness');
@@ -629,4 +713,23 @@ assert.ok(answerCards[1].textContent.includes('아직 확인할 첫 답변이 �
 assert.equal(answerCards[2].textContent.includes('시작 질문 뒤 첫 응답'), false, 'Historical rows with no response field keep the original card');
 assert.deepEqual(decisionChoices(answerCards[2]), ['판단 보류','도달','성장 중','도움 필요']);
 
-console.log('GAS lite teacher UI: material-first combined assessment, single standard field, stale draft/dirty gates, and dashboard judgments passed');
+dashboardContext.renderDashboard({ lesson:fiveSettings, evaluations:[
+  { studentCode:'99-995', rubricScheme:'five_levels', teacherDecision:'D' },
+  { studentCode:'99-994', rubricScheme:'four_levels', teacherDecision:'잘함' },
+  { studentCode:'99-993', rubricScheme:'legacy_three', teacherDecision:'성장 중' },
+] });
+assert.deepEqual(['high', 'good', 'meet', 'developing'].map((name) => dashboardById('rubric-' + name + '-label').textContent), ['A','B','C','D']);
+assert.equal(dashboardById('rubric-beginning-field').classList.contains('hidden'), false);
+assert.equal(dashboardById('rubric-beginning-field').children[0].textContent, 'E');
+assert.equal(dashboardById('rubric-beginning').textContent, fiveSettings.rubricBeginning);
+const mixedCards = dashboardById('evaluations').children;
+assert.deepEqual(decisionChoices(mixedCards[0]), ['판단 보류','A','B','C','D','E']);
+assert.deepEqual(decisionChoices(mixedCards[1]), ['판단 보류','매우잘함','잘함','보통','노력요함'], 'A four-level historical row is not relabeled A–D');
+assert.deepEqual(decisionChoices(mixedCards[2]), ['판단 보류','도달','성장 중','도움 필요']);
+assert.equal(mixedCards[0].descendants().find((node) => node.dataset.field === 'teacherDecision').children.find((option) => option.selected).value, 'D');
+dashboardContext.renderDashboard({ lesson:fourSettings });
+assert.equal(dashboardById('rubric-high-label').textContent, '매우잘함');
+assert.equal(dashboardById('rubric-good-label').textContent, '잘함');
+assert.equal(dashboardById('rubric-beginning-field').classList.contains('hidden'), true);
+
+console.log('GAS lite teacher UI: 3/4/5-level selected drafts, A–E dashboard, material-first assessment, and stale/dirty gates passed');

@@ -5,9 +5,12 @@
 
 const LITE_TEACHER_DECISIONS_ = ['판단 보류', '도달', '성장 중', '도움 필요'];
 const LITE_FOUR_LEVEL_TEACHER_DECISIONS_ = ['판단 보류', '매우잘함', '잘함', '보통', '노력요함'];
+const LITE_FIVE_LEVEL_TEACHER_DECISIONS_ = ['판단 보류', 'A', 'B', 'C', 'D', 'E'];
 
 function liteTeacherDecisionOptions_(rubricScheme) {
-  return (normalizeLiteRubricScheme_(rubricScheme) === 'four_levels'
+  const scheme = normalizeLiteRubricScheme_(rubricScheme);
+  if (scheme === 'five_levels') return LITE_FIVE_LEVEL_TEACHER_DECISIONS_.slice();
+  return (scheme === 'four_levels'
     ? LITE_FOUR_LEVEL_TEACHER_DECISIONS_ : LITE_TEACHER_DECISIONS_).slice();
 }
 const LITE_RUBRIC_SCORE_COLUMNS_ = {
@@ -171,7 +174,7 @@ function upsertLiteEvaluationDraft_(settings, turn, observation, options) {
       lessonRevision: settings.lessonRevision || 1,
       rubricScheme: rubricScheme,
       automaticJudgment: accumulatedScores.length
-        ? '공통 질문행동 관찰 · ' + (rubricScheme === 'four_levels' ? '' : judgment.label + ' · ') +
+        ? '공통 질문행동 관찰 · ' + (rubricScheme !== 'legacy_three' ? '' : judgment.label + ' · ') +
           '평균 ' + judgment.average + '/5 · 교사 기준 판단 전'
         : '시작 질문 응답 수집 · 교사 기준 판단 전',
       evidenceSummary: evidenceSummary,

@@ -63,6 +63,7 @@
       .summary { display:grid; gap:8px; padding:13px; border:1px solid #bfdbfe; border-radius:10px; background:var(--blue-soft); }
       .summary code { overflow-wrap:anywhere; white-space:normal; }
       .button-row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+      #generate-assessment { margin-top:10px; }
       .assessment-draft { padding:13px; border:1px solid #bfdbfe; border-radius:10px; background:var(--blue-soft); }
       .assessment-draft dl { margin:12px 0; }
       .assessment-draft dt { margin-top:10px; font-weight:800; }
@@ -186,12 +187,20 @@
         <section id="panel-assessment" class="panel" aria-labelledby="title-assessment">
           <h2 id="title-assessment">3. 질문·평가기준</h2>
             <div id="assessment-ai-section">
+            <label class="wide">평가 수준
+              <select id="rubric-scheme">
+                <option value="legacy_three">3단계 · 도달 / 성장 중 / 도움 필요</option>
+                <option value="four_levels">4단계 · 매우잘함 / 잘함 / 보통 / 노력요함</option>
+                <option value="five_levels">5단계 · A / B / C / D / E</option>
+              </select>
+              <span class="help">기존 수업은 저장된 수준을 유지합니다. 수준을 바꾸면 각 기준도 확인해 주세요.</span>
+            </label>
               <button id="generate-assessment" type="button" class="secondary" disabled>자료로 질문·평가기준 만들기</button>
               <p id="assessment-ai-hint" class="help">API 연결을 확인하고 수업 목표 또는 성취기준을 입력해 주세요.</p>
               <p id="assessment-ai-status" class="status" role="status" aria-live="polite"></p>
               <section id="assessment-draft" class="assessment-draft hidden" aria-label="AI 질문·평가기준 초안">
-                <strong>AI 질문·평가기준 초안 · 4단계</strong>
-                <p class="help">학생 시작 질문, 교사용 답변 요소와 근거, 4단계 기준을 함께 확인하세요. 적용 후 직접 수정하고 저장할 수 있습니다.</p>
+                <strong id="assessment-draft-title">AI 질문·평가기준 초안</strong>
+                <p class="help">학생 시작 질문, 교사용 답변 요소와 근거, 선택한 수준별 기준을 함께 확인하세요. 적용 후 직접 수정하고 저장할 수 있습니다.</p>
                 <dl id="assessment-draft-content"></dl>
                 <button id="apply-assessment-draft" type="button" class="secondary" disabled>이 초안 적용</button>
               </section>
@@ -207,20 +216,14 @@
             <label class="wide">자료의 근거 문장 (교사용)
               <textarea id="assessment-evidence" maxlength="1000" placeholder="평가 질문의 근거가 되는 자료 문장을 그대로 적습니다."></textarea>
             </label>
-            <label class="wide">평가 수준
-              <select id="rubric-scheme">
-                <option value="four_levels">4단계 · 매우잘함 / 잘함 / 보통 / 노력요함</option>
-                <option value="legacy_three">기존 3단계 · 도달 / 성장 중 / 도움 필요</option>
-              </select>
-              <span class="help">기존 수업은 저장된 수준을 유지합니다. 수준을 바꾸면 각 기준도 확인해 주세요.</span>
-            </label>
+
             <label class="wide">③ 평가기준
               <textarea id="assessment-criteria" maxlength="1500" required placeholder="어떤 수행을 보이면 목표에 도달했다고 판단할지 씁니다."></textarea>
             </label>
             <label class="wide"><span id="rubric-high-label">매우잘함</span>
               <textarea id="rubric-high" maxlength="1000" required placeholder="충분히 도달한 학생에게서 관찰되는 행동"></textarea>
             </label>
-            <label id="rubric-good-field" class="wide"><span>잘함</span>
+            <label id="rubric-good-field" class="wide"><span id="rubric-good-label">잘함</span>
               <textarea id="rubric-good" maxlength="1000" required placeholder="목표에 도달한 학생에게서 관찰되는 행동"></textarea>
             </label>
             <label class="wide"><span id="rubric-meet-label">보통</span>
@@ -228,6 +231,9 @@
             </label>
             <label class="wide"><span id="rubric-developing-label">노력요함</span>
               <textarea id="rubric-developing" maxlength="1000" required placeholder="교사의 구체적인 지원이 필요한 행동"></textarea>
+            </label>
+            <label id="rubric-beginning-field" class="wide hidden"><span>E</span>
+              <textarea id="rubric-beginning" maxlength="1000" placeholder="단계별 안내와 지속적인 도움이 필요한 행동"></textarea>
             </label>
             <label class="wide">④ 수집할 평가 근거
               <textarea id="evidence-description" maxlength="1000" required placeholder="예: 기사 핵심을 묻는 질문, 근거를 찾은 답변, 자신의 의견과 이유"></textarea>
@@ -310,6 +316,7 @@
         assessmentCriteria:['assessment-criteria', '평가기준', 1500],
         rubricHigh:['rubric-high', '매우잘함'], rubricGood:['rubric-good', '잘함'],
         rubricMeet:['rubric-meet', '보통'], rubricDeveloping:['rubric-developing', '노력요함'],
+        rubricBeginning:['rubric-beginning', 'E'],
         evidenceDescription:['evidence-description', '수집할 평가 근거']
       };
       const byId = function (id) { return document.getElementById(id); };
@@ -336,7 +343,7 @@
         byId('rubric-scheme').addEventListener('change', syncRubricScheme);
         ['lesson-id', 'app-name', 'subject', 'grade', 'lesson-title', 'lesson-goal', 'standard-code',
           'achievement-standard', 'assessment-criteria', 'rubric-scheme', 'rubric-high', 'rubric-good',
-          'rubric-meet', 'rubric-developing', 'evidence-description', 'material-title', 'material-text',
+          'rubric-meet', 'rubric-developing', 'rubric-beginning', 'evidence-description', 'material-title', 'material-text',
           'material-url', 'start-question', 'expected-answer', 'assessment-evidence', 'join-code', 'activity-mode', 'version'].forEach(function (id) {
           ['input', 'change'].forEach(function (eventName) {
             byId(id).addEventListener(eventName, assessmentInputsChanged);
@@ -390,16 +397,45 @@
       }
 
       function syncRubricScheme() {
-        const four = byId('rubric-scheme').value === 'four_levels';
+        const scheme = byId('rubric-scheme').value;
+        const detailed = scheme === 'four_levels' || scheme === 'five_levels';
+        const five = scheme === 'five_levels';
         const evaluation = byId('activity-mode').value !== 'exploration';
-        byId('rubric-high-label').textContent = four ? '매우잘함' : '도달';
-        byId('rubric-meet-label').textContent = four ? '보통' : '성장 중';
-        byId('rubric-developing-label').textContent = four ? '노력요함' : '도움 필요';
-        byId('rubric-good-field').classList.toggle('hidden', !four);
-        byId('rubric-good').required = four && evaluation;
-        byId('rubric-good').disabled = !four || !evaluation;
+        byId('rubric-high-label').textContent = five ? 'A' : detailed ? '매우잘함' : '도달';
+        byId('rubric-good-label').textContent = five ? 'B' : '잘함';
+        byId('rubric-meet-label').textContent = five ? 'C' : detailed ? '보통' : '성장 중';
+        byId('rubric-developing-label').textContent = five ? 'D' : detailed ? '노력요함' : '도움 필요';
+        byId('rubric-good-field').classList.toggle('hidden', !detailed);
+        byId('rubric-good').required = detailed && evaluation;
+        byId('rubric-good').disabled = !detailed || !evaluation;
+        byId('rubric-beginning-field').classList.toggle('hidden', !five);
+        byId('rubric-beginning').required = five && evaluation;
+        byId('rubric-beginning').disabled = !five || !evaluation;
         updateAssessmentControls();
         updateReadinessDisplay();
+      }
+
+      function rubricLevelCount(scheme) {
+        return scheme === 'legacy_three' ? 3 : scheme === 'five_levels' ? 5 : 4;
+      }
+
+      function activeAssessmentDraftFields(scheme) {
+        const fields = {};
+        Object.keys(assessmentDraftFields).forEach(function (key) {
+          if (key === 'rubricGood' && scheme === 'legacy_three') return;
+          if (key === 'rubricBeginning' && scheme !== 'five_levels') return;
+          fields[key] = assessmentDraftFields[key].slice();
+        });
+        if (scheme === 'legacy_three') {
+          fields.rubricHigh[1] = '도달';
+          fields.rubricMeet[1] = '성장 중';
+          fields.rubricDeveloping[1] = '도움 필요';
+        } else if (scheme === 'five_levels') {
+          ['rubricHigh', 'rubricGood', 'rubricMeet', 'rubricDeveloping', 'rubricBeginning'].forEach(function (key, index) {
+            fields[key][1] = ['A', 'B', 'C', 'D', 'E'][index];
+          });
+        }
+        return fields;
       }
 
       function assessmentInputsChanged() {
@@ -426,7 +462,7 @@
           : !hasGoal ? '1단계에서 수업 목표 또는 성취기준 내용을 입력해 주세요.'
           : standardTooLong ? '1단계의 성취기준을 코드와 내용 합계 1,000자 이내로 정리해 주세요.'
           : !hasMaterial ? '2단계에서 30자 이상의 수업자료 본문을 넣어 주세요.'
-          : '입력한 목표와 자료로 질문·답변 요소·4단계 기준을 함께 만듭니다. 연결한 개인 API 사용료가 발생합니다.';
+          : '입력한 목표와 자료로 질문·답변 요소·' + rubricLevelCount(byId('rubric-scheme').value) + '단계 기준을 함께 만듭니다. 연결한 개인 API 사용료가 발생합니다.';
       }
 
       function achievementStandardCode() {
@@ -472,10 +508,11 @@
               return;
             }
             const draft = result && result.draft;
-            const valid = result && result.ok && draft && draft.rubricScheme === 'four_levels' &&
-              Object.keys(assessmentDraftFields).every(function (key) {
+            const draftFields = activeAssessmentDraftFields(payload.rubricScheme);
+            const valid = result && result.ok && draft && draft.rubricScheme === payload.rubricScheme &&
+              Object.keys(draftFields).every(function (key) {
                 return typeof draft[key] === 'string' && draft[key].trim() &&
-                  draft[key].length <= (assessmentDraftFields[key][2] || 1000);
+                  draft[key].length <= (draftFields[key][2] || 1000);
               });
             if (!valid) {
               byId('assessment-ai-status').textContent = '질문·평가기준 초안의 형식을 확인하지 못했습니다. 다시 만들어 주세요.';
@@ -483,8 +520,9 @@
             }
             assessmentDraft = { value:draft, snapshot:snapshot, editVersion:editVersion };
             const content = byId('assessment-draft-content'); content.textContent = '';
-            Object.keys(assessmentDraftFields).forEach(function (key) {
-              const title = document.createElement('dt'); title.textContent = assessmentDraftFields[key][1];
+            byId('assessment-draft-title').textContent = 'AI 질문·평가기준 초안 · ' + rubricLevelCount(draft.rubricScheme) + '단계';
+            Object.keys(draftFields).forEach(function (key) {
+              const title = document.createElement('dt'); title.textContent = draftFields[key][1];
               const detail = document.createElement('dd'); detail.textContent = draft[key];
               content.appendChild(title); content.appendChild(detail);
             });
@@ -498,7 +536,7 @@
             byId('assessment-ai-status').textContent = error && error.message ? error.message : '초안을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.';
           })
           .generateLiteMaterialAssessmentDraft(teacherAccessToken, {
-            activityMode:payload.activityMode, subject:payload.subject, grade:payload.grade,
+            activityMode:payload.activityMode, rubricScheme:payload.rubricScheme, subject:payload.subject, grade:payload.grade,
             lessonTitle:payload.lessonTitle, lessonGoal:payload.lessonGoal,
             achievementStandardCode:payload.achievementStandardCode, achievementStandard:payload.achievementStandard,
             materialTitle:payload.materialTitle, materialText:payload.materialText
@@ -512,8 +550,11 @@
           return;
         }
         const draft = assessmentDraft.value;
-        Object.keys(assessmentDraftFields).forEach(function (key) { byId(assessmentDraftFields[key][0]).value = draft[key]; });
-        byId('rubric-scheme').value = 'four_levels';
+        const draftFields = activeAssessmentDraftFields(draft.rubricScheme);
+        Object.keys(draftFields).forEach(function (key) { byId(draftFields[key][0]).value = draft[key]; });
+        if (draft.rubricScheme === 'legacy_three') byId('rubric-good').value = '';
+        if (draft.rubricScheme !== 'five_levels') byId('rubric-beginning').value = '';
+        byId('rubric-scheme').value = draft.rubricScheme;
         assessmentDraft = null;
         assessmentEditVersion += 1;
         byId('assessment-draft').classList.toggle('hidden', true);
@@ -546,6 +587,7 @@
           'lesson-title':'lessonTitle', 'lesson-goal':'lessonGoal', 'standard-code':'achievementStandardCode',
           'achievement-standard':'achievementStandard', 'assessment-criteria':'assessmentCriteria',
           'rubric-high':'rubricHigh', 'rubric-good':'rubricGood', 'rubric-meet':'rubricMeet', 'rubric-developing':'rubricDeveloping',
+          'rubric-beginning':'rubricBeginning',
           'evidence-description':'evidenceDescription', 'material-title':'materialTitle',
           'material-text':'materialText', 'material-url':'materialUrl', 'start-question':'startQuestion',
           'expected-answer':'expectedAnswer', 'assessment-evidence':'assessmentEvidence',
@@ -557,7 +599,7 @@
         });
         byId('achievement-standard').value = combineAchievementStandard(value.achievementStandardCode, value.achievementStandard);
         byId('activity-mode').value = value.activityMode === 'exploration' ? 'exploration' : 'evaluation';
-        byId('rubric-scheme').value = value.rubricScheme === 'four_levels' ? 'four_levels'
+        byId('rubric-scheme').value = value.rubricScheme === 'five_levels' ? 'five_levels' : value.rubricScheme === 'four_levels' ? 'four_levels'
           : value.rubricScheme === 'legacy_three' || value.lessonId || value.rubricHigh || value.rubricMeet || value.rubricDeveloping ? 'legacy_three' : 'four_levels';
         savedActivityMode = byId('activity-mode').value;
         savedSetupSnapshot = assessmentSnapshot();
@@ -579,7 +621,7 @@
           achievementStandardCode:achievementStandardCode(),
           achievementStandard:byId('achievement-standard').value,
           assessmentCriteria:byId('assessment-criteria').value,
-          rubricScheme:byId('rubric-scheme').value, rubricGood:byId('rubric-good').value,
+          rubricScheme:byId('rubric-scheme').value, rubricGood:byId('rubric-good').value, rubricBeginning:byId('rubric-beginning').value,
           rubricHigh:byId('rubric-high').value, rubricMeet:byId('rubric-meet').value,
           rubricDeveloping:byId('rubric-developing').value,
           evidenceDescription:byId('evidence-description').value,
@@ -743,7 +785,8 @@
         const backwardReady = !enabled || ((hasText(payload.lessonGoal) || Boolean(achievementStandardContent())) &&
           ['assessmentCriteria', 'rubricHigh', 'rubricMeet', 'rubricDeveloping', 'evidenceDescription'].every(function (key) {
             return hasText(payload[key]);
-          }) && (payload.rubricScheme !== 'four_levels' || hasText(payload.rubricGood)));
+          }) && (payload.rubricScheme === 'legacy_three' || hasText(payload.rubricGood)) &&
+          (payload.rubricScheme !== 'five_levels' || hasText(payload.rubricBeginning)));
         const materialReady = hasText(payload.lessonTitle) && hasText(payload.materialTitle) &&
           payload.materialText.trim().length >= 30 && hasText(payload.startQuestion);
         const codeReady = /^\d{6}$/.test(payload.joinCode);
