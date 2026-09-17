@@ -150,6 +150,17 @@ vm.runInContext(engineSource, context, { filename: 'gas-lite/EngineClient.js' })
 const evaluationSource = fs.readFileSync(path.join(root, 'gas-lite', 'EvaluationService.js'), 'utf8');
 vm.runInContext(evaluationSource, context, { filename: 'gas-lite/EvaluationService.js' });
 
+const validAssessmentCriterion = {
+  id: 'main-evidence',
+  criterion: '기사의 핵심과 근거 연결하기',
+  responseKind: 'explanation',
+  mainQuestion: '기사에서 가장 궁금한 점은 무엇인가요?',
+  followUpQuestion: '그 생각의 근거가 되는 문장을 자료에서 찾아 줄래요?',
+  evidenceDescription: '기사의 핵심과 자신의 생각을 근거로 연결한 학생 답변',
+  sourceQuote: '일회용품 사용을 줄이기 위해 개인 물병을 사용하고 있습니다.',
+  requireSourceEvidence: true
+};
+const validAssessmentPlan = { schemaVersion:1, approved:true, criteria:[validAssessmentCriterion] };
 const valid = {
   appName: '생각이',
   subject: '국어',
@@ -169,12 +180,32 @@ const valid = {
   materialUrl: 'https://example.com/article',
   startQuestion: '기사에서 가장 궁금한 점은 무엇인가요?',
   activityMode: 'evaluation',
-  version: 'v1'
+  version: 'v1',
+  assessmentPlanJson: JSON.stringify(validAssessmentPlan)
 };
 
 const normalized = context.validateLiteTeacherSetup_(valid);
 assert.equal(normalized.activityMode, 'evaluation');
 assert.equal(normalized.lessonTitle, valid.lessonTitle);
+assert.throws(
+  () => context.validateLiteTeacherSetup_({ ...valid, assessmentPlanJson:'' }),
+  /질문계획을 하나 이상/
+);
+assert.throws(
+  () => context.validateLiteTeacherSetup_({
+    ...valid,
+    assessmentPlanJson:JSON.stringify({ ...validAssessmentPlan, approved:false })
+  }),
+  /검토하고 승인/
+);
+const preservedExplorationPlan = context.validateLiteTeacherSetup_({
+  ...valid,
+  activityMode:'exploration',
+  assessmentPlanJson:JSON.stringify({ ...validAssessmentPlan, approved:false })
+});
+assert.equal(JSON.parse(preservedExplorationPlan.assessmentPlanJson).criteria[0].mainQuestion,
+  validAssessmentCriterion.mainQuestion);
+assert.equal(JSON.parse(preservedExplorationPlan.assessmentPlanJson).approved, false);
 
 assert.throws(
   () => context.validateLiteTeacherSetup_({ ...valid, assessmentCriteria: '' }),
@@ -629,6 +660,27 @@ assert.throws(
 context.ensureLiteWorkbook_(spreadsheet);
 assert.deepEqual(Array.from(spreadsheet.sheets.keys()), ['시작하기', '수업 자료', '학생별 현황', '질문과 답변', '교사 평가']);
 const savedSettings = context.saveLiteTeacherSettings_(normalized);
+const savedAssessmentPlan = context.liteAssessmentPlan_(savedSettings);
+const validSavedAssessmentProgress = {
+  schemaVersion:1,
+  planId:context.liteFingerprint_(JSON.stringify([
+    JSON.stringify([savedSettings.lessonId, savedSettings.lessonRevision, savedSettings.sourceHash]),
+    savedAssessmentPlan
+  ]), 100),
+  activeIndex:0,
+  stage:'main',
+  items:savedAssessmentPlan.criteria.map((criterion) => ({
+    id:criterion.id,
+    label:criterion.criterion.slice(0, 80),
+    status:'pending',
+    attempts:0,
+    hintCount:0,
+    assisted:false,
+    answerRequestId:'',
+    evidenceRequestId:''
+  })),
+  lastEvent:{ requestId:'', criterionId:savedAssessmentPlan.criteria[0].id, kind:'prompt', evidenceVerified:false }
+};
 const reopenedSettings = context.readLiteTeacherSettings_();
 assert.equal(reopenedSettings.lessonId, savedSettings.lessonId);
 assert.equal(reopenedSettings.assessmentCriteria, normalized.assessmentCriteria);
@@ -1318,7 +1370,7 @@ context.UrlFetchApp = {
         policyVersion:endpointSnapshotPlan.policyVersion,
         planDigest:endpointSnapshotPlan.planDigest,
         engine:{ family:'questioning-dialogue-v2' },
-        observation:{ sourceStatus:'supported' },
+        observation:{ sourceStatus:'supported', assessmentProgress:validSavedAssessmentProgress },
         studentReply:'캡처한 엔진에서 확인한 답변입니다.',
         localFallback:false
       })
@@ -1354,7 +1406,8 @@ context.requestLiteEnginePlan_ = () => ({
   observation:{
     conversationPhase:1, primaryMove:'receive', managedKind:'receive',
     relatedQuestion:true, responseScore:3, sourceStatus:'supported',
-    rubricScores:[{ criterionKey:'questioning', score:3, rationale:'관련 질문을 관찰함' }]
+    rubricScores:[{ criterionKey:'questioning', score:3, rationale:'관련 질문을 관찰함' }],
+    assessmentProgress:validSavedAssessmentProgress
   },
   policyVersion:'questioning-dialogue-v2-lite-adapter-v3',
   planDigest:'test-plan-digest-12345678901234567890',
@@ -2146,18 +2199,41 @@ assert.throws(() => planContext.normalizeLiteAssessmentPlan_({ ...approvedPlan, 
 assert.throws(() => planContext.normalizeLiteAssessmentPlan_({ ...approvedPlan, criteria:[{ ...planCriterion, criterion:'가'.repeat(181) }] }, valid.materialText), /180자/);
 assert.equal(planContext.normalizeLiteAssessmentPlan_({ ...approvedPlan, criteria:[{ ...planCriterion, id:'constructor' }] }, valid.materialText).criteria[0].id, 'constructor');
 const inactiveOldPlan = { ...approvedPlan, criteria:[{ ...planCriterion, sourceQuote:'이전 수업에 있던 구절' }] };
-assert.doesNotThrow(() => planContext.validateLiteTeacherSetup_({ ...valid, activityMode:'exploration', assessmentPlanJson:JSON.stringify(inactiveOldPlan) }));
+const preservedInactivePlan = planContext.validateLiteTeacherSetup_({
+  ...valid, activityMode:'exploration', assessmentPlanJson:JSON.stringify(inactiveOldPlan)
+});
+assert.equal(JSON.parse(preservedInactivePlan.assessmentPlanJson).criteria[0].sourceQuote, '이전 수업에 있던 구절');
 assert.throws(() => planContext.validateLiteTeacherSetup_({ ...valid, assessmentPlanJson:JSON.stringify(inactiveOldPlan) }), /본문/);
 const planDraft = { schemaVersion:1, approved:false, criteria:[{ ...planCriterion, criterion:'', mainQuestion:'', sourceQuote:'' }] };
 assert.equal(planContext.normalizeLiteAssessmentPlan_(planDraft, valid.materialText).criteria[0].mainQuestion, '');
 const planSettings = planContext.saveLiteTeacherSettings_(planContext.validateLiteTeacherSetup_({ ...valid, assessmentPlanJson:JSON.stringify(approvedPlan) }));
 assert.equal(planContext.readLiteTeacherSettings_().assessmentPlanJson, JSON.stringify(approvedPlan));
 assert.equal(planContext.saveLiteTeacherSettings_({ ...planSettings, assessmentPlanJson:JSON.stringify(approvedPlan, null, 2) }).lessonRevision, planSettings.lessonRevision);
-const draftSettings = planContext.validateLiteTeacherSetup_({ ...valid, assessmentPlanJson:JSON.stringify(planDraft) });
+assert.equal(
+  planContext.makeLiteSettingsHash_({ ...planSettings, startQuestion:'평가모드에서는 실행하지 않는 다른 초안 질문' }),
+  planSettings.sourceHash,
+  '평가모드는 승인 계획의 첫 질문만 수업 개정에 반영한다'
+);
+const explorationPlanHash = planContext.makeLiteSettingsHash_({ ...planSettings, activityMode:'exploration' });
+assert.notEqual(
+  planContext.makeLiteSettingsHash_({ ...planSettings, activityMode:'exploration', startQuestion:'탐색모드의 새 시작 질문' }),
+  explorationPlanHash,
+  '자료 탐색모드의 실제 시작 질문은 수업 개정에 반영한다'
+);
+assert.throws(
+  () => planContext.validateLiteTeacherSetup_({ ...valid, assessmentPlanJson:JSON.stringify(planDraft) }),
+  /검토하고 승인/
+);
+const draftSettings = planContext.validateLiteTeacherSetup_({
+  ...valid, activityMode:'exploration', assessmentPlanJson:JSON.stringify(planDraft)
+});
 const readinessContext = { apiConfigured:true, apiVerified:true, engineConfigured:true, engineVerified:true, studentUrl:'test', previewVerified:true };
-assert.equal(planContext.buildLiteReadiness_(draftSettings, readinessContext).runtimeReady, false);
-assert.equal(planContext.buildLiteReadiness_({ ...draftSettings, activityMode:'exploration' }, readinessContext).runtimeReady, true);
-assert.match(planContext.buildLiteReadiness_(valid, readinessContext).checks.find((item) => item.key === 'assessmentPlan').detail, /질문계획 없음/);
+assert.equal(planContext.buildLiteReadiness_({ ...draftSettings, activityMode:'evaluation' }, readinessContext).runtimeReady, false);
+assert.equal(planContext.buildLiteReadiness_(draftSettings, readinessContext).runtimeReady, true);
+assert.match(planContext.buildLiteReadiness_({ ...valid, assessmentPlanJson:'' }, readinessContext)
+  .checks.find((item) => item.key === 'assessmentPlan').detail, /하나 이상 만들고 승인/);
+assert.match(planContext.buildLiteReadiness_(draftSettings, readinessContext)
+  .checks.find((item) => item.key === 'assessmentPlan').detail, /보관됨·비활성/);
 assert.equal(planContext.liteAssessmentStartQuestion_(planSettings), planCriterion.mainQuestion);
 assert.equal(planContext.sanitizeLiteSettingsForStudent_(planSettings).startQuestion, planCriterion.mainQuestion);
 assert.equal(planContext.liteAssessmentStartQuestion_({ ...planSettings, activityMode:'exploration' }), valid.startQuestion);
@@ -2209,6 +2285,11 @@ const offPayload = planContext.buildLiteEnginePayload_({ ...planTurn, activityMo
   { ...planSettings, activityMode:'exploration' }, []);
 assert.equal(offPayload.assessmentProgress, undefined);
 assert.equal(offPayload.lesson.assessmentPlan, undefined);
+assert.doesNotThrow(() => planContext.buildLiteEnginePayload_(
+  { ...planTurn, activityMode:'exploration' },
+  { ...planSettings, activityMode:'exploration', assessmentPlanJson:'{손상된 비활성 계획' },
+  []
+), '자료 탐색모드는 보관된 질문계획을 해석하거나 실행하지 않는다');
 // Active approved plans must fail closed if an old/stale central engine drops the protocol.
 const guardedPayload = planContext.buildLiteEnginePayload_(planTurn, planSettings, []);
 const expectedPlanId = createHash('sha256').update(JSON.stringify([
@@ -2224,8 +2305,10 @@ for (const badProgress of [undefined, {}, { ...guardedProgress, planId:'old-less
   assert.throws(() => planContext.assertLiteAssessmentEngineResponse_(guardedPayload, { observation:{ assessmentProgress:badProgress } }), /중앙 엔진을 업데이트/);
 }
 assert.doesNotThrow(() => planContext.assertLiteAssessmentEngineResponse_(offPayload, { observation:{} }));
-assert.doesNotThrow(() => planContext.assertLiteAssessmentEngineResponse_(
-  planContext.buildLiteEnginePayload_(planTurn, { ...planSettings, assessmentPlanJson:'' }, []), { observation:{} }));
+assert.throws(
+  () => planContext.buildLiteEnginePayload_(planTurn, { ...planSettings, assessmentPlanJson:'' }, []),
+  /승인·저장되지 않았습니다/
+);
 let guardedBody = { ...safePlan, requestId:planTurn.requestId, observation:{} };
 planContext.UrlFetchApp = { fetch:() => ({ getResponseCode:() => 200, getContentText:() => JSON.stringify(guardedBody) }) };
 const guardedTurn = { ...planTurn, enginePolicyVersion:safePlan.policyVersion };
@@ -2241,8 +2324,9 @@ assert.equal(planEvaluation.criterionEvidenceJson, JSON.stringify(progress));
 assert.equal(planEvaluation.questioningBest, '');
 assert.equal(planEvaluation.evidenceRequestIds, planTurn.requestId);
 assert.match(planEvaluation.automaticJudgment, /자동 성적이 아님/);
-assert.equal(planContext.getLiteTeacherDashboardData(planContext.getOrCreateLiteTeacherAccessToken_()).evaluations[0].criterionEvidence[0].answerText,
-  planStudentPayload.message);
+const planDashboard = planContext.getLiteTeacherDashboardData(planContext.getOrCreateLiteTeacherAccessToken_());
+assert.equal(planDashboard.lesson.startQuestion, planCriterion.mainQuestion);
+assert.equal(planDashboard.evaluations[0].criterionEvidence[0].answerText, planStudentPayload.message);
 const planTeacherToken = planContext.getOrCreateLiteTeacherAccessToken_();
 const firstPlanVersion = planContext.liteEvaluationReviewVersion_(planEvaluation);
 planContext.saveLiteTeacherEvaluation(planTeacherToken, {

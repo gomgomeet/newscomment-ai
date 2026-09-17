@@ -132,6 +132,12 @@ function assertLiteStudentAccessReady_(studentCode, settings, previewAccessToken
     throw new Error('선생님이 이 수업 활동을 마쳤습니다. 다음 수업 안내를 기다려 주세요.');
   }
   if (!readiness.runtimeReady) {
+    const assessmentPlanCheck = (readiness.checks || []).find(function (item) {
+      return item.key === 'assessmentPlan';
+    });
+    if (assessmentPlanCheck && assessmentPlanCheck.state !== 'pass') {
+      throw new Error('선생님이 평가 질문을 준비하고 있습니다. 잠시 뒤 다시 들어와 주세요.');
+    }
     throw new Error('선생님이 개인 API와 공통 대화 엔진의 연결을 확인하고 있습니다. 잠시 뒤 다시 들어와 주세요.');
   }
   if (isPreview) return readiness;

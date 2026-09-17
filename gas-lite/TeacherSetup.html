@@ -100,6 +100,7 @@
       .sharing-box details { margin-top:10px; }
       .readiness { grid-template-columns:1fr; gap:6px; margin:0; }
       .readiness [data-state="pass"] { display:none; }
+      .readiness [data-state="inactive"] { color:#64748b; background:#f8fafc; }
       .readiness li { padding:8px 11px; }
       #save-state { font-weight:700; }
       @media (max-width:480px) { main { padding:14px; } .flow button { padding:8px; } }
@@ -213,9 +214,9 @@
                 <dl id="assessment-draft-content"></dl>
               </section>
             </div>
-          <label class="wide">학생 시작 질문
-            <textarea id="start-question" maxlength="500" required placeholder="예: 자료를 근거로 자신의 생각을 설명해 볼까요?"></textarea>
-            <span class="help">학생 화면의 첫 질문입니다. 질문을 고치면 답변 요소와 평가기준도 함께 확인해 주세요.</span>
+          <label class="wide"><span id="start-question-label">학생 시작 질문</span>
+            <textarea id="start-question" maxlength="500" placeholder="예: 자료를 근거로 자신의 생각을 설명해 볼까요?"></textarea>
+            <span id="start-question-help" class="help">학생 화면의 첫 질문입니다.</span>
           </label>
           <fieldset id="backward-design-fields" class="grid" aria-label="질문과 평가기준 입력">
             <label class="wide">답변의 핵심 요소 (교사용)
@@ -260,7 +261,7 @@
                 <input id="assessment-plan-approved" type="checkbox" aria-describedby="assessment-plan-approval-help">
                 질문·힌트·수집할 학생 수행을 검토했고 이 계획을 승인합니다.
               </label>
-              <p class="help" id="assessment-plan-approval-help">승인 후 질문이나 수업자료를 수정하면 승인이 해제됩니다. 미승인 초안도 저장할 수 있지만 평가 진행은 승인 후 가능합니다. 자료 탐색모드에서는 계획을 보관만 합니다.</p>
+              <p class="help" id="assessment-plan-approval-help">승인 후 질문이나 수업자료를 수정하면 승인이 해제됩니다. 평가모드는 승인된 계획이 있어야 저장할 수 있고, 자료 탐색모드에서는 미승인 초안도 보관할 수 있습니다.</p>
               <details id="assessment-plan-preview">
                 <summary>질문 진행 미리보기</summary>
                 <ol id="assessment-plan-preview-list" class="plan-preview"></ol>
@@ -407,7 +408,7 @@
         const affectsPlan = ['subject', 'grade', 'lesson-title', 'lesson-goal', 'standard-code',
           'achievement-standard', 'assessment-criteria', 'rubric-scheme', 'rubric-high', 'rubric-good',
           'rubric-meet', 'rubric-developing', 'rubric-beginning', 'evidence-description',
-          'material-title', 'material-text', 'start-question', 'expected-answer',
+          'material-title', 'material-text', 'expected-answer',
           'assessment-evidence', 'answer-examples'];
         if (event && affectsPlan.indexOf(event.target.id) >= 0) assessmentPlan.approved = false;
         updateAssessmentPlanDisplay();
@@ -530,13 +531,23 @@
 
       function updateAssessmentPlanDisplay() {
         const empty = assessmentPlan.criteria.length === 0;
+        const evaluation = byId('activity-mode').value !== 'exploration';
+        let state = 'inactive';
+        if (evaluation && empty) state = 'none';
+        else if (evaluation && (!assessmentPlan.approved || assessmentPlanError())) state = 'draft';
+        else if (evaluation && !assessmentPlanMatchesSavedSetup()) state = 'approved-unsaved';
+        else if (evaluation) state = 'saved-active';
         byId('assessment-plan-approved').checked = assessmentPlan.approved;
         byId('assessment-plan-approved').disabled = controlsBusy || empty;
         byId('add-assessment-criterion').disabled = controlsBusy || assessmentPlan.criteria.length >= 5;
-        byId('assessment-plan-status').textContent = empty
-          ? '기준별 질문계획 없음 · 기존 일반 대화로 진행합니다. 평가기준별 진행을 사용하려면 계획을 추가해 주세요.'
-          : assessmentPlan.approved ? '교사 승인 완료 · 저장 후 평가모드에서 이 순서로 질문합니다.'
-            : '미승인 초안 · 저장은 가능하지만 평가모드 진행에는 교사 승인이 필요합니다.';
+        byId('assessment-plan-status').dataset.state = state;
+        byId('assessment-plan-status').textContent = state === 'inactive'
+          ? (empty ? '질문계획 없음·비활성 · 자료 탐색모드에서는 질문계획을 실행하지 않습니다.'
+            : '보관됨·비활성 · 자료 탐색모드에서는 저장한 질문계획을 학생 대화에 실행하지 않습니다.')
+          : state === 'none' ? '질문계획 없음 · 평가모드에서는 계획을 하나 이상 만들고 승인해야 저장할 수 있습니다.'
+          : state === 'draft' ? '미승인 초안 · 질문·힌트·수집할 학생 수행을 모두 확인하고 승인해야 평가모드로 저장할 수 있습니다.'
+          : state === 'approved-unsaved' ? '교사 승인 완료 · 아직 저장되지 않았습니다. 4단계에서 저장해야 학생 대화에 반영됩니다.'
+          : '승인·저장 완료 · 평가모드에서 이 순서로 질문합니다.';
         const preview = byId('assessment-plan-preview-list'); preview.textContent = '';
         assessmentPlan.criteria.forEach(function (item) {
           const entry = document.createElement('li');
@@ -554,6 +565,17 @@
           JSON.stringify(collectPayload()) !== savedSetupSnapshot;
       }
 
+      function assessmentPlanMatchesSavedSetup() {
+        if (!savedSetupSnapshot) return false;
+        try {
+          const saved = JSON.parse(savedSetupSnapshot);
+          return saved.activityMode === 'evaluation' &&
+            saved.assessmentPlanJson === JSON.stringify(parseAssessmentPlan(assessmentPlan));
+        } catch (error) {
+          return false;
+        }
+      }
+
       function syncBackwardDesign(changed) {
         const enabled = byId('activity-mode').value !== 'exploration';
         byId('backward-design-enabled').checked = enabled;
@@ -565,6 +587,11 @@
         byId('assessment-ai-section').classList.toggle('hidden', !enabled);
         byId('assessment-step-label').textContent = enabled ? '질문·평가기준' : '시작 질문';
         byId('title-assessment').textContent = enabled ? '3. 질문·평가기준' : '3. 시작 질문';
+        byId('start-question').required = !enabled;
+        byId('start-question-label').textContent = enabled ? '평가 질문 초안 (선택)' : '학생 시작 질문';
+        byId('start-question-help').textContent = enabled
+          ? '평가모드의 실제 첫 질문은 아래에서 승인한 질문계획의 첫 질문입니다. 이 칸은 AI 초안 생성용으로 보존됩니다.'
+          : '자료 탐색모드에서 학생 화면에 처음 보여줄 질문입니다.';
         ['assessment-criteria', 'rubric-high',
           'rubric-meet', 'rubric-developing', 'evidence-description'].forEach(function (id) {
           byId(id).required = enabled;
@@ -813,9 +840,8 @@
         document.querySelector('main').scrollTo({ top:0, behavior:'smooth' });
       }
 
-      function fillData(data) {
-        assessmentInputsChanged();
-        const value = data.settings || {};
+      function applySettingsValues(value) {
+        value = value || {};
         const mapping = {
           'lesson-id':'lessonId', 'app-name':'appName', subject:'subject', grade:'grade',
           'lesson-title':'lessonTitle', 'lesson-goal':'lessonGoal', 'standard-code':'achievementStandardCode',
@@ -838,6 +864,11 @@
           : value.rubricScheme === 'legacy_three' || value.lessonId || value.rubricHigh || value.rubricMeet || value.rubricDeveloping ? 'legacy_three' : 'four_levels';
         assessmentPlan = parseAssessmentPlan(value.assessmentPlanJson);
         renderAssessmentCards();
+      }
+
+      function fillData(data) {
+        assessmentInputsChanged();
+        applySettingsValues(data.settings || {});
         savedActivityMode = byId('activity-mode').value;
         // Keep the persisted baseline separate from defaults filled only in this form.
         savedSetupSnapshot = assessmentSnapshot();
@@ -847,6 +878,7 @@
         if (!byId('join-code').value) byId('join-code').value = String(Math.floor(100000 + Math.random() * 900000));
         byId('confirmed-student-url').value = data.confirmedStudentUrl || '';
         updateApi(data.api || {});
+        updateAssessmentPlanDisplay();
         renderReadiness(data.readiness || {}, data.studentUrl || '', data.previewUrl || '');
         setStatus('설정을 확인하고 순서대로 입력해 주세요.');
       }
@@ -898,16 +930,52 @@
           setStatus('수업 목표 또는 성취기준 중 하나 이상 입력해 주세요.', true);
           return;
         }
+        if (byId('activity-mode').value === 'evaluation' && !assessmentPlan.criteria.length) {
+          showStep(steps.indexOf('assessment'));
+          setStatus('평가모드에서는 평가기준별 질문계획을 하나 이상 추가해 주세요.', true);
+          return;
+        }
+        if (byId('activity-mode').value === 'evaluation' &&
+            (!assessmentPlan.approved || assessmentPlanError())) {
+          showStep(steps.indexOf('assessment'));
+          setStatus(assessmentPlanError() || '평가 질문계획을 검토하고 승인해 주세요.', true);
+          return;
+        }
         setStatus('평가 설계와 수업자료를 저장하는 중입니다.');
         const payload = collectPayload();
         readinessVersion += 1;
         setButtonsDisabled(true);
         google.script.run
           .withSuccessHandler(function (result) {
-            byId('lesson-id').value = result.lessonId || '';
-            payload.lessonId = byId('lesson-id').value;
-            savedActivityMode = payload.activityMode;
-            savedSetupSnapshot = JSON.stringify(Object.assign({}, payload, { lessonId:result.lessonId || '' }));
+            const returned = Object.assign({}, payload, result.settings || {}, {
+              lessonId:result.lessonId || (result.settings && result.settings.lessonId) || payload.lessonId
+            });
+            const savedPayload = {};
+            Object.keys(payload).forEach(function (key) {
+              savedPayload[key] = returned[key] == null ? '' : returned[key];
+            });
+            savedPayload.activityMode = returned.activityMode === 'exploration' ? 'exploration' : 'evaluation';
+            savedPayload.rubricScheme = returned.rubricScheme === 'five_levels' ? 'five_levels'
+              : returned.rubricScheme === 'four_levels' ? 'four_levels' : 'legacy_three';
+            savedPayload.achievementStandard = combineAchievementStandard(
+              returned.achievementStandardCode,
+              returned.achievementStandard
+            );
+            const standardMatch = savedPayload.achievementStandard.match(/^(\[\d{1,2}[가-힣][가-힣\d-]{0,24}-\d{2}\])/);
+            savedPayload.achievementStandardCode = standardMatch ? standardMatch[1] : '';
+            savedPayload.assessmentPlanJson = JSON.stringify(parseAssessmentPlan(returned.assessmentPlanJson));
+            const currentPayload = collectPayload();
+            const displayedPayload = Object.assign({}, savedPayload);
+            Object.keys(payload).forEach(function (key) {
+              if (currentPayload[key] !== payload[key]) displayedPayload[key] = currentPayload[key];
+            });
+            displayedPayload.lessonId = savedPayload.lessonId;
+            assessmentInputsChanged();
+            applySettingsValues(displayedPayload);
+            savedActivityMode = savedPayload.activityMode;
+            savedSetupSnapshot = JSON.stringify(savedPayload);
+            syncBackwardDesign(false);
+            updateAssessmentPlanDisplay();
             renderReadiness(result.readiness || {}, result.studentUrl || '', result.previewUrl || '');
             setStatus(result.message || '저장했습니다.');
             setButtonsDisabled(false);
@@ -1028,23 +1096,27 @@
             return hasText(payload[key]);
           }) && (payload.rubricScheme === 'legacy_three' || hasText(payload.rubricGood)) &&
           (payload.rubricScheme !== 'five_levels' || hasText(payload.rubricBeginning)));
-        const materialReady = hasText(payload.lessonTitle) && hasText(payload.materialTitle) &&
-          payload.materialText.trim().length >= 30 && hasText(payload.startQuestion);
         const codeReady = /^\d{6}$/.test(payload.joinCode);
         const modeReady = payload.activityMode === 'evaluation' || payload.activityMode === 'exploration';
-        const planReady = !enabled || !assessmentPlan.criteria.length || (assessmentPlan.approved && !assessmentPlanError());
+        const planReady = !enabled || (assessmentPlan.criteria.length > 0 && assessmentPlan.approved && !assessmentPlanError());
+        const planSaved = !enabled || assessmentPlanMatchesSavedSetup();
+        const materialReady = hasText(payload.lessonTitle) && hasText(payload.materialTitle) &&
+          payload.materialText.trim().length >= 30 && (enabled ? planReady : hasText(payload.startQuestion));
         const inputChecks = {
           assessmentPlan: {
-            label:'평가기준별 질문계획', state:planReady ? 'pass' : 'block',
-            detail:!enabled ? '자료 탐색모드에서는 질문계획을 실행하지 않습니다. 작성한 계획은 보관합니다.'
-              : !assessmentPlan.criteria.length ? '기준별 질문계획 없음 — 기존 일반 대화로 진행합니다.'
-                : planReady ? '교사가 승인한 질문·근거 계획이 준비되었습니다.' : '질문·힌트·학생 수행을 확인하고 계획을 승인해 주세요.'
+            label:'평가기준별 질문·근거 계획',
+            state:!enabled ? 'inactive' : planReady && planSaved ? 'pass' : 'block',
+            detail:!enabled ? '보관됨·비활성 — 자료 탐색모드에서는 질문계획을 학생 대화에 실행하지 않습니다.'
+              : !assessmentPlan.criteria.length ? '평가모드에서는 기준별 질문계획을 하나 이상 만들고 승인해 주세요.'
+                : !planReady ? '질문·힌트·학생 수행을 확인하고 계획을 승인해 주세요.'
+                  : !planSaved ? '승인됨·저장 필요 — 4단계에서 저장해야 학생 대화에 반영됩니다.'
+                    : '교사가 승인하고 저장한 질문·근거 계획을 학생 대화에 적용합니다.'
           },
           backwardDesign: {
-            label: enabled ? '백워드 평가 설계' : '백워드 평가 설계 · 사용 안 함',
+            label: enabled ? '평가 설계 기본항목' : '평가 설계 기본항목 · 사용 안 함',
             state: backwardReady ? 'pass' : 'block', enabled:enabled,
             detail: !enabled ? '사용 안 함 — 자료 탐색모드에서는 백워드 평가 설계를 적용하지 않습니다.'
-              : backwardReady ? '목표 또는 성취기준과 수준별 평가기준·평가 근거가 준비되었습니다.'
+              : backwardReady ? '목표 또는 성취기준과 수준별 평가기준·평가 근거가 준비되었습니다. 질문 실행 준비는 아래에서 별도로 확인합니다.'
               : '목표부터 평가 근거까지 필수 항목을 입력해 주세요.'
           },
           mode: {
@@ -1054,7 +1126,8 @@
           },
           material: {
             state: materialReady ? 'pass' : 'block',
-            detail: materialReady ? '학생 질문의 근거 자료와 시작 질문이 준비되었습니다.'
+            detail: materialReady ? '학생 질문의 근거 자료와 실제 시작 질문이 준비되었습니다.'
+              : enabled ? '30자 이상의 수업자료와 승인된 질문계획의 첫 질문을 준비해 주세요.'
               : '30자 이상의 수업자료와 시작 질문을 입력해 주세요.'
           },
           lessonAccess: {
@@ -1066,12 +1139,16 @@
         const note = byId('readiness-draft-note');
         note.classList.toggle('hidden', !dirty);
         note.textContent = dirty
-          ? '현재 입력 기준: 백워드 평가 설계 ' + (enabled ? '켬 · 평가모드' : '끔 · 자료 탐색모드') +
+          ? '현재 입력 기준: 평가 설계 ' + (enabled ? '켬 · 평가모드' : '끔 · 자료 탐색모드') +
             '. 아직 저장 전입니다. 아래 저장 버튼을 눌러 운영 설정에 반영해 주세요. 준비 상태 새로고침은 설정을 저장하지 않습니다.'
           : '';
         const badge = byId('readiness-badge');
-        badge.className = 'badge ' + (dirty ? '' : !planReady ? 'block' : report.distributionReady ? 'pass' : report.setupReady ? '' : 'block');
-        badge.textContent = dirty ? '변경 사항 저장 필요' : !planReady ? '질문계획 승인 필요' : report.distributionReady ? '학생 배포 준비 완료' : report.setupReady ? '교사 입력 완료' : '필수 설정 필요';
+        badge.className = 'badge ' + (!planReady ? 'block' : dirty ? '' : report.distributionReady ? 'pass' : report.setupReady ? '' : 'block');
+        badge.textContent = !planReady
+          ? (!assessmentPlan.criteria.length ? '질문계획 작성 필요' : '질문계획 승인 필요')
+          : dirty && enabled && !planSaved ? '승인됨·저장 필요'
+          : dirty ? '변경 사항 저장 필요'
+          : report.distributionReady ? '학생 배포 준비 완료' : report.setupReady ? '교사 입력 완료' : '필수 설정 필요';
         const list = byId('readiness-list'); list.textContent = '';
         const checks = (report.checks || []).slice();
         if (!checks.some(function (check) { return check.key === 'assessmentPlan'; })) checks.push({ key:'assessmentPlan' });
@@ -1085,13 +1162,15 @@
           const item = document.createElement('li'); item.dataset.state = check.state || 'block';
           item.dataset.key = check.key || '';
           const title = document.createElement('strong');
-          title.textContent = (check.state === 'pass' ? '✓ ' : '! ') + check.label;
+          title.textContent = (check.state === 'pass' ? '✓ ' : check.state === 'inactive' ? '– ' : '! ') + check.label;
           const detail = document.createElement('span'); detail.textContent = check.detail || '';
           item.appendChild(title); item.appendChild(detail); list.appendChild(item);
         });
-        byId('readiness-summary').textContent = dirty
-          ? '변경한 수업 설정을 저장해야 운영에 반영됩니다. 저장 후 현재 수업 미리보기를 확인해 주세요.'
-          : !planReady ? '저장된 질문계획은 미승인 초안입니다. 2단계에서 검토·승인한 뒤 다시 저장해 주세요.'
+        byId('readiness-summary').textContent = !planReady
+          ? (!assessmentPlan.criteria.length
+            ? '평가모드에는 승인된 질문계획이 필요합니다. 3단계에서 계획을 만들고 승인해 주세요.'
+            : '질문계획은 아직 실행할 수 없는 초안입니다. 3단계에서 검토·승인한 뒤 저장해 주세요.')
+          : dirty ? '변경한 수업 설정을 저장해야 운영에 반영됩니다. 저장 후 현재 수업 미리보기를 확인해 주세요.'
             : report.summary || '준비 상태를 확인해 주세요.';
         byId('student-url').textContent = studentUrl || '아직 학생용 주소가 없습니다.';
         const link = byId('open-student');

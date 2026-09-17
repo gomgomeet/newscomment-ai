@@ -437,9 +437,12 @@ function liteAssessmentPlan_(settings) {
 }
 
 function liteAssessmentStartQuestion_(settings) {
-  const plan = liteAssessmentPlan_(settings);
-  return settings.activityMode !== 'exploration' && plan.approved && plan.criteria.length
-    ? plan.criteria[0].mainQuestion : liteText_(settings.startQuestion, 500);
+  settings = settings || {};
+  if (settings.activityMode === 'exploration') return liteText_(settings.startQuestion, 500);
+  let plan;
+  try { plan = liteAssessmentPlan_(settings); }
+  catch (error) { return ''; }
+  return plan.approved && plan.criteria.length ? plan.criteria[0].mainQuestion : '';
 }
 
 function validateLiteTeacherSetup_(payload) {
@@ -464,6 +467,17 @@ function validateLiteTeacherSetup_(payload) {
   }
   // 탐색모드에서는 설계를 적용하지 않지만, 다시 켤 수 있도록 입력 내용은 보존한다.
   const designField = activityMode === 'exploration' ? liteOptional_ : liteRequired_;
+  const assessmentPlan = normalizeLiteAssessmentPlan_(
+    payload.assessmentPlanJson,
+    materialText,
+    activityMode !== 'exploration'
+  );
+  if (activityMode === 'evaluation' && !assessmentPlan.criteria.length) {
+    throw new Error('평가모드에서는 평가기준별 질문계획을 하나 이상 추가해 주세요.');
+  }
+  if (activityMode === 'evaluation' && !assessmentPlan.approved) {
+    throw new Error('평가 질문계획을 검토하고 승인해 주세요.');
+  }
 
   return {
     lessonId: liteText_(payload.lessonId, 80),
@@ -486,13 +500,13 @@ function validateLiteTeacherSetup_(payload) {
     materialTitle: liteRequired_(payload.materialTitle, '수업자료 제목', 120),
     materialText: materialText,
     materialUrl: materialUrl,
-    startQuestion: liteRequired_(payload.startQuestion, '시작 질문', 500),
+    startQuestion: (activityMode === 'exploration' ? liteRequired_ : liteOptional_)(payload.startQuestion, '시작 질문', 500),
     expectedAnswer: liteOptional_(payload.expectedAnswer, '예상 답변', 1500),
     assessmentEvidence: liteOptional_(payload.assessmentEvidence, '평가 문항 근거', 1000),
     answerExamples: liteOptional_(payload.answerExamples, '예상 답변 유형', 3500),
     activityMode: activityMode,
     version: liteText_(payload.version, 30) || 'v1',
-    assessmentPlanJson: JSON.stringify(normalizeLiteAssessmentPlan_(payload.assessmentPlanJson, materialText, activityMode !== 'exploration'))
+    assessmentPlanJson: JSON.stringify(assessmentPlan)
   };
 }
 
@@ -543,10 +557,10 @@ function buildLiteReadiness_(settings, context) {
   try { assessmentPlan = liteAssessmentPlan_(settings); }
   catch (error) { assessmentPlanValid = false; }
   const assessmentPlanReady = !backwardDesignEnabled ||
-    (assessmentPlanValid && (!assessmentPlan.criteria.length || assessmentPlan.approved));
+    (assessmentPlanValid && assessmentPlan.criteria.length > 0 && assessmentPlan.approved);
   const materialReady = Boolean(
-    settings.lessonTitle && settings.materialTitle &&
-    String(settings.materialText || '').trim().length >= 30 && settings.startQuestion
+    settings.lessonTitle && settings.materialTitle && String(settings.materialText || '').trim().length >= 30 &&
+    (backwardDesignEnabled ? assessmentPlanReady && liteAssessmentStartQuestion_(settings) : settings.startQuestion)
   );
   const apiConfigured = Boolean(context.apiConfigured);
   const apiVerified = apiConfigured && Boolean(context.apiVerified);
@@ -569,20 +583,20 @@ function buildLiteReadiness_(settings, context) {
     },
     {
       key: 'backwardDesign',
-      label: '백워드 평가 설계',
+      label: '평가 설계 기본항목',
       state: backwardReady ? 'pass' : 'block',
       enabled: backwardDesignEnabled,
       detail: !backwardDesignEnabled
         ? '사용 안 함 — 자료 탐색모드에서는 백워드 평가 설계를 적용하지 않습니다.'
-        : backwardReady ? '목표·성취기준·평가기준·평가 근거가 준비되었습니다.' : '목표부터 평가 근거까지 필수 항목을 입력해 주세요.'
+        : backwardReady ? '목표·성취기준·평가기준·평가 근거가 준비되었습니다. 질문 실행 준비는 아래에서 별도로 확인합니다.' : '목표부터 평가 근거까지 필수 항목을 입력해 주세요.'
     },
     {
       key: 'assessmentPlan',
       label: '평가기준별 질문·근거 계획',
       state: assessmentPlanReady ? 'pass' : 'block',
-      detail: !backwardDesignEnabled ? '사용 안 함 — 저장한 질문계획은 보존됩니다.'
+      detail: !backwardDesignEnabled ? '보관됨·비활성 — 저장한 질문계획은 보존되지만 학생 대화에는 실행하지 않습니다.'
         : !assessmentPlanValid ? '질문계획 형식과 본문 힌트 구절을 확인해 주세요.'
-        : !assessmentPlan.criteria.length ? '기준별 질문계획 없음 — 기존 일반 대화로 운영합니다.'
+        : !assessmentPlan.criteria.length ? '평가모드에서는 기준별 질문계획을 하나 이상 만들고 승인해 주세요.'
         : assessmentPlan.approved ? '교사가 확인한 기준별 질문과 근거 계획을 적용합니다.'
         : '질문계획은 초안입니다. 기준별 질문과 근거를 확인하고 승인해 주세요.'
     },
@@ -590,7 +604,9 @@ function buildLiteReadiness_(settings, context) {
       key: 'material',
       label: '수업자료',
       state: materialReady ? 'pass' : 'block',
-      detail: materialReady ? '학생 질문의 근거 자료와 시작 질문이 준비되었습니다.' : '30자 이상의 수업자료와 시작 질문을 입력해 주세요.'
+      detail: materialReady ? '학생 질문의 근거 자료와 실제 시작 질문이 준비되었습니다.'
+        : backwardDesignEnabled ? '30자 이상의 수업자료와 승인된 질문계획의 첫 질문을 준비해 주세요.'
+        : '30자 이상의 수업자료와 시작 질문을 입력해 주세요.'
     },
     {
       key: 'lessonAccess',
@@ -729,7 +745,7 @@ function writeLiteStartHere_(spreadsheet) {
   const rows = [
     ['항목', '상태', '안내'],
     ['1. API 연결', '', 'simbot → 교사 설정 열기에서 개인 API를 저장합니다.'],
-    ['2. 평가 설계', '', '백워드 평가 설계를 켜면 목표부터 평가 근거까지 입력합니다. 끄면 자료 탐색모드로 운영하며 입력한 설계는 보관합니다.'],
+    ['2. 평가 설계', '', '평가모드는 목표·평가기준과 기준별 질문계획을 만들고 승인합니다. 자료 탐색모드에서는 입력한 설계를 보관만 합니다.'],
     ['3. 수업자료', '', '학생이 질문할 본문과 시작 질문, 운영 모드를 입력합니다.'],
     ['4. 미리보기', '', '학생용 주소에서 99-999로 전체 과정을 점검합니다.'],
     ['5. 학생 배포', '', '점검이 모두 통과한 뒤 학생용 /exec 주소만 공유합니다.']
@@ -749,7 +765,8 @@ function updateLiteStartHereStatus_(spreadsheet, readiness) {
   (readiness && readiness.checks || []).forEach(function (item) { checks[item.key] = item.state === 'pass'; });
   const statuses = [
     checks.apiSaved && checks.apiVerified ? '완료' : checks.apiSaved ? '연결 확인 필요' : '입력 필요',
-    readiness && readiness.backwardDesignEnabled === false ? '사용 안 함' : checks.backwardDesign ? '완료' : '입력 필요',
+    readiness && readiness.backwardDesignEnabled === false ? '사용 안 함'
+      : checks.backwardDesign && checks.assessmentPlan ? '완료' : '입력 필요',
     checks.material && checks.mode ? '완료' : '입력 필요',
     checks.preview ? '완료' : readiness && readiness.runtimeReady ? '99-999 점검 필요' : '연결 준비 필요',
     readiness && readiness.distributionReady ? '배포 가능' : readiness && readiness.lessonOpen === false ? '수업 종료' : '점검 필요'
@@ -856,8 +873,12 @@ function makeLiteSettingsHash_(settings) {
     'appName', 'subject', 'grade', 'lessonTitle', 'joinCode', 'lessonGoal',
     'achievementStandardCode', 'achievementStandard', 'assessmentCriteria', 'rubricHigh',
     'rubricMeet', 'rubricDeveloping', 'evidenceDescription', 'materialTitle',
-    'materialText', 'materialUrl', 'startQuestion', 'activityMode', 'version'
+    'materialText', 'materialUrl', 'activityMode', 'version'
   ];
+  // 평가모드의 실제 첫 질문은 승인 계획에 들어 있다. 초안용 입력은 학생 수업 개정을 만들지 않는다.
+  if (settings && settings.activityMode === 'exploration') {
+    fields.splice(fields.indexOf('activityMode'), 0, 'startQuestion');
+  }
   const plan = liteAssessmentPlan_(settings);
   if (plan.criteria.length) fields.push('assessmentPlanJson');
   // 기존 3수준을 그대로 저장하면 이전 해시/개정을 유지한다. 4·5수준 전환이나

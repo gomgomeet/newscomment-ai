@@ -108,7 +108,7 @@ function upsertLiteEvaluationDraft_(settings, turn, observation, options) {
       const seed = sessionRows.some(function (row) {
         return matches(row) && row.speaker === 'bot' && Number(row.turnNo) === 1 &&
           (row.managedKind === 'start' || row.engineStatus === 'seeded_start') &&
-          liteText_(row.text) === liteText_(current.startQuestion);
+          liteText_(row.text) === liteText_(liteAssessmentStartQuestion_(current));
       });
       const response = seed && sessionRows.find(function (row) {
         return matches(row) && row.speaker === 'student' && Number(row.turnNo) === 2 &&
@@ -348,7 +348,7 @@ function getLiteTeacherDashboardData(teacherAccessToken) {
       if (isCurrentLesson(row) && String(row.isPreview).toLowerCase() !== 'true' &&
           String(row.speaker) === 'bot' && Number(row.turnNo) === 1 &&
           (row.managedKind === 'start' || row.engineStatus === 'seeded_start') &&
-          liteText_(row.text) === liteText_(lesson.startQuestion)) {
+          liteText_(row.text) === liteText_(liteAssessmentStartQuestion_(lesson))) {
         assessmentSeeds[assessmentIdentity(row)] = true;
       }
     });
@@ -379,7 +379,9 @@ function getLiteTeacherDashboardData(teacherAccessToken) {
     });
   };
   return {
-    lesson: liteClientData_(lesson),
+    lesson: liteClientData_(Object.assign({}, lesson, {
+      startQuestion:liteAssessmentStartQuestion_(lesson)
+    })),
     teacherDecisionOptions: liteTeacherDecisionOptions_(lesson.rubricScheme),
     uniqueStudentCount: Object.keys(sessionCounts).length,
     apiUsage: apiUsage,
