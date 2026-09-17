@@ -3,7 +3,7 @@
  * API 키는 Script Properties에만 저장하며 Sheet 행으로 만들지 않습니다.
  */
 
-const LITE_APP_VERSION_ = '0.5.0';
+const LITE_APP_VERSION_ = '0.6.0';
 const LITE_API_KEY_PROPERTY_ = 'TEACHER_OPENAI_API_KEY';
 const LITE_SPREADSHEET_ID_PROPERTY_ = 'TEACHER_SPREADSHEET_ID';
 const LITE_ENGINE_ENDPOINT_PROPERTY_ = 'CENTRAL_ENGINE_ENDPOINT';
@@ -19,6 +19,7 @@ const LITE_PREVIEW_ACCESS_TOKEN_PROPERTY_ = 'LITE_PREVIEW_ACCESS_TOKEN';
 const LITE_PREVIEW_ACCESS_LESSON_PROPERTY_ = 'LITE_PREVIEW_ACCESS_LESSON';
 const LITE_PREVIEW_ACCESS_EXPIRES_PROPERTY_ = 'LITE_PREVIEW_ACCESS_EXPIRES';
 const LITE_DEPLOYMENT_ID_PROPERTY_ = 'LITE_DEPLOYMENT_ID';
+const LITE_CONFIRMED_STUDENT_URL_PROPERTY_ = 'LITE_CONFIRMED_STUDENT_URL';
 const LITE_PREVIEW_ACCESS_TTL_MS_ = 8 * 60 * 60 * 1000;
 
 const LITE_SHEET_HEADERS_ = {
@@ -28,7 +29,8 @@ const LITE_SHEET_HEADERS_ = {
     'achievementStandardCode', 'achievementStandard', 'assessmentCriteria',
     'rubricHigh', 'rubricMeet', 'rubricDeveloping', 'evidenceDescription',
     'materialTitle', 'materialText', 'materialUrl', 'startQuestion',
-    'activityMode', 'version', 'sourceHash', 'lessonRevision', 'updatedAt'
+    'activityMode', 'version', 'sourceHash', 'lessonRevision', 'updatedAt',
+    'rubricScheme', 'rubricGood'
   ],
   '학생별 현황': [
     'studentCode', 'lessonId', 'lessonRevision', 'sessionId', 'questionCount', 'relatedQuestionCount', 'lastActiveAt',
@@ -47,7 +49,7 @@ const LITE_SHEET_HEADERS_ = {
     'evidenceRequestIds',
     'questioningBest', 'passageComprehensionBest', 'achievementStandardBest', 'reflectionOpinionBest',
     'teacherDecision', 'teacherFeedback', 'improvementSuggestion',
-    'nextLessonSuggestion', 'finalStatus', 'finalizedAt'
+    'nextLessonSuggestion', 'finalStatus', 'finalizedAt', 'rubricScheme'
   ]
 };
 
@@ -92,6 +94,14 @@ function normalizeLiteMode_(value) {
   const mode = liteText_(value).toLowerCase();
   if (mode === 'evaluation' || mode === 'exploration') return mode;
   throw new Error('챗봇 운영 모드는 평가모드 또는 탐색모드를 선택해 주세요.');
+}
+
+function normalizeLiteRubricScheme_(value) {
+  const scheme = liteText_(value);
+  // 열이 없던 기존 사본의 세 수준 기준을 다른 수준으로 바꾸어 해석하지 않는다.
+  if (!scheme || scheme === 'legacy_three') return 'legacy_three';
+  if (scheme === 'four_levels') return scheme;
+  throw new Error('평가 수준은 4수준 또는 기존 3수준을 선택해 주세요.');
 }
 
 function validateLiteApiKey_(value) {
@@ -355,6 +365,13 @@ function validateLiteTeacherSetup_(payload) {
     throw new Error('수업자료 링크는 http:// 또는 https://로 시작해 주세요.');
   }
   const activityMode = normalizeLiteMode_(payload.activityMode);
+  const rubricScheme = normalizeLiteRubricScheme_(payload.rubricScheme);
+  const fourLevels = rubricScheme === 'four_levels';
+  const lessonGoal = liteOptional_(payload.lessonGoal, '수업 목표', 500);
+  const achievementStandard = liteOptional_(payload.achievementStandard, '성취기준', 1000);
+  if (activityMode === 'evaluation' && !lessonGoal && !achievementStandard) {
+    throw new Error('평가모드에서는 수업 목표 또는 성취기준을 입력해 주세요.');
+  }
   // 탐색모드에서는 설계를 적용하지 않지만, 다시 켤 수 있도록 입력 내용은 보존한다.
   const designField = activityMode === 'exploration' ? liteOptional_ : liteRequired_;
 
@@ -365,13 +382,15 @@ function validateLiteTeacherSetup_(payload) {
     grade: liteRequired_(payload.grade, '학년', 40),
     lessonTitle: liteRequired_(payload.lessonTitle, '수업명', 120),
     joinCode: validateLiteJoinCode_(payload.joinCode),
-    lessonGoal: designField(payload.lessonGoal, '수업 목표', 500),
+    lessonGoal: lessonGoal,
     achievementStandardCode: liteText_(payload.achievementStandardCode, 80),
-    achievementStandard: designField(payload.achievementStandard, '성취기준', 1000),
+    achievementStandard: achievementStandard,
     assessmentCriteria: designField(payload.assessmentCriteria, '평가기준', 1500),
-    rubricHigh: designField(payload.rubricHigh, '도달 수준 기준', 1000),
-    rubricMeet: designField(payload.rubricMeet, '성장 중 수준 기준', 1000),
-    rubricDeveloping: designField(payload.rubricDeveloping, '도움 필요 수준 기준', 1000),
+    rubricScheme: rubricScheme,
+    rubricHigh: designField(payload.rubricHigh, fourLevels ? '매우잘함 수준 기준' : '도달 수준 기준', 1000),
+    rubricGood: (fourLevels ? designField : liteOptional_)(payload.rubricGood, '잘함 수준 기준', 1000),
+    rubricMeet: designField(payload.rubricMeet, fourLevels ? '보통 수준 기준' : '성장 중 수준 기준', 1000),
+    rubricDeveloping: designField(payload.rubricDeveloping, fourLevels ? '노력요함 수준 기준' : '도움 필요 수준 기준', 1000),
     evidenceDescription: designField(payload.evidenceDescription, '평가 근거', 1000),
     materialTitle: liteRequired_(payload.materialTitle, '수업자료 제목', 120),
     materialText: materialText,
@@ -418,8 +437,9 @@ function buildLiteReadiness_(settings, context) {
   context = context || {};
   const backwardDesignEnabled = settings.activityMode !== 'exploration';
   const backwardReady = !backwardDesignEnabled || Boolean(
-    settings.lessonGoal && settings.achievementStandard && settings.assessmentCriteria &&
+    (settings.lessonGoal || settings.achievementStandard) && settings.assessmentCriteria &&
     settings.rubricHigh && settings.rubricMeet && settings.rubricDeveloping &&
+    (normalizeLiteRubricScheme_(settings.rubricScheme) !== 'four_levels' || settings.rubricGood) &&
     settings.evidenceDescription
   );
   const materialReady = Boolean(
@@ -651,6 +671,10 @@ function readLiteTeacherSettings_(spreadsheet, options) {
   if (!(options && options.skipEnsure)) ensureLiteWorkbook_(spreadsheet);
   const rows = liteRowsAsObjects_(spreadsheet.getSheetByName('수업 자료'));
   const settings = rows[0] || {};
+  if (settings.lessonId) {
+    settings.rubricScheme = normalizeLiteRubricScheme_(settings.rubricScheme);
+    settings.rubricGood = liteText_(settings.rubricGood, 1000);
+  }
   // 0.1.x 사본은 개정 열이 없으므로, 다시 저장하기 전에도 새 중앙 엔진을 사용할 수 있게
   // 같은 설정에서 항상 같은 해시와 첫 개정 번호를 계산해 돌려준다.
   if (settings.lessonId) {
@@ -674,6 +698,10 @@ function saveLiteTeacherSettings_(settings, options) {
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0]
     .map(function (value) { return String(value).trim(); });
   const previous = liteRowsAsObjects_(sheet)[0] || {};
+  settings = Object.assign({}, settings, {
+    rubricScheme: normalizeLiteRubricScheme_(settings.rubricScheme),
+    rubricGood: liteText_(settings.rubricGood, 1000)
+  });
   const sourceHash = makeLiteSettingsHash_(settings);
   const newLesson = Boolean(options.newLesson);
   const changed = newLesson || String(previous.sourceHash || '') !== sourceHash;
@@ -708,6 +736,12 @@ function makeLiteSettingsHash_(settings) {
     'rubricMeet', 'rubricDeveloping', 'evidenceDescription', 'materialTitle',
     'materialText', 'materialUrl', 'startQuestion', 'activityMode', 'version'
   ];
+  // 기존 3수준을 그대로 저장하면 이전 해시/개정을 유지한다. 4수준 전환이나
+  // 추가 수준의 수정은 미리보기 확인을 다시 받도록 반드시 개정에 포함한다.
+  if (normalizeLiteRubricScheme_(settings && settings.rubricScheme) === 'four_levels' ||
+      liteText_(settings && settings.rubricGood)) {
+    fields.push('rubricScheme', 'rubricGood');
+  }
   const source = fields.map(function (field) {
     return field + '=' + liteText_(settings && settings[field]);
   }).join('\n');
@@ -719,7 +753,30 @@ function makeLiteSettingsHash_(settings) {
   return Utilities.base64EncodeWebSafe(digest).replace(/=+$/g, '').slice(0, 24);
 }
 
+function validateLiteStudentUrl_(value) {
+  const url = liteText_(value);
+  if (url && (url.length > 500 || !/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(url))) {
+    throw new Error('배포 관리에서 복사한 https://script.google.com/macros/s/배포ID/exec 주소만 입력해 주세요. 물음표 뒤의 미리보기 값이나 다른 주소는 저장할 수 없습니다.');
+  }
+  return url;
+}
+
+function getLiteConfirmedStudentUrl_() {
+  return validateLiteStudentUrl_(PropertiesService.getScriptProperties()
+    .getProperty(LITE_CONFIRMED_STUDENT_URL_PROPERTY_));
+}
+
+function saveLiteStudentUrl_(value) {
+  const url = validateLiteStudentUrl_(value);
+  const properties = PropertiesService.getScriptProperties();
+  if (url) properties.setProperty(LITE_CONFIRMED_STUDENT_URL_PROPERTY_, url);
+  else properties.deleteProperty(LITE_CONFIRMED_STUDENT_URL_PROPERTY_);
+  return url;
+}
+
 function getLiteStudentUrl_() {
+  const confirmedUrl = getLiteConfirmedStudentUrl_();
+  if (confirmedUrl) return confirmedUrl;
   try {
     return ScriptApp.getService().getUrl() || '';
   } catch (error) {

@@ -63,6 +63,10 @@
       .summary { display:grid; gap:8px; padding:13px; border:1px solid #bfdbfe; border-radius:10px; background:var(--blue-soft); }
       .summary code { overflow-wrap:anywhere; white-space:normal; }
       .button-row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+      .assessment-draft { padding:13px; border:1px solid #bfdbfe; border-radius:10px; background:var(--blue-soft); }
+      .assessment-draft dl { margin:12px 0; }
+      .assessment-draft dt { margin-top:10px; font-weight:800; }
+      .assessment-draft dd { margin:3px 0 0; white-space:pre-wrap; }
       .deployment-guide { margin-top:12px; padding:11px 13px; border:1px solid var(--line); border-radius:10px; background:#f8fafc; }
       .deployment-guide summary { cursor:pointer; font-weight:800; }
       .deployment-guide ol { margin-bottom:0; padding-left:22px; }
@@ -74,49 +78,52 @@
         .wide { grid-column:auto; }
         .api-row { grid-template-columns:1fr; }
       }
+      /* Compact teacher settings: keep unresolved checks and draft state visible. */
+      .flow { grid-template-columns:repeat(3,minmax(0,1fr)); margin:14px 0; }
+      .flow button { min-height:50px; padding:8px 12px; }
+      .compact-settings { margin:12px 0; border:1px solid var(--line); border-radius:10px; background:white; }
+      .compact-settings > summary { padding:10px 13px; cursor:pointer; font-weight:700; }
+      .settings-body { padding:0 13px 13px; }
+      .settings-body .button-row { margin-top:10px; }
+      .mode-choice { margin-top:16px; }
+      .sharing-box { margin-top:18px; padding-top:16px; border-top:1px solid var(--line); }
+      .sharing-box input { max-width:180px; }
+      .sharing-box code { display:block; overflow-wrap:anywhere; margin-top:8px; }
+      .sharing-box details { margin-top:10px; }
+      .readiness { grid-template-columns:1fr; gap:6px; margin:0; }
+      .readiness [data-state="pass"] { display:none; }
+      .readiness li { padding:8px 11px; }
+      #save-state { font-weight:700; }
+      @media (max-width:480px) { main { padding:14px; } .flow button { padding:8px; } }
     </style>
   </head>
   <body data-teacher-access-token="<?= teacherAccessToken ?>">
     <main>
-      <h1>simbot 만들기</h1>
-      <p class="lead">1차시에서 학생으로 체험한 웹 챗봇과 같은 대화 엔진·화면 구조·학습 흐름을 사용합니다. 여기서는 내 API, 내 수업 설정, 내 결과 Sheet만 연결합니다.</p>
-      <div class="training-path" aria-label="연수에서 사용하는 순서">
-        <div><strong>체험 · 강사 챗봇</strong><span>완성된 학생 화면에서 먼저 질문하고 생각을 나눕니다.</span></div>
-        <div><strong>이해 · 구조와 결과</strong><span>설정과 학생 활동이 평가 근거로 이어지는 과정을 봅니다.</span></div>
-        <div><strong>제작 · 내 챗봇</strong><span>2차시부터 개인 API와 내 수업 내용을 연결합니다.</span></div>
-      </div>
-
+      <h1>simbot 수업 설정</h1>
+      <details id="api-settings" class="compact-settings">
+        <summary>AI 연결 <span id="api-badge" class="badge">확인 중</span> <span class="help">관리</span></summary>
+        <div class="settings-body">
+          <div class="api-row">
+            <label>OpenAI API 키<input id="api-key" type="password" autocomplete="new-password" placeholder="sk-로 시작하는 키"></label>
+            <button id="save-api" type="button" class="primary">키 저장</button>
+            <button id="test-api" type="button" class="secondary">연결 확인</button>
+          </div>
+          <p class="help">처음 한 번 연결하면 다음 수업에도 사용할 수 있습니다.</p>
+          <details class="help"><summary>키 보관·연결 도움말</summary>
+            <p>키는 교사의 Apps Script 설정에 보관합니다. 제한형 프로젝트 키에는 Models 읽기와 Responses 쓰기 권한이 필요합니다.</p>
+            <button id="clear-api" type="button" class="danger">저장된 API 키 삭제</button>
+          </details>
+        </div>
+      </details>
       <nav class="flow" aria-label="설정 순서">
-        <button type="button" data-step="api" aria-current="step"><span class="step-no">1단계</span>개인 API 연결</button>
-        <button type="button" data-step="design"><span class="step-no">2단계</span>목표·평가 설계</button>
-        <button type="button" data-step="material"><span class="step-no">3단계</span>수업자료·모드</button>
-        <button type="button" data-step="check"><span class="step-no">4단계</span>저장·배포 점검</button>
+        <button type="button" data-step="design" aria-current="step"><span class="step-no">1단계</span>수업 설정</button>
+        <button type="button" data-step="material"><span class="step-no">2단계</span>자료 넣기</button>
+        <button type="button" data-step="check"><span class="step-no">3단계</span>저장·미리보기</button>
       </nav>
 
-      <section id="panel-api" class="panel active" aria-labelledby="title-api">
-        <h2 id="title-api">1단계. 내 API 연결</h2>
-        <p>1차시 강사 운영본과 같은 기존 질문챗봇 엔진을 사용하되, AI 사용량·수업 설정·결과 저장은 교사 본인의 것으로 연결합니다.</p>
-        <div class="api-row">
-          <label>OpenAI API 키
-            <input id="api-key" type="password" autocomplete="new-password" placeholder="sk-로 시작하는 키">
-          </label>
-          <button id="save-api" type="button" class="primary">키 저장</button>
-          <button id="test-api" type="button" class="secondary">연결 확인</button>
-        </div>
-        <p class="privacy">API 키는 이 Google Sheet를 소유한 교사의 Apps Script 설정에만 저장합니다. Sheet 셀, 학생 화면, 기존 질문중심 챗봇에는 보내지 않습니다. 제한형 프로젝트 키를 쓸 때는 Models 읽기와 Responses 쓰기 권한이 필요합니다.</p>
-        <p>현재 상태: <span id="api-badge" class="badge">확인 중</span></p>
-        <button id="clear-api" type="button" class="danger">저장된 API 키 삭제</button>
-      </section>
-
       <form id="setup-form" novalidate>
-        <section id="panel-design" class="panel" aria-labelledby="title-design">
-          <h2 id="title-design">2단계. 목표에서 평가 근거까지 설계</h2>
-          <label class="design-toggle" for="backward-design-enabled">
-            <input id="backward-design-enabled" type="checkbox" role="switch" checked aria-controls="backward-design-fields" aria-describedby="backward-design-status">
-            백워드 평가 설계 사용
-          </label>
-          <p id="backward-design-status" class="notice" role="status" aria-live="polite">켬 · 목표와 평가 근거를 먼저 정하는 평가모드입니다.</p>
-          <p class="help">언제든 다시 끄거나 켤 수 있습니다. 끄면 자료 탐색모드로 전환되며, 작성한 평가 내용은 지우지 않습니다. 변경 후 4단계에서 저장해 주세요.</p>
+        <section id="panel-design" class="panel active" aria-labelledby="title-design">
+          <h2 id="title-design">1. 수업 설정</h2>
           <div class="grid">
             <label>챗봇 이름
               <input id="app-name" maxlength="40" required placeholder="예: 생각이">
@@ -137,26 +144,56 @@
               <input id="lesson-title" maxlength="120" required placeholder="예: 신문기사를 읽고 근거 있는 의견 쓰기">
             </label>
           </div>
+          <label class="mode-choice">대화 방식
+            <select id="activity-mode" required>
+              <option value="exploration">자료 탐색 · 질문하며 이해하기</option>
+              <option value="evaluation">평가 · 목표와 기준에 따라 살펴보기</option>
+            </select>
+          </label>
+          <input id="backward-design-enabled" type="checkbox" class="hidden" aria-hidden="true" tabindex="-1">
+          <p id="backward-design-status" class="help" role="status" aria-live="polite"></p>
           <fieldset id="backward-design-fields" class="grid" aria-label="백워드 평가 설계 입력">
+            <p class="wide help">수업 목표 또는 성취기준 중 하나 이상 입력해 주세요.</p>
             <label class="wide">① 수업 목표
-              <textarea id="lesson-goal" maxlength="500" required placeholder="수업이 끝났을 때 학생이 할 수 있어야 하는 일을 씁니다."></textarea>
+              <textarea id="lesson-goal" maxlength="500" placeholder="수업이 끝났을 때 학생이 할 수 있어야 하는 일을 씁니다."></textarea>
             </label>
             <label>② 성취기준 코드 <span class="help">(선택)</span>
               <input id="standard-code" maxlength="80" placeholder="예: [4국02-04]">
             </label>
             <label class="wide">② 성취기준
-              <textarea id="achievement-standard" maxlength="1000" required></textarea>
+              <textarea id="achievement-standard" maxlength="1000"></textarea>
+            </label>
+            <div class="wide">
+              <button id="generate-assessment" type="button" class="secondary" disabled>AI로 평가기준 초안 만들기</button>
+              <p id="assessment-ai-hint" class="help">API 연결을 확인하고 수업 목표 또는 성취기준을 입력해 주세요.</p>
+              <p id="assessment-ai-status" class="status" role="status" aria-live="polite"></p>
+              <section id="assessment-draft" class="assessment-draft hidden" aria-label="AI 평가기준 초안">
+                <strong>AI 평가기준 초안 · 4단계</strong>
+                <p class="help">매우잘함·잘함·보통·노력요함 기준을 확인한 뒤 적용하세요. 적용하면 아래 평가기준·수준별 기준·평가 근거만 바뀌며, 저장은 따로 해야 합니다.</p>
+                <dl id="assessment-draft-content"></dl>
+                <button id="apply-assessment-draft" type="button" class="secondary" disabled>이 초안 적용</button>
+              </section>
+            </div>
+            <label class="wide">평가 수준
+              <select id="rubric-scheme">
+                <option value="four_levels">4단계 · 매우잘함 / 잘함 / 보통 / 노력요함</option>
+                <option value="legacy_three">기존 3단계 · 도달 / 성장 중 / 도움 필요</option>
+              </select>
+              <span class="help">기존 수업은 저장된 수준을 유지합니다. 수준을 바꾸면 각 기준도 확인해 주세요.</span>
             </label>
             <label class="wide">③ 평가기준
               <textarea id="assessment-criteria" maxlength="1500" required placeholder="어떤 수행을 보이면 목표에 도달했다고 판단할지 씁니다."></textarea>
             </label>
-            <label class="wide">도달
+            <label class="wide"><span id="rubric-high-label">매우잘함</span>
               <textarea id="rubric-high" maxlength="1000" required placeholder="충분히 도달한 학생에게서 관찰되는 행동"></textarea>
             </label>
-            <label class="wide">성장 중
+            <label id="rubric-good-field" class="wide"><span>잘함</span>
+              <textarea id="rubric-good" maxlength="1000" required placeholder="목표에 도달한 학생에게서 관찰되는 행동"></textarea>
+            </label>
+            <label class="wide"><span id="rubric-meet-label">보통</span>
               <textarea id="rubric-meet" maxlength="1000" required placeholder="일부 도달했으며 더 성장할 지점"></textarea>
             </label>
-            <label class="wide">도움 필요
+            <label class="wide"><span id="rubric-developing-label">노력요함</span>
               <textarea id="rubric-developing" maxlength="1000" required placeholder="교사의 구체적인 지원이 필요한 행동"></textarea>
             </label>
             <label class="wide">④ 수집할 평가 근거
@@ -166,83 +203,97 @@
         </section>
 
         <section id="panel-material" class="panel" aria-labelledby="title-material">
-          <h2 id="title-material">3단계. 평가에 사용할 수업자료 연결</h2>
+          <h2 id="title-material">2. 자료 넣기</h2>
           <div class="grid">
-            <label>자료 제목
-              <input id="material-title" maxlength="120" required>
-            </label>
-            <label>자료 버전
-              <input id="version" maxlength="30" required value="v1">
-            </label>
-            <label class="wide">자료 링크 <span class="help">(선택)</span>
-              <input id="material-url" type="url" maxlength="1000" placeholder="https://">
-            </label>
+            <label class="wide">자료 제목<input id="material-title" maxlength="120" required></label>
             <label class="wide">수업자료 본문
-              <textarea id="material-text" maxlength="30000" minlength="30" required placeholder="학생이 읽고 질문할 기사나 수업자료의 본문을 붙여 넣습니다."></textarea>
+              <textarea id="material-text" maxlength="30000" minlength="30" required placeholder="학생이 읽을 본문을 붙여 넣으세요. (30자 이상)"></textarea>
+              <span class="help">링크는 출처용입니다. 본문을 붙여 넣고 ‘설정 저장’을 눌러 주세요. 다음·새로고침은 저장하지 않습니다.</span>
             </label>
-            <label class="wide">시작 질문
-              <textarea id="start-question" maxlength="500" required placeholder="예: 이 기사에서 가장 궁금한 점은 무엇인가요?"></textarea>
-            </label>
-            <label>학생 참여코드 · 숫자 6자리
-              <input id="join-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required placeholder="예: 482731">
-              <span class="help">학생 링크와 함께 수업 시간에만 안내합니다.</span>
-            </label>
-            <label class="wide">챗봇 운영 모드
-              <select id="activity-mode" required>
-                <option value="evaluation">평가모드 · 승인한 자료와 기준 중심, 비용 절약</option>
-                <option value="exploration">자료 탐색모드 · 평가 기록 부담 없이 글 안의 근거 탐색</option>
-              </select>
-              <span class="help">2단계의 백워드 평가 설계 스위치와 함께 바뀝니다. 탐색모드에서는 평가 설계 입력이 필요하지 않습니다.</span>
-            </label>
+            <label class="wide">시작 질문<textarea id="start-question" maxlength="500" required placeholder="예: 이 글에서 가장 궁금한 점은 무엇인가요?"></textarea></label>
           </div>
+          <details class="compact-settings"><summary>출처·자료 버전 (선택 설정)</summary>
+            <div class="settings-body grid">
+              <label class="wide">자료 링크 (선택)<input id="material-url" type="url" maxlength="1000" placeholder="https://"></label>
+              <label>자료 버전<input id="version" maxlength="30" required value="v1"></label>
+            </div>
+          </details>
         </section>
 
         <section id="panel-check" class="panel" aria-labelledby="title-check">
-          <h2 id="title-check">4단계. 저장하고 배포 준비 점검</h2>
-          <p>설정 저장이 끝나도 기존 질문중심 챗봇 연결과 학생용 웹앱 배포가 준비되기 전에는 학생에게 주소를 보내지 않습니다.</p>
+          <h2 id="title-check">3. 저장·미리보기</h2>
           <p><span id="readiness-badge" class="badge">확인 중</span></p>
+          <p id="readiness-draft-note" class="notice hidden" role="status" aria-live="polite"></p>
           <ul id="readiness-list" class="readiness"></ul>
-          <div class="summary">
-            <strong id="readiness-summary">준비 상태를 불러오는 중입니다.</strong>
-            <span>학생 미리보기 코드: <strong>99-999</strong></span>
-            <span>학생에게는 링크와 직접 정한 숫자 6자리 참여코드를 함께 안내합니다.</span>
-            <code id="student-url">아직 학생용 주소가 없습니다.</code>
-            <div class="button-row">
-              <button id="test-engine" type="button" class="secondary">기존 챗봇 연결 확인</button>
-              <button id="refresh-readiness" type="button" class="secondary">준비 상태 새로고침</button>
-              <a id="open-student" class="button-link" target="_blank" rel="noopener noreferrer" aria-disabled="true">99-999 미리보기</a>
-              <button id="copy-student-url" type="button" class="primary" disabled>학생 링크 복사</button>
-              <button id="toggle-lesson" type="button" class="danger">현재 수업 배포 종료</button>
-              <button id="duplicate-lesson" type="button" class="secondary">이 설정으로 새 수업 만들기</button>
-            </div>
+          <p id="readiness-summary" class="help">준비 상태를 불러오는 중입니다.</p>
+          <div class="button-row">
+            <a id="open-student" class="button-link" target="_blank" rel="noopener noreferrer" aria-disabled="true">교사 미리보기</a>
+            <button id="refresh-readiness" type="button" class="secondary">상태 새로고침</button>
           </div>
-          <details class="deployment-guide">
-            <summary>학생용 주소가 없을 때: 최초 1회 웹앱 배포</summary>
-            <ol>
-              <li>Google Sheet에서 <strong>확장 프로그램 → Apps Script</strong>를 엽니다. 코드는 수정하지 않습니다.</li>
-              <li>오른쪽 위 <strong>배포 → 새 배포</strong>를 누르고 유형을 <strong>웹 앱</strong>으로 선택합니다.</li>
-              <li>실행 사용자는 <strong>나</strong>, 액세스 사용자는 학교 정책이 허용할 때 <strong>모든 사용자</strong>로 정합니다.</li>
-              <li>배포와 권한 승인을 마친 뒤 이 화면에서 <strong>준비 상태 새로고침</strong>을 누릅니다.</li>
-            </ol>
+          <div class="sharing-box">
+            <label>학생 참여코드 · 숫자 6자리<input id="join-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required></label>
+            <p class="help">학생에게 링크와 참여코드를 함께 안내하세요.</p>
+            <p class="help">배포 관리의 접근 범위가 ‘나만’이면 학생이 접속할 수 없습니다. 공유 전에 확인하세요.</p>
+            <button id="copy-student-url" type="button" class="secondary" disabled>학생 링크 복사</button>
+            <details class="help"><summary>학생 주소 보기</summary><code id="student-url">아직 학생용 주소가 없습니다.</code></details>
+          </div>
+          <details class="compact-settings"><summary>연결·배포 관리</summary>
+            <div class="settings-body">
+              <label>배포 관리에서 확인한 웹앱 주소
+                <input id="confirmed-student-url" type="text" inputmode="url" maxlength="500" autocomplete="off" spellcheck="false" placeholder="https://script.google.com/macros/s/배포ID/exec">
+                <span class="help">배포 관리의 /exec 주소를 입력합니다. 비우면 자동으로 찾은 주소를 사용합니다.</span>
+              </label>
+              <div class="button-row">
+                <button id="save-student-url" type="button" class="secondary">웹앱 주소 저장</button>
+                <button id="test-engine" type="button" class="secondary">챗봇 연결 확인</button>
+              </div>
+              <details class="deployment-guide"><summary>처음 한 번: 웹앱 배포 방법</summary>
+                <ol>
+                  <li>Google Sheet에서 확장 프로그램 → Apps Script를 엽니다.</li>
+                  <li>배포 → 새 배포 → 웹 앱을 선택합니다.</li>
+                  <li>실행 사용자는 ‘나’, 접근 범위는 학교 정책에 맞게 선택합니다.</li>
+                  <li>배포 주소를 위에 붙여 넣고 ‘웹앱 주소 저장’을 누릅니다.</li>
+                </ol>
+              </details>
+            </div>
           </details>
+          <details class="compact-settings"><summary>수업 관리</summary><div class="settings-body button-row">
+            <button id="duplicate-lesson" type="button" class="secondary">이 설정으로 새 수업 만들기</button>
+            <button id="toggle-lesson" type="button" class="danger">현재 수업 배포 종료</button>
+          </div></details>
         </section>
 
         <input id="lesson-id" type="hidden">
         <div class="actions">
           <button id="prev-step" type="button" class="secondary hidden">이전</button>
           <button id="next-step" type="button" class="secondary">다음</button>
-          <button id="save-setup" type="submit" class="primary hidden">평가 설계·수업자료 저장</button>
+          <button id="save-setup" type="submit" class="primary">설정 저장</button>
+          <span id="save-state" class="help" role="status" aria-live="polite">불러오는 중</span>
           <span id="form-status" class="status" role="status" aria-live="polite"></span>
         </div>
       </form>
     </main>
 
     <script>
-      const steps = ['api', 'design', 'material', 'check'];
+      const steps = ['design', 'material', 'check'];
       let currentStep = 0;
       let latestDistributionReady = false;
       let latestStudentUrl = '';
       let savedActivityMode = 'evaluation';
+      let savedSetupSnapshot = null;
+      let latestReadinessData = null;
+      let readinessVersion = 0;
+      let apiVerified = false;
+      let controlsBusy = false;
+      let assessmentGenerating = false;
+      let assessmentEditVersion = 0;
+      let assessmentDraft = null;
+      const assessmentDraftFields = {
+        assessmentCriteria:['assessment-criteria', '평가기준'],
+        rubricHigh:['rubric-high', '매우잘함'], rubricGood:['rubric-good', '잘함'],
+        rubricMeet:['rubric-meet', '보통'], rubricDeveloping:['rubric-developing', '노력요함'],
+        evidenceDescription:['evidence-description', '수집할 평가 근거']
+      };
       const byId = function (id) { return document.getElementById(id); };
       const teacherAccessToken = document.body.dataset.teacherAccessToken || '';
 
@@ -257,12 +308,25 @@
         byId('test-api').addEventListener('click', testApi);
         byId('clear-api').addEventListener('click', clearApi);
         byId('test-engine').addEventListener('click', testEngine);
+        byId('save-student-url').addEventListener('click', saveStudentUrl);
         byId('refresh-readiness').addEventListener('click', function () { refreshData('준비 상태를 새로고침했습니다.'); });
         byId('copy-student-url').addEventListener('click', copyStudentUrl);
         byId('toggle-lesson').addEventListener('click', toggleLesson);
         byId('duplicate-lesson').addEventListener('click', duplicateLesson);
+        byId('generate-assessment').addEventListener('click', generateAssessmentDraft);
+        byId('apply-assessment-draft').addEventListener('click', applyAssessmentDraft);
+        byId('rubric-scheme').addEventListener('change', syncRubricScheme);
+        ['lesson-id', 'app-name', 'subject', 'grade', 'lesson-title', 'lesson-goal', 'standard-code',
+          'achievement-standard', 'assessment-criteria', 'rubric-scheme', 'rubric-high', 'rubric-good',
+          'rubric-meet', 'rubric-developing', 'evidence-description', 'material-title', 'material-text',
+          'material-url', 'start-question', 'join-code', 'activity-mode', 'version'].forEach(function (id) {
+          ['input', 'change'].forEach(function (eventName) {
+            byId(id).addEventListener(eventName, assessmentInputsChanged);
+          });
+        });
         byId('backward-design-enabled').addEventListener('change', function () {
           byId('activity-mode').value = this.checked ? 'evaluation' : 'exploration';
+          assessmentInputsChanged();
           syncBackwardDesign(true);
         });
         byId('activity-mode').addEventListener('change', function () { syncBackwardDesign(true); });
@@ -277,25 +341,137 @@
         return byId('activity-mode').value !== savedActivityMode;
       }
 
+      function hasUnsavedSetupChanges() {
+        return savedSetupSnapshot === null || hasUnsavedModeChange() ||
+          JSON.stringify(collectPayload()) !== savedSetupSnapshot;
+      }
+
       function syncBackwardDesign(changed) {
         const enabled = byId('activity-mode').value !== 'exploration';
         byId('backward-design-enabled').checked = enabled;
         const fields = byId('backward-design-fields');
         fields.disabled = !enabled;
         fields.classList.toggle('hidden', !enabled);
-        ['lesson-goal', 'achievement-standard', 'assessment-criteria', 'rubric-high',
+        ['assessment-criteria', 'rubric-high',
           'rubric-meet', 'rubric-developing', 'evidence-description'].forEach(function (id) {
           byId(id).required = enabled;
         });
+        syncRubricScheme();
         byId('backward-design-status').textContent = enabled
-          ? '켬 · 목표와 평가 근거를 먼저 정하는 평가모드입니다.'
-          : '끔 · 평가 항목 없이 자료 탐색모드로 운영합니다. 작성한 내용은 보관되어 다시 켜면 나타납니다.';
+          ? '평가에 사용할 목표와 기준을 입력해 주세요.'
+          : '평가 항목 없이 자료로 대화합니다. 기존 평가 내용은 보관됩니다.';
         if (changed) {
-          byId('copy-student-url').disabled = true;
-          byId('open-student').removeAttribute('href');
-          byId('open-student').setAttribute('aria-disabled', 'true');
-          setStatus('백워드 평가 설계를 ' + (enabled ? '켰습니다.' : '껐습니다.') + ' 4단계에서 저장한 뒤 준비 상태와 미리보기를 다시 확인해 주세요.');
+          setStatus('백워드 평가 설계를 ' + (enabled ? '켰습니다.' : '껐습니다.') + ' 설정 저장 후 미리보기를 확인해 주세요.');
         }
+        updateReadinessDisplay();
+      }
+
+      function syncRubricScheme() {
+        const four = byId('rubric-scheme').value === 'four_levels';
+        const evaluation = byId('activity-mode').value !== 'exploration';
+        byId('rubric-high-label').textContent = four ? '매우잘함' : '도달';
+        byId('rubric-meet-label').textContent = four ? '보통' : '성장 중';
+        byId('rubric-developing-label').textContent = four ? '노력요함' : '도움 필요';
+        byId('rubric-good-field').classList.toggle('hidden', !four);
+        byId('rubric-good').required = four && evaluation;
+        byId('rubric-good').disabled = !four || !evaluation;
+        updateAssessmentControls();
+        updateReadinessDisplay();
+      }
+
+      function assessmentInputsChanged() {
+        assessmentEditVersion += 1;
+        if (assessmentDraft) {
+          assessmentDraft = null;
+          byId('assessment-draft').classList.toggle('hidden', true);
+          byId('assessment-ai-status').textContent = '입력이 바뀌었습니다. 변경한 내용으로 초안을 다시 만들어 주세요.';
+        }
+        updateAssessmentControls();
+        updateReadinessDisplay();
+      }
+
+      function updateAssessmentControls() {
+        const evaluation = byId('activity-mode').value !== 'exploration';
+        const hasGoal = Boolean(byId('lesson-goal').value.trim() || byId('achievement-standard').value.trim());
+        byId('generate-assessment').disabled = controlsBusy || assessmentGenerating || !evaluation || !apiVerified || !hasGoal;
+        byId('apply-assessment-draft').disabled = controlsBusy || assessmentGenerating || !evaluation || !apiVerified || !assessmentDraft;
+        byId('assessment-ai-hint').textContent = !apiVerified
+          ? '상단 AI 연결을 확인해 주세요.'
+          : !hasGoal ? '수업 목표 또는 성취기준을 입력하면 4단계 평가기준 초안을 만들 수 있습니다.'
+          : '연결한 개인 API를 사용하며 API 사용료가 발생합니다. 수업자료는 나중에 추가해도 됩니다.';
+      }
+
+      function assessmentSnapshot() { return JSON.stringify(collectPayload()); }
+
+      function generateAssessmentDraft() {
+        updateAssessmentControls();
+        if (byId('generate-assessment').disabled) return;
+        const payload = collectPayload();
+        const snapshot = assessmentSnapshot();
+        const editVersion = assessmentEditVersion;
+        assessmentDraft = null;
+        assessmentGenerating = true;
+        byId('assessment-draft').classList.toggle('hidden', true);
+        byId('assessment-ai-status').textContent = '목표에 맞는 평가기준 초안을 만들고 있습니다.';
+        setButtonsDisabled(true);
+        google.script.run
+          .withSuccessHandler(function (result) {
+            assessmentGenerating = false;
+            setButtonsDisabled(false);
+            if (snapshot !== assessmentSnapshot() || editVersion !== assessmentEditVersion || !apiVerified) {
+              byId('assessment-ai-status').textContent = '생성 중 입력이 바뀌어 초안을 적용하지 않았습니다. 변경한 내용으로 다시 만들어 주세요.';
+              return;
+            }
+            const draft = result && result.draft;
+            const valid = result && result.ok && draft && draft.rubricScheme === 'four_levels' &&
+              Object.keys(assessmentDraftFields).every(function (key) {
+                return typeof draft[key] === 'string' && draft[key].trim() &&
+                  draft[key].length <= (key === 'assessmentCriteria' ? 1500 : 1000);
+              });
+            if (!valid) {
+              byId('assessment-ai-status').textContent = '평가기준 초안의 형식을 확인하지 못했습니다. 다시 만들어 주세요.';
+              return;
+            }
+            assessmentDraft = { value:draft, snapshot:snapshot, editVersion:editVersion };
+            const content = byId('assessment-draft-content'); content.textContent = '';
+            Object.keys(assessmentDraftFields).forEach(function (key) {
+              const title = document.createElement('dt'); title.textContent = assessmentDraftFields[key][1];
+              const detail = document.createElement('dd'); detail.textContent = draft[key];
+              content.appendChild(title); content.appendChild(detail);
+            });
+            byId('assessment-draft').classList.toggle('hidden', false);
+            byId('assessment-ai-status').textContent = '초안을 확인한 뒤 적용해 주세요. 아직 입력 내용과 저장된 설정은 바뀌지 않았습니다.';
+            updateAssessmentControls();
+          })
+          .withFailureHandler(function (error) {
+            assessmentGenerating = false;
+            setButtonsDisabled(false);
+            byId('assessment-ai-status').textContent = error && error.message ? error.message : '초안을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.';
+          })
+          .generateLiteAssessmentDraft(teacherAccessToken, {
+            activityMode:payload.activityMode, subject:payload.subject, grade:payload.grade,
+            lessonTitle:payload.lessonTitle, lessonGoal:payload.lessonGoal,
+            achievementStandardCode:payload.achievementStandardCode, achievementStandard:payload.achievementStandard,
+            materialTitle:payload.materialTitle, materialText:payload.materialText
+          });
+      }
+
+      function applyAssessmentDraft() {
+        if (!assessmentDraft || controlsBusy || !apiVerified || byId('activity-mode').value !== 'evaluation') return;
+        if (assessmentDraft.snapshot !== assessmentSnapshot() || assessmentDraft.editVersion !== assessmentEditVersion) {
+          assessmentInputsChanged();
+          return;
+        }
+        const draft = assessmentDraft.value;
+        Object.keys(assessmentDraftFields).forEach(function (key) { byId(assessmentDraftFields[key][0]).value = draft[key]; });
+        byId('rubric-scheme').value = 'four_levels';
+        assessmentDraft = null;
+        assessmentEditVersion += 1;
+        byId('assessment-draft').classList.toggle('hidden', true);
+        syncRubricScheme();
+        updateReadinessDisplay();
+        byId('assessment-ai-status').textContent = '초안을 입력란에 적용했습니다. 내용을 검토·수정한 뒤 설정을 저장해 주세요.';
+        setStatus('AI 평가기준을 적용했습니다. 설정을 저장해 주세요.');
       }
 
       function showStep(index) {
@@ -308,17 +484,19 @@
         });
         byId('prev-step').classList.toggle('hidden', currentStep === 0);
         byId('next-step').classList.toggle('hidden', currentStep === steps.length - 1);
-        byId('save-setup').classList.toggle('hidden', currentStep !== steps.length - 1);
+        byId('save-setup').classList.remove('hidden');
+        if (steps[currentStep] === 'check') updateReadinessDisplay();
         document.querySelector('main').scrollTo({ top:0, behavior:'smooth' });
       }
 
       function fillData(data) {
+        assessmentInputsChanged();
         const value = data.settings || {};
         const mapping = {
           'lesson-id':'lessonId', 'app-name':'appName', subject:'subject', grade:'grade',
           'lesson-title':'lessonTitle', 'lesson-goal':'lessonGoal', 'standard-code':'achievementStandardCode',
           'achievement-standard':'achievementStandard', 'assessment-criteria':'assessmentCriteria',
-          'rubric-high':'rubricHigh', 'rubric-meet':'rubricMeet', 'rubric-developing':'rubricDeveloping',
+          'rubric-high':'rubricHigh', 'rubric-good':'rubricGood', 'rubric-meet':'rubricMeet', 'rubric-developing':'rubricDeveloping',
           'evidence-description':'evidenceDescription', 'material-title':'materialTitle',
           'material-text':'materialText', 'material-url':'materialUrl', 'start-question':'startQuestion',
           'join-code':'joinCode',
@@ -328,11 +506,15 @@
           byId(id).value = value[mapping[id]] == null ? '' : value[mapping[id]];
         });
         byId('activity-mode').value = value.activityMode === 'exploration' ? 'exploration' : 'evaluation';
+        byId('rubric-scheme').value = value.rubricScheme === 'four_levels' ? 'four_levels'
+          : value.rubricScheme === 'legacy_three' || value.lessonId || value.rubricHigh || value.rubricMeet || value.rubricDeveloping ? 'legacy_three' : 'four_levels';
         savedActivityMode = byId('activity-mode').value;
+        savedSetupSnapshot = assessmentSnapshot();
         if (!byId('version').value) byId('version').value = 'v1';
         syncBackwardDesign(false);
         if (!byId('app-name').value) byId('app-name').value = 'simbot';
         if (!byId('join-code').value) byId('join-code').value = String(Math.floor(100000 + Math.random() * 900000));
+        byId('confirmed-student-url').value = data.confirmedStudentUrl || '';
         updateApi(data.api || {});
         renderReadiness(data.readiness || {}, data.studentUrl || '', data.previewUrl || '');
         setStatus('설정을 확인하고 순서대로 입력해 주세요.');
@@ -346,6 +528,7 @@
           achievementStandardCode:byId('standard-code').value,
           achievementStandard:byId('achievement-standard').value,
           assessmentCriteria:byId('assessment-criteria').value,
+          rubricScheme:byId('rubric-scheme').value, rubricGood:byId('rubric-good').value,
           rubricHigh:byId('rubric-high').value, rubricMeet:byId('rubric-meet').value,
           rubricDeveloping:byId('rubric-developing').value,
           evidenceDescription:byId('evidence-description').value,
@@ -358,6 +541,7 @@
 
       function saveSetup(event) {
         event.preventDefault();
+        if (controlsBusy || assessmentGenerating) return;
         if (!byId('setup-form').checkValidity()) {
           const invalid = byId('setup-form').querySelector(':invalid');
           const panel = invalid && invalid.closest('.panel');
@@ -367,19 +551,46 @@
           setStatus('입력하지 않은 필수 항목을 확인해 주세요.', true);
           return;
         }
+        if (byId('activity-mode').value === 'evaluation' &&
+            !byId('lesson-goal').value.trim() && !byId('achievement-standard').value.trim()) {
+          showStep(steps.indexOf('design'));
+          setStatus('수업 목표 또는 성취기준 중 하나 이상 입력해 주세요.', true);
+          return;
+        }
         setStatus('평가 설계와 수업자료를 저장하는 중입니다.');
         const payload = collectPayload();
+        readinessVersion += 1;
         setButtonsDisabled(true);
         google.script.run
           .withSuccessHandler(function (result) {
             byId('lesson-id').value = result.lessonId || '';
             savedActivityMode = payload.activityMode;
+            savedSetupSnapshot = JSON.stringify(Object.assign({}, payload, { lessonId:result.lessonId || '' }));
             renderReadiness(result.readiness || {}, result.studentUrl || '', result.previewUrl || '');
             setStatus(result.message || '저장했습니다.');
             setButtonsDisabled(false);
           })
           .withFailureHandler(function (error) { setButtonsDisabled(false); showError(error); })
           .saveLiteTeacherSetup(teacherAccessToken, payload);
+      }
+
+      function saveStudentUrl() {
+        const url = byId('confirmed-student-url').value.trim();
+        if (url && (url.length > 500 || !/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(url))) {
+          setStatus('배포 관리에서 복사한 /exec 주소만 입력해 주세요. 미리보기 값이나 다른 주소는 저장할 수 없습니다.', true);
+          return;
+        }
+        setStatus('웹앱 주소를 저장하는 중입니다.');
+        setButtonsDisabled(true);
+        google.script.run
+          .withSuccessHandler(function (data) {
+            byId('confirmed-student-url').value = data.confirmedStudentUrl || '';
+            renderReadiness(data.readiness || {}, data.studentUrl || '', data.previewUrl || '');
+            setStatus(data.message || '웹앱 주소를 저장했습니다.');
+            setButtonsDisabled(false);
+          })
+          .withFailureHandler(function (error) { setButtonsDisabled(false); showError(error); })
+          .saveLiteStudentUrlForTeacher(teacherAccessToken, url);
       }
 
       function saveApi() {
@@ -427,42 +638,112 @@
       }
 
       function refreshData(message) {
+        const requestVersion = ++readinessVersion;
         google.script.run
           .withSuccessHandler(function (data) {
+            if (requestVersion !== readinessVersion) return;
             updateApi(data.api || {});
             renderReadiness(data.readiness || {}, data.studentUrl || '', data.previewUrl || '');
             setStatus(message || '준비 상태를 갱신했습니다.');
           })
-          .withFailureHandler(showError)
+          .withFailureHandler(function (error) {
+            if (requestVersion === readinessVersion) showError(error);
+          })
           .getLiteTeacherSetupData(teacherAccessToken);
       }
 
       function updateApi(api) {
+        apiVerified = Boolean(api.verified);
+        if (!apiVerified && assessmentDraft) assessmentInputsChanged();
         const badge = byId('api-badge');
         badge.className = 'badge ' + (api.verified ? 'pass' : api.configured ? '' : 'block');
-        badge.textContent = api.verified ? '연결 확인됨' : api.configured ? '저장됨 · 확인 필요' : '연결 필요';
+        badge.textContent = api.verified ? '연결됨' : api.configured ? '확인 필요' : '연결 필요';
+        byId('api-settings').open = !api.verified;
+        updateAssessmentControls();
       }
 
       function renderReadiness(report, studentUrl, previewUrl) {
+        readinessVersion += 1;
+        latestReadinessData = { report:report, studentUrl:studentUrl, previewUrl:previewUrl };
         latestDistributionReady = Boolean(report.distributionReady);
         latestStudentUrl = studentUrl || '';
+        updateReadinessDisplay();
+      }
+
+      function updateReadinessDisplay() {
+        const enabled = byId('activity-mode').value !== 'exploration';
+        byId('save-setup').textContent = '설정 저장';
+        if (!latestReadinessData) return;
+        const report = latestReadinessData.report;
+        const studentUrl = latestReadinessData.studentUrl;
+        const previewUrl = latestReadinessData.previewUrl;
+        const dirty = hasUnsavedSetupChanges();
+        byId('save-state').textContent = dirty ? '미저장 변경 있음' : '저장된 설정';
+        const payload = collectPayload();
+        const hasText = function (value) { return Boolean(String(value || '').trim()); };
+        const backwardReady = !enabled || ((hasText(payload.lessonGoal) || hasText(payload.achievementStandard)) &&
+          ['assessmentCriteria', 'rubricHigh', 'rubricMeet', 'rubricDeveloping', 'evidenceDescription'].every(function (key) {
+            return hasText(payload[key]);
+          }) && (payload.rubricScheme !== 'four_levels' || hasText(payload.rubricGood)));
+        const materialReady = hasText(payload.lessonTitle) && hasText(payload.materialTitle) &&
+          payload.materialText.trim().length >= 30 && hasText(payload.startQuestion);
+        const codeReady = /^\d{6}$/.test(payload.joinCode);
+        const modeReady = payload.activityMode === 'evaluation' || payload.activityMode === 'exploration';
+        const inputChecks = {
+          backwardDesign: {
+            label: enabled ? '백워드 평가 설계' : '백워드 평가 설계 · 사용 안 함',
+            state: backwardReady ? 'pass' : 'block', enabled:enabled,
+            detail: !enabled ? '사용 안 함 — 자료 탐색모드에서는 백워드 평가 설계를 적용하지 않습니다.'
+              : backwardReady ? '목표 또는 성취기준과 수준별 평가기준·평가 근거가 준비되었습니다.'
+              : '목표부터 평가 근거까지 필수 항목을 입력해 주세요.'
+          },
+          mode: {
+            state: modeReady ? 'pass' : 'block',
+            detail: !enabled ? '자료 탐색모드로 운영합니다.' : modeReady ? '평가모드로 운영합니다.'
+              : '평가모드 또는 자료 탐색모드를 선택해 주세요.'
+          },
+          material: {
+            state: materialReady ? 'pass' : 'block',
+            detail: materialReady ? '학생 질문의 근거 자료와 시작 질문이 준비되었습니다.'
+              : '30자 이상의 수업자료와 시작 질문을 입력해 주세요.'
+          },
+          lessonAccess: {
+            state: codeReady ? 'pass' : 'block',
+            detail: codeReady ? '학생에게만 안내할 숫자 6자리 참여코드가 준비되었습니다.'
+              : '학생 참여코드를 숫자 6자리로 정해 주세요.'
+          }
+        };
+        const note = byId('readiness-draft-note');
+        note.classList.toggle('hidden', !dirty);
+        note.textContent = dirty
+          ? '변경 사항을 저장해 주세요. 새로고침은 저장하지 않습니다.'
+          : '';
         const badge = byId('readiness-badge');
-        badge.className = 'badge ' + (report.distributionReady ? 'pass' : report.setupReady ? '' : 'block');
-        badge.textContent = report.distributionReady ? '학생 배포 준비 완료' : report.setupReady ? '교사 입력 완료' : '필수 설정 필요';
+        badge.className = 'badge ' + (dirty ? '' : report.distributionReady ? 'pass' : report.setupReady ? '' : 'block');
+        badge.textContent = dirty ? '저장 필요' : report.distributionReady ? '교사 미리보기 확인 완료' : report.setupReady ? '미리보기·연결 확인 필요' : '필수 설정 필요';
         const list = byId('readiness-list'); list.textContent = '';
-        (report.checks || []).forEach(function (check) {
+        (report.checks || []).forEach(function (savedCheck) {
+          // The local projection never changes the saved server report or its runtime gates.
+          const check = Object.assign({}, savedCheck, inputChecks[savedCheck.key] || {});
+          if (dirty && check.key === 'preview') {
+            check.state = 'block';
+            check.detail = '변경한 설정을 먼저 저장한 뒤 99-999 미리보기를 다시 확인해 주세요.';
+          }
           const item = document.createElement('li'); item.dataset.state = check.state || 'block';
+          item.dataset.key = check.key || '';
           const title = document.createElement('strong');
           title.textContent = (check.state === 'pass' ? '✓ ' : '! ') + check.label;
           const detail = document.createElement('span'); detail.textContent = check.detail || '';
           item.appendChild(title); item.appendChild(detail); list.appendChild(item);
         });
-        byId('readiness-summary').textContent = report.summary || '준비 상태를 확인해 주세요.';
+        byId('readiness-summary').textContent = dirty
+          ? '저장 후 미리보기를 확인해 주세요.'
+          : report.distributionReady ? '수업 설정과 교사 미리보기를 확인했습니다.' : '아래 필요한 항목을 확인해 주세요.';
         byId('student-url').textContent = studentUrl || '아직 학생용 주소가 없습니다.';
         const link = byId('open-student');
-        if (previewUrl && report.runtimeReady && !hasUnsavedModeChange()) { link.href = previewUrl; link.setAttribute('aria-disabled', 'false'); }
+        if (previewUrl && report.runtimeReady && !dirty && !controlsBusy) { link.href = previewUrl; link.setAttribute('aria-disabled', 'false'); }
         else { link.removeAttribute('href'); link.setAttribute('aria-disabled', 'true'); }
-        byId('copy-student-url').disabled = hasUnsavedModeChange() || !(studentUrl && report.distributionReady);
+        byId('copy-student-url').disabled = controlsBusy || dirty || !(studentUrl && report.distributionReady);
         const toggle = byId('toggle-lesson');
         toggle.dataset.open = report.lessonOpen === false ? 'false' : 'true';
         toggle.textContent = report.lessonOpen === false ? '현재 수업 다시 열기' : '현재 수업 배포 종료';
@@ -470,7 +751,7 @@
 
       function copyStudentUrl() {
         const value = byId('student-url').textContent.trim();
-        if (!value || byId('copy-student-url').disabled) return;
+        if (!value || byId('copy-student-url').disabled || hasUnsavedSetupChanges() || controlsBusy) return;
         const copied = function () { setStatus('학생용 주소를 복사했습니다. 학생에게는 이 주소만 공유하세요.'); };
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(value).then(copied).catch(function () { fallbackCopy(value, copied); });
@@ -509,7 +790,7 @@
         google.script.run
           .withSuccessHandler(function (result) {
             fillData(result);
-            showStep(1);
+            showStep(steps.indexOf('design'));
             setStatus(result.message || '새 수업으로 복제했습니다.');
             setButtonsDisabled(false);
           })
@@ -518,10 +799,15 @@
       }
 
       function setButtonsDisabled(disabled) {
+        controlsBusy = disabled;
         document.querySelectorAll('button').forEach(function (button) { button.disabled = disabled; });
         byId('backward-design-enabled').disabled = disabled;
         byId('activity-mode').disabled = disabled;
-        if (!disabled) byId('copy-student-url').disabled = hasUnsavedModeChange() || !(latestStudentUrl && latestDistributionReady);
+        byId('rubric-scheme').disabled = disabled;
+        byId('confirmed-student-url').disabled = disabled;
+        if (!disabled) byId('copy-student-url').disabled = hasUnsavedSetupChanges() || !(latestStudentUrl && latestDistributionReady);
+        updateAssessmentControls();
+        updateReadinessDisplay();
       }
 
       function setStatus(message, isError) {

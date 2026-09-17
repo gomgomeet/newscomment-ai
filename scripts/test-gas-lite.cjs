@@ -203,11 +203,18 @@ const explorationWithoutDesign = context.validateLiteTeacherSetup_({
 });
 Object.entries(backwardDesignLimits).forEach(([field, limit]) => {
   assert.equal(explorationWithoutDesign[field], '');
-  assert.throws(
-    () => context.validateLiteTeacherSetup_({ ...valid, [field]:'' }),
-    /입력해 주세요/,
-    `평가모드에서는 ${field} 필수 검사를 유지해야 한다`
-  );
+  if (field === 'lessonGoal' || field === 'achievementStandard') {
+    assert.doesNotThrow(
+      () => context.validateLiteTeacherSetup_({ ...valid, [field]:'' }),
+      '평가모드에서는 수업 목표 또는 성취기준 중 하나만 입력해도 저장해야 한다'
+    );
+  } else {
+    assert.throws(
+      () => context.validateLiteTeacherSetup_({ ...valid, [field]:'' }),
+      /입력해 주세요/,
+      `평가모드에서는 ${field} 필수 검사를 유지해야 한다`
+    );
+  }
   ['evaluation', 'exploration'].forEach((activityMode) => {
     assert.throws(
       () => context.validateLiteTeacherSetup_({ ...valid, activityMode, [field]:'가'.repeat(limit + 1) }),
@@ -219,6 +226,10 @@ Object.entries(backwardDesignLimits).forEach(([field, limit]) => {
     ...valid, activityMode:'exploration', [field]:'가'.repeat(limit)
   })[field], '가'.repeat(limit));
 });
+assert.throws(
+  () => context.validateLiteTeacherSetup_({ ...valid, lessonGoal:'', achievementStandard:'' }),
+  /수업 목표 또는 성취기준/
+);
 assert.throws(
   () => context.validateLiteTeacherSetup_({ ...explorationWithoutDesign, activityMode:'evaluation' }),
   /수업 목표/
@@ -1928,6 +1939,73 @@ const studentStylesHtml = fs.readFileSync(path.join(root, 'gas-lite', 'StudentSt
 const teacherDashboardHtml = fs.readFileSync(path.join(root, 'gas-lite', 'TeacherDashboard.html'), 'utf8');
 
 new vm.Script(codeSource, { filename:'gas-lite/Code.js' });
+vm.runInContext(codeSource, context, { filename:'gas-lite/Code.js' });
+
+// The teacher can correct a stale automatic deployment URL without changing
+// lesson data, API/engine verification, or the current preview capability.
+const confirmedUrlProperty = 'LITE_CONFIRMED_STUDENT_URL';
+const confirmedUrl = 'https://script.google.com/macros/s/actual_deployment-123/exec';
+const automaticUrl = context.getLiteStudentUrl_();
+context.markLiteApiVerified_('sk-zxywvutsrqponmlk');
+context.markLitePreviewVerified_(copiedSettings);
+const beforeUrlData = context.getLiteTeacherSetupData(teacherToken);
+const propertiesExceptUrl = () => Object.fromEntries(
+  Array.from(properties.entries()).filter(([key]) => key !== confirmedUrlProperty)
+);
+const lessonSheets = () => JSON.stringify(Array.from(spreadsheet.sheets.entries())
+  .filter(([name]) => name !== '시작하기').map(([name, sheet]) => [name, sheet.rows]));
+const beforeUrlProperties = propertiesExceptUrl();
+const beforeUrlSheets = lessonSheets();
+const beforeUrlLesson = JSON.stringify(beforeUrlData.settings);
+assert.equal(beforeUrlData.confirmedStudentUrl, '');
+assert.equal(context.isLitePreviewVerified_(copiedSettings), true);
+assert.throws(() => context.saveLiteStudentUrlForTeacher('wrong-token', confirmedUrl), /Google Sheet/);
+assert.equal(properties.has(confirmedUrlProperty), false);
+
+const savedUrlData = context.saveLiteStudentUrlForTeacher(teacherToken, '  ' + confirmedUrl + '  ');
+assert.equal(savedUrlData.studentUrl, confirmedUrl);
+assert.equal(savedUrlData.confirmedStudentUrl, confirmedUrl);
+assert.equal(savedUrlData.previewUrl, confirmedUrl + beforeUrlData.previewUrl.slice(beforeUrlData.previewUrl.indexOf('?')));
+assert.equal(context.isLitePreviewVerified_(copiedSettings), true);
+assert.equal(JSON.stringify(savedUrlData.settings), beforeUrlLesson);
+assert.deepEqual(propertiesExceptUrl(), beforeUrlProperties);
+assert.equal(lessonSheets(), beforeUrlSheets);
+assert.equal(context.getLiteTeacherSetupData(teacherToken).studentUrl, confirmedUrl, 'Reopening uses the saved override');
+const originalService = context.ScriptApp.getService;
+context.ScriptApp.getService = () => { throw new Error('stale service must not be consulted'); };
+assert.equal(context.getLiteStudentUrl_(), confirmedUrl);
+context.ScriptApp.getService = originalService;
+
+[
+  confirmedUrl + '?preview=never-store-this-token', confirmedUrl + '#fragment',
+  confirmedUrl.replace('/exec', '/dev'), confirmedUrl + '/extra',
+  confirmedUrl.replace('https:', 'http:'), confirmedUrl.replace('script.google.com', 'example.com'),
+  confirmedUrl.replace('script.google.com', 'script.google.com.example.com'),
+  confirmedUrl.replace('script.google.com', 'user@script.google.com'),
+  confirmedUrl.replace('script.google.com', 'script.google.com:443'),
+  confirmedUrl.replace('/macros/s/', '/macros/u/0/s/'),
+  confirmedUrl.replace('actual_deployment-123', 'encoded%2Fdeployment'),
+  'https://script.google.com/macros/s/' + 'a'.repeat(501) + '/exec',
+].forEach((invalidUrl) => {
+  assert.throws(() => context.saveLiteStudentUrlForTeacher(teacherToken, invalidUrl), /주소만/);
+  assert.equal(properties.get(confirmedUrlProperty), confirmedUrl);
+  assert.deepEqual(propertiesExceptUrl(), beforeUrlProperties);
+  assert.equal(lessonSheets(), beforeUrlSheets);
+});
+properties.set(confirmedUrlProperty, 'https://example.com/unsafe');
+assert.throws(() => context.getLiteStudentUrl_(), /주소만/, 'Invalid stored overrides cannot become clickable links');
+properties.set(confirmedUrlProperty, confirmedUrl);
+const clearedUrlData = context.saveLiteStudentUrlForTeacher(teacherToken, '');
+assert.equal(clearedUrlData.studentUrl, automaticUrl);
+assert.equal(clearedUrlData.confirmedStudentUrl, '');
+assert.equal(properties.has(confirmedUrlProperty), false);
+assert.deepEqual(propertiesExceptUrl(), beforeUrlProperties);
+assert.equal(lessonSheets(), beforeUrlSheets);
+context.ScriptApp.getService = () => ({ getUrl:() => null });
+assert.equal(context.getLiteStudentUrl_(), '');
+context.ScriptApp.getService = () => { throw new Error('not deployed'); };
+assert.equal(context.getLiteStudentUrl_(), '');
+context.ScriptApp.getService = originalService;
 [teacherHtml, teacherDashboardHtml, studentClientHtml].forEach((source, index) => {
   const scripts = Array.from(source.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi));
   scripts.forEach((match, scriptIndex) => {
@@ -1960,11 +2038,8 @@ assert.match(engineSource, /candidateEvidenceQuote/);
 assert.match(engineSource, /if \(!replyFinalizedByEngine\) reply = enforceLiteReply_/);
 assert.match(teacherHtml, /id="assessment-criteria"/);
 assert.match(teacherHtml, /id="evidence-description"/);
-assert.match(teacherHtml, /99-999/);
-assert.match(teacherHtml, /체험 · 강사 챗봇/);
-assert.match(teacherHtml, /이해 · 구조와 결과/);
 assert.match(teacherHtml, /latestDistributionReady/);
-assert.match(teacherHtml, /copy-student-url'\)\.disabled = hasUnsavedModeChange\(\) \|\| !\(latestStudentUrl && latestDistributionReady\)/);
+assert.match(teacherHtml, /copy-student-url'\)\.disabled = hasUnsavedSetupChanges\(\) \|\| !\(latestStudentUrl && latestDistributionReady\)/);
 assert.match(teacherHtml, /id="test-engine"/);
 assert.match(teacherHtml, /id="copy-student-url"/);
 assert.match(teacherHtml, /id="toggle-lesson"/);
