@@ -23,7 +23,7 @@ import {
 } from "@/lib/questioning-conversation-phase";
 
 export const LITE_ENGINE_SCHEMA_VERSION = 1;
-export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v5";
+export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v6";
 
 type LiteOutputContract = "lead_evidence_quote_v1" | "grounded_answer_v2";
 
@@ -467,6 +467,12 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
     (!observation.relatedQuestion && observation.responseScore === null)
   );
   const source = verifiedSourceCue || config.material.summary;
+  const finalQuantity = outputContract === "grounded_answer_v2" && !planned.safetyFlag &&
+    !planned.isClosing && planned.primaryMove !== "repair" && observation.sourceStatus === "supported"
+    ? finalQuantityInContext(verifiedSourceCue, input.studentMessage) : undefined;
+  const quantityFallback = finalQuantity
+    ? `자료에 따르면 최종 수량은 ${/하루/.test(input.studentMessage) && /하루/.test(finalQuantity.sentence) ? "하루 " : ""}${finalQuantity.raw}입니다.`
+    : "";
   const modeRule = input.activityMode === "evaluation"
     ? "평가모드입니다. 교사가 제공한 자료의 범위에서만 답하고, 내부 평가기준과 점수는 말하지 마세요."
     : "자료 탐색모드입니다. 제공된 자료로 질문을 설명하고, 자료 밖 사실과 수치를 만들지 마세요.";
@@ -481,7 +487,7 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
     planDigest: litePlanDigest(input),
     engine: liteEngineDescriptor(),
     skipModel,
-    fallbackReply: quantityReply || planned.studentReply,
+    fallbackReply: quantityReply || quantityFallback || planned.studentReply,
     modelRequest: {
       model: process.env.LITE_ENGINE_MODEL?.trim() || "gpt-5.6-terra",
       reasoningEffort: "low",
@@ -557,25 +563,43 @@ const quantityPattern = /(?:\d+(?:[.,]\d+)*|스물|서른|마흔|쉰|예순|일�
 
 function quantitiesIn(text: string) {
   return [...text.matchAll(quantityPattern)].map((match) => ({
+    raw: match[0],
     text: match[0].toLowerCase().replace(/\s+/g, ""),
     unit: match[1].toLowerCase(),
     end: (match.index || 0) + match[0].length,
   }));
 }
 
+function requestedQuantityUnit(question: string) {
+  return /몇\s*(킬로그램|킬로미터|퍼센트|리터|시간|개월|kg|km|cm|mm|ml|명|개|통|권|원|도|년|월|일|분|초|배)/i.exec(question)?.[1]?.toLowerCase();
+}
+
+function finalQuantityInContext(source: string, question: string) {
+  const unit = requestedQuantityUnit(question);
+  if (!unit || !/(최종|결과|현재|지금|줄어든|늘어난)/.test(question)) return undefined;
+  const ranked = sourceSentences(source).map((sentence) => ({
+    sentence, score: scoreSourceSentence(sentence, question),
+  }));
+  const bestScore = Math.max(0, ...ranked.map((item) => item.score));
+  const results = ranked.filter((item) => item.score === bestScore &&
+    !/계획|목표|예상|희망|가정|만약|실패|않|못|아니/.test(item.sentence)).flatMap(({ sentence }) =>
+    quantitiesIn(sentence).filter((item) => item.unit === unit &&
+      /^(?:으)?로\s*(?:줄었|늘었|감소했|증가했|변했|되었|됐|남았|떨어졌|올랐)/.test(sentence.slice(item.end)))
+      .map((item) => ({ ...item, sentence })));
+  return results.length === 1 ? results[0] : undefined;
+}
+
 function unsupportedQuantityAnswer(answer: string, quote: string, question: string) {
   const claimed = quantitiesIn(answer);
   const evidence = quantitiesIn(quote);
   if (claimed.some((item) => !evidence.some((source) => source.text === item.text))) return true;
-  const unit = /몇\s*(킬로그램|킬로미터|퍼센트|리터|시간|개월|kg|km|cm|mm|ml|명|개|통|권|원|도|년|월|일|분|초|배)/i.exec(question)?.[1]?.toLowerCase();
+  const unit = requestedQuantityUnit(question);
   if (!unit) return false;
   const answers = claimed.filter((item) => item.unit === unit);
   const sources = evidence.filter((item) => item.unit === unit);
   if (sources.length && !answers.length) return true;
-  if (/(최종|결과|현재|지금|줄어든|늘어난)/.test(question)) {
-    const result = sources.find((item) => /^(?:으)?로\s*(?:줄|늘|감소|증가|변|되|남|떨어|오르)/.test(quote.slice(item.end)));
-    if (result && answers[0]?.text !== result.text) return true;
-  }
+  const result = finalQuantityInContext(quote, question);
+  if (result && answers[0]?.text !== result.text) return true;
   return false;
 }
 
@@ -585,7 +609,10 @@ function supportedLiteEvidenceQuote(
   plan: LiteEnginePlan,
 ) {
   const quote = normalizeLiteQuote(evidenceQuote);
-  if (quote.length < 8 || quote.length > 500) return "";
+  const unit = requestedQuantityUnit(input.studentMessage);
+  const exactQuantityFragment = unit && quantitiesIn(quote).some((item) =>
+    item.unit === unit && item.text === quote.replace(/\s+/g, "").toLowerCase());
+  if ((!exactQuantityFragment && quote.length < 8) || quote.length > 500) return "";
   const material = normalizeLiteQuote(input.lesson.materialText);
   const plannedSource = normalizeLiteQuote(plan.observation.sourceCue);
   if (!plannedSource) return "";
@@ -595,8 +622,13 @@ function supportedLiteEvidenceQuote(
     sentence, score: scoreSourceSentence(sentence, input.studentMessage),
   }));
   const bestScore = Math.max(0, ...ranked.map((item) => item.score));
-  if (bestScore > 0 && !ranked.some((item) => item.score === bestScore &&
-      (item.sentence.includes(quote) || quote.includes(item.sentence)))) return "";
+  const matchingSentences = ranked.filter((item) => (bestScore === 0 || item.score === bestScore) &&
+    (item.sentence.includes(quote) || quote.includes(item.sentence)));
+  if (bestScore > 0 && !matchingSentences.length) return "";
+  // Substrings are not complete quantities: "2통" is not evidence from "12통",
+  // and "한 통" must not be extracted by cutting off the "반" in the source.
+  if (quantitiesIn(quote).some((quantity) => !matchingSentences.some(({ sentence }) =>
+      quantitiesIn(sentence).some((sourceQuantity) => sourceQuantity.text === quantity.text)))) return "";
   return quote;
 }
 
@@ -617,7 +649,10 @@ function candidateNeedsSafeFallback(
     // This is a conservative lexical guard, not a proof of entailment. The
     // provider is also instructed to paraphrase only the verified excerpt.
     const terms = candidate.match(/[가-힣A-Za-z]{2,}/g) || [];
-    if (!terms.some((term) => evidenceQuote.includes(term.slice(0, Math.min(3, term.length))))) return true;
+    const unit = requestedQuantityUnit(input.studentMessage);
+    const numericOverlap = unit && quantitiesIn(candidate).some((claim) => claim.unit === unit &&
+      quantitiesIn(evidenceQuote).some((evidence) => evidence.text === claim.text));
+    if (!numericOverlap && !terms.some((term) => evidenceQuote.includes(term.slice(0, Math.min(3, term.length))))) return true;
   }
 
   // 학생 발화나 이전 모델 답은 사실 근거로 승격하지 않고 교사 제공 본문만 대조한다.
@@ -627,6 +662,11 @@ function candidateNeedsSafeFallback(
   if (numericClaims.some((claim) => !source.includes(claim))) return true;
   if (plan.modelRequest.outputContract === "grounded_answer_v2" &&
       unsupportedQuantityAnswer(candidate, evidenceQuote, input.studentMessage)) return true;
+  // A short quote can omit the before/after wording; check its value against the
+  // full verified sentence so quoting only the old amount cannot bypass validation.
+  const finalQuantity = finalQuantityInContext(plan.observation.sourceCue, input.studentMessage);
+  if (plan.modelRequest.outputContract === "grounded_answer_v2" && finalQuantity &&
+      quantitiesIn(candidate).find((item) => item.unit === finalQuantity.unit)?.text !== finalQuantity.text) return true;
 
   // 의료·법률·금전·위험 주장은 모드와 무관하게 본문에 같은 근거가 없으면 폐기한다.
   const highRiskTerms = candidate.match(

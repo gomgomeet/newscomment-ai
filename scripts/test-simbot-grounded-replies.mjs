@@ -218,6 +218,119 @@ test('a relevant verbatim sentence fragment remains usable as evidence', () => {
   );
 });
 
+for (const evidenceQuote of ['한 통 반으로 줄었고', '한 통 반']) {
+  test(`a short final-quantity quote supports a concise answer: ${evidenceQuote}`, () => {
+    assertDirectAnswer(
+      inputFor('글에서 줄어든 잔반은 최종적으로 하루 몇 통인가요?'),
+      '하루 한 통 반이에요.',
+      evidenceQuote,
+      /한 통 반/,
+    );
+  });
+}
+
+for (const [label, answer, evidenceQuote] of [
+  ['past quantity', '하루 세 통이에요.', '세 통'],
+  ['fraction truncated from the actual quantity', '하루 한 통이에요.', '한 통'],
+]) {
+  test(`a short quote cannot disguise the wrong final quantity: ${label}`, () => {
+    const input = inputFor('글에서 줄어든 잔반은 최종적으로 하루 몇 통인가요?');
+    const plan = createLiteEnginePlan(input);
+    assert.equal(plan.skipModel, false, 'exercise the quote and quantity guards');
+    assert.ok(plan.observation.sourceCue.includes(evidenceQuote), 'the short quote really occurs in the selected evidence');
+    const result = finalize(input, plan, answer, evidenceQuote);
+    assert.equal(result.localFallback, true, 'quantity role and full fractional value come from the source sentence');
+    assert.notEqual(result.studentReply, answer);
+    assert.match(result.studentReply, /하루 한 통 반/);
+    assert.ok(result.studentReply.length <= 80, 'rejected candidates should still receive a concise, correct quantity answer');
+    assert.doesNotMatch(result.studentReply, /과일|후식|“|”|그 결과 하루 세 통/);
+  });
+}
+
+for (const article of [
+  {
+    id: 'missing-final-measurement',
+    title: '선택제를 운영한 학교',
+    text: '학교에서는 예전에 하루 세 통의 잔반이 나왔다. 학교는 학생들이 먹을 양을 고르는 선택제를 운영했다. 선택제를 운영한 뒤 최종 잔반의 양은 측정하지 않았다.',
+  },
+  {
+    id: 'multiple-final-measurements',
+    title: '서로 다른 학급의 잔반',
+    text: '학교가 함께 조사한 두 학급에서 첫 학급의 잔반은 하루 두 통으로 줄었고, 다른 학급의 잔반은 하루 한 통으로 줄었다. 학교 전체 잔반의 합계는 조사하지 않았다.',
+  },
+  {
+    id: 'planned-final-measurement',
+    title: '잔반 감축 계획',
+    text: '학교 전체 잔반은 현재 하루 두 통이며, 학생들은 선택제를 통해 앞으로 잔반을 하루 한 통으로 줄일 계획이다.',
+  },
+  {
+    id: 'unconfirmed-final-measurement',
+    title: '아직 확인하지 못한 잔반 양',
+    text: '학교 전체 잔반은 현재 하루 두 통이며, 선택제를 시행한 뒤 하루 한 통으로 줄었는지는 아직 확인하지 못했다.',
+  },
+  {
+    id: 'hypothetical-final-measurement',
+    title: '가정한 잔반 감축 결과',
+    text: '만약 학교 전체 잔반이 하루 한 통으로 줄었다면 성공이겠지만, 실제로 선택제를 운영한 뒤 남은 양은 아직 측정하지 않았다.',
+  },
+]) {
+  test(`concise numeric fallback does not invent one final measurement: ${article.id}`, () => {
+    const input = inputFor('학교 전체 잔반은 최종적으로 하루 몇 통인가요?', article);
+    const plan = createLiteEnginePlan(input);
+    assert.doesNotMatch(plan.fallbackReply, /^자료에 따르면 최종 수량은/,
+      'a missing result or several distinct class results cannot be extracted as a single final quantity');
+    const result = finalize(input, plan, '하루 999통이에요.', '999통');
+    assert.equal(result.localFallback, true);
+    assert.doesNotMatch(result.studentReply, /^자료에 따르면 최종 수량은|999/);
+  });
+}
+
+for (const [label, article, question, answer, partialQuote, completeQuote] of [
+  [
+    'numeric suffix',
+    {
+      id: 'complete-arabic-quantity',
+      title: '학교 급식실 용기',
+      text: '학교 급식실에서 보관하는 용기는 12통이다. 학생들은 깨끗이 씻은 용기에 필요한 물품을 넣어 두었다.',
+    },
+    '용기는 몇 통인가요?',
+    '용기는 2통이에요.',
+    '2통',
+    '12통',
+  ],
+  [
+    'omitted fractional suffix',
+    {
+      id: 'complete-fractional-quantity',
+      title: '학교 급식실 잔반',
+      text: '학교 급식실에서 조사한 하루 잔반은 한 통 반이다. 학생들은 남기지 않고 먹을 수 있는 만큼 반찬을 받기로 했다.',
+    },
+    '잔반은 하루 몇 통인가요?',
+    '잔반은 하루 한 통이에요.',
+    '한 통',
+    '한 통 반',
+  ],
+]) {
+  test(`quantity quote boundaries remain enforced without a final-result question: ${label}`, () => {
+    assert.doesNotMatch(question, /최종|결과|현재|지금|줄어든|늘어난/);
+    const input = inputFor(question, article);
+    const plan = createLiteEnginePlan(input);
+    assert.equal(plan.skipModel, false, 'exercise finalization rather than a missing-source fallback');
+    assert.ok(plan.observation.sourceCue.includes(completeQuote));
+    assert.ok(completeQuote.includes(partialQuote), 'the tempting substring really occurs in the complete number');
+    const result = finalize(input, plan, answer, partialQuote);
+    assert.equal(result.localFallback, true, 'a quantity substring is not the source quantity');
+  });
+
+  test(`complete quantity quote remains usable without a final-result question: ${label}`, () => {
+    const input = inputFor(question, article);
+    const plan = createLiteEnginePlan(input);
+    const result = finalize(input, plan, `자료의 수량은 ${completeQuote}이에요.`, completeQuote);
+    assert.equal(result.localFallback, false, 'the complete source quantity remains a valid short quote');
+    assert.match(result.studentReply, new RegExp(completeQuote));
+  });
+}
+
 test('output contract negotiation is bound into the plan digest', () => {
   const input = inputFor('글에서 줄어든 잔반은 최종적으로 하루 몇 통인가요?');
   const plan = createLiteEnginePlan(input);
