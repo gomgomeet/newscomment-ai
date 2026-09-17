@@ -87,7 +87,7 @@ Apps Script 웹앱을 `배포 사용자로 실행`하면 학생 요청이 모두
 5. 같은 값을 로컬 환경변수 `LITE_ENGINE_ACCESS_KEY`에 넣고 저장소 루트에서 `npm run build:gas-lite-distribution`을 실행한다. 이 명령은 키가 주입된 `tmp/gas-lite-distribution/`을 만들며, 실제 키를 로그에 출력하거나 저장소에 커밋하지 않는다. 연수생이 이 값을 입력하게 하지 않는다.
 6. `LITE_CENTRAL_ENGINE_URL_`은 기존 질문중심 챗봇의 Production plan 경로로 유지한다. 다른 서버 주소를 새로 만들지 않는다.
 7. 인증된 GET plan이 `schemaVersion: 1`, `engineFamily: questioning-dialogue-v2`, `sharedWithWebChatbot: true`를 반환하고, 유효한 예제로 POST plan·finalize가 성공하는지 검사한다. 잘못된 키는 401, 서버 키 누락은 503이 정상이다.
-8. 빈 Google Sheet에 생성된 `tmp/gas-lite-distribution/`의 `.js`·`.html`·`appsscript.json` 11개 파일을 연결하고, 교사 화면의 **기존 챗봇 연결 확인**을 성공시킨다. README와 `DISTRIBUTION-NOTICE.txt`는 스크립트 파일로 올리지 않는다.
+8. 빈 Google Sheet에 생성된 `tmp/gas-lite-distribution/`의 `.js`·`.html`·`appsscript.json` 12개 파일을 연결하고, 교사 화면의 **기존 챗봇 연결 확인**을 성공시킨다. README와 `DISTRIBUTION-NOTICE.txt`는 스크립트 파일로 올리지 않는다.
 9. 웹앱은 실행 사용자를 `배포 사용자`, 접근 사용자를 학교 정책이 허용하는 범위에서 학생이 접속할 수 있도록 배포한다.
 10. Sheet의 `1. 최초 준비`를 실행해 교사 접근 토큰과 다섯 시트를 만든다.
 11. 운영용 수업·학생 결과·개인 API 키가 남지 않은 깨끗한 템플릿을 사본 만들기 링크로 공유한다.
