@@ -253,6 +253,16 @@ function createUi(settings, initialDataOrApi = readyData(settings)) {
   };
 }
 
+const planFixture = {
+  schemaVersion:1, approved:true, criteria:[{
+    id:'reading-evidence', criterion:'자료에서 근거를 찾아 설명하기', responseKind:'explanation',
+    mainQuestion:'글에서 근거를 하나 찾아 설명해 줄래요?',
+    followUpQuestion:'그 생각의 근거가 되는 구절을 인용해 줄래요?',
+    evidenceDescription:'학생이 찾은 자료 구절과 자기 말로 한 설명',
+    sourceQuote:'자신의 생각과 근거를 찾아 설명', requireSourceEvidence:true,
+  }],
+};
+
 const settings = {
   lessonId:'lesson-existing', appName:'simbot', subject:'국어', grade:'초등 4학년',
   lessonTitle:'근거 있는 의견', lessonGoal:'글의 근거를 설명할 수 있다.',
@@ -262,7 +272,7 @@ const settings = {
   rubricDeveloping:'교사의 도움으로 근거를 찾는다.', evidenceDescription:'질문과 답변의 근거',
   materialTitle:'우리 동네 이야기', materialText:'학생이 읽고 자신의 생각과 근거를 찾아 설명할 수 있도록 준비한 충분히 긴 수업자료입니다.',
   materialUrl:'', startQuestion:'어떤 점이 궁금한가요?', joinCode:'482731',
-  activityMode:'evaluation', version:'v1',
+  activityMode:'evaluation', version:'v1', assessmentPlanJson:JSON.stringify(planFixture),
 };
 
 function assertMode(ui, enabled) {
@@ -303,7 +313,7 @@ function assertDraft(ui) {
 }
 
 function assertBackwardReadiness(ui, enabled, complete = true) {
-  const item = readinessItem(ui, '백워드 평가 설계');
+  const item = readinessItem(ui, '평가 설계 기본항목');
   assert.equal(item.dataset.state, !enabled || complete ? 'pass' : 'block');
   assert.match(item.textContent, enabled ? (complete ? /준비|완료/ : /필수|입력/) : /사용 안 함/);
   const mode = readinessItem(ui, '운영 모드');
@@ -457,31 +467,39 @@ assertLinksDisabled(reopened);
 // Other form edits must also block old lesson links, and reverting exactly to
 // the captured saved form restores the server's authoritative ready state.
 const editedUi = createUi(settings);
-editedUi.edit('lesson-title', '저장 전 새 수업명');
+editedUi.edit('join-code', '123456');
 assertDraft(editedUi);
 editedUi.context.copyStudentUrl();
 assert.equal(editedUi.copied.length, 0);
 editedUi.click('refresh-readiness');
 editedUi.takeRequest('getLiteTeacherSetupData').success(readyData(settings));
-assert.equal(editedUi.byId('lesson-title').value, '저장 전 새 수업명', 'Refresh must keep unsaved text');
+assert.equal(editedUi.byId('join-code').value, '123456', 'Refresh must keep unsaved text');
 assertDraft(editedUi);
-editedUi.edit('lesson-title', settings.lessonTitle);
+editedUi.edit('join-code', settings.joinCode);
 assert.equal(editedUi.byId('readiness-badge').textContent, '학생 배포 준비 완료');
 assertLinksReady(editedUi);
 
 // Text fields remain editable during a save. Its success may acknowledge only
 // the captured request, never text entered after the request was dispatched.
-editedUi.edit('lesson-title', '이번 요청에서 저장할 수업명');
+editedUi.edit('material-url', 'https://example.test/saved-source');
 editedUi.submit();
 const inFlightSave = editedUi.takeRequest('saveLiteTeacherSetup');
 const inFlightPayload = JSON.parse(JSON.stringify(inFlightSave.args[1]));
-editedUi.edit('material-title', '저장 응답 전에 추가한 제목');
-inFlightSave.success({ ...readyData(inFlightPayload), lessonId:settings.lessonId, message:'저장했습니다.' });
-assert.equal(editedUi.byId('material-title').value, '저장 응답 전에 추가한 제목');
+editedUi.edit('join-code', '654321');
+const authoritativeSettings = { ...inFlightPayload, lessonTitle:'서버가 정규화한 수업명', version:'v2-server' };
+inFlightSave.success({ ...readyData(authoritativeSettings), lessonId:settings.lessonId, message:'저장했습니다.' });
+assert.equal(editedUi.byId('lesson-title').value, authoritativeSettings.lessonTitle,
+  'Untouched fields adopt the server-normalized settings returned by save');
+assert.equal(editedUi.byId('version').value, authoritativeSettings.version);
+assert.equal(editedUi.byId('join-code').value, '654321');
 assertDraft(editedUi);
 editedUi.submit();
 const latestSave = editedUi.takeRequest('saveLiteTeacherSetup');
 const latestPayload = JSON.parse(JSON.stringify(latestSave.args[1]));
+assert.equal(latestPayload.lessonTitle, authoritativeSettings.lessonTitle,
+  'The next save starts from the authoritative server baseline');
+assert.equal(latestPayload.version, authoritativeSettings.version);
+assert.equal(latestPayload.joinCode, '654321', 'A post-dispatch edit wins only for the field the teacher changed');
 latestSave.success({ ...readyData(latestPayload), lessonId:settings.lessonId, message:'저장했습니다.' });
 assert.equal(editedUi.byId('readiness-badge').textContent, '학생 배포 준비 완료');
 assertLinksReady(editedUi);
@@ -523,15 +541,6 @@ assert.equal(firstSaveUi.byId('lesson-id').value, settings.lessonId);
 assert.equal(firstSaveUi.byId('readiness-badge').textContent, '학생 배포 준비 완료');
 assertLinksReady(firstSaveUi);
 
-const planFixture = {
-  schemaVersion:1, approved:true, criteria:[{
-    id:'reading-evidence', criterion:'자료에서 근거를 찾아 설명하기', responseKind:'explanation',
-    mainQuestion:'글에서 근거를 하나 찾아 설명해 줄래요?',
-    followUpQuestion:'그 생각의 근거가 되는 구절을 인용해 줄래요?',
-    evidenceDescription:'학생이 찾은 자료 구절과 자기 말로 한 설명',
-    sourceQuote:'자신의 생각과 근거를 찾아 설명', requireSourceEvidence:true,
-  }],
-};
 const planSettings = { ...settings, assessmentPlanJson:JSON.stringify(planFixture) };
 const readPlan = (ui) => JSON.parse(ui.context.collectPayload().assessmentPlanJson);
 const criterionField = (id, key) => 'criterion-' + id + '-' + key;
@@ -540,28 +549,48 @@ const assertPlanApproval = (ui, expected) => {
   assert.equal(ui.byId('assessment-plan-approved').checked, expected);
 };
 
-// Legacy lessons remain valid while making the missing criterion plan explicit.
-const legacyPlanUi = createUi(settings);
-assert.match(legacyPlanUi.byId('assessment-plan-status').textContent, /기준별 질문계획 없음/);
+// A legacy evaluation without a plan remains readable, but cannot be saved or
+// distributed until the teacher creates and approves a criterion plan.
+const legacyPlanSettings = { ...settings };
+delete legacyPlanSettings.assessmentPlanJson;
+const legacyPlanUi = createUi(legacyPlanSettings);
+assert.equal(legacyPlanUi.byId('assessment-plan-status').dataset.state, 'none');
+assert.match(legacyPlanUi.byId('assessment-plan-status').textContent, /질문계획 없음/);
 assert.equal(legacyPlanUi.byId('assessment-plan-approved').disabled, true);
-assert.equal(readinessItem(legacyPlanUi, '평가기준별 질문계획').dataset.state, 'pass');
+assert.equal(readinessItem(legacyPlanUi, '평가기준별 질문·근거 계획').dataset.state, 'block');
 assert.deepEqual(readPlan(legacyPlanUi), { schemaVersion:1, approved:false, criteria:[] });
-assertLinksReady(legacyPlanUi);
+assertLinksDisabled(legacyPlanUi);
+legacyPlanUi.submit();
+assert.equal(legacyPlanUi.requests.length, 0, 'Evaluation cannot save with no criterion plan');
+assert.match(legacyPlanUi.byId('form-status').textContent, /질문계획을 하나 이상/);
 
 // Empty fields are allowed in drafts, never in an approved plan.
 legacyPlanUi.click('add-assessment-criterion');
 assert.equal(readPlan(legacyPlanUi).criteria.length, 1);
 assert.equal(legacyPlanUi.byId(criterionField('criterion-1', 'criterion')).focused, true);
 assertPlanApproval(legacyPlanUi, false);
-assert.equal(readinessItem(legacyPlanUi, '평가기준별 질문계획').dataset.state, 'block');
+assert.equal(legacyPlanUi.byId('assessment-plan-status').dataset.state, 'draft');
+assert.equal(readinessItem(legacyPlanUi, '평가기준별 질문·근거 계획').dataset.state, 'block');
 legacyPlanUi.check('assessment-plan-approved', true);
 assertPlanApproval(legacyPlanUi, false);
 assert.match(legacyPlanUi.byId('form-status').textContent, /모든 내용/);
+legacyPlanUi.submit();
+assert.equal(legacyPlanUi.requests.length, 0, 'Evaluation cannot save an incomplete or unapproved plan');
+assert.match(legacyPlanUi.byId('form-status').textContent, /모든 내용/);
+
+// Exploration may preserve the unfinished plan, but clearly marks it inactive.
+legacyPlanUi.switchTo(false);
+assert.equal(legacyPlanUi.byId('assessment-plan-status').dataset.state, 'inactive');
+assert.equal(readinessItem(legacyPlanUi, '평가기준별 질문·근거 계획').dataset.state, 'inactive');
+assert.match(legacyPlanUi.byId('assessment-plan-status').textContent, /보관됨·비활성/);
 legacyPlanUi.submit();
 const draftPlanSave = legacyPlanUi.takeRequest('saveLiteTeacherSetup');
 const draftPlanPayload = JSON.parse(JSON.stringify(draftPlanSave.args[1]));
 assert.equal(JSON.parse(draftPlanPayload.assessmentPlanJson).criteria[0].criterion, '');
 draftPlanSave.success({ ...readyData(draftPlanPayload), lessonId:settings.lessonId });
+assertLinksReady(legacyPlanUi);
+assert.equal(legacyPlanUi.byId('assessment-plan-status').dataset.state, 'inactive');
+legacyPlanUi.switchTo(true);
 assertLinksDisabled(legacyPlanUi);
 assert.match(legacyPlanUi.byId('readiness-badge').textContent, /승인 필요/);
 
@@ -583,6 +612,8 @@ assert.match(legacyPlanUi.byId('form-status').textContent, /본문에서 그대�
 legacyPlanUi.edit(criterionField('criterion-1', 'sourceQuote'), '자신의   생각과\n근거를 찾아 설명');
 legacyPlanUi.check('assessment-plan-approved', true);
 assertPlanApproval(legacyPlanUi, true);
+assert.equal(legacyPlanUi.byId('assessment-plan-status').dataset.state, 'approved-unsaved');
+assert.equal(legacyPlanUi.byId('readiness-badge').textContent, '승인됨·저장 필요');
 assertDraft(legacyPlanUi);
 legacyPlanUi.submit();
 const approvedSave = legacyPlanUi.takeRequest('saveLiteTeacherSetup');
@@ -590,13 +621,16 @@ const approvedPayload = JSON.parse(JSON.stringify(approvedSave.args[1]));
 assert.equal(JSON.parse(approvedPayload.assessmentPlanJson).approved, true);
 approvedSave.success({ ...readyData(approvedPayload), lessonId:settings.lessonId });
 assertLinksReady(legacyPlanUi);
+assert.equal(legacyPlanUi.byId('assessment-plan-status').dataset.state, 'saved-active');
 const reopenedPlanUi = createUi(approvedPayload);
 assert.deepEqual(readPlan(reopenedPlanUi), JSON.parse(approvedPayload.assessmentPlanJson));
 assertPlanApproval(reopenedPlanUi, true);
 assert.equal(reopenedPlanUi.byId('assessment-plan-preview-list').children.length, 1);
 reopenedPlanUi.check('assessment-plan-approved', false);
 assertPlanApproval(reopenedPlanUi, false);
-assertDraft(reopenedPlanUi);
+assert.equal(reopenedPlanUi.byId('assessment-plan-status').dataset.state, 'draft');
+assert.match(reopenedPlanUi.byId('readiness-badge').textContent, /승인 필요/);
+assertLinksDisabled(reopenedPlanUi);
 reopenedPlanUi.check('assessment-plan-approved', true);
 assertPlanApproval(reopenedPlanUi, true);
 assertLinksReady(reopenedPlanUi);
@@ -605,27 +639,34 @@ assertLinksReady(reopenedPlanUi);
 const preservationUi = createUi(planSettings);
 preservationUi.switchTo(false);
 assertPlanApproval(preservationUi, true);
-assert.equal(readinessItem(preservationUi, '평가기준별 질문계획').dataset.state, 'pass');
+assert.equal(preservationUi.byId('assessment-plan-status').dataset.state, 'inactive');
+assert.equal(readinessItem(preservationUi, '평가기준별 질문·근거 계획').dataset.state, 'inactive');
 preservationUi.switchTo(true);
 assert.deepEqual(readPlan(preservationUi), planFixture);
+assert.equal(preservationUi.byId('assessment-plan-status').dataset.state, 'saved-active');
 assertLinksReady(preservationUi);
 preservationUi.edit('material-text', settings.materialText + ' 추가 수업자료입니다.');
 assertPlanApproval(preservationUi, false);
 preservationUi.click('refresh-readiness');
 preservationUi.takeRequest('getLiteTeacherSetupData').success(readyData(planSettings));
 assertPlanApproval(preservationUi, false);
-assertDraft(preservationUi);
+assert.equal(preservationUi.byId('assessment-plan-status').dataset.state, 'draft');
+assert.match(preservationUi.byId('readiness-badge').textContent, /승인 필요/);
+assertLinksDisabled(preservationUi);
 preservationUi.switchTo(false);
-assert.equal(readinessItem(preservationUi, '평가기준별 질문계획').dataset.state, 'pass');
+assert.equal(readinessItem(preservationUi, '평가기준별 질문·근거 계획').dataset.state, 'inactive');
 assert.equal(readPlan(preservationUi).criteria.length, 1);
 
 for (const field of ['subject', 'grade', 'lesson-title', 'lesson-goal', 'standard-code',
   'achievement-standard', 'assessment-criteria', 'rubric-high', 'rubric-meet', 'rubric-developing',
-  'evidence-description', 'material-title', 'start-question']) {
+  'evidence-description', 'material-title']) {
   const fieldUi = createUi(planSettings);
   fieldUi.edit(field, fieldUi.byId(field).value + ' 수정');
   assertPlanApproval(fieldUi, false);
 }
+const optionalDraftQuestionUi = createUi(planSettings);
+optionalDraftQuestionUi.edit('start-question', 'AI 초안 생성에만 쓰는 보조 질문');
+assertPlanApproval(optionalDraftQuestionUi, true);
 const unrelatedUi = createUi(planSettings);
 unrelatedUi.edit('join-code', '123456');
 assertPlanApproval(unrelatedUi, true);
@@ -662,7 +703,8 @@ const removeApprovedUi = createUi({ ...settings, assessmentPlanJson:JSON.stringi
 removeApprovedUi.click('remove-criterion-second-criterion');
 assert.equal(readPlan(removeApprovedUi).criteria.length, 1);
 assertPlanApproval(removeApprovedUi, false);
-assertDraft(removeApprovedUi);
+assert.match(removeApprovedUi.byId('readiness-badge').textContent, /승인 필요/);
+assertLinksDisabled(removeApprovedUi);
 
 const trimUi = createUi(planSettings);
 trimUi.edit(criterionField('reading-evidence', 'criterion'), '  자료에서 근거를 찾아 설명하기  ');
@@ -683,7 +725,9 @@ planRaceUi.edit(criterionField('reading-evidence', 'mainQuestion'), '새 질문�
 planSave.success({ ...readyData(planCapturedPayload), lessonId:settings.lessonId });
 assertPlanApproval(planRaceUi, false);
 assert.equal(readPlan(planRaceUi).criteria[0].mainQuestion, '새 질문을 설명해 줄래요?');
-assertDraft(planRaceUi);
+assert.equal(planRaceUi.byId('assessment-plan-status').dataset.state, 'draft');
+assert.match(planRaceUi.byId('readiness-badge').textContent, /승인 필요/);
+assertLinksDisabled(planRaceUi);
 
 console.log('GAS lite teacher setup UI: draft readiness, toggle, preservation, validation, saved-payload gates, and criterion-plan approval/races passed');
 
@@ -804,7 +848,7 @@ const missingFifthUi = createUi(fiveSettings);
 missingFifthUi.click('generate-assessment');
 missingFifthUi.takeRequest('generateLiteMaterialAssessmentDraft').success({ ok:true, draft:{ ...draft, rubricScheme:'five_levels' } });
 assert.equal(missingFifthUi.byId('apply-assessment-draft').disabled, true, 'Five-level generated drafts require the fifth descriptor');
-const draftUi = createUi({ ...fourSettings, lessonGoal:'' });
+const draftUi = createUi({ ...fourSettings, lessonGoal:'', assessmentPlanJson:'' });
 draftUi.byId('answer-examples').value = '교사가 직접 기록한 예상 답변';
 draftUi.byId('answer-examples').dispatch('input');
 assert.equal(draftUi.byId('generate-assessment').disabled, false, 'A standard plus material enables combined drafting without an extra goal');
@@ -853,6 +897,12 @@ draftUi.takeRequest('getLiteTeacherSetupData').success(readyData(settings));
 assertLinksDisabled(draftUi);
 assert.equal(draftUi.byId('assessment-criteria').value, draft.assessmentCriteria, 'Readiness refresh must preserve an applied but unsaved draft');
 draftUi.submit();
+assert.equal(draftUi.requests.length, 0, 'An AI-authored draft cannot be saved in evaluation before teacher approval');
+assert.match(draftUi.byId('form-status').textContent, /승인/);
+draftUi.check('assessment-plan-approved', true);
+assertPlanApproval(draftUi, true);
+assert.equal(draftUi.byId('assessment-plan-status').dataset.state, 'approved-unsaved');
+draftUi.submit();
 const combinedSave = draftUi.takeRequest('saveLiteTeacherSetup');
 for (const key of ['startQuestion', 'expectedAnswer', 'assessmentEvidence', 'assessmentCriteria', 'answerExamples']) {
   assert.equal(combinedSave.args[1][key], draft[key], `Combined save includes ${key}`);
@@ -864,7 +914,7 @@ assert.equal(combinedReopened.byId('assessment-evidence').value, draft.assessmen
 assert.equal(combinedReopened.byId('answer-examples').value, draft.answerExamples);
 assert.equal(readPlan(combinedReopened).criteria[0].mainQuestion, draft.startQuestion);
 
-const blankCardUi = createUi(fourSettings);
+const blankCardUi = createUi({ ...fourSettings, assessmentPlanJson:'' });
 blankCardUi.click('add-assessment-criterion');
 blankCardUi.click('generate-assessment');
 blankCardUi.takeRequest('generateLiteMaterialAssessmentDraft').success({ ok:true, draft });
@@ -929,6 +979,7 @@ const separatedStandardUi = createUi({ ...settings, achievementStandardCode:'[4�
 assert.equal(separatedStandardUi.byId('achievement-standard').value, '[4사08-02] 여러 지역을 비교한다.');
 separatedStandardUi.byId('achievement-standard').value = '[6사01-01] 지역의 변화를 설명한다.';
 separatedStandardUi.byId('achievement-standard').dispatch('input');
+separatedStandardUi.check('assessment-plan-approved', true);
 separatedStandardUi.submit();
 const standardSave = separatedStandardUi.takeRequest('saveLiteTeacherSetup');
 assert.equal(standardSave.args[1].achievementStandardCode, '[6사01-01]', 'A new visible code replaces the old hidden code');
@@ -1019,8 +1070,8 @@ assert.equal(urlSave.args[1], 'https://script.google.com/macros/s/example-test/e
 urlSave.success({ ...readyData(settings), confirmedStudentUrl:urlSave.args[1] });
 
 const dirtyUi = createUi(settings);
-dirtyUi.byId('lesson-title').value = '수업명 변경';
-dirtyUi.byId('lesson-title').dispatch('input');
+dirtyUi.byId('join-code').value = '123456';
+dirtyUi.byId('join-code').dispatch('input');
 assert.equal(dirtyUi.byId('save-state').textContent, '미저장 변경 있음');
 assertLinksDisabled(dirtyUi);
 dirtyUi.submit();
@@ -1051,8 +1102,8 @@ assertLinksDisabled(fiveReadinessUi);
 const refreshRaceUi = createUi(settings);
 refreshRaceUi.click('refresh-readiness');
 const outdatedRefresh = refreshRaceUi.takeRequest('getLiteTeacherSetupData');
-refreshRaceUi.byId('lesson-title').value = '새로운 수업명';
-refreshRaceUi.byId('lesson-title').dispatch('input');
+refreshRaceUi.byId('join-code').value = '123456';
+refreshRaceUi.byId('join-code').dispatch('input');
 refreshRaceUi.submit();
 const raceSave = refreshRaceUi.takeRequest('saveLiteTeacherSetup');
 raceSave.success({ ...readyData(raceSave.args[1]), lessonId:settings.lessonId,

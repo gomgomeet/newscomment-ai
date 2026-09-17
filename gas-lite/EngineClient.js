@@ -729,8 +729,11 @@ function buildLiteEnginePayload_(turn, settings, history) {
       lessonRevision: settings.lessonRevision || 1
     }
   };
-  const plan = liteAssessmentPlan_(settings);
-  if (turn.activityMode === 'evaluation' && plan.approved && plan.criteria.length) {
+  if (turn.activityMode === 'evaluation') {
+    const plan = liteAssessmentPlan_(settings);
+    if (!plan.approved || !plan.criteria.length) {
+      throw new Error('평가 질문계획이 승인·저장되지 않았습니다. 교사 설정에서 질문계획을 확인해 주세요.');
+    }
     payload.lesson.assessmentPlan = plan;
     if (turn.assessmentProgress) payload.assessmentProgress = normalizeLiteAssessmentProgress_(turn.assessmentProgress);
   }

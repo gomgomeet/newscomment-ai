@@ -635,11 +635,13 @@ test('five-level exploration omits rubric content while signing its fields and r
   }
 });
 
-test('saved generated assessment question is the real GAS opening turn and stays in subsequent engine context', () => {
-  const input = withFourLevels();
+test('saved approved-plan question is the real GAS opening turn and stays in engine context', () => {
+  const input = withFourLevels(assessmentInput());
+  const effectiveQuestion = input.lesson.assessmentPlan.criteria[0].mainQuestion;
   const settings = {
     ...input.lesson, activityMode: 'evaluation',
-    startQuestion: '개인 물병 사용이 쓰레기를 줄이는 까닭을 자료의 근거로 설명해 보세요.',
+    assessmentPlanJson: JSON.stringify(input.lesson.assessmentPlan),
+    startQuestion: '저장되어 있지만 평가모드에서는 실행하지 않는 일반 질문인가요?',
     expectedAnswer: '교사전용예상답안_7c92: 물병을 다시 쓰므로 일회용 컵 사용이 줄어든다.',
     assessmentEvidence: '교사전용문항근거_2a19: 일회용 컵 감소와 개인 물병 사용의 관계.',
     answerExamples: '교사전용수준별예시_5e71: A — 일회용 컵 대신 물병을 다시 써서 버리는 컵이 줄어요.',
@@ -661,8 +663,8 @@ test('saved generated assessment question is the real GAS opening turn and stays
   });
   assert.equal(session.history.length, 1);
   assert.equal(session.history[0].speaker, 'bot');
-  assert.equal(session.history[0].text, settings.startQuestion);
-  assert.equal(session.lesson.startQuestion, settings.startQuestion);
+  assert.equal(session.history[0].text, effectiveQuestion);
+  assert.equal(session.lesson.startQuestion, effectiveQuestion);
   assert.ok(!JSON.stringify(session).includes('교사전용'));
   assert.equal(Object.hasOwn(session.lesson, 'expectedAnswer'), false);
   assert.equal(Object.hasOwn(session.lesson, 'assessmentEvidence'), false);
@@ -672,26 +674,20 @@ test('saved generated assessment question is the real GAS opening turn and stays
   const payload = gas.buildLiteEnginePayload_({
     requestId: input.requestId, sessionId: session.sessionId, activityMode: 'evaluation', message: firstAnswer,
   }, settings, session.history);
-  assert.equal(payload.history[0].text, settings.startQuestion);
+  assert.equal(payload.history[0].text, effectiveQuestion);
+  assert.equal(payload.lesson.startQuestion, effectiveQuestion);
+  assert.deepEqual(JSON.parse(JSON.stringify(payload.lesson.assessmentPlan)), input.lesson.assessmentPlan);
   assert.equal(Object.hasOwn(payload.lesson, 'expectedAnswer'), false);
   assert.equal(Object.hasOwn(payload.lesson, 'assessmentEvidence'), false);
   assert.equal(Object.hasOwn(payload.lesson, 'answerExamples'), false);
   assert.ok(!JSON.stringify(payload).includes('교사전용'));
   const plan = createLiteEnginePlan(payload);
-  assert.ok(plan.modelRequest.input.includes(settings.startQuestion));
-  assert.ok(plan.modelRequest.input.includes(firstAnswer));
+  assert.equal(plan.skipModel, true);
+  assert.equal(plan.enforcement.managedQuestion, input.lesson.assessmentPlan.criteria[0].followUpQuestion);
+  assert.equal(plan.observation.assessmentProgress.items[0].status, 'awaiting_evidence');
   assert.ok(!JSON.stringify(plan).includes('교사전용'));
   assert.equal(plan.observation.responseScore, null,
-    'an arbitrary generated opening question must not be misrepresented as an automatically graded managed question');
-
-  const continued = {
-    ...payload, requestId: 'req_generated_assessment_followup', studentMessage: '일회용 컵을 줄이면 왜 좋은가요?',
-    history: [...payload.history, { speaker: 'student', text: firstAnswer }, { speaker: 'bot', text: plan.fallbackReply }],
-  };
-  const next = createLiteEnginePlan(continued);
-  assert.ok(next.modelRequest.input.includes(continued.studentMessage));
-  assert.ok(!JSON.stringify(next).includes('교사전용'));
-  assert.equal(next.observation.isClosing, false);
+    'an approved assessment question collects evidence but never auto-grades the student');
 });
 
 test('teacher answer guides and level examples cannot enter student prompts, source evidence, or replies even if sent accidentally', () => {
