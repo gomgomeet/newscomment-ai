@@ -3,7 +3,7 @@
  * API 키는 Script Properties에만 저장하며 Sheet 행으로 만들지 않습니다.
  */
 
-const LITE_APP_VERSION_ = '0.8.0';
+const LITE_APP_VERSION_ = '0.9.0';
 const LITE_API_KEY_PROPERTY_ = 'TEACHER_OPENAI_API_KEY';
 const LITE_SPREADSHEET_ID_PROPERTY_ = 'TEACHER_SPREADSHEET_ID';
 const LITE_ENGINE_ENDPOINT_PROPERTY_ = 'CENTRAL_ENGINE_ENDPOINT';
@@ -30,7 +30,7 @@ const LITE_SHEET_HEADERS_ = {
     'rubricHigh', 'rubricMeet', 'rubricDeveloping', 'evidenceDescription',
     'materialTitle', 'materialText', 'materialUrl', 'startQuestion',
     'activityMode', 'version', 'sourceHash', 'lessonRevision', 'updatedAt',
-    'rubricScheme', 'rubricGood', 'expectedAnswer', 'assessmentEvidence', 'rubricBeginning'
+    'rubricScheme', 'rubricGood', 'expectedAnswer', 'assessmentEvidence', 'rubricBeginning', 'answerExamples'
   ],
   '학생별 현황': [
     'studentCode', 'lessonId', 'lessonRevision', 'sessionId', 'questionCount', 'relatedQuestionCount', 'lastActiveAt',
@@ -425,6 +425,7 @@ function validateLiteTeacherSetup_(payload) {
     startQuestion: liteRequired_(payload.startQuestion, '시작 질문', 500),
     expectedAnswer: liteOptional_(payload.expectedAnswer, '예상 답변', 1500),
     assessmentEvidence: liteOptional_(payload.assessmentEvidence, '평가 문항 근거', 1000),
+    answerExamples: liteOptional_(payload.answerExamples, '예상 답변 유형', 3500),
     activityMode: activityMode,
     version: liteText_(payload.version, 30) || 'v1'
   };
@@ -707,6 +708,7 @@ function readLiteTeacherSettings_(spreadsheet, options) {
     settings.rubricBeginning = liteText_(settings.rubricBeginning, 1000);
     settings.expectedAnswer = liteText_(settings.expectedAnswer, 1500);
     settings.assessmentEvidence = liteText_(settings.assessmentEvidence, 1000);
+    settings.answerExamples = liteText_(settings.answerExamples, 3500);
     Object.assign(settings, normalizeLiteAchievementStandard_(settings.achievementStandard, settings.achievementStandardCode));
   }
   // 0.1.x 사본은 개정 열이 없으므로, 다시 저장하기 전에도 새 중앙 엔진을 사용할 수 있게
@@ -737,7 +739,8 @@ function saveLiteTeacherSettings_(settings, options) {
     rubricGood: liteText_(settings.rubricGood, 1000),
     rubricBeginning: liteOptional_(settings.rubricBeginning, 'E 수준 기준', 1000),
     expectedAnswer: liteOptional_(settings.expectedAnswer, '예상 답변', 1500),
-    assessmentEvidence: liteOptional_(settings.assessmentEvidence, '평가 문항 근거', 1000)
+    assessmentEvidence: liteOptional_(settings.assessmentEvidence, '평가 문항 근거', 1000),
+    answerExamples: liteOptional_(settings.answerExamples, '예상 답변 유형', 3500)
   }, normalizeLiteAchievementStandard_(settings.achievementStandard, settings.achievementStandardCode));
   const sourceHash = makeLiteSettingsHash_(settings);
   const newLesson = Boolean(options.newLesson);
@@ -784,6 +787,7 @@ function makeLiteSettingsHash_(settings) {
     if (liteText_(settings && settings[field])) fields.push(field);
   });
   if (liteText_(settings && settings.rubricBeginning)) fields.push('rubricBeginning');
+  if (liteText_(settings && settings.answerExamples)) fields.push('answerExamples');
   const source = fields.map(function (field) {
     return field + '=' + liteText_(settings && settings[field]);
   }).join('\n');

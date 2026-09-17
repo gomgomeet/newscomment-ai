@@ -80,14 +80,14 @@ const four = {
 // Add columns at the end: copied legacy sheets and their saved hashes/revisions stay intact.
 context.ensureLiteWorkbook_(spreadsheet);
 const lessonSheet = sheets.get('수업 자료');
-const legacyHeaders = lessonSheet.rows[0].filter((name) => !['rubricScheme', 'rubricGood', 'expectedAnswer', 'assessmentEvidence', 'rubricBeginning'].includes(name));
+const legacyHeaders = lessonSheet.rows[0].filter((name) => !['rubricScheme', 'rubricGood', 'expectedAnswer', 'assessmentEvidence', 'rubricBeginning', 'answerExamples'].includes(name));
 const originalHash = context.makeLiteSettingsHash_(legacy);
 const legacyRow = { ...legacy, lessonId:'LESSON-OLD', lessonRevision:7, sourceHash:originalHash, updatedAt:'2026-09-01' };
 lessonSheet.rows = [legacyHeaders.slice(), legacyHeaders.map((header) => legacyRow[header] || '')];
 const originalCells = structuredClone(lessonSheet.rows[1]);
 const reopened = context.readLiteTeacherSettings_();
 assert.deepEqual(lessonSheet.rows[0].slice(0, legacyHeaders.length), legacyHeaders);
-assert.deepEqual(lessonSheet.rows[0].slice(legacyHeaders.length), ['rubricScheme', 'rubricGood', 'expectedAnswer', 'assessmentEvidence', 'rubricBeginning']);
+assert.deepEqual(lessonSheet.rows[0].slice(legacyHeaders.length), ['rubricScheme', 'rubricGood', 'expectedAnswer', 'assessmentEvidence', 'rubricBeginning', 'answerExamples']);
 assert.deepEqual(lessonSheet.rows[1], originalCells);
 assert.equal(reopened.rubricScheme, 'legacy_three');
 assert.equal(reopened.rubricHigh, legacy.rubricHigh);
@@ -172,13 +172,13 @@ assert.equal(oldSaved.rubricScheme, 'legacy_three');
 assert.equal(oldSaved.lessonRevision, 7);
 
 // Appending teacher-only assessment guidance also preserves the existing 25-column workbook.
-const previousHeaders = lessonSheet.rows[0].filter((name) => !['expectedAnswer', 'assessmentEvidence', 'rubricBeginning'].includes(name));
+const previousHeaders = lessonSheet.rows[0].filter((name) => !['expectedAnswer', 'assessmentEvidence', 'rubricBeginning', 'answerExamples'].includes(name));
 assert.equal(previousHeaders.length, 25);
 lessonSheet.rows = [previousHeaders.slice(), previousHeaders.map((header) => editedFour[header] ?? '')];
 const previousCells = structuredClone(lessonSheet.rows[1]);
 const priorFour = context.readLiteTeacherSettings_();
 assert.deepEqual(lessonSheet.rows[0].slice(0, 25), previousHeaders);
-assert.deepEqual(lessonSheet.rows[0].slice(25), ['expectedAnswer', 'assessmentEvidence', 'rubricBeginning']);
+assert.deepEqual(lessonSheet.rows[0].slice(25), ['expectedAnswer', 'assessmentEvidence', 'rubricBeginning', 'answerExamples']);
 assert.deepEqual(plain(lessonSheet.rows[1]), plain(previousCells));
 assert.equal(priorFour.expectedAnswer, '');
 assert.equal(priorFour.assessmentEvidence, '');
@@ -351,13 +351,13 @@ assert.equal(context.buildLiteReadiness_({ ...four, lessonGoal:'', achievementSt
 assert.equal(context.liteAchievementStandardContent_(fullStandard), '글에 드러난 사실을 찾아 자신의 생각을 설명한다.');
 
 // A fifth level appends one column and never reinterprets saved three/four-level rows.
-const old27Headers = lessonSheet.rows[0].filter((name) => name !== 'rubricBeginning');
+const old27Headers = lessonSheet.rows[0].filter((name) => !['rubricBeginning', 'answerExamples'].includes(name));
 assert.equal(old27Headers.length, 27);
 lessonSheet.rows = [old27Headers.slice(), old27Headers.map((header) => copiedGuidance[header] ?? '')];
 const old27Cells = plain(lessonSheet.rows[1]);
 const reloaded27 = context.readLiteTeacherSettings_();
 assert.deepEqual(lessonSheet.rows[0].slice(0, 27), old27Headers);
-assert.deepEqual(lessonSheet.rows[0].slice(27), ['rubricBeginning']);
+assert.deepEqual(lessonSheet.rows[0].slice(27), ['rubricBeginning', 'answerExamples']);
 assert.deepEqual(plain(lessonSheet.rows[1]), old27Cells);
 assert.equal(reloaded27.rubricBeginning, '');
 assert.equal(reloaded27.sourceHash, copiedGuidance.sourceHash);
@@ -425,4 +425,58 @@ assert.equal(context.getLiteTeacherDashboardData(token).evaluations.some((entry)
 context.saveLiteTeacherEvaluation(token, { ...fiveReview, expectedReviewVersion:fiveRow.reviewVersion });
 assert.equal(context.liteRowsAsObjects_(sheets.get('교사 평가')).find((entry) => entry.sessionId === fiveTurn.sessionId).teacherDecision, 'E');
 
-console.log('gas-lite rubric storage checks (3/4/5 levels): all passed');
+// Optional teacher answer patterns append after all 28 existing columns and preserve older hashes.
+const old28Headers = lessonSheet.rows[0].filter((name) => name !== 'answerExamples');
+assert.equal(old28Headers.length, 28);
+lessonSheet.rows = [old28Headers.slice(), old28Headers.map((header) => switchedFour[header] ?? '')];
+const old28Cells = plain(lessonSheet.rows[1]);
+const previousStudentRecords = JSON.stringify([sheets.get('학생별 현황').rows, sheets.get('질문과 답변').rows, sheets.get('교사 평가').rows]);
+const reloaded28 = context.readLiteTeacherSettings_();
+assert.deepEqual(lessonSheet.rows[0].slice(0, 28), old28Headers);
+assert.deepEqual(lessonSheet.rows[0].slice(28), ['answerExamples']);
+assert.deepEqual(plain(lessonSheet.rows[1]), old28Cells);
+assert.equal(reloaded28.answerExamples, '');
+assert.equal(reloaded28.sourceHash, switchedFour.sourceHash);
+assert.equal(context.saveLiteTeacherSettings_(reloaded28).lessonRevision, switchedFour.lessonRevision);
+for (const settings of [legacy, four, savedFive, switchedFour]) {
+  assert.equal(context.makeLiteSettingsHash_(settings), context.makeLiteSettingsHash_({ ...settings, answerExamples:'' }));
+}
+const answerExamples = '근거와 이유 연결: 먹을 만큼 받으면 남기는 음식이 줄어들기 때문이에요.\n일부만 설명: 남는 음식이 줄었어요.\n근거 없이 추측: 급식 메뉴가 바뀌었기 때문이에요.';
+for (const activityMode of ['evaluation', 'exploration']) {
+  assert.equal(context.validateLiteTeacherSetup_({ ...reloaded28, activityMode, answerExamples }).answerExamples, answerExamples);
+  assert.equal(context.validateLiteTeacherSetup_({ ...reloaded28, activityMode, answerExamples:'가'.repeat(3500) }).answerExamples.length, 3500);
+  assert.throws(() => context.validateLiteTeacherSetup_({ ...reloaded28, activityMode, answerExamples:'가'.repeat(3501) }), /3500자/);
+}
+assert.throws(() => context.saveLiteTeacherSettings_({ ...reloaded28, answerExamples:'가'.repeat(3501) }), /3500자/);
+properties.set('LITE_PREVIEW_ACCESS_TOKEN', 'before-answer-patterns');
+const savedPatterns = context.saveLiteTeacherSettings_(context.validateLiteTeacherSetup_({ ...reloaded28, answerExamples }));
+assert.equal(savedPatterns.lessonRevision, reloaded28.lessonRevision + 1);
+assert.notEqual(savedPatterns.sourceHash, reloaded28.sourceHash);
+assert.equal(properties.has('LITE_PREVIEW_ACCESS_TOKEN'), false);
+assert.equal(context.readLiteTeacherSettings_().answerExamples, answerExamples);
+assert.equal(context.saveLiteTeacherSettings_(savedPatterns).lessonRevision, savedPatterns.lessonRevision);
+for (const field of ['startQuestion', 'expectedAnswer', 'assessmentEvidence', 'assessmentCriteria', 'rubricScheme', 'rubricHigh', 'rubricGood', 'rubricMeet', 'rubricDeveloping', 'rubricBeginning']) {
+  assert.equal(savedPatterns[field], reloaded28[field], 'Saving answer examples must not replace teacher-authored question/key/evidence/rubrics');
+}
+assert.equal(context.getLiteTeacherDashboardData(token).lesson.answerExamples, answerExamples);
+for (const publicSettings of [context.sanitizeLiteSettingsForStudent_(savedPatterns), context.sanitizeLiteBootstrapForStudent_(savedPatterns)]) {
+  assert.equal(Object.hasOwn(publicSettings, 'answerExamples'), false);
+  assert.equal(JSON.stringify(publicSettings).includes(answerExamples), false);
+}
+for (const activityMode of ['evaluation', 'exploration']) {
+  const payload = context.buildLiteEnginePayload_({ activityMode }, savedPatterns, []);
+  assert.equal(Object.hasOwn(payload.lesson, 'answerExamples'), false);
+  assert.equal(JSON.stringify(payload).includes(answerExamples), false);
+}
+const copiedPatterns = context.saveLiteTeacherSettings_(savedPatterns, { newLesson:true });
+assert.notEqual(copiedPatterns.lessonId, savedPatterns.lessonId);
+assert.equal(copiedPatterns.answerExamples, answerExamples);
+assert.equal(copiedPatterns.expectedAnswer, reloaded28.expectedAnswer);
+assert.equal(copiedPatterns.assessmentEvidence, reloaded28.assessmentEvidence);
+const clearedPatterns = context.saveLiteTeacherSettings_({ ...copiedPatterns, answerExamples:'' });
+assert.equal(clearedPatterns.answerExamples, '');
+assert.equal(clearedPatterns.sourceHash, reloaded28.sourceHash);
+assert.equal(clearedPatterns.lessonRevision, copiedPatterns.lessonRevision + 1);
+assert.equal(JSON.stringify([sheets.get('학생별 현황').rows, sheets.get('질문과 답변').rows, sheets.get('교사 평가').rows]), previousStudentRecords);
+
+console.log('gas-lite rubric storage checks (3/4/5 levels and private answer patterns): all passed');

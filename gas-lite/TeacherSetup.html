@@ -39,6 +39,7 @@
       input,textarea,select { width:100%; padding:10px 11px; border:1px solid #94a3b8; border-radius:9px; color:var(--ink); background:white; font:inherit; }
       textarea { min-height:92px; resize:vertical; }
       #material-text { min-height:230px; }
+      #answer-examples { min-height:180px; }
       input:focus-visible,textarea:focus-visible,select:focus-visible,button:focus-visible { outline:3px solid #f97316; outline-offset:2px; }
       button,.button-link { min-height:42px; padding:9px 14px; border-radius:9px; font:inherit; font-weight:700; cursor:pointer; }
       .primary { border:1px solid var(--blue); color:white; background:var(--blue); }
@@ -195,14 +196,15 @@
               </select>
               <span class="help">기존 수업은 저장된 수준을 유지합니다. 수준을 바꾸면 각 기준도 확인해 주세요.</span>
             </label>
-              <button id="generate-assessment" type="button" class="secondary" disabled>자료로 질문·평가기준 만들기</button>
+              <button id="generate-assessment" type="button" class="secondary" disabled>AI로 질문·평가기준 생성</button>
+              <p class="help">AI 생성 → 아래 입력란에 적용 → 설정 저장</p>
               <p id="assessment-ai-hint" class="help">API 연결을 확인하고 수업 목표 또는 성취기준을 입력해 주세요.</p>
               <p id="assessment-ai-status" class="status" role="status" aria-live="polite"></p>
               <section id="assessment-draft" class="assessment-draft hidden" aria-label="AI 질문·평가기준 초안">
                 <strong id="assessment-draft-title">AI 질문·평가기준 초안</strong>
-                <p class="help">학생 시작 질문, 교사용 답변 요소와 근거, 선택한 수준별 기준을 함께 확인하세요. 적용 후 직접 수정하고 저장할 수 있습니다.</p>
+                <p class="help">질문·수준별 예상 답변·평가기준을 확인하세요. 아래 입력란에 적용한 뒤 직접 수정하고 저장할 수 있습니다.</p>
+                <button id="apply-assessment-draft" type="button" class="primary" disabled>아래 입력란에 적용</button>
                 <dl id="assessment-draft-content"></dl>
-                <button id="apply-assessment-draft" type="button" class="secondary" disabled>이 초안 적용</button>
               </section>
             </div>
           <label class="wide">학생 시작 질문
@@ -211,29 +213,33 @@
           </label>
           <fieldset id="backward-design-fields" class="grid" aria-label="질문과 평가기준 입력">
             <label class="wide">답변의 핵심 요소 (교사용)
-              <textarea id="expected-answer" maxlength="1500" placeholder="학생 답변에서 확인할 내용이나 설명 요소를 적습니다. 다양한 의견을 인정할 수 있습니다."></textarea>
+              <textarea id="expected-answer" maxlength="1500" placeholder="AI 초안을 적용하면 답변에서 확인할 핵심 요소가 채워집니다. 필요하면 수정하세요."></textarea>
             </label>
             <label class="wide">자료의 근거 문장 (교사용)
-              <textarea id="assessment-evidence" maxlength="1000" placeholder="평가 질문의 근거가 되는 자료 문장을 그대로 적습니다."></textarea>
+              <textarea id="assessment-evidence" maxlength="1000" placeholder="AI 초안을 적용하면 지문에서 가져온 실제 근거 문장이 채워집니다."></textarea>
             </label>
 
             <label class="wide">③ 평가기준
               <textarea id="assessment-criteria" maxlength="1500" required placeholder="어떤 수행을 보이면 목표에 도달했다고 판단할지 씁니다."></textarea>
             </label>
             <label class="wide"><span id="rubric-high-label">매우잘함</span>
-              <textarea id="rubric-high" maxlength="1000" required placeholder="충분히 도달한 학생에게서 관찰되는 행동"></textarea>
+              <textarea id="rubric-high" maxlength="1000" required placeholder="질문의 핵심 요소를 모두 포함하고 근거를 정확히 연결한 답변"></textarea>
             </label>
             <label id="rubric-good-field" class="wide"><span id="rubric-good-label">잘함</span>
-              <textarea id="rubric-good" maxlength="1000" required placeholder="목표에 도달한 학생에게서 관찰되는 행동"></textarea>
+              <textarea id="rubric-good" maxlength="1000" required placeholder="주요 요소를 포함하고 관련 근거를 연결한 답변"></textarea>
             </label>
             <label class="wide"><span id="rubric-meet-label">보통</span>
-              <textarea id="rubric-meet" maxlength="1000" required placeholder="일부 도달했으며 더 성장할 지점"></textarea>
+              <textarea id="rubric-meet" maxlength="1000" required placeholder="일부 요소는 포함했지만 근거 연결이 충분하지 않은 답변"></textarea>
             </label>
             <label class="wide"><span id="rubric-developing-label">노력요함</span>
-              <textarea id="rubric-developing" maxlength="1000" required placeholder="교사의 구체적인 지원이 필요한 행동"></textarea>
+              <textarea id="rubric-developing" maxlength="1000" required placeholder="핵심 요소가 많이 빠지거나 근거와 설명이 연결되지 않은 답변"></textarea>
             </label>
             <label id="rubric-beginning-field" class="wide hidden"><span>E</span>
-              <textarea id="rubric-beginning" maxlength="1000" placeholder="단계별 안내와 지속적인 도움이 필요한 행동"></textarea>
+              <textarea id="rubric-beginning" maxlength="1000" placeholder="질문에서 요구한 핵심 내용이나 관련 근거가 드러나지 않은 답변"></textarea>
+            </label>
+            <label class="wide">수준별 예상 학생 답변 예시 (교사용)
+              <textarea id="answer-examples" maxlength="3500" placeholder="AI 초안을 적용하면 선택한 평가 수준별 가상 학생 답변이 채워집니다."></textarea>
+              <span class="help">수업 전에 만드는 가상 응답 예시입니다. 학생이 다르게 표현해도 같은 내용을 설명하면 인정할 수 있습니다.</span>
             </label>
             <label class="wide">④ 수집할 평가 근거
               <textarea id="evidence-description" maxlength="1000" required placeholder="예: 기사 핵심을 묻는 질문, 근거를 찾은 답변, 자신의 의견과 이유"></textarea>
@@ -317,6 +323,7 @@
         rubricHigh:['rubric-high', '매우잘함'], rubricGood:['rubric-good', '잘함'],
         rubricMeet:['rubric-meet', '보통'], rubricDeveloping:['rubric-developing', '노력요함'],
         rubricBeginning:['rubric-beginning', 'E'],
+        answerExamples:['answer-examples', '수준별 예상 학생 답변 예시 (교사용 · AI 가상 응답)', 3500],
         evidenceDescription:['evidence-description', '수집할 평가 근거']
       };
       const byId = function (id) { return document.getElementById(id); };
@@ -344,7 +351,7 @@
         ['lesson-id', 'app-name', 'subject', 'grade', 'lesson-title', 'lesson-goal', 'standard-code',
           'achievement-standard', 'assessment-criteria', 'rubric-scheme', 'rubric-high', 'rubric-good',
           'rubric-meet', 'rubric-developing', 'rubric-beginning', 'evidence-description', 'material-title', 'material-text',
-          'material-url', 'start-question', 'expected-answer', 'assessment-evidence', 'join-code', 'activity-mode', 'version'].forEach(function (id) {
+          'material-url', 'start-question', 'expected-answer', 'assessment-evidence', 'answer-examples', 'join-code', 'activity-mode', 'version'].forEach(function (id) {
           ['input', 'change'].forEach(function (eventName) {
             byId(id).addEventListener(eventName, assessmentInputsChanged);
           });
@@ -497,7 +504,7 @@
         assessmentDraft = null;
         assessmentGenerating = true;
         byId('assessment-draft').classList.toggle('hidden', true);
-        byId('assessment-ai-status').textContent = '목표와 자료에 맞는 질문·답변 요소·평가기준 초안을 만들고 있습니다.';
+        byId('assessment-ai-status').textContent = '목표와 자료에 맞는 질문·수준별 예상 답변·평가기준 초안을 만들고 있습니다.';
         setButtonsDisabled(true);
         google.script.run
           .withSuccessHandler(function (result) {
@@ -527,7 +534,7 @@
               content.appendChild(title); content.appendChild(detail);
             });
             byId('assessment-draft').classList.toggle('hidden', false);
-            byId('assessment-ai-status').textContent = '초안을 확인한 뒤 적용해 주세요. 아직 입력 내용과 저장된 설정은 바뀌지 않았습니다.';
+            byId('assessment-ai-status').textContent = '생성이 끝났습니다. 초안을 확인하고 “아래 입력란에 적용”을 눌러 주세요. 아직 저장된 설정은 바뀌지 않았습니다.';
             updateAssessmentControls();
           })
           .withFailureHandler(function (error) {
@@ -561,7 +568,7 @@
         syncRubricScheme();
         updateReadinessDisplay();
         byId('assessment-ai-status').textContent = '초안을 입력란에 적용했습니다. 내용을 검토·수정한 뒤 설정을 저장해 주세요.';
-        setStatus('질문·답변 요소·평가기준을 적용했습니다. 검토 후 설정을 저장해 주세요.');
+        setStatus('질문·수준별 예상 답변·평가기준을 적용했습니다. 검토 후 설정을 저장해 주세요.');
       }
 
       function showStep(index) {
@@ -591,6 +598,7 @@
           'evidence-description':'evidenceDescription', 'material-title':'materialTitle',
           'material-text':'materialText', 'material-url':'materialUrl', 'start-question':'startQuestion',
           'expected-answer':'expectedAnswer', 'assessment-evidence':'assessmentEvidence',
+          'answer-examples':'answerExamples',
           'join-code':'joinCode',
           'activity-mode':'activityMode', version:'version'
         };
@@ -628,6 +636,7 @@
           materialTitle:byId('material-title').value, materialText:byId('material-text').value,
           materialUrl:byId('material-url').value, startQuestion:byId('start-question').value,
           expectedAnswer:byId('expected-answer').value, assessmentEvidence:byId('assessment-evidence').value,
+          answerExamples:byId('answer-examples').value,
           joinCode:byId('join-code').value,
           activityMode:byId('activity-mode').value, version:byId('version').value
         };

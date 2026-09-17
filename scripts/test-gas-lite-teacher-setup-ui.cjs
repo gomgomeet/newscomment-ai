@@ -259,11 +259,17 @@ assert.equal(ui.byId('setup-form').noValidate, true, 'Custom validation must be 
 assert.equal(ui.byId('lesson-goal').closest('.panel').id, 'panel-design');
 assert.equal(ui.byId('achievement-standard').closest('.panel').id, 'panel-design');
 assert.equal(ui.byId('material-text').closest('.panel').id, 'panel-material');
-for (const id of ['generate-assessment', 'start-question', 'expected-answer', 'assessment-evidence', 'assessment-criteria']) {
+for (const id of ['generate-assessment', 'start-question', 'expected-answer', 'assessment-evidence', 'answer-examples', 'assessment-criteria']) {
   assert.equal(ui.byId(id).closest('.panel').id, 'panel-assessment', `${id} comes after material input`);
 }
 assert.equal(ui.byId('standard-code').getAttribute('type'), 'hidden', 'Achievement standard is a single visible field');
 assert.equal((html.match(/id="start-question"/g) || []).length, 1, 'One main assessment question is also the student start question');
+assert.equal(ui.byId('generate-assessment').textContent, 'AI로 질문·평가기준 생성');
+assert.equal(ui.byId('apply-assessment-draft').textContent, '아래 입력란에 적용');
+const previewChildren = ui.byId('assessment-draft').children;
+assert.ok(previewChildren.indexOf(ui.byId('apply-assessment-draft')) < previewChildren.indexOf(ui.byId('assessment-draft-content')), 'Apply is visible before a long preview');
+assert.match(ui.byId('expected-answer').getAttribute('placeholder'), /AI 초안을 적용하면/);
+assert.match(ui.byId('assessment-evidence').getAttribute('placeholder'), /지문에서 가져온 실제 근거 문장/);
 assertMode(ui, true);
 assertLinksReady(ui);
 for (const enabled of [false, true, false, true, false]) {
@@ -397,6 +403,7 @@ assert.equal(fiveUi.byId('rubric-beginning').value, fiveSettings.rubricBeginning
 
 const draft = {
   rubricScheme:'four_levels', startQuestion:'자료에서 사실을 찾고 자신의 의견을 근거와 함께 설명해 볼까요?', expectedAnswer:'자료의 사실과 그에 따른 자신의 의견을 구분해 설명한다.', assessmentEvidence:settings.materialText, assessmentCriteria:'자료의 근거와 자신의 생각을 연결한다.',
+  answerExamples:'매우잘함: 글의 사실 두 가지를 들어 내 생각과 연결할 수 있어요.\n\n잘함: 글의 한 가지 사실을 들어 내 생각을 설명할 수 있어요.\n\n보통: 내 생각은 말했지만 글의 근거를 연결하는 데 도움이 필요해요.\n\n노력요함: 글에서 어떤 문장을 봐야 할지 함께 찾아보고 싶어요.',
   rubricHigh:'여러 근거를 정확하게 연결해 독립적으로 설명한다.',
   rubricGood:'적절한 근거를 들어 생각을 설명한다.',
   rubricMeet:'안내를 참고해 근거와 생각을 일부 연결한다.',
@@ -418,17 +425,19 @@ for (const [scheme, labels] of Object.entries(selectedLevels)) {
   assert.equal(request.args[1].rubricScheme, scheme, 'The request carries the selected levels');
   assert.equal(levelUi.byId('rubric-scheme').disabled, true, 'A paid request locks its level selector');
   const generated = { ...draft, rubricScheme:scheme };
+  generated.answerExamples = labels.map((label, index) => label + ': 가상 학생 답변 예시 ' + (index + 1)).join('\n\n');
   if (scheme === 'legacy_three') delete generated.rubricGood;
   if (scheme === 'five_levels') generated.rubricBeginning = '작은 단계로 안내받으며 관련 문장을 함께 찾는다.';
   request.success({ ok:true, draft:generated });
   assert.equal(levelUi.byId('apply-assessment-draft').disabled, false);
   assert.equal(levelUi.byId('assessment-draft-title').textContent, `AI 질문·평가기준 초안 · ${labels.length}단계`);
   const previewLabels = levelUi.byId('assessment-draft-content').children.filter((node) => node.tagName === 'dt').map((node) => node.textContent);
-  assert.deepEqual(previewLabels.slice(4, -1), labels, 'Preview labels match the selected assessment levels');
+  assert.deepEqual(previewLabels.slice(4, 4 + labels.length), labels, 'Preview labels match the selected assessment levels');
   levelUi.click('apply-assessment-draft');
   assert.equal(levelUi.byId('rubric-scheme').value, scheme);
   assert.equal(levelUi.byId('rubric-good').value, scheme === 'legacy_three' ? '' : draft.rubricGood);
   assert.equal(levelUi.byId('rubric-beginning').value, scheme === 'five_levels' ? generated.rubricBeginning : '', 'AI apply clears inactive descriptors');
+  assert.equal(levelUi.byId('answer-examples').value, generated.answerExamples, 'Each selected scheme keeps its matching fictional answers');
   assert.equal(levelUi.requests.length, 0, 'Applying any level count does not autosave');
 }
 const wrongSchemeUi = createUi(settings);
@@ -447,12 +456,15 @@ missingFifthUi.click('generate-assessment');
 missingFifthUi.takeRequest('generateLiteMaterialAssessmentDraft').success({ ok:true, draft:{ ...draft, rubricScheme:'five_levels' } });
 assert.equal(missingFifthUi.byId('apply-assessment-draft').disabled, true, 'Five-level generated drafts require the fifth descriptor');
 const draftUi = createUi({ ...fourSettings, lessonGoal:'' });
+draftUi.byId('answer-examples').value = '교사가 직접 기록한 예상 답변';
+draftUi.byId('answer-examples').dispatch('input');
 assert.equal(draftUi.byId('generate-assessment').disabled, false, 'A standard plus material enables combined drafting without an extra goal');
 draftUi.click('generate-assessment');
 const draftRequest = draftUi.takeRequest('generateLiteMaterialAssessmentDraft');
 assert.equal(draftRequest.args[1].materialText, settings.materialText);
 assert.equal(Object.hasOwn(draftRequest.args[1], 'joinCode'), false, 'Participation codes are not draft inputs');
 assert.equal(Object.hasOwn(draftRequest.args[1], 'apiKey'), false, 'Client does not send an API key');
+assert.equal(Object.hasOwn(draftRequest.args[1], 'answerExamples'), false, 'Existing teacher examples are not instructions to the model');
 assert.equal(draftUi.byId('generate-assessment').disabled, true);
 assert.equal(draftUi.byId('save-setup').disabled, true, 'No save can race with an AI request');
 draftUi.click('generate-assessment');
@@ -462,12 +474,13 @@ assert.equal(draftUi.requests.length, 0, 'Enter submission cannot race with draf
 draftRequest.success({ ok:true, draft });
 assert.equal(draftUi.byId('assessment-criteria').value, settings.assessmentCriteria, 'Generation does not overwrite the form');
 assert.equal(draftUi.byId('start-question').value, settings.startQuestion, 'Generation does not silently replace the student question');
+assert.equal(draftUi.byId('answer-examples').value, '교사가 직접 기록한 예상 답변', 'Generation does not overwrite existing teacher examples');
 assert.equal(draftUi.byId('rubric-scheme').value, 'four_levels', 'Generation keeps the teacher-selected levels');
 assert.equal(draftUi.byId('assessment-draft').classList.contains('hidden'), false);
 assert.equal(draftUi.byId('apply-assessment-draft').disabled, false);
 draftUi.click('apply-assessment-draft');
 for (const [key, value] of Object.entries(draft)) {
-  const id = { startQuestion:'start-question', expectedAnswer:'expected-answer', assessmentEvidence:'assessment-evidence', rubricScheme:'rubric-scheme', rubricGood:'rubric-good', ...Object.fromEntries(Object.entries(designFields).map(([id, key]) => [key, id])) }[key];
+  const id = { startQuestion:'start-question', expectedAnswer:'expected-answer', assessmentEvidence:'assessment-evidence', answerExamples:'answer-examples', rubricScheme:'rubric-scheme', rubricGood:'rubric-good', ...Object.fromEntries(Object.entries(designFields).map(([id, key]) => [key, id])) }[key];
   assert.equal(draftUi.byId(id).value, value, key);
 }
 assert.equal(draftUi.byId('lesson-goal').value, '', 'Apply preserves the teacher goal');
@@ -483,23 +496,29 @@ assertLinksDisabled(draftUi);
 assert.equal(draftUi.byId('assessment-criteria').value, draft.assessmentCriteria, 'Readiness refresh must preserve an applied but unsaved draft');
 draftUi.submit();
 const combinedSave = draftUi.takeRequest('saveLiteTeacherSetup');
-for (const key of ['startQuestion', 'expectedAnswer', 'assessmentEvidence', 'assessmentCriteria']) {
+for (const key of ['startQuestion', 'expectedAnswer', 'assessmentEvidence', 'assessmentCriteria', 'answerExamples']) {
   assert.equal(combinedSave.args[1][key], draft[key], `Combined save includes ${key}`);
 }
 combinedSave.success({ ...readyData(combinedSave.args[1]), lessonId:settings.lessonId });
 const combinedReopened = createUi(combinedSave.args[1]);
 assert.equal(combinedReopened.byId('expected-answer').value, draft.expectedAnswer);
 assert.equal(combinedReopened.byId('assessment-evidence').value, draft.assessmentEvidence);
+assert.equal(combinedReopened.byId('answer-examples').value, draft.answerExamples);
 combinedReopened.selectMode('exploration');
 assert.equal(combinedReopened.byId('assessment-ai-section').classList.contains('hidden'), true);
 assert.equal(combinedReopened.byId('start-question').effectivelyDisabled(), false, 'Exploration keeps an editable start question');
 assert.equal(combinedReopened.byId('expected-answer').effectivelyDisabled(), true, 'Teacher assessment helpers do not apply in exploration');
+assert.equal(combinedReopened.byId('answer-examples').effectivelyDisabled(), true, 'Teacher-only examples do not apply in exploration');
 combinedReopened.byId('start-question').value = '어떤 점이 궁금한가요?';
 combinedReopened.byId('start-question').dispatch('input');
 combinedReopened.submit();
 const explorationSave = combinedReopened.takeRequest('saveLiteTeacherSetup');
 assert.equal(explorationSave.args[1].startQuestion, '어떤 점이 궁금한가요?');
 assert.equal(explorationSave.args[1].expectedAnswer, draft.expectedAnswer, 'Changing to exploration preserves teacher drafts');
+assert.equal(explorationSave.args[1].answerExamples, draft.answerExamples);
+const oldLessonUi = createUi({ ...fourSettings, answerExamples:draft.answerExamples });
+oldLessonUi.context.fillData(readyData(settings));
+assert.equal(oldLessonUi.byId('answer-examples').value, '', 'Opening a lesson without examples must clear another lesson’s private examples');
 
 const goalOnlyUi = createUi({ ...settings, achievementStandard:'', achievementStandardCode:'' });
 assert.equal(goalOnlyUi.byId('generate-assessment').disabled, false);
@@ -571,7 +590,7 @@ assert.equal(longExplorationUi.byId('achievement-standard').effectivelyDisabled(
 assert.equal(longExplorationUi.byId('activity-mode').value, 'exploration', 'Validation must not silently change the operating mode');
 
 for (const editPhase of ['pending', 'preview']) {
- for (const editedField of ['lesson-goal', 'achievement-standard', 'material-text', 'start-question', 'expected-answer', 'assessment-evidence', 'assessment-criteria', 'rubric-beginning']) {
+ for (const editedField of ['lesson-goal', 'achievement-standard', 'material-text', 'start-question', 'expected-answer', 'assessment-evidence', 'answer-examples', 'assessment-criteria', 'rubric-beginning']) {
   const staleUi = createUi(fourSettings);
   staleUi.click('generate-assessment');
   const request = staleUi.takeRequest('generateLiteMaterialAssessmentDraft');
@@ -597,10 +616,15 @@ assert.equal(failureUi.byId('generate-assessment').disabled, false);
 failureUi.click('generate-assessment');
 failureUi.takeRequest('generateLiteMaterialAssessmentDraft').success({ ok:true, draft:{ ...draft, rubricGood:'' } });
 assert.equal(failureUi.byId('apply-assessment-draft').disabled, true, 'Incomplete drafts are rejected');
-for (const field of ['startQuestion', 'expectedAnswer', 'assessmentEvidence']) {
+for (const field of ['startQuestion', 'expectedAnswer', 'assessmentEvidence', 'answerExamples']) {
   failureUi.click('generate-assessment');
   failureUi.takeRequest('generateLiteMaterialAssessmentDraft').success({ ok:true, draft:{ ...draft, [field]:'' } });
   assert.equal(failureUi.byId('apply-assessment-draft').disabled, true, `Combined draft requires ${field}`);
+}
+for (const answerExamples of [null, ['가상 답변'], '가'.repeat(3501)]) {
+  failureUi.click('generate-assessment');
+  failureUi.takeRequest('generateLiteMaterialAssessmentDraft').success({ ok:true, draft:{ ...draft, answerExamples } });
+  assert.equal(failureUi.byId('apply-assessment-draft').disabled, true, 'Generated examples must be a bounded, nonempty canonical string');
 }
 failureUi.click('generate-assessment');
 failureUi.takeRequest('generateLiteMaterialAssessmentDraft').success({ ok:true, draft:{ ...draft, assessmentCriteria:'<b>근거 확인</b>' } });
@@ -690,19 +714,23 @@ assert.equal(dashboardById('rubric-good-field').classList.contains('hidden'), tr
 assert.equal(dashboardById('assessment-question').textContent, settings.startQuestion);
 assert.equal(dashboardById('expected-answer').textContent, '입력된 답변 핵심 요소가 없습니다.');
 assert.equal(dashboardById('assessment-evidence').textContent, '입력된 자료 근거 문장이 없습니다.');
+assert.equal(dashboardById('answer-examples').textContent, '입력된 수준별 예상 답변 예시가 없습니다.');
 
 const unsafeMarkup = '<img src=x onerror="globalThis.executed=true">';
 const privateKeyText = '교사용 답변 요소 ' + unsafeMarkup;
 const privateEvidenceText = '교사용 원문 근거 <script>globalThis.executed=true</script>';
-dashboardContext.renderDashboard({ lesson:{ ...fourSettings, expectedAnswer:privateKeyText, assessmentEvidence:privateEvidenceText }, evaluations:[
+const privateExampleText = '잘함: 가상의 답변 <script>globalThis.executed=true</script>';
+dashboardContext.renderDashboard({ lesson:{ ...fourSettings, expectedAnswer:privateKeyText, assessmentEvidence:privateEvidenceText, answerExamples:privateExampleText }, evaluations:[
   { studentCode:'99-991', rubricScheme:'four_levels', assessmentResponse:unsafeMarkup, evidenceSummary:'근거 ' + unsafeMarkup },
   { studentCode:'99-992', rubricScheme:'four_levels', assessmentResponse:'' },
   { studentCode:'99-993' },
 ] });
 assert.equal(dashboardById('expected-answer').textContent, privateKeyText);
 assert.equal(dashboardById('assessment-evidence').textContent, privateEvidenceText);
+assert.equal(dashboardById('answer-examples').textContent, privateExampleText);
 assert.equal(dashboardById('expected-answer').children.length, 0);
 assert.equal(dashboardById('assessment-evidence').children.length, 0);
+assert.equal(dashboardById('answer-examples').children.length, 0, 'Teacher-only fictional answer examples render as text');
 const answerCards = dashboardById('evaluations').children;
 const responseNode = answerCards[0].children.find((node) => node.className === 'evidence');
 assert.equal(responseNode.textContent, unsafeMarkup, 'The original first response is displayed literally');

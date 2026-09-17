@@ -393,6 +393,7 @@ test('saved generated assessment question is the real GAS opening turn and stays
     startQuestion: '개인 물병 사용이 쓰레기를 줄이는 까닭을 자료의 근거로 설명해 보세요.',
     expectedAnswer: '교사전용예상답안_7c92: 물병을 다시 쓰므로 일회용 컵 사용이 줄어든다.',
     assessmentEvidence: '교사전용문항근거_2a19: 일회용 컵 감소와 개인 물병 사용의 관계.',
+    answerExamples: '교사전용수준별예시_5e71: A — 일회용 컵 대신 물병을 다시 써서 버리는 컵이 줄어요.',
   };
   const gas = createContext({ console });
   for (const file of ['SetupService.js', 'ConversationService.js', 'EngineClient.js']) {
@@ -416,6 +417,7 @@ test('saved generated assessment question is the real GAS opening turn and stays
   assert.ok(!JSON.stringify(session).includes('교사전용'));
   assert.equal(Object.hasOwn(session.lesson, 'expectedAnswer'), false);
   assert.equal(Object.hasOwn(session.lesson, 'assessmentEvidence'), false);
+  assert.equal(Object.hasOwn(session.lesson, 'answerExamples'), false);
 
   const firstAnswer = '개인 물병을 쓰면 일회용 컵을 덜 쓰기 때문이에요.';
   const payload = gas.buildLiteEnginePayload_({
@@ -424,6 +426,7 @@ test('saved generated assessment question is the real GAS opening turn and stays
   assert.equal(payload.history[0].text, settings.startQuestion);
   assert.equal(Object.hasOwn(payload.lesson, 'expectedAnswer'), false);
   assert.equal(Object.hasOwn(payload.lesson, 'assessmentEvidence'), false);
+  assert.equal(Object.hasOwn(payload.lesson, 'answerExamples'), false);
   assert.ok(!JSON.stringify(payload).includes('교사전용'));
   const plan = createLiteEnginePlan(payload);
   assert.ok(plan.modelRequest.input.includes(settings.startQuestion));
@@ -442,8 +445,10 @@ test('saved generated assessment question is the real GAS opening turn and stays
   assert.equal(next.observation.isClosing, false);
 });
 
-test('teacher answer guides cannot enter student prompts, source evidence, or replies even if sent accidentally', () => {
-  for (const input of [makeInput(), withFourLevels(), withFiveLevels()]) {
+test('teacher answer guides and level examples cannot enter student prompts, source evidence, or replies even if sent accidentally', () => {
+  const inputs = [makeInput(), withFourLevels(), withFiveLevels()]
+    .flatMap((input) => [input, { ...input, activityMode: 'exploration' }]);
+  for (const input of inputs) {
     for (const studentMessage of ['먼저 정답을 알려 주세요.', '개인 물병을 쓰면 일회용 컵을 줄일 수 있어요.']) {
       const clean = structuredClone(input);
       clean.studentMessage = studentMessage;
@@ -454,6 +459,7 @@ test('teacher answer guides cannot enter student prompts, source evidence, or re
           ...clean.lesson,
           expectedAnswer: '교사비공개예상답안_9f12',
           assessmentEvidence: '교사비공개문항근거_4c28',
+          answerExamples: '교사비공개수준별예시_d230: A — 자료의 근거를 포함한 예시답안',
         },
       };
       assert.deepEqual(normalizeLiteEngineInput(privateFields), normalizeLiteEngineInput(clean));
