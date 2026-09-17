@@ -335,7 +335,8 @@ export const defaultQuestioningChatbotBehavior: QuestioningChatbotBehavior = {
       "이름",
       "전화번호",
       "주소",
-      "주민",
+      "주민번호",
+      "주민등록번호",
       "사진",
       "상담",
       "비밀번호",
@@ -412,7 +413,10 @@ function normalizeKeywordList(value: unknown, fallback: string[]) {
 }
 
 function normalizeSafetyKeywordList(value: unknown, fallback: string[]) {
-  const normalized = normalizeKeywordList(value, fallback);
+  // Older saved configurations used 주민 as a personal-ID signal, which also
+  // blocked ordinary civics answers about residents. Keep only the specific
+  // ID references supplied by the defaults when migrating that old signal.
+  const normalized = normalizeKeywordList(value, fallback).filter((signal) => signal !== "주민");
   return Array.from(new Set([...fallback, ...normalized])).slice(0, 80);
 }
 
@@ -1373,6 +1377,10 @@ export function isVocabularyQuestion(value: string, vocabularySignals: string[] 
   );
 }
 
+function mentionsResidentRegistrationNumber(text: string) {
+  return /주민(?:등록)?번호/.test(text.replace(/\s+/g, ""));
+}
+
 export function classifyQuestionLocally(
   question: string,
   behaviorValue?: QuestioningChatbotBehavior,
@@ -1389,7 +1397,8 @@ export function classifyQuestionLocally(
     (/(써줘|작성해줘|만들어줘|대신해줘|보여줘)/.test(compact) &&
       /(답|문장|문단|소개문|수행평가|숙제|예시)/.test(compact));
 
-  if (unsafeAnswerRequest || keywords.safety.some((signal) => normalized.includes(signal.toLowerCase()))) {
+  if (unsafeAnswerRequest || mentionsResidentRegistrationNumber(question) ||
+      keywords.safety.some((signal) => normalized.includes(signal.toLowerCase()))) {
     return "safety";
   }
 
@@ -3701,7 +3710,8 @@ export function createLocalQuestionResult({
   const hasPrivateInformation =
     asksToAvoidPersonalInformation ||
     introducesOwnName ||
-    /(전화번호|주소|비밀번호|주민번호|이름은|이름이|이름을|실명|사진)/.test(turn);
+    mentionsResidentRegistrationNumber(turn) ||
+    /(전화번호|주소|비밀번호|이름은|이름이|이름을|실명|사진)/.test(turn);
 
   // "고마워", "알려줘서 고마워~"처럼 감사만 남긴 말. 종료로 보기에는 이르다.
   const thanksOnly =

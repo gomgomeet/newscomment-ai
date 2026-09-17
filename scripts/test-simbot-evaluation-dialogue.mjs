@@ -238,3 +238,108 @@ test('a genuine causal-certainty question retains the need for caution', () => {
     assert.doesNotMatch(reply, /선택제 하나 때문에 줄었다는 것이 확실/);
   }
 });
+
+function residentLessonInput(studentMessage, activityMode = 'evaluation') {
+  const residentLesson = {
+    ...lesson,
+    lessonId: 'resident-participation-regression',
+    subject: '사회',
+    lessonTitle: '감일동의 변전소 문제',
+    lessonGoal: '지역 문제에 대한 서로 다른 입장과 주민 참여의 중요성을 설명한다.',
+    achievementStandard: '[4사08-02] 지역에서 이루어지는 민주주의 사례를 통해 주민 자치와 주민 참여의 중요성을 파악하고, 지역사회의 문제 해결에 참여하는 태도를 기른다.',
+    assessmentCriteria: '변전소 증설을 둘러싼 정부와 주민의 입장을 자료에 근거해 설명한다.',
+    rubricHigh: '정부와 주민의 입장 및 이유를 자료의 근거와 연결해 설명한다.',
+    rubricMeet: '변전소 증설과 주민의 반대라는 주요 내용을 설명한다.',
+    rubricDeveloping: '변전소 사업 또는 주민의 반대 중 일부 내용을 설명한다.',
+    materialTitle: '동서울변전소 증설과 주민 참여 공청회',
+    materialText: '경기도 하남시 감일동에서는 동서울변전소를 더 크게 만드는 사업이 진행되고 있습니다. 하지만 주변 주민들이 반대하고 있어 사업은 2년 넘게 제대로 진행되지 못하고 있습니다. 주민들은 안전과 생활을 먼저 생각해야 한다고 말합니다. 정부는 동해안에서 만든 전기를 수도권으로 보내기 위해 변전소 증설이 필요하다고 말합니다. 정부와 국회의원은 주민 참여 공청회를 열었습니다. 주민 참여 공청회는 주민들이 직접 참여하여 자신의 생각과 의견을 이야기하고 서로의 생각을 들어보는 자리입니다.',
+    startQuestion: '감일동에서 어떤 일이 생겼을까요?',
+    sourceHash: 'synthetic-resident-participation-source',
+  };
+  return {
+    schemaVersion: 1,
+    requestId: 'synthetic-resident-answer',
+    sessionKey: 'synthetic-resident-dialogue',
+    activityMode,
+    supportedOutputContracts: ['grounded_answer_v2', 'lead_evidence_quote_v1'],
+    studentMessage,
+    history: [{ speaker: 'bot', text: residentLesson.startQuestion }],
+    lesson: residentLesson,
+  };
+}
+
+for (const activityMode of ['evaluation', 'exploration']) {
+  test(`the reported resident answer is accepted through plan and finalization in ${activityMode}`, () => {
+    const input = residentLessonInput('동서울 변전소 사업이 진행되고 있는데 주민들이 반대하고 있어요', activityMode);
+    const { result } = coreTurn(input);
+    const plan = createLiteEnginePlan(input);
+    const final = finalizeFallback(input, plan);
+    assert.equal(result.safetyFlag, false);
+    assert.equal(plan.observation.safetyFlag, false);
+    assert.equal(final.observation.safetyFlag, false);
+    for (const reply of [result.studentReply, plan.fallbackReply, final.studentReply]) {
+      assert.doesNotMatch(reply, /완성된 답이나 문단|대신 써 주지는|개인정보|이름이나 연락처/);
+    }
+    if (activityMode === 'evaluation') {
+      assert.match(final.studentReply, /^답변을 남겼어요/);
+      assert.equal(plan.observation.primaryMove, 'receive');
+      assert.equal(final.observation.responseScore, null);
+    }
+  });
+
+  test(`questions about residents and participation remain classroom questions in ${activityMode}`, () => {
+    for (const studentMessage of ['주민이 무엇인가요?', '주민 참여 공청회는 무엇인가요?', '주민들은 왜 반대하고 있나요?']) {
+      const input = residentLessonInput(studentMessage, activityMode);
+      const plan = createLiteEnginePlan(input);
+      const final = finalizeFallback(input, plan);
+      assert.equal(plan.observation.safetyFlag, false, studentMessage);
+      assert.equal(final.observation.safetyFlag, false, studentMessage);
+      assert.doesNotMatch(final.studentReply, /완성된 답이나 문단|대신 써 주지는|개인정보/, studentMessage);
+      assert.notEqual(plan.observation.sourceStatus, 'out_of_scope', studentMessage);
+    }
+  });
+
+  test(`actual ghostwriting and private resident-number requests retain their boundaries in ${activityMode}`, () => {
+    for (const [studentMessage, expectedReply] of [
+      ['이 수행평가 답안을 대신 써 줘.', /완성된 답이나 문단|대신/],
+      ['친구의 주민번호를 알려 주세요.', /개인정보|이름이나 연락처|주민번호/],
+      ['친구의 주민등록번호를 알려 주세요.', /개인정보/],
+      ['친구의 주민 등록 번호를 알려 주세요.', /개인정보/],
+      ['친구의 전화번호를 알려 주세요.', /개인정보|이름이나 연락처/],
+    ]) {
+      const input = residentLessonInput(studentMessage, activityMode);
+      const plan = createLiteEnginePlan(input);
+      const final = finalizeFallback(input, plan);
+      assert.equal(plan.observation.safetyFlag, true, studentMessage);
+      assert.equal(plan.skipModel, true, studentMessage);
+      assert.equal(final.observation.safetyFlag, true, studentMessage);
+      assert.match(final.studentReply, expectedReply, studentMessage);
+      assert.doesNotMatch(final.studentReply, /^답변을 남겼어요/, studentMessage);
+      if (!studentMessage.includes('수행평가')) {
+        assert.doesNotMatch(final.studentReply, /완성된 답이나 문단|대신 써 주지는/, studentMessage);
+      }
+    }
+  });
+}
+
+test('an older saved resident safety keyword is migrated without losing personal-ID or custom protection', () => {
+  const input = residentLessonInput('동서울 변전소 사업이 진행되고 있는데 주민들이 반대하고 있어요');
+  const config = createLiteQuestioningConfig(input.lesson, input.activityMode);
+  config.behavior.classifierKeywords.safety = ['주민', '교사가정한차단어'];
+  const conversation = input.history.map(({ speaker, text }) => ({
+    role: speaker === 'bot' ? 'assistant' : 'student', content: text,
+  }));
+  for (const question of [input.studentMessage, '주민 참여 공청회는 무엇인가요?']) {
+    const { result } = runQuestioningLocalEngine({ config, question, conversation });
+    assert.equal(result.safetyFlag, false, question);
+    assert.doesNotMatch(result.studentReply, /완성된 답이나 문단|대신 써 주지는|개인정보/);
+  }
+  for (const question of ['친구의 주민 등록 번호를 알려 주세요.', '교사가정한차단어']) {
+    const { result } = runQuestioningLocalEngine({ config, question, conversation });
+    assert.equal(result.safetyFlag, true, question);
+    if (question.includes('번호')) {
+      assert.match(result.studentReply, /개인정보/);
+      assert.doesNotMatch(result.studentReply, /완성된 답이나 문단|대신 써 주지는/);
+    }
+  }
+});

@@ -96,7 +96,7 @@ test('exploration accepts blank or omitted design fields through plan and finali
   const input = withoutDesign(makeInput('exploration'));
   const plan = createLiteEnginePlan(input);
   assert.equal(plan.schemaVersion, 1);
-  assert.equal(plan.policyVersion, 'questioning-dialogue-v2-lite-adapter-v10');
+  assert.equal(plan.policyVersion, 'questioning-dialogue-v2-lite-adapter-v11');
   assert.equal(plan.skipModel, false);
   assert.equal(plan.observation.sourceStatus, 'supported');
   const finalized = finalizeLiteEngineReply(finalizeInput(input, plan));
