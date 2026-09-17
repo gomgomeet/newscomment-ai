@@ -182,6 +182,7 @@ test('paired draft uses full bounded material and returns question, key, evidenc
   assert.equal(request.store, false);
   assert.equal(request.text.format.strict, true);
   assert.match(request.instructions, /질문에서 요구하지 않은/);
+  assert.match(request.instructions, /평가기준별 질문·근거 계획/);
   assert.doesNotMatch(request.instructions, /충분히 받아도|필요한 도움의 정도/);
   assert.equal(h.calls(), 1);
 });

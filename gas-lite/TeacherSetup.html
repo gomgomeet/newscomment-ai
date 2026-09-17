@@ -203,13 +203,13 @@
               <span class="help">기존 수업은 저장된 수준을 유지합니다. 수준을 바꾸면 각 기준도 확인해 주세요.</span>
             </label>
               <button id="generate-assessment" type="button" class="secondary" disabled>AI로 질문·평가기준 생성</button>
-              <p class="help">AI 생성 → 아래 입력란에 적용 → 설정 저장</p>
+              <p class="help">AI 생성 → 입력란·질문계획에 적용 → 교사 검토·승인 → 설정 저장</p>
               <p id="assessment-ai-hint" class="help">API 연결을 확인하고 수업 목표 또는 성취기준을 입력해 주세요.</p>
               <p id="assessment-ai-status" class="status" role="status" aria-live="polite"></p>
               <section id="assessment-draft" class="assessment-draft hidden" aria-label="AI 질문·평가기준 초안">
                 <strong id="assessment-draft-title">AI 질문·평가기준 초안</strong>
-                <p class="help">질문·수준별 예상 답변·평가기준을 확인하세요. 아래 입력란에 적용한 뒤 직접 수정하고 저장할 수 있습니다.</p>
-                <button id="apply-assessment-draft" type="button" class="primary" disabled>아래 입력란에 적용</button>
+                <p class="help">질문·수준별 예상 답변·평가기준을 확인하세요. 적용하면 비어 있는 평가기준별 질문·근거 계획도 함께 채웁니다. 교사가 작성한 계획은 덮어쓰지 않습니다.</p>
+                <button id="apply-assessment-draft" type="button" class="primary" disabled>입력란·질문계획에 적용</button>
                 <dl id="assessment-draft-content"></dl>
               </section>
             </div>
@@ -726,6 +726,47 @@
           });
       }
 
+      function assessmentPlanIsBlankDraft() {
+        if (!assessmentPlan.criteria.length) return true;
+        const textFields = ['criterion', 'mainQuestion', 'followUpQuestion', 'evidenceDescription', 'sourceQuote'];
+        return assessmentPlan.criteria.every(function (item) {
+          return textFields.every(function (key) { return !String(item[key] || '').trim(); }) &&
+            (item.responseKind || 'explanation') === 'explanation' && item.requireSourceEvidence !== true;
+        });
+      }
+
+      function fitAssessmentPlanText(value, limit) {
+        const text = String(value || '').replace(/\s+/g, ' ').trim();
+        if (text.length <= limit) return text;
+        const clipped = text.slice(0, limit).trim();
+        const boundary = Math.max(clipped.lastIndexOf('.'), clipped.lastIndexOf('。'), clipped.lastIndexOf(' '));
+        return boundary >= Math.floor(limit * 0.6) ? clipped.slice(0, boundary + 1).trim() : clipped;
+      }
+
+      function assessmentPlanQuestionFromDraft(value) {
+        const text = String(value || '').replace(/\s+/g, ' ').trim();
+        const stem = fitAssessmentPlanText(text.replace(/[?？]/g, '').trim(), 249)
+          .replace(/[.!。]+$/, '').trim();
+        return stem + '?';
+      }
+
+      function assessmentPlanFromDraft(draft) {
+        return {
+          schemaVersion:1,
+          approved:false,
+          criteria:[{
+            id:'ai-criterion-1',
+            criterion:fitAssessmentPlanText(draft.assessmentCriteria, 180),
+            responseKind:'explanation',
+            mainQuestion:assessmentPlanQuestionFromDraft(draft.startQuestion),
+            followUpQuestion:'그 설명을 뒷받침하는 수업자료의 정확한 구절은 무엇인가요?',
+            evidenceDescription:fitAssessmentPlanText(draft.evidenceDescription, 300),
+            sourceQuote:fitAssessmentPlanText(draft.assessmentEvidence, 240),
+            requireSourceEvidence:true
+          }]
+        };
+      }
+
       function applyAssessmentDraft() {
         if (!assessmentDraft || controlsBusy || !apiVerified || byId('activity-mode').value !== 'evaluation') return;
         if (assessmentDraft.snapshot !== assessmentSnapshot() || assessmentDraft.editVersion !== assessmentEditVersion) {
@@ -738,15 +779,23 @@
         if (draft.rubricScheme === 'legacy_three') byId('rubric-good').value = '';
         if (draft.rubricScheme !== 'five_levels') byId('rubric-beginning').value = '';
         byId('rubric-scheme').value = draft.rubricScheme;
-        assessmentPlan.approved = false;
+        const filledQuestionPlan = assessmentPlanIsBlankDraft();
+        assessmentPlan = filledQuestionPlan ? assessmentPlanFromDraft(draft) : {
+          schemaVersion:1, approved:false, criteria:assessmentPlan.criteria
+        };
         assessmentDraft = null;
         assessmentEditVersion += 1;
         byId('assessment-draft').classList.toggle('hidden', true);
         syncRubricScheme();
-        updateAssessmentPlanDisplay();
+        if (filledQuestionPlan) renderAssessmentCards();
+        else updateAssessmentPlanDisplay();
         updateReadinessDisplay();
-        byId('assessment-ai-status').textContent = '초안을 입력란에 적용했습니다. 내용을 검토·수정한 뒤 설정을 저장해 주세요.';
-        setStatus('질문·수준별 예상 답변·평가기준을 적용했습니다. 검토 후 설정을 저장해 주세요.');
+        byId('assessment-ai-status').textContent = filledQuestionPlan
+          ? '초안과 평가기준별 질문·근거 계획을 적용했습니다. 계획을 검토·수정하고 승인한 뒤 설정을 저장해 주세요.'
+          : '초안을 입력란에 적용했습니다. 교사가 작성한 질문계획은 보존했으며 승인은 해제했습니다. 새 평가기준과 맞는지 검토해 주세요.';
+        setStatus(filledQuestionPlan
+          ? 'AI가 질문계획까지 채웠습니다. 교사가 검토·승인한 뒤 설정을 저장해 주세요.'
+          : '기존 질문계획은 덮어쓰지 않았습니다. 새 평가기준에 맞게 검토한 뒤 다시 승인해 주세요.');
       }
 
       function showStep(index) {
