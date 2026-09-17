@@ -260,6 +260,91 @@ assert.throws(
   /입력 크기/
 );
 
+// 배포 순서가 달라도 기존 lead 계약을 유지하고, 새 계약에서는 실제 답변을 받아야 한다.
+const groundedPlan = {
+  ...safePlan,
+  modelRequest:{ ...safePlan.modelRequest, outputContract:'grounded_answer_v2', maxOutputTokens:700 }
+};
+assert.equal(context.validateLiteEnginePlan_(groundedPlan, groundedPlan.requestId), groundedPlan);
+assert.throws(
+  () => context.validateLiteEnginePlan_({
+    ...safePlan, modelRequest:{ ...safePlan.modelRequest, outputContract:'unrecognized_contract' }
+  }, safePlan.requestId),
+  /출력 계약/
+);
+assert.deepEqual(
+  Array.from(context.buildLiteEnginePayload_({ requestId:'req_contracts', message:'질문' }, valid, [])
+    .supportedOutputContracts),
+  ['grounded_answer_v2', 'lead_evidence_quote_v1']
+);
+{
+  const previousFetch = context.UrlFetchApp;
+  const previousApiKey = properties.get('TEACHER_OPENAI_API_KEY');
+  properties.set('TEACHER_OPENAI_API_KEY', 'sk-contract-test-placeholder');
+  const directAnswer = '먹을 만큼 반찬을 고르면 다 먹기 쉬워 남기는 음식이 줄어요.';
+  const evidenceQuote = '먹을 만큼만 받으면 다 먹기 쉽다는 점을 알게 되었다.';
+  let modelPayload;
+  let modelOutput;
+  context.UrlFetchApp = {
+    fetch(url, options) {
+      assert.equal(url, 'https://api.openai.com/v1/responses');
+      modelPayload = JSON.parse(options.payload);
+      return {
+        getResponseCode:() => 200,
+        getContentText:() => JSON.stringify({
+          id:'resp_contract_test', model:'gpt-5.6-terra',
+          output:[{ content:[{ type:'output_text', text:JSON.stringify(modelOutput) }] }],
+          usage:{ input_tokens:100, output_tokens:40, total_tokens:140 }
+        })
+      };
+    }
+  };
+  try {
+    modelOutput = { lead:'자료에서 함께 확인해 볼게요.', evidenceQuote };
+    const legacyResult = context.callLiteOpenAI_(safePlan, safePlan.requestId);
+    assert.equal(legacyResult.text, modelOutput.lead);
+    assert.equal(legacyResult.evidenceQuote, evidenceQuote);
+    assert.deepEqual(modelPayload.text.format.schema.required, ['lead', 'evidenceQuote']);
+    assert.equal(modelPayload.text.format.schema.properties.lead.enum.length, 4);
+
+    modelOutput = { answer:directAnswer, evidenceQuote };
+    const groundedResult = context.callLiteOpenAI_(groundedPlan, groundedPlan.requestId);
+    assert.equal(groundedResult.text, directAnswer);
+    assert.equal(groundedResult.evidenceQuote, evidenceQuote);
+    assert.equal(groundedResult.usage.total_tokens, 140);
+    assert.deepEqual(modelPayload.text.format.schema.required, ['answer', 'evidenceQuote']);
+    assert.deepEqual(modelPayload.text.format.schema.properties.answer, { type:'string' });
+    assert.equal(Object.hasOwn(modelPayload.text.format.schema.properties, 'lead'), false);
+    assert.equal(modelPayload.text.format.schema.additionalProperties, false);
+    assert.equal(modelPayload.max_output_tokens, 700);
+    assert.equal(modelPayload.store, false);
+    for (const [limit, expected] of [[1, 200], [5000, 1000]]) {
+      context.callLiteOpenAI_({
+        ...groundedPlan, modelRequest:{ ...groundedPlan.modelRequest, maxOutputTokens:limit }
+      }, groundedPlan.requestId);
+      assert.equal(modelPayload.max_output_tokens, expected);
+    }
+    for (const malformed of [
+      { lead:'자료에서 함께 확인해 볼게요.', evidenceQuote },
+      { answer:'   ', evidenceQuote },
+      { answer:directAnswer, evidenceQuote:23 },
+      { answer:directAnswer, evidenceQuote:'' }
+    ]) {
+      modelOutput = malformed;
+      assert.throws(() => context.callLiteOpenAI_(groundedPlan, groundedPlan.requestId), (error) => {
+        assert.match(error.message, /답변과 근거 문장/);
+        assert.equal(error.usage.total_tokens, 140, '형식 오류도 유료 호출 사용량은 보존해야 한다');
+        return true;
+      });
+    }
+  } finally {
+    if (previousFetch === undefined) delete context.UrlFetchApp;
+    else context.UrlFetchApp = previousFetch;
+    if (previousApiKey === undefined) properties.delete('TEACHER_OPENAI_API_KEY');
+    else properties.set('TEACHER_OPENAI_API_KEY', previousApiKey);
+  }
+}
+
 const student = context.sanitizeLiteSettingsForStudent_(normalized);
 assert.equal(student.materialText, normalized.materialText);
 assert.equal(student.lessonGoal, normalized.lessonGoal);
@@ -1356,6 +1441,68 @@ const recoveredCandidateResult = context.submitLiteTurn(candidatePayload);
 assert.equal(recoveredCandidateResult.ok, true);
 assert.equal(modelCallCount, callsBeforeCandidateResume);
 assert.equal(properties.has(context.litePendingResultKey_(candidatePayload.requestId)), false);
+
+// 새 계약의 전체 답변도 candidateReply에 보존해 재시도 시 모델 재호출 없이 finalize·시트 저장한다.
+{
+  const answer = '개인 물병을 사용하면 일회용품 사용을 줄일 수 있어요. 학생들은 이런 작은 실천으로 환경을 지키고 있어요.';
+  const quote = '우리 학교에서는 일회용품 사용을 줄이기 위해 개인 물병을 사용하고 있습니다.';
+  const payload = {
+    ...candidatePayload, requestId:'req_grounded_resume_001', studentCode:'7-11',
+    deviceToken:'device_grounded_resume_1234', message:'개인 물병을 쓰면 왜 환경에 도움이 되나요?'
+  };
+  const turn = context.prepareLiteStudentTurn_(payload, savedSettings);
+  const candidate = context.buildLiteCandidateState_({
+    ...context.requestLiteEnginePlan_(), modelRequest:groundedPlan.modelRequest
+  }, {
+    text:answer, evidenceQuote:quote, model:'gpt-5.6-terra',
+    usage:{ input_tokens:90, output_tokens:45, total_tokens:135 }
+  });
+  assert.equal(context.trySaveLiteCandidateState_(turn, candidate).candidateReply, answer);
+  const persistedCandidate = JSON.parse(properties.get(context.litePendingResultKey_(payload.requestId)));
+  assert.equal(persistedCandidate.output.candidateReply, answer);
+  assert.equal(persistedCandidate.output.candidateEvidenceQuote, quote);
+  const previousFetch = context.UrlFetchApp;
+  const previousFinalize = context.requestLiteEngineFinalize_;
+  let finalizeCalls = 0;
+  context.requestLiteEngineFinalize_ = originalFinalizeRequest;
+  context.UrlFetchApp = {
+    fetch(url, options) {
+      finalizeCalls += 1;
+      assert.equal(url, 'https://engine.example.com/api/lite-engine/finalize');
+      const transported = JSON.parse(options.payload);
+      assert.equal(transported.candidateReply, answer, '복구된 답변 전체가 최종 확인으로 전달되어야 한다');
+      assert.equal(transported.candidateEvidenceQuote, quote);
+      assert.deepEqual(transported.supportedOutputContracts, ['grounded_answer_v2', 'lead_evidence_quote_v1']);
+      return {
+        getResponseCode:() => 200,
+        getContentText:() => JSON.stringify({
+          schemaVersion:2, requestId:turn.requestId,
+          policyVersion:candidate.plan.policyVersion, planDigest:candidate.plan.planDigest,
+          engine:{ family:'questioning-dialogue-v2' }, observation:candidate.plan.observation,
+          studentReply:answer, localFallback:false
+        })
+      };
+    }
+  };
+  try {
+    const paidCallsBeforeRecovery = modelCallCount;
+    assert.equal(context.submitLiteTurn(payload).ok, true);
+    assert.equal(modelCallCount, paidCallsBeforeRecovery);
+    assert.equal(finalizeCalls, 1);
+    const botRow = context.liteRowsAsObjects_(spreadsheet.getSheetByName('질문과 답변'))
+      .find((row) => row.requestId === payload.requestId && row.speaker === 'bot');
+    assert.equal(botRow.text, answer);
+    assert.equal(botRow.aiStatus, 'ok:gpt-5.6-terra');
+    assert.equal(botRow.apiTotalTokens, 135);
+    assert.equal(context.submitLiteTurn(payload).duplicate, true);
+    assert.equal(finalizeCalls, 1);
+    assert.equal(modelCallCount, paidCallsBeforeRecovery);
+  } finally {
+    context.requestLiteEngineFinalize_ = previousFinalize;
+    if (previousFetch === undefined) delete context.UrlFetchApp;
+    else context.UrlFetchApp = previousFetch;
+  }
+}
 
 // 유료 후보가 만들어지는 사이 중앙 엔진 검증 세대가 바뀌면 fresh 요청도 새 엔진으로 finalize하지 않는다.
 const runtimeChangedPayload = {
