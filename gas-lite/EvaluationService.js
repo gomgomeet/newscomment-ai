@@ -72,14 +72,45 @@ function liteEvaluationReviewVersion_(row) {
 function upsertLiteEvaluationDraft_(settings, turn, observation, options) {
   if (turn.isPreview) return null;
   if (!observation || observation.isClosing || observation.safetyFlag ||
-      (observation.sourceStatus === 'out_of_scope' && Number(observation.responseScore || 0) <= 0) ||
       observation.primaryMove === 'repair') return null;
-  const observedScores = Array.isArray(observation.rubricScores) ? observation.rubricScores : [];
-  if (!observedScores.some(function (item) { return Number(item && item.score || 0) > 0; })) return null;
+  const rawScores = Array.isArray(observation.rubricScores) ? observation.rubricScores : [];
+  const hasObservedScore = rawScores.some(function (item) { return Number(item && item.score || 0) > 0; });
+  const needsAssessmentResponse = !hasObservedScore ||
+    (observation.sourceStatus === 'out_of_scope' && Number(observation.responseScore || 0) <= 0);
+  if (needsAssessmentResponse && (turn.activityMode !== 'evaluation' || settings.activityMode !== 'evaluation' ||
+      !(settings.expectedAnswer || settings.assessmentEvidence))) return null;
+  // 아직 관찰하지 않은 0점은 수행평가 결과로 저장하지 않는다.
+  const observedScores = needsAssessmentResponse ? [] : rawScores;
   options = options || {};
   const writeDraft = function () {
     const spreadsheet = options.spreadsheet || getLiteSpreadsheet_();
     if (!options.workbookReady) ensureLiteWorkbook_(spreadsheet);
+    let assessmentResponse = '';
+    if (needsAssessmentResponse) {
+      const current = readLiteTeacherSettings_(spreadsheet, { skipEnsure:true });
+      if (String(current.lessonId) !== String(settings.lessonId) ||
+          Number(current.lessonRevision || 1) !== Number(settings.lessonRevision || 1) ||
+          current.activityMode !== 'evaluation' || !(current.expectedAnswer || current.assessmentEvidence)) return null;
+      const sessionRows = liteRowsByColumnValue_(spreadsheet.getSheetByName('질문과 답변'), 'sessionId', turn.sessionId);
+      const matches = function (row) {
+        return String(row.lessonId) === String(current.lessonId) &&
+          Number(row.lessonRevision || 1) === Number(current.lessonRevision || 1) &&
+          String(row.sessionId) === String(turn.sessionId) && String(row.studentCode) === String(turn.studentCode) &&
+          String(row.isPreview).toLowerCase() !== 'true';
+      };
+      const seed = sessionRows.some(function (row) {
+        return matches(row) && row.speaker === 'bot' && Number(row.turnNo) === 1 &&
+          (row.managedKind === 'start' || row.engineStatus === 'seeded_start') &&
+          liteText_(row.text) === liteText_(current.startQuestion);
+      });
+      const response = seed && sessionRows.find(function (row) {
+        return matches(row) && row.speaker === 'student' && Number(row.turnNo) === 2 &&
+          String(row.requestId) === String(turn.requestId) &&
+          String(row.engineStatus || '').indexOf('engine_failed:') !== 0;
+      });
+      assessmentResponse = response ? liteText_(response.text, LITE_MAX_STUDENT_MESSAGE_) : '';
+      if (!assessmentResponse) return null;
+    }
     const sheet = spreadsheet.getSheetByName('교사 평가');
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0]
       .map(function (value) { return String(value).trim(); });
@@ -113,6 +144,7 @@ function upsertLiteEvaluationDraft_(settings, turn, observation, options) {
       .map(function (line) { return line.trim(); }).filter(Boolean);
     const observedEvidenceLines = liteEvidenceSummary_(observedScores).split('\n')
       .map(function (line) { return line.trim(); }).filter(Boolean);
+    if (assessmentResponse) observedEvidenceLines.push('시작 질문 응답: ' + assessmentResponse);
     const previousEvidenceRequestIds = String(previous.evidenceRequestIds || '').split('|')
       .map(function (value) { return value.trim(); }).filter(Boolean);
     const evidenceRequestId = liteText_(turn.requestId, 100);
@@ -138,8 +170,10 @@ function upsertLiteEvaluationDraft_(settings, turn, observation, options) {
       lessonId: settings.lessonId,
       lessonRevision: settings.lessonRevision || 1,
       rubricScheme: rubricScheme,
-      automaticJudgment: '공통 질문행동 관찰 · ' + (rubricScheme === 'four_levels' ? '' : judgment.label + ' · ') +
-        '평균 ' + judgment.average + '/5 · 교사 기준 판단 전',
+      automaticJudgment: accumulatedScores.length
+        ? '공통 질문행동 관찰 · ' + (rubricScheme === 'four_levels' ? '' : judgment.label + ' · ') +
+          '평균 ' + judgment.average + '/5 · 교사 기준 판단 전'
+        : '시작 질문 응답 수집 · 교사 기준 판단 전',
       evidenceSummary: evidenceSummary,
       evidenceRequestIds: evidenceRequestIds,
       teacherDecision: previous.teacherDecision || '판단 보류',
@@ -180,7 +214,8 @@ function getLiteTeacherDashboardData(teacherAccessToken) {
   };
   const students = liteRowsAsObjects_(spreadsheet.getSheetByName('학생별 현황')).filter(isCurrentLesson);
   const evaluations = liteRowsAsObjects_(spreadsheet.getSheetByName('교사 평가')).filter(isCurrentLesson);
-  const apiRows = liteRowsAsObjects_(spreadsheet.getSheetByName('질문과 답변')).filter(function (row) {
+  const conversationRows = liteRowsAsObjects_(spreadsheet.getSheetByName('질문과 답변'));
+  const apiRows = conversationRows.filter(function (row) {
     const sameIdentity = row.lessonId
       ? String(row.lessonId) === String(lesson.lessonId) && Number(row.lessonRevision || 1) === Number(lesson.lessonRevision || 1)
       : Number(row.lessonRevision || 1) === Number(lesson.lessonRevision || 1) && String(row.sourceHash || '') === String(lesson.sourceHash || '');
@@ -216,6 +251,32 @@ function getLiteTeacherDashboardData(teacherAccessToken) {
     const code = String(row.studentCode || '');
     sessionCounts[code] = Number(sessionCounts[code] || 0) + 1;
   });
+  const assessmentResponses = {};
+  const assessmentIdentity = function (row) {
+    return JSON.stringify([String(row.sessionId || ''), String(row.studentCode || '')]);
+  };
+  if (lesson.expectedAnswer || lesson.assessmentEvidence) {
+    const assessmentSeeds = {};
+    conversationRows.forEach(function (row) {
+      if (isCurrentLesson(row) && String(row.isPreview).toLowerCase() !== 'true' &&
+          String(row.speaker) === 'bot' && Number(row.turnNo) === 1 &&
+          (row.managedKind === 'start' || row.engineStatus === 'seeded_start') &&
+          liteText_(row.text) === liteText_(lesson.startQuestion)) {
+        assessmentSeeds[assessmentIdentity(row)] = true;
+      }
+    });
+    conversationRows.filter(function (row) {
+      return isCurrentLesson(row) && String(row.speaker) === 'student' &&
+        String(row.isPreview).toLowerCase() !== 'true' &&
+        String(row.engineStatus || '').indexOf('engine_failed:') !== 0 &&
+        Number(row.turnNo) === 2 && assessmentSeeds[assessmentIdentity(row)];
+    }).forEach(function (row) {
+      const key = assessmentIdentity(row);
+      if (!Object.prototype.hasOwnProperty.call(assessmentResponses, key)) {
+        assessmentResponses[key] = liteText_(row.text, LITE_MAX_STUDENT_MESSAGE_);
+      }
+    });
+  }
   const decorate = function (row) {
     const sessionId = String(row.sessionId || '');
     const evidenceObservationCount = String(row.evidenceRequestIds || '').split('|')
@@ -235,7 +296,11 @@ function getLiteTeacherDashboardData(teacherAccessToken) {
     uniqueStudentCount: Object.keys(sessionCounts).length,
     apiUsage: apiUsage,
     students: liteClientData_(students.map(decorate)),
-    evaluations: liteClientData_(evaluations.map(decorate))
+    evaluations: liteClientData_(evaluations.map(function (row) {
+      return Object.assign(decorate(row), {
+        assessmentResponse: assessmentResponses[assessmentIdentity(row)] || ''
+      });
+    }))
   };
 }
 

@@ -80,14 +80,14 @@ const four = {
 // Add columns at the end: copied legacy sheets and their saved hashes/revisions stay intact.
 context.ensureLiteWorkbook_(spreadsheet);
 const lessonSheet = sheets.get('수업 자료');
-const legacyHeaders = lessonSheet.rows[0].filter((name) => !['rubricScheme', 'rubricGood'].includes(name));
+const legacyHeaders = lessonSheet.rows[0].filter((name) => !['rubricScheme', 'rubricGood', 'expectedAnswer', 'assessmentEvidence'].includes(name));
 const originalHash = context.makeLiteSettingsHash_(legacy);
 const legacyRow = { ...legacy, lessonId:'LESSON-OLD', lessonRevision:7, sourceHash:originalHash, updatedAt:'2026-09-01' };
 lessonSheet.rows = [legacyHeaders.slice(), legacyHeaders.map((header) => legacyRow[header] || '')];
 const originalCells = structuredClone(lessonSheet.rows[1]);
 const reopened = context.readLiteTeacherSettings_();
 assert.deepEqual(lessonSheet.rows[0].slice(0, legacyHeaders.length), legacyHeaders);
-assert.deepEqual(lessonSheet.rows[0].slice(legacyHeaders.length), ['rubricScheme', 'rubricGood']);
+assert.deepEqual(lessonSheet.rows[0].slice(legacyHeaders.length), ['rubricScheme', 'rubricGood', 'expectedAnswer', 'assessmentEvidence']);
 assert.deepEqual(lessonSheet.rows[1], originalCells);
 assert.equal(reopened.rubricScheme, 'legacy_three');
 assert.equal(reopened.rubricHigh, legacy.rubricHigh);
@@ -170,5 +170,184 @@ const oldSaved = context.liteRowsAsObjects_(evaluations).find((entry) => entry.s
 assert.equal(oldSaved.teacherDecision, '성장 중');
 assert.equal(oldSaved.rubricScheme, 'legacy_three');
 assert.equal(oldSaved.lessonRevision, 7);
+
+// Appending teacher-only assessment guidance also preserves the existing 25-column workbook.
+const previousHeaders = lessonSheet.rows[0].filter((name) => !['expectedAnswer', 'assessmentEvidence'].includes(name));
+assert.equal(previousHeaders.length, 25);
+lessonSheet.rows = [previousHeaders.slice(), previousHeaders.map((header) => editedFour[header] ?? '')];
+const previousCells = structuredClone(lessonSheet.rows[1]);
+const priorFour = context.readLiteTeacherSettings_();
+assert.deepEqual(lessonSheet.rows[0].slice(0, 25), previousHeaders);
+assert.deepEqual(lessonSheet.rows[0].slice(25), ['expectedAnswer', 'assessmentEvidence']);
+assert.deepEqual(plain(lessonSheet.rows[1]), plain(previousCells));
+assert.equal(priorFour.expectedAnswer, '');
+assert.equal(priorFour.assessmentEvidence, '');
+assert.equal(priorFour.sourceHash, editedFour.sourceHash);
+assert.equal(context.saveLiteTeacherSettings_(priorFour).lessonRevision, editedFour.lessonRevision);
+assert.equal(context.makeLiteSettingsHash_({ ...priorFour, expectedAnswer:undefined, assessmentEvidence:undefined }),
+  context.makeLiteSettingsHash_({ ...priorFour, expectedAnswer:'', assessmentEvidence:'' }));
+
+const guidance = {
+  ...priorFour, expectedAnswer:'선택제로 학생들이 먹을 만큼 받을 수 있게 되어 남기는 음식이 줄었다.',
+  assessmentEvidence:'학생들은 먹을 만큼만 받으면 다 먹기 쉽다는 것을 알게 되었다.'
+};
+for (const activityMode of ['evaluation', 'exploration']) {
+  const normalizedGuide = context.validateLiteTeacherSetup_({ ...guidance, activityMode });
+  assert.equal(normalizedGuide.expectedAnswer, guidance.expectedAnswer);
+  assert.equal(normalizedGuide.assessmentEvidence, guidance.assessmentEvidence);
+  assert.throws(() => context.validateLiteTeacherSetup_({ ...guidance, activityMode, expectedAnswer:'가'.repeat(1501) }), /1500자/);
+  assert.throws(() => context.validateLiteTeacherSetup_({ ...guidance, activityMode, assessmentEvidence:'가'.repeat(1001) }), /1000자/);
+}
+properties.set('LITE_PREVIEW_ACCESS_TOKEN', 'preview-before-assessment-guidance');
+const savedGuidance = context.saveLiteTeacherSettings_(context.validateLiteTeacherSetup_(guidance));
+assert.equal(savedGuidance.lessonRevision, priorFour.lessonRevision + 1);
+assert.notEqual(savedGuidance.sourceHash, priorFour.sourceHash);
+assert.equal(properties.has('LITE_PREVIEW_ACCESS_TOKEN'), false);
+assert.equal(context.readLiteTeacherSettings_().expectedAnswer, guidance.expectedAnswer);
+assert.equal(context.readLiteTeacherSettings_().assessmentEvidence, guidance.assessmentEvidence);
+assert.equal(context.saveLiteTeacherSettings_(savedGuidance).lessonRevision, savedGuidance.lessonRevision);
+for (const field of ['expectedAnswer', 'assessmentEvidence']) {
+  assert.notEqual(context.makeLiteSettingsHash_({ ...savedGuidance, [field]:savedGuidance[field] + ' 수정' }), savedGuidance.sourceHash);
+  for (const visible of [context.sanitizeLiteSettingsForStudent_(savedGuidance), context.sanitizeLiteBootstrapForStudent_(savedGuidance)]) {
+    assert.equal(Object.hasOwn(visible, field), false);
+  }
+}
+const assessmentPayload = context.buildLiteEnginePayload_({ activityMode:'evaluation', message:'이유가 무엇인가요?' }, savedGuidance, []);
+assert.equal(Object.hasOwn(assessmentPayload.lesson, 'expectedAnswer'), false);
+assert.equal(Object.hasOwn(assessmentPayload.lesson, 'assessmentEvidence'), false);
+
+// The teacher sees only the response immediately following this exact lesson/session's seed.
+const assessedTurn = { ...turn, sessionId:'S-assessment-answer', requestId:'request-assessment-answer' };
+const unansweredTurn = { ...turn, studentCode:'99-996', sessionId:'S-assessment-unanswered', requestId:'request-assessment-unanswered' };
+context.upsertLiteEvaluationDraft_(savedGuidance, assessedTurn, observation);
+context.upsertLiteEvaluationDraft_(savedGuidance, unansweredTurn, observation);
+const qaSheet = sheets.get('질문과 답변');
+const qaHeaders = qaSheet.rows[0];
+const qaBase = {
+  lessonId:savedGuidance.lessonId, lessonRevision:savedGuidance.lessonRevision,
+  studentCode:assessedTurn.studentCode, sessionId:assessedTurn.sessionId,
+  speaker:'student', turnNo:2, engineStatus:'finalized', isPreview:false
+};
+const assessmentText = '먹을 만큼만 받으면 다 먹기 쉬워서 음식 낭비가 줄어듭니다.';
+[
+  { ...qaBase, lessonRevision:savedGuidance.lessonRevision - 1, text:'이전 개정 답변' },
+  { ...qaBase, lessonId:'LESSON-OTHER', text:'다른 수업 답변' },
+  { ...qaBase, isPreview:true, text:'교사 미리보기 답변' },
+  { ...qaBase, isPreview:'TRUE', text:'문자열 미리보기 답변' },
+  { ...qaBase, engineStatus:'engine_failed:timeout', text:'실패한 요청' },
+  { ...qaBase, studentCode:'99-995', text:'다른 학생 답변' },
+  { ...qaBase, sessionId:'S-other-session', text:'다른 접속의 답변' },
+  { ...qaBase, speaker:'bot', turnNo:1, managedKind:'start', engineStatus:'seeded_start', text:savedGuidance.startQuestion },
+  { ...qaBase, turnNo:4, text:'두 번째 학생 답변' },
+  { ...qaBase, turnNo:2, text:assessmentText }
+].forEach((entry) => qaSheet.rows.push(qaHeaders.map((header) => entry[header] ?? '')));
+const assessmentDashboard = context.getLiteTeacherDashboardData(token);
+const assessedRow = assessmentDashboard.evaluations.find((entry) => entry.sessionId === assessedTurn.sessionId);
+assert.equal(assessedRow.assessmentResponse, assessmentText);
+assert.equal(assessedRow.teacherDecision, '판단 보류');
+assert.equal(assessmentDashboard.evaluations.find((entry) => entry.sessionId === unansweredTurn.sessionId).assessmentResponse, '');
+assert.equal(assessmentDashboard.lesson.startQuestion, savedGuidance.startQuestion);
+assert.equal(assessmentDashboard.lesson.expectedAnswer, guidance.expectedAnswer);
+assert.equal(assessmentDashboard.lesson.assessmentEvidence, guidance.assessmentEvidence);
+const responseIndex = qaSheet.rows.findIndex((entry) => entry[qaHeaders.indexOf('text')] === assessmentText);
+qaSheet.rows[responseIndex][qaHeaders.indexOf('turnNo')] = 6;
+assert.equal(context.getLiteTeacherDashboardData(token).evaluations.find((entry) => entry.sessionId === assessedTurn.sessionId).assessmentResponse, '');
+qaSheet.rows[responseIndex][qaHeaders.indexOf('turnNo')] = 2;
+const seedIndex = qaSheet.rows.findIndex((entry) => entry[qaHeaders.indexOf('engineStatus')] === 'seeded_start');
+qaSheet.rows[seedIndex][qaHeaders.indexOf('text')] = '다른 시작 질문';
+assert.equal(context.getLiteTeacherDashboardData(token).evaluations.find((entry) => entry.sessionId === assessedTurn.sessionId).assessmentResponse, '');
+qaSheet.rows[seedIndex][qaHeaders.indexOf('text')] = savedGuidance.startQuestion;
+qaSheet.rows[responseIndex][qaHeaders.indexOf('text')] = '가'.repeat(900);
+assert.equal(context.getLiteTeacherDashboardData(token).evaluations.find((entry) => entry.sessionId === assessedTurn.sessionId).assessmentResponse.length, 800);
+qaSheet.rows[responseIndex][qaHeaders.indexOf('text')] = assessmentText;
+const expectedColumn = lessonSheet.rows[0].indexOf('expectedAnswer');
+const evidenceColumn = lessonSheet.rows[0].indexOf('assessmentEvidence');
+lessonSheet.rows[1][expectedColumn] = '';
+lessonSheet.rows[1][evidenceColumn] = '';
+assert.equal(context.getLiteTeacherDashboardData(token).evaluations.find((entry) => entry.sessionId === assessedTurn.sessionId).assessmentResponse, '');
+lessonSheet.rows[1][expectedColumn] = guidance.expectedAnswer;
+lessonSheet.rows[1][evidenceColumn] = guidance.assessmentEvidence;
+
+// An initial assessment answer is reviewable even when the common conversation rubric has no score.
+const initialTurn = {
+  studentCode:'99-994', sessionId:'S-zero-score-assessment', requestId:'request-zero-score-assessment',
+  isPreview:false, activityMode:'evaluation'
+};
+const initialAnswer = '먹을 만큼 받으면 남기는 음식이 줄어들기 때문이에요.';
+const zeroObservation = {
+  primaryMove:'receive', sourceStatus:'supported', responseScore:null,
+  rubricScores:['questioning', 'passage_comprehension', 'achievement_standard', 'reflection_opinion']
+    .map((criterionKey) => ({ criterionKey, score:0, rationale:'아직 관찰하지 않음' }))
+};
+[
+  { ...qaBase, ...initialTurn, speaker:'bot', turnNo:1, managedKind:'start', engineStatus:'seeded_start', text:savedGuidance.startQuestion },
+  { ...qaBase, ...initialTurn, speaker:'student', turnNo:2, text:initialAnswer }
+].forEach((entry) => qaSheet.rows.push(qaHeaders.map((header) => entry[header] ?? '')));
+const initialDraft = context.upsertLiteEvaluationDraft_(savedGuidance, initialTurn, zeroObservation);
+assert.equal(initialDraft.teacherDecision, '판단 보류');
+assert.equal(initialDraft.finalStatus, '검수 필요');
+assert.equal(initialDraft.automaticJudgment, '시작 질문 응답 수집 · 교사 기준 판단 전');
+assert.match(initialDraft.evidenceSummary, /먹을 만큼 받으면/);
+assert.equal(initialDraft.evidenceRequestIds, initialTurn.requestId);
+let initialReview = context.getLiteTeacherDashboardData(token).evaluations.find((entry) => entry.sessionId === initialTurn.sessionId);
+assert.equal(initialReview.assessmentResponse, initialAnswer);
+for (const field of ['questioningBest', 'passageComprehensionBest', 'achievementStandardBest', 'reflectionOpinionBest']) {
+  assert.equal(initialReview[field], '');
+}
+context.saveLiteTeacherEvaluation(token, {
+  ...initialReview, expectedReviewVersion:initialReview.reviewVersion, teacherDecision:'잘함',
+  teacherFeedback:'자료의 이유를 자기 말로 설명했어요.', improvementSuggestion:'근거 문장도 찾아 보세요.', finalStatus:'최종 확정'
+});
+context.upsertLiteEvaluationDraft_(savedGuidance, initialTurn, zeroObservation);
+initialReview = context.getLiteTeacherDashboardData(token).evaluations.find((entry) => entry.sessionId === initialTurn.sessionId);
+assert.equal(initialReview.teacherDecision, '잘함');
+assert.equal(initialReview.finalStatus, '최종 확정');
+const zeroRowsBefore = sheets.get('교사 평가').rows.length;
+[
+  [{ ...initialTurn, isPreview:true }, zeroObservation],
+  [{ ...initialTurn, activityMode:'exploration' }, zeroObservation],
+  [initialTurn, { ...zeroObservation, safetyFlag:true }],
+  [initialTurn, { ...zeroObservation, primaryMove:'repair' }],
+  [initialTurn, { ...zeroObservation, isClosing:true }],
+  [{ ...initialTurn, requestId:'different-request' }, zeroObservation],
+  [{ ...initialTurn, sessionId:'missing-session' }, zeroObservation]
+].forEach(([candidateTurn, candidateObservation]) => {
+  assert.equal(context.upsertLiteEvaluationDraft_(savedGuidance, candidateTurn, candidateObservation), null);
+});
+const initialStudentIndex = qaSheet.rows.findIndex((entry) => entry[qaHeaders.indexOf('text')] === initialAnswer);
+qaSheet.rows[initialStudentIndex][qaHeaders.indexOf('engineStatus')] = 'engine_failed:timeout';
+assert.equal(context.upsertLiteEvaluationDraft_(savedGuidance, initialTurn, zeroObservation), null);
+qaSheet.rows[initialStudentIndex][qaHeaders.indexOf('engineStatus')] = 'finalized';
+qaSheet.rows[initialStudentIndex][qaHeaders.indexOf('turnNo')] = 4;
+assert.equal(context.upsertLiteEvaluationDraft_(savedGuidance, initialTurn, zeroObservation), null);
+qaSheet.rows[initialStudentIndex][qaHeaders.indexOf('turnNo')] = 2;
+assert.equal(context.upsertLiteEvaluationDraft_({ ...savedGuidance, lessonRevision:savedGuidance.lessonRevision - 1 }, initialTurn, zeroObservation), null);
+assert.equal(sheets.get('교사 평가').rows.length, zeroRowsBefore);
+
+const copiedGuidance = context.saveLiteTeacherSettings_(savedGuidance, { newLesson:true });
+assert.notEqual(copiedGuidance.lessonId, savedGuidance.lessonId);
+assert.equal(copiedGuidance.expectedAnswer, guidance.expectedAnswer);
+assert.equal(copiedGuidance.assessmentEvidence, guidance.assessmentEvidence);
+
+// Only extract existing codes: retain the full visible standard and repair duplicate legacy text.
+const fullStandard = '[4국02-04] 글에 드러난 사실을 찾아 자신의 생각을 설명한다.';
+assert.deepEqual(plain(context.normalizeLiteAchievementStandard_(fullStandard, fullStandard)), {
+  achievementStandard:fullStandard, achievementStandardCode:'[4국02-04]'
+});
+const oldFullStandard = '글에 드러난 사실과 근거를 바탕으로 자신의 의견을 알맞게 설명한다. '.repeat(3).trim();
+assert.deepEqual(plain(context.normalizeLiteAchievementStandard_(oldFullStandard, oldFullStandard.slice(0, 80))), {
+  achievementStandard:oldFullStandard, achievementStandardCode:''
+});
+assert.deepEqual(plain(context.normalizeLiteAchievementStandard_('', fullStandard)), {
+  achievementStandard:fullStandard, achievementStandardCode:'[4국02-04]'
+});
+assert.deepEqual(plain(context.normalizeLiteAchievementStandard_('[점검용 기술형 기준] 자료의 사실을 파악한다.', '')), {
+  achievementStandard:'[점검용 기술형 기준] 자료의 사실을 파악한다.', achievementStandardCode:''
+});
+assert.equal(context.validateLiteTeacherSetup_({ ...four, achievementStandard:fullStandard, achievementStandardCode:fullStandard }).achievementStandardCode, '[4국02-04]');
+assert.equal(context.liteAchievementStandardContent_('[4사08-02]'), '');
+assert.throws(() => context.validateLiteTeacherSetup_({ ...four, lessonGoal:'', achievementStandard:'[4사08-02]' }), /목표 또는 성취기준/);
+assert.equal(context.buildLiteReadiness_({ ...four, lessonGoal:'', achievementStandard:'[4사08-02]' }, {}).checks.find((entry) => entry.key === 'backwardDesign').state, 'block');
+assert.equal(context.liteAchievementStandardContent_(fullStandard), '글에 드러난 사실을 찾아 자신의 생각을 설명한다.');
 
 console.log('gas-lite four-level rubric checks: all passed');

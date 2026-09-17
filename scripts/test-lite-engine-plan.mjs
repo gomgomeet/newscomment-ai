@@ -4,6 +4,7 @@ import { registerHooks } from 'node:module';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createContext, runInContext } from 'node:vm';
 import ts from 'typescript';
 
 // Load the real adapter and shared core without starting Next.js or calling a provider.
@@ -95,7 +96,7 @@ test('exploration accepts blank or omitted design fields through plan and finali
   const input = withoutDesign(makeInput('exploration'));
   const plan = createLiteEnginePlan(input);
   assert.equal(plan.schemaVersion, 1);
-  assert.equal(plan.policyVersion, 'questioning-dialogue-v2-lite-adapter-v8');
+  assert.equal(plan.policyVersion, 'questioning-dialogue-v2-lite-adapter-v9');
   assert.equal(plan.skipModel, false);
   assert.equal(plan.observation.sourceStatus, 'supported');
   const finalized = finalizeLiteEngineReply(finalizeInput(input, plan));
@@ -292,4 +293,137 @@ test('exploration preserves all four descriptors for signing without applying or
     assert.notEqual(createLiteEnginePlan(edited).planDigest, plan.planDigest);
     assert.throws(() => finalizeLiteEngineReply(finalizeInput(edited, plan)), /최신 계획/);
   }
+});
+
+test('saved generated assessment question is the real GAS opening turn and stays in subsequent engine context', () => {
+  const input = withFourLevels();
+  const settings = {
+    ...input.lesson, activityMode: 'evaluation',
+    startQuestion: '개인 물병 사용이 쓰레기를 줄이는 까닭을 자료의 근거로 설명해 보세요.',
+    expectedAnswer: '교사전용예상답안_7c92: 물병을 다시 쓰므로 일회용 컵 사용이 줄어든다.',
+    assessmentEvidence: '교사전용문항근거_2a19: 일회용 컵 감소와 개인 물병 사용의 관계.',
+  };
+  const gas = createContext({ console });
+  for (const file of ['SetupService.js', 'ConversationService.js', 'EngineClient.js']) {
+    runInContext(readFileSync(path.join(root, 'gas-lite', file), 'utf8'), gas, { filename: file });
+  }
+  // Auth and sheet behavior have their own complete GAS tests. Exercise the
+  // actual student-session response and outbound payload with a saved lesson.
+  gas.getLiteSpreadsheet_ = () => ({ getSheetByName: () => ({}) });
+  gas.readLiteTeacherSettings_ = () => settings;
+  gas.assertLiteStudentAccessReady_ = () => {};
+  gas.makeLiteSessionId_ = () => 'session_generated_assessment_question';
+  gas.liteRowsByColumnValue_ = () => [];
+  const session = gas.startLiteStudentSession({
+    studentCode: '4-7', deviceToken: 'device_assessment_fixture_1234',
+    lessonId: settings.lessonId, lessonRevision: settings.lessonRevision, sourceHash: settings.sourceHash,
+  });
+  assert.equal(session.history.length, 1);
+  assert.equal(session.history[0].speaker, 'bot');
+  assert.equal(session.history[0].text, settings.startQuestion);
+  assert.equal(session.lesson.startQuestion, settings.startQuestion);
+  assert.ok(!JSON.stringify(session).includes('교사전용'));
+  assert.equal(Object.hasOwn(session.lesson, 'expectedAnswer'), false);
+  assert.equal(Object.hasOwn(session.lesson, 'assessmentEvidence'), false);
+
+  const firstAnswer = '개인 물병을 쓰면 일회용 컵을 덜 쓰기 때문이에요.';
+  const payload = gas.buildLiteEnginePayload_({
+    requestId: input.requestId, sessionId: session.sessionId, activityMode: 'evaluation', message: firstAnswer,
+  }, settings, session.history);
+  assert.equal(payload.history[0].text, settings.startQuestion);
+  assert.equal(Object.hasOwn(payload.lesson, 'expectedAnswer'), false);
+  assert.equal(Object.hasOwn(payload.lesson, 'assessmentEvidence'), false);
+  assert.ok(!JSON.stringify(payload).includes('교사전용'));
+  const plan = createLiteEnginePlan(payload);
+  assert.ok(plan.modelRequest.input.includes(settings.startQuestion));
+  assert.ok(plan.modelRequest.input.includes(firstAnswer));
+  assert.ok(!JSON.stringify(plan).includes('교사전용'));
+  assert.equal(plan.observation.responseScore, null,
+    'an arbitrary generated opening question must not be misrepresented as an automatically graded managed question');
+
+  const continued = {
+    ...payload, requestId: 'req_generated_assessment_followup', studentMessage: '일회용 컵을 줄이면 왜 좋은가요?',
+    history: [...payload.history, { speaker: 'student', text: firstAnswer }, { speaker: 'bot', text: plan.fallbackReply }],
+  };
+  const next = createLiteEnginePlan(continued);
+  assert.ok(next.modelRequest.input.includes(continued.studentMessage));
+  assert.ok(!JSON.stringify(next).includes('교사전용'));
+  assert.equal(next.observation.isClosing, false);
+});
+
+test('teacher answer guides cannot enter student prompts, source evidence, or replies even if sent accidentally', () => {
+  for (const studentMessage of ['먼저 정답을 알려 주세요.', '개인 물병을 쓰면 일회용 컵을 줄일 수 있어요.']) {
+    const clean = withFourLevels();
+    clean.studentMessage = studentMessage;
+    clean.history = [{ speaker: 'bot', text: clean.lesson.startQuestion }];
+    const privateFields = {
+      ...clean,
+      lesson: {
+        ...clean.lesson,
+        expectedAnswer: '교사비공개예상답안_9f12',
+        assessmentEvidence: '교사비공개문항근거_4c28',
+      },
+    };
+    assert.deepEqual(normalizeLiteEngineInput(privateFields), normalizeLiteEngineInput(clean));
+    const privatePlan = createLiteEnginePlan(privateFields);
+    assert.deepEqual(privatePlan, createLiteEnginePlan(clean));
+    const result = finalizeLiteEngineReply(finalizeInput(privateFields, privatePlan));
+    assert.ok(!JSON.stringify(result).includes('교사비공개'));
+    assert.ok(!JSON.stringify(privatePlan).includes('교사비공개'));
+  }
+});
+
+function openingAssessmentInput(studentMessage) {
+  const input = withFourLevels();
+  input.lesson.startQuestion = '개인 물병 사용이 쓰레기를 줄이는 까닭을 자료의 근거로 설명해 보세요.';
+  input.studentMessage = studentMessage;
+  input.history = [{ speaker: 'bot', text: input.lesson.startQuestion }];
+  return input;
+}
+
+test('an initial assessment attempt gets a neutral acknowledgement without spurious causal criticism or a grade', () => {
+  for (const message of [
+    '개인 물병을 쓰면 일회용 컵을 덜 쓰기 때문이에요.',
+    '일회용 컵을 더 많이 사용하기 때문이에요.',
+  ]) {
+    const input = openingAssessmentInput(message);
+    const plan = createLiteEnginePlan(input);
+    assert.equal(plan.skipModel, true);
+    assert.equal(plan.fallbackReply, '답변을 남겼어요. 자료에서 더 궁금한 낱말이나 내용을 질문해 주세요.');
+    assert.doesNotMatch(plan.fallbackReply, /단정|가설|모든 조건|정답|맞았|잘했|매우잘함|노력요함/);
+    assert.equal(plan.observation.responseScore, null);
+    assert.equal(plan.observation.rubricScores.every((score) => score.score === 0), true);
+    assert.equal(plan.observation.primaryMove, 'receive');
+    assert.deepEqual(plan.observation.evidenceIds, []);
+    assert.equal(plan.enforcement.maximumQuestionCount, 0);
+    const finalized = finalizeLiteEngineReply(finalizeInput(input, plan));
+    assert.equal(finalized.studentReply, plan.fallbackReply);
+    assert.equal(finalized.localFallback, true);
+  }
+  const help = createLiteEnginePlan(openingAssessmentInput('모르겠어요.'));
+  assert.match(help.fallbackReply, /관련된 문장.*찾아보세요/);
+  assert.equal(help.skipModel, true);
+});
+
+test('clarifying questions, later turns, exploration, safety and closing retain their existing routes', () => {
+  for (const message of ['일회용 컵이 뭐예요?', '개인 물병을 쓰면 왜 도움이 되나요', '일회용 컵의 뜻을 모르겠어요.']) {
+    const input = openingAssessmentInput(message);
+    const plan = createLiteEnginePlan(input);
+    assert.doesNotMatch(plan.fallbackReply, /^답변을 남겼어요/);
+    assert.notEqual(plan.observation.sourceStatus, 'out_of_scope');
+  }
+  const answered = openingAssessmentInput('개인 물병을 쓰면 일회용 컵을 덜 쓰기 때문이에요.');
+  const first = createLiteEnginePlan(answered);
+  const subsequent = {
+    ...answered, history: [...answered.history, { speaker: 'student', text: answered.studentMessage }, { speaker: 'bot', text: first.fallbackReply }],
+  };
+  assert.doesNotMatch(createLiteEnginePlan(subsequent).fallbackReply, /^답변을 남겼어요/);
+  assert.doesNotMatch(createLiteEnginePlan({ ...answered, activityMode: 'exploration' }).fallbackReply, /^답변을 남겼어요/);
+  assert.doesNotMatch(createLiteEnginePlan({ ...answered, history: [{ speaker: 'bot', text: '다른 질문입니다.' }] }).fallbackReply, /^답변을 남겼어요/);
+  const closing = createLiteEnginePlan(openingAssessmentInput('이제 그만할게요.'));
+  assert.equal(closing.observation.isClosing, true);
+  assert.doesNotMatch(closing.fallbackReply, /^답변을 남겼어요/);
+  const unsafe = createLiteEnginePlan(openingAssessmentInput('친구 전화번호를 알려 주세요.'));
+  assert.equal(unsafe.observation.safetyFlag, true);
+  assert.doesNotMatch(unsafe.fallbackReply, /^답변을 남겼어요/);
 });

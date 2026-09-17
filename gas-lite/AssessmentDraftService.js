@@ -23,7 +23,7 @@ function validateLiteAssessmentDraftInput_(payload) {
     achievementStandard:liteOptional_(payload.achievementStandard, '성취기준', 1000),
     materialTitle:liteOptional_(payload.materialTitle, '수업자료 제목', 120)
   };
-  if (!input.lessonGoal && !input.achievementStandard) {
+  if (!input.lessonGoal && !liteAchievementStandardContent_(input.achievementStandard)) {
     throw new Error('수업 목표 또는 성취기준 내용을 먼저 입력해 주세요.');
   }
   // Send only lesson-design fields, never join codes, student conversations, or credentials.
@@ -99,6 +99,15 @@ function parseLiteAssessmentDraft_(data) {
 
 function generateLiteAssessmentDraft_(payload) {
   const input = validateLiteAssessmentDraftInput_(payload);
+  return {
+    ok:true,
+    draft:parseLiteAssessmentDraft_(requestLiteAssessmentDraft_(buildLiteAssessmentDraftRequest_(input))),
+    message:'AI 초안입니다. 목표와 수준별 차이를 확인한 뒤 적용하고 저장해 주세요.'
+  };
+}
+
+// Shared provider boundary: one authenticated, budgeted call, without automatic retries.
+function requestLiteAssessmentDraft_(request) {
   const key = PropertiesService.getScriptProperties().getProperty(LITE_API_KEY_PROPERTY_);
   if (!key || !isLiteApiVerified_()) {
     throw new Error('상단 AI 연결에서 개인 API 키를 저장하고 연결 확인을 먼저 해 주세요.');
@@ -110,7 +119,7 @@ function generateLiteAssessmentDraft_(payload) {
     response = UrlFetchApp.fetch(LITE_OPENAI_RESPONSES_URL_, {
       method:'post', contentType:'application/json',
       headers:{ Authorization:'Bearer ' + key, 'X-Client-Request-Id':'rubric_' + Utilities.getUuid() },
-      payload:JSON.stringify(buildLiteAssessmentDraftRequest_(input)),
+      payload:JSON.stringify(request),
       muteHttpExceptions:true
     });
   } catch (error) {
@@ -126,9 +135,86 @@ function generateLiteAssessmentDraft_(payload) {
   let data;
   try { data = JSON.parse(response.getContentText()); }
   catch (error) { throw new Error('AI 응답을 읽지 못했습니다. 기존 입력은 유지됩니다.'); }
+  return data;
+}
+
+const LITE_MATERIAL_ASSESSMENT_FIELDS_ = {
+  startQuestion:{ label:'평가 질문', limit:500 },
+  expectedAnswer:{ label:'답변의 핵심 요소', limit:1500 },
+  assessmentEvidence:{ label:'자료의 근거 문장', limit:1000 }
+};
+
+function validateLiteMaterialAssessmentInput_(payload) {
+  const input = validateLiteAssessmentDraftInput_(payload);
+  const material = liteRequired_(payload.materialText, '수업자료 본문', 30000);
+  if (material.length < 30) throw new Error('평가 질문을 만들려면 30자 이상의 수업자료 본문을 넣어 주세요.');
+  // This paired draft uses the complete bounded material, not a silently truncated passage.
+  input.materialExcerpt = material;
+  input.materialExcerptTruncated = false;
+  return input;
+}
+
+function buildLiteMaterialAssessmentRequest_(input) {
+  const request = buildLiteAssessmentDraftRequest_(input);
+  const properties = { materialUsable:{type:'boolean'}, reason:{type:'string'} };
+  [LITE_MATERIAL_ASSESSMENT_FIELDS_, LITE_ASSESSMENT_DRAFT_FIELDS_].forEach(function (fields) {
+    Object.keys(fields).forEach(function (key) { properties[key] = {type:'string'}; });
+  });
+  request.max_output_tokens = 4800;
+  request.text.format.name = 'teacher_material_assessment_draft';
+  request.text.format.schema = {
+    type:'object', properties:properties, required:Object.keys(properties), additionalProperties:false
+  };
+  request.instructions += '\n' + [
+    '이번 작업은 수업자료를 읽고 평가 질문과 그 질문에 대한 답변의 평가기준을 한 묶음으로 설계하는 것입니다.',
+    '먼저 자료에서 실제로 확인할 수 있는 내용과 목표·성취기준이 겹치는 수행을 정하세요. 그 수행을 묻는 핵심 평가 질문 하나를 startQuestion에 쓰세요. 자료 이해와 근거 설명을 연결한 한 질문으로 만들고 별개 질문 목록을 만들지 마세요.',
+    '학생이 학년에 맞는 말로 답할 수 있도록 질문은 간결하게 쓰세요. 질문 안에 모범답안이나 결론을 미리 알려 주지 마세요.',
+    'expectedAnswer에는 그 질문의 답변에서 확인할 핵심 요소 2~4개를 짧게 설명하세요. 사실 확인은 자료에 근거하고, 의견 질문은 가능한 다양한 타당한 답변을 인정하세요. 하나의 의견을 유일한 정답으로 강요하지 마세요.',
+    'assessmentEvidence에는 위 핵심 요소를 뒷받침하는 자료의 연속된 원문 한 구절을 12~1000자로 그대로 인용하세요. 인용부호·생략부호·해설을 덧붙이지 마세요. 다른 문장을 이어 붙이거나 없는 근거를 만들지 마세요.',
+    'assessmentCriteria와 네 수준 기준은 반드시 이번 startQuestion의 답변에서 관찰할 수 있는 핵심 요소를 평가하세요. 질문에서 요구하지 않은 별도의 실천, 발표, 산출물, 태도나 교실 밖 행동을 요구하지 마세요.',
+    'evidenceDescription은 이번 질문에 대한 학생의 실제 답변과 근거 설명 중 교사가 수집할 부분을 적으세요.',
+    '자료에 질문을 만들 정보가 없거나 목표·성취기준과 자료가 맞지 않아 근거 있는 평가를 만들 수 없으면 materialUsable=false, reason에 짧은 보완 안내를 쓰고 나머지 문자열은 빈 값으로 반환하세요. 억지로 질문과 정답을 만들지 마세요.',
+    '만들 수 있으면 materialUsable=true, reason은 빈 문자열로 쓰세요. startQuestion은 500자, expectedAnswer는 1500자, assessmentEvidence는 1000자 이내입니다. 답변 핵심과 원문 근거는 교사용이며 학생에게 먼저 공개하지 않습니다.'
+  ].join('\n');
+  return request;
+}
+
+function parseLiteMaterialAssessmentDraft_(data, input) {
+  if (!data || data.status !== 'completed') throw new Error('AI가 질문과 평가기준 생성을 끝내지 못했습니다. 다시 시도해 주세요.');
+  let draft;
+  try { draft = JSON.parse(extractLiteOpenAIText_(data)); }
+  catch (error) { throw new Error('AI 질문·평가기준 초안 형식을 확인하지 못했습니다. 기존 입력은 유지됩니다.'); }
+  const keys = ['materialUsable', 'reason'].concat(Object.keys(LITE_MATERIAL_ASSESSMENT_FIELDS_), Object.keys(LITE_ASSESSMENT_DRAFT_FIELDS_));
+  if (!draft || typeof draft !== 'object' || Array.isArray(draft) ||
+      Object.keys(draft).length !== keys.length || Object.keys(draft).some(function (key) { return keys.indexOf(key) === -1; }) ||
+      typeof draft.materialUsable !== 'boolean' || typeof draft.reason !== 'string' || draft.reason.length > 500) {
+    throw new Error('AI 질문·평가기준 초안의 항목이 올바르지 않습니다. 다시 만들어 주세요.');
+  }
+  if (!draft.materialUsable) {
+    // Do not reflect arbitrary provider instructions. Give a stable, actionable explanation.
+    throw new Error('현재 자료와 목표로는 근거 있는 평가 질문을 만들기 어렵습니다. 자료 본문과 수업 목표·성취기준이 서로 맞는지 확인해 주세요.');
+  }
+  const rubric = {};
+  Object.keys(LITE_ASSESSMENT_DRAFT_FIELDS_).forEach(function (key) { rubric[key] = draft[key]; });
+  const result = parseLiteAssessmentDraft_({status:'completed', output:[{type:'message', content:[{type:'output_text', text:JSON.stringify(rubric)}]}]});
+  Object.keys(LITE_MATERIAL_ASSESSMENT_FIELDS_).forEach(function (key) {
+    const field = LITE_MATERIAL_ASSESSMENT_FIELDS_[key];
+    if (typeof draft[key] !== 'string') throw new Error('AI 초안의 ' + field.label + ' 형식을 확인해 주세요.');
+    result[key] = liteRequired_(draft[key], 'AI 초안의 ' + field.label, field.limit);
+  });
+  const normalize = function (value) { return value.replace(/\s+/g, ' ').trim(); };
+  const quote = normalize(result.assessmentEvidence);
+  if (quote.length < 12 || normalize(input.materialExcerpt).indexOf(quote) === -1) {
+    throw new Error('AI가 제시한 근거 문장이 수업자료 원문과 일치하지 않습니다. 기존 입력은 유지됩니다. 다시 만들어 주세요.');
+  }
+  return result;
+}
+
+function generateLiteMaterialAssessmentDraft_(payload) {
+  const input = validateLiteMaterialAssessmentInput_(payload);
+  const data = requestLiteAssessmentDraft_(buildLiteMaterialAssessmentRequest_(input));
   return {
-    ok:true,
-    draft:parseLiteAssessmentDraft_(data),
-    message:'AI 초안입니다. 목표와 수준별 차이를 확인한 뒤 적용하고 저장해 주세요.'
+    ok:true, draft:parseLiteMaterialAssessmentDraft_(data, input),
+    message:'자료를 바탕으로 만든 질문·답변 핵심·4단계 기준 초안입니다. 확인 후 적용하고 저장해 주세요.'
   };
 }

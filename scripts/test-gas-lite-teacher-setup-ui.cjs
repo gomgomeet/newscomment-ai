@@ -51,6 +51,7 @@ class Element {
   }
   get textContent() { return this._text + this.children.map((child) => child.textContent).join(''); }
   set textContent(value) { this._text = String(value); this.children = []; }
+  set innerHTML(_value) { assert.fail('Teacher and student data must be rendered as text, never executable HTML'); }
   get href() { return this.getAttribute('href') || ''; }
   set href(value) { this.setAttribute('href', value); }
   getAttribute(name) { return this.attributes[name] ?? null; }
@@ -109,7 +110,7 @@ function parseForm(markupHtml = html) {
       const index = stack.findLastIndex((element) => element.tagName === tagName);
       if (index > 0) stack.length = index;
     } else if (value.startsWith('<')) {
-      const [, tagName, rawAttributes] = value.match(/^<([a-z]+)([^>]*)>/i);
+      const [, tagName, rawAttributes] = value.match(/^<([a-z][a-z0-9]*)([^>]*)>/i);
       const attributes = {};
       for (const attribute of rawAttributes.matchAll(/([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g)) {
         attributes[attribute[1]] = attribute[2] ?? attribute[3] ?? attribute[4] ?? '';
@@ -218,7 +219,7 @@ function createUi(settings, api = { configured:true, verified:true }) {
 const settings = {
   lessonId:'lesson-existing', appName:'simbot', subject:'국어', grade:'초등 4학년',
   lessonTitle:'근거 있는 의견', lessonGoal:'글의 근거를 설명할 수 있다.',
-  achievementStandardCode:'[4국02-04]', achievementStandard:'사실과 의견을 구분한다.',
+  achievementStandardCode:'[4국02-04]', achievementStandard:'[4국02-04] 사실과 의견을 구분한다.',
   assessmentCriteria:'자료의 근거를 들어 자신의 의견을 설명한다.',
   rubricHigh:'둘 이상의 근거로 설명한다.', rubricMeet:'한 가지 근거로 설명한다.',
   rubricDeveloping:'교사의 도움으로 근거를 찾는다.', evidenceDescription:'질문과 답변의 근거',
@@ -252,9 +253,17 @@ const ui = createUi(settings);
 assert.equal(ui.byId('backward-design-enabled').classList.contains('hidden'), true);
 assert.equal(ui.byId('api-settings').open, false, 'Verified AI settings stay collapsed');
 assert.equal(ui.byId('panel-design').classList.contains('active'), true, 'Compact setup opens on lesson settings');
-assert.equal((html.match(/<button[^>]+data-step="/g) || []).length, 3, 'Keep the three-step teacher setup');
+assert.equal((html.match(/<button[^>]+data-step="/g) || []).length, 4, 'Keep the goal → material → assessment → save sequence');
 assert.equal(html.includes('1차시에서 학생으로 체험한'), false, 'Do not restore the removed training banner');
 assert.equal(ui.byId('setup-form').noValidate, true, 'Custom validation must be able to reveal hidden wizard panels');
+assert.equal(ui.byId('lesson-goal').closest('.panel').id, 'panel-design');
+assert.equal(ui.byId('achievement-standard').closest('.panel').id, 'panel-design');
+assert.equal(ui.byId('material-text').closest('.panel').id, 'panel-material');
+for (const id of ['generate-assessment', 'start-question', 'expected-answer', 'assessment-evidence', 'assessment-criteria']) {
+  assert.equal(ui.byId(id).closest('.panel').id, 'panel-assessment', `${id} comes after material input`);
+}
+assert.equal(ui.byId('standard-code').getAttribute('type'), 'hidden', 'Achievement standard is a single visible field');
+assert.equal((html.match(/id="start-question"/g) || []).length, 1, 'One main assessment question is also the student start question');
 assertMode(ui, true);
 assertLinksReady(ui);
 for (const enabled of [false, true, false, true, false]) {
@@ -319,7 +328,7 @@ assert.equal(reopened.byId('panel-check').classList.contains('active'), true);
 reopened.submit();
 reopened.flushTimers();
 assert.equal(reopened.requests.length, 0, 'Evaluation cannot save without its required design');
-assert.equal(reopened.byId('panel-design').classList.contains('active'), true);
+assert.equal(reopened.byId('panel-assessment').classList.contains('active'), true);
 assert.equal(reopened.byId('setup-form').reportedValidity, true);
 assert.match(reopened.byId('form-status').textContent, /필수 항목/);
 assertLinksDisabled(reopened);
@@ -355,18 +364,18 @@ assert.equal(createUi({}).byId('rubric-scheme').value, 'four_levels', 'New blank
 assert.equal(createUi({}).byId('save-state').textContent, '미저장 변경 있음', 'Generated form defaults are not treated as persisted settings');
 
 const draft = {
-  rubricScheme:'four_levels', assessmentCriteria:'자료의 근거와 자신의 생각을 연결한다.',
+  rubricScheme:'four_levels', startQuestion:'자료에서 사실을 찾고 자신의 의견을 근거와 함께 설명해 볼까요?', expectedAnswer:'자료의 사실과 그에 따른 자신의 의견을 구분해 설명한다.', assessmentEvidence:settings.materialText, assessmentCriteria:'자료의 근거와 자신의 생각을 연결한다.',
   rubricHigh:'여러 근거를 정확하게 연결해 독립적으로 설명한다.',
   rubricGood:'적절한 근거를 들어 생각을 설명한다.',
   rubricMeet:'안내를 참고해 근거와 생각을 일부 연결한다.',
   rubricDeveloping:'함께 읽으며 관련 근거를 찾는 연습이 필요하다.',
   evidenceDescription:'질문, 근거 설명, 자신의 의견과 이유',
 };
-const draftUi = createUi({ ...settings, materialText:'', lessonGoal:'', achievementStandard:'사실과 의견을 구분한다.' });
-assert.equal(draftUi.byId('generate-assessment').disabled, false, 'A standard alone enables drafting, even with no material');
+const draftUi = createUi({ ...settings, lessonGoal:'' });
+assert.equal(draftUi.byId('generate-assessment').disabled, false, 'A standard plus material enables combined drafting without an extra goal');
 draftUi.click('generate-assessment');
-const draftRequest = draftUi.takeRequest('generateLiteAssessmentDraft');
-assert.equal(draftRequest.args[1].materialText, '');
+const draftRequest = draftUi.takeRequest('generateLiteMaterialAssessmentDraft');
+assert.equal(draftRequest.args[1].materialText, settings.materialText);
 assert.equal(Object.hasOwn(draftRequest.args[1], 'joinCode'), false, 'Participation codes are not draft inputs');
 assert.equal(Object.hasOwn(draftRequest.args[1], 'apiKey'), false, 'Client does not send an API key');
 assert.equal(draftUi.byId('generate-assessment').disabled, true);
@@ -377,17 +386,18 @@ draftUi.submit();
 assert.equal(draftUi.requests.length, 0, 'Enter submission cannot race with draft generation');
 draftRequest.success({ ok:true, draft });
 assert.equal(draftUi.byId('assessment-criteria').value, settings.assessmentCriteria, 'Generation does not overwrite the form');
+assert.equal(draftUi.byId('start-question').value, settings.startQuestion, 'Generation does not silently replace the student question');
 assert.equal(draftUi.byId('rubric-scheme').value, 'legacy_three', 'Generation does not silently relabel existing levels');
 assert.equal(draftUi.byId('assessment-draft').classList.contains('hidden'), false);
 assert.equal(draftUi.byId('apply-assessment-draft').disabled, false);
 draftUi.click('apply-assessment-draft');
 for (const [key, value] of Object.entries(draft)) {
-  const id = { rubricScheme:'rubric-scheme', rubricGood:'rubric-good', ...Object.fromEntries(Object.entries(designFields).map(([id, key]) => [key, id])) }[key];
+  const id = { startQuestion:'start-question', expectedAnswer:'expected-answer', assessmentEvidence:'assessment-evidence', rubricScheme:'rubric-scheme', rubricGood:'rubric-good', ...Object.fromEntries(Object.entries(designFields).map(([id, key]) => [key, id])) }[key];
   assert.equal(draftUi.byId(id).value, value, key);
 }
 assert.equal(draftUi.byId('lesson-goal').value, '', 'Apply preserves the teacher goal');
 assert.equal(draftUi.byId('achievement-standard').value, settings.achievementStandard, 'Apply preserves the teacher standard');
-assert.equal(draftUi.byId('material-text').value, '', 'Apply does not invent source material');
+assert.equal(draftUi.byId('material-text').value, settings.materialText, 'Apply preserves the teacher source material');
 assert.equal(draftUi.requests.length, 0, 'Apply never autosaves settings');
 assert.equal(draftUi.byId('apply-assessment-draft').disabled, true);
 assert.equal(draftUi.byId('save-state').textContent, '미저장 변경 있음');
@@ -396,8 +406,27 @@ draftUi.click('refresh-readiness');
 draftUi.takeRequest('getLiteTeacherSetupData').success(readyData(settings));
 assertLinksDisabled(draftUi);
 assert.equal(draftUi.byId('assessment-criteria').value, draft.assessmentCriteria, 'Readiness refresh must preserve an applied but unsaved draft');
+draftUi.submit();
+const combinedSave = draftUi.takeRequest('saveLiteTeacherSetup');
+for (const key of ['startQuestion', 'expectedAnswer', 'assessmentEvidence', 'assessmentCriteria']) {
+  assert.equal(combinedSave.args[1][key], draft[key], `Combined save includes ${key}`);
+}
+combinedSave.success({ ...readyData(combinedSave.args[1]), lessonId:settings.lessonId });
+const combinedReopened = createUi(combinedSave.args[1]);
+assert.equal(combinedReopened.byId('expected-answer').value, draft.expectedAnswer);
+assert.equal(combinedReopened.byId('assessment-evidence').value, draft.assessmentEvidence);
+combinedReopened.selectMode('exploration');
+assert.equal(combinedReopened.byId('assessment-ai-section').classList.contains('hidden'), true);
+assert.equal(combinedReopened.byId('start-question').effectivelyDisabled(), false, 'Exploration keeps an editable start question');
+assert.equal(combinedReopened.byId('expected-answer').effectivelyDisabled(), true, 'Teacher assessment helpers do not apply in exploration');
+combinedReopened.byId('start-question').value = '어떤 점이 궁금한가요?';
+combinedReopened.byId('start-question').dispatch('input');
+combinedReopened.submit();
+const explorationSave = combinedReopened.takeRequest('saveLiteTeacherSetup');
+assert.equal(explorationSave.args[1].startQuestion, '어떤 점이 궁금한가요?');
+assert.equal(explorationSave.args[1].expectedAnswer, draft.expectedAnswer, 'Changing to exploration preserves teacher drafts');
 
-const goalOnlyUi = createUi({ ...settings, achievementStandard:'', materialText:'' });
+const goalOnlyUi = createUi({ ...settings, achievementStandard:'', achievementStandardCode:'' });
 assert.equal(goalOnlyUi.byId('generate-assessment').disabled, false);
 const noGoalUi = createUi({ ...settings, lessonGoal:'', achievementStandard:'' });
 assert.equal(noGoalUi.byId('generate-assessment').disabled, true);
@@ -405,7 +434,7 @@ noGoalUi.submit();
 assert.equal(noGoalUi.requests.length, 0, 'Evaluation saving requires either a goal or standard');
 assert.match(noGoalUi.byId('form-status').textContent, /목표 또는 성취기준/);
 for (const missingField of ['lessonGoal', 'achievementStandard']) {
-  const oneGoalUi = createUi({ ...settings, [missingField]:'' });
+  const oneGoalUi = createUi({ ...settings, achievementStandardCode:'', [missingField]:'' });
   oneGoalUi.submit();
   assert.equal(oneGoalUi.takeRequest('saveLiteTeacherSetup').args[1][missingField], '', 'Saving does not require teachers to invent a missing official standard or goal');
 }
@@ -417,32 +446,89 @@ assert.equal(noApiUi.requests.length, 0);
 goalOnlyUi.switchTo(false);
 assert.equal(goalOnlyUi.byId('generate-assessment').disabled, true);
 
+for (const materialText of ['', '짧은 자료', '가'.repeat(29)]) {
+  const shortUi = createUi({ ...settings, materialText });
+  assert.equal(shortUi.byId('generate-assessment').disabled, true, 'Combined generation needs at least 30 material characters');
+  shortUi.click('generate-assessment');
+  assert.equal(shortUi.requests.length, 0);
+}
+const minimumMaterialUi = createUi({ ...settings, materialText:'가'.repeat(30) });
+assert.equal(minimumMaterialUi.byId('generate-assessment').disabled, false, 'Thirty characters passes the client length gate; backend judges usefulness');
+
+const separatedStandardUi = createUi({ ...settings, achievementStandardCode:'[4사08-02]', achievementStandard:'여러 지역을 비교한다.' });
+assert.equal(separatedStandardUi.byId('achievement-standard').value, '[4사08-02] 여러 지역을 비교한다.');
+separatedStandardUi.byId('achievement-standard').value = '[6사01-01] 지역의 변화를 설명한다.';
+separatedStandardUi.byId('achievement-standard').dispatch('input');
+separatedStandardUi.submit();
+const standardSave = separatedStandardUi.takeRequest('saveLiteTeacherSetup');
+assert.equal(standardSave.args[1].achievementStandardCode, '[6사01-01]', 'A new visible code replaces the old hidden code');
+assert.equal(standardSave.args[1].achievementStandard, '[6사01-01] 지역의 변화를 설명한다.');
+standardSave.failure({ message:'테스트 저장 중단' });
+separatedStandardUi.byId('achievement-standard').value = '코드를 따로 정하지 않은 교사 기준';
+separatedStandardUi.byId('achievement-standard').dispatch('input');
+assert.equal(separatedStandardUi.context.collectPayload().achievementStandardCode, '', 'An edited plain standard does not inherit a stale hidden code');
+for (const [code, text, expected] of [
+  ['[4사08-02]', '[4사08-02] 여러 지역을 비교한다.', '[4사08-02] 여러 지역을 비교한다.'],
+  ['[4사08-02] 여러 지역을 비교한다.', '', '[4사08-02] 여러 지역을 비교한다.'],
+  ['[4사08-02] 여러 지역을', '[4사08-02] 여러 지역을 비교한다.', '[4사08-02] 여러 지역을 비교한다.'],
+]) {
+  const standardUi = createUi({ ...settings, achievementStandardCode:code, achievementStandard:text });
+  assert.equal(standardUi.byId('achievement-standard').value, expected, 'Legacy combined/truncated code fields do not duplicate the text');
+}
+const codeOnlyUi = createUi({ ...settings, lessonGoal:'', achievementStandardCode:'', achievementStandard:'[4사08-02]' });
+assert.equal(codeOnlyUi.byId('generate-assessment').disabled, true, 'A standard code alone is not an assessment goal');
+const longLegacyStandard = '가'.repeat(1000);
+const longStandardUi = createUi({ ...settings, achievementStandardCode:'[4국02-04]', achievementStandard:longLegacyStandard });
+assert.equal(longStandardUi.byId('achievement-standard').value, '[4국02-04] ' + longLegacyStandard, 'Merging legacy fields must not truncate the teacher standard');
+assert.equal(longStandardUi.byId('achievement-standard-limit').classList.contains('hidden'), false);
+assert.equal(longStandardUi.byId('generate-assessment').disabled, true, 'An oversized merged standard needs editing before a paid request');
+longStandardUi.submit();
+assert.equal(longStandardUi.requests.length, 0, 'An oversized prefilled standard is caught before saving');
+assert.match(longStandardUi.byId('form-status').textContent, /1,000자/);
+longStandardUi.byId('achievement-standard').value = '[4국02-04] ' + '가'.repeat(980);
+longStandardUi.byId('achievement-standard').dispatch('input');
+assert.equal(longStandardUi.byId('achievement-standard-limit').classList.contains('hidden'), true);
+assert.equal(longStandardUi.byId('generate-assessment').disabled, false);
+const longExplorationUi = createUi({ ...settings, activityMode:'exploration', achievementStandard:longLegacyStandard });
+longExplorationUi.submit();
+assert.equal(longExplorationUi.byId('evaluation-goal-fields').classList.contains('hidden'), false, 'A preserved oversized standard remains editable even from exploration');
+assert.equal(longExplorationUi.byId('achievement-standard').effectivelyDisabled(), false);
+assert.equal(longExplorationUi.byId('activity-mode').value, 'exploration', 'Validation must not silently change the operating mode');
+
 for (const editPhase of ['pending', 'preview']) {
+ for (const editedField of ['lesson-goal', 'achievement-standard', 'material-text', 'start-question', 'expected-answer', 'assessment-evidence', 'assessment-criteria']) {
   const staleUi = createUi(settings);
   staleUi.click('generate-assessment');
-  const request = staleUi.takeRequest('generateLiteAssessmentDraft');
+  const request = staleUi.takeRequest('generateLiteMaterialAssessmentDraft');
   if (editPhase === 'preview') request.success({ ok:true, draft });
-  staleUi.byId('lesson-goal').value = '목표 수정';
-  staleUi.byId('lesson-goal').dispatch('input');
-  staleUi.byId('lesson-goal').value = settings.lessonGoal;
-  staleUi.byId('lesson-goal').dispatch('input');
+  const before = staleUi.byId(editedField).value;
+  staleUi.byId(editedField).value = '입력 수정';
+  staleUi.byId(editedField).dispatch('input');
+  staleUi.byId(editedField).value = before;
+  staleUi.byId(editedField).dispatch('input');
   if (editPhase === 'pending') request.success({ ok:true, draft });
   staleUi.click('apply-assessment-draft');
   assert.equal(staleUi.byId('assessment-draft').classList.contains('hidden'), true, editPhase);
   assert.equal(staleUi.byId('assessment-criteria').value, settings.assessmentCriteria, 'Edited and reverted inputs still invalidate the draft');
+ }
 }
 
 const failureUi = createUi(settings);
 failureUi.click('generate-assessment');
-failureUi.takeRequest('generateLiteAssessmentDraft').failure({ message:'<img src=x onerror=alert(1)> 연결 실패' });
+failureUi.takeRequest('generateLiteMaterialAssessmentDraft').failure({ message:'<img src=x onerror=alert(1)> 연결 실패' });
 assert.equal(failureUi.byId('assessment-ai-status').textContent, '<img src=x onerror=alert(1)> 연결 실패');
 assert.equal(failureUi.byId('assessment-ai-status').children.length, 0, 'Errors are text, never HTML');
 assert.equal(failureUi.byId('generate-assessment').disabled, false);
 failureUi.click('generate-assessment');
-failureUi.takeRequest('generateLiteAssessmentDraft').success({ ok:true, draft:{ ...draft, rubricGood:'' } });
+failureUi.takeRequest('generateLiteMaterialAssessmentDraft').success({ ok:true, draft:{ ...draft, rubricGood:'' } });
 assert.equal(failureUi.byId('apply-assessment-draft').disabled, true, 'Incomplete drafts are rejected');
+for (const field of ['startQuestion', 'expectedAnswer', 'assessmentEvidence']) {
+  failureUi.click('generate-assessment');
+  failureUi.takeRequest('generateLiteMaterialAssessmentDraft').success({ ok:true, draft:{ ...draft, [field]:'' } });
+  assert.equal(failureUi.byId('apply-assessment-draft').disabled, true, `Combined draft requires ${field}`);
+}
 failureUi.click('generate-assessment');
-failureUi.takeRequest('generateLiteAssessmentDraft').success({ ok:true, draft:{ ...draft, assessmentCriteria:'<b>근거 확인</b>' } });
+failureUi.takeRequest('generateLiteMaterialAssessmentDraft').success({ ok:true, draft:{ ...draft, assessmentCriteria:'<b>근거 확인</b>' } });
 assert.ok(failureUi.byId('assessment-draft-content').textContent.includes('<b>근거 확인</b>'));
 assert.ok(failureUi.byId('assessment-draft-content').children.every((node) => node.children.length === 0), 'Draft content is plain text');
 
@@ -517,5 +603,30 @@ assert.deepEqual(decisionChoices(cards[1]), ['판단 보류','도달','성장 �
 dashboardContext.renderDashboard({ lesson:settings });
 assert.equal(dashboardById('rubric-high-label').textContent, '도달');
 assert.equal(dashboardById('rubric-good-field').classList.contains('hidden'), true);
+assert.equal(dashboardById('assessment-question').textContent, settings.startQuestion);
+assert.equal(dashboardById('expected-answer').textContent, '입력된 답변 핵심 요소가 없습니다.');
+assert.equal(dashboardById('assessment-evidence').textContent, '입력된 자료 근거 문장이 없습니다.');
 
-console.log('GAS lite teacher UI: mode gates, four/legacy levels, AI preview/apply, stale requests, and dashboard judgments passed');
+const unsafeMarkup = '<img src=x onerror="globalThis.executed=true">';
+const privateKeyText = '교사용 답변 요소 ' + unsafeMarkup;
+const privateEvidenceText = '교사용 원문 근거 <script>globalThis.executed=true</script>';
+dashboardContext.renderDashboard({ lesson:{ ...fourSettings, expectedAnswer:privateKeyText, assessmentEvidence:privateEvidenceText }, evaluations:[
+  { studentCode:'99-991', rubricScheme:'four_levels', assessmentResponse:unsafeMarkup, evidenceSummary:'근거 ' + unsafeMarkup },
+  { studentCode:'99-992', rubricScheme:'four_levels', assessmentResponse:'' },
+  { studentCode:'99-993' },
+] });
+assert.equal(dashboardById('expected-answer').textContent, privateKeyText);
+assert.equal(dashboardById('assessment-evidence').textContent, privateEvidenceText);
+assert.equal(dashboardById('expected-answer').children.length, 0);
+assert.equal(dashboardById('assessment-evidence').children.length, 0);
+const answerCards = dashboardById('evaluations').children;
+const responseNode = answerCards[0].children.find((node) => node.className === 'evidence');
+assert.equal(responseNode.textContent, unsafeMarkup, 'The original first response is displayed literally');
+assert.equal(responseNode.children.length, 0, 'First response never creates img/script elements');
+assert.equal(dashboardContext.executed, undefined);
+assert.ok(answerCards[0].textContent.includes('공통 관찰 점수는 이 문항의 성적이 아닙니다.'));
+assert.ok(answerCards[1].textContent.includes('아직 확인할 첫 답변이 없습니다.'));
+assert.equal(answerCards[2].textContent.includes('시작 질문 뒤 첫 응답'), false, 'Historical rows with no response field keep the original card');
+assert.deepEqual(decisionChoices(answerCards[2]), ['판단 보류','도달','성장 중','도움 필요']);
+
+console.log('GAS lite teacher UI: material-first combined assessment, single standard field, stale draft/dirty gates, and dashboard judgments passed');
