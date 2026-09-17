@@ -30,7 +30,7 @@ registerHooks({
   },
 });
 
-const { buildRubric, createLocalQuestionResult, normalizeQuestioningChatbotConfig } = await import('../lib/questioning-board.ts');
+const { buildRubric, createLocalQuestionResult, normalizeQuestioningChatbotConfig, scoreSourceSentence } = await import('../lib/questioning-board.ts');
 const { runQuestioningLocalEngine } = await import('../lib/questioning-engine-core.ts');
 
 function ask(text, question) {
@@ -116,6 +116,93 @@ test('a causal-certainty excerpt includes the material limitation as well as the
   assert.match(result.sourceCue, /12번에서 7번/);
   assert.match(result.sourceCue, /버스 시간도 바뀌어/);
   assert.match(result.studentReply, /확인하지 못했다|확정할 수/);
+});
+
+const substationMaterial = `경기도 하남시 감일동에서는 발전소에서 만들어진 전기를 필요한 곳에 보내는 시설인 동서울변전소를 더 크게 만드는 사업이 진행되고 있습니다. 하지만 주변 주민들이 오랫동안 반대하고 있어 이 사업은 2년 넘게 제대로 진행되지 못하고 있습니다.
+
+정부와 국회의원은 이 문제를 해결하기 위해 주민 참여 공청회를 열었습니다. 주민 참여 공청회는 주민들이 직접 참여하여 자신의 생각과 의견을 이야기하고, 서로의 생각을 들어보는 자리입니다.
+
+공청회에서는 변전소를 지금의 장소에 더 크게 만들 것인지, 다른 장소를 찾아볼 것인지에 대해 여러 의견이 나왔습니다. 정부는 주민들과 함께 두 달 동안 더 이야기를 나누어 보자고 했습니다.
+
+감일동 주민들은 변전소를 더 크게 만들기 전에 주민들이 안전하게 생활할 수 있는 방법과 편의시설을 마련해야 한다고 주장하고 있습니다. 하남시도 주민들의 안전과 의견이 충분히 반영되지 않으면 건축허가를 내주지 않겠다는 입장입니다. 이 공사를 담당하고 있는 한국전력공사는 주민들이 사용할 수 있는 편의시설과 120명 이상이 사용할 수 있는 사무실을 만들어주는 등의 주민과 하남시의 구체적인 보완 요구를 들어주는 것에 망설이고 있습니다.
+
+정부는 동해안에서 만든 전기를 수도권으로 보내기 위해 동서울변전소를 더 크게 만드는 일이 꼭 필요하다고 말합니다. 따라서 두 달 동안 합의가 진행되지 않으면 그대로 변전소 공사를 시작하겠다고 강력하게 이야기 했습니다. 반면 주민들은 나라에 필요한 사업이라도 주민들의 안전과 생활을 먼저 생각해야 한다고 말하고 있습니다.
+
+앞으로 이 문제를 해결하기 위해서는 주민 참여 공청회와 충분한 대화를 통해 정부, 한국전력, 하남시, 주민들이 서로의 의견을 듣고 모두가 납득할 수 있는 방법을 찾는 것이 중요합니다.`;
+
+test('a party opposition reason retrieves its stated safeguards rather than the introductory opposition', () => {
+  for (const question of ['주민들은 왜 반대하고 있나요?', '주민들이 반대하는 이유는 무엇인가요?', '주민들의 요구는 무엇인가요?']) {
+    const result = ask(substationMaterial, question);
+    assert.match(result.sourceCue, /주민들이 안전하게 생활할 수 있는 방법과 편의시설/);
+    assert.match(result.sourceCue, /주민들의 안전과 생활을 먼저/);
+    assert.doesNotMatch(result.sourceCue, /2년 넘게|수도권으로 보내기|한국전력공사|건축허가/);
+    if (!question.includes('요구')) assert.match(result.studentReply, /안전|생활|편의시설/);
+  }
+});
+
+test('opposing parties retain their own attributed position in the same material', () => {
+  const result = ask(substationMaterial, '정부의 입장은 무엇인가요?');
+  assert.match(result.sourceCue, /동해안에서 만든 전기를 수도권으로 보내기 위해/);
+  assert.doesNotMatch(result.sourceCue, /안전과 생활을 먼저|편의시설을 마련해야/);
+});
+
+test('an event reason question differs from the definition of the word reason', () => {
+  const contextual = ask(substationMaterial, '주민들이 반대하는 이유를 알려 주세요.');
+  assert.equal(contextual.questionType, 'inference');
+  assert.match(contextual.studentReply, /안전|생활|편의시설/);
+  assert.doesNotMatch(contextual.studentReply, /사전적으로/);
+  for (const question of ['이유라는 낱말은 무슨 뜻인가요?', '이유가 무엇인가요?']) {
+    const vocabulary = ask(substationMaterial, question);
+    assert.equal(vocabulary.questionType, 'vocabulary');
+    assert.match(vocabulary.studentReply, /어떤 결과가 생긴 까닭/);
+  }
+});
+
+test('party-ground ranking transfers to a different dispute and finds distant concerns', () => {
+  const opposition = '상인들은 보행 전용 거리 조성에 반대한다고 말했습니다.';
+  const concern = '상인들은 납품 차량이 가게에 접근할 수 없어 물건을 받기 어렵다고 걱정했습니다.';
+  const councilPosition = '시의회는 보행 전용 거리 조성에 반대하는 상인들에게 보행자 안전을 위해 공사가 필요하다고 설명했습니다.';
+  const text = [
+    opposition, councilPosition,
+    '설명회는 지난 화요일 시청 강당에서 열렸습니다.',
+    '안내문은 다음 주부터 우편으로 발송될 예정입니다.',
+    '공사는 네 구역으로 나누어 진행됩니다.',
+    concern,
+  ].join('\n\n');
+  const question = '상인들은 왜 반대하나요?';
+  assert.ok(scoreSourceSentence(concern, question) > scoreSourceSentence(opposition, question));
+  for (const stance of ['상인들은 공사에 반대하고 있다고 말했습니다.', '상인들은 공사에 반대 입장이라고 밝혔습니다.']) {
+    assert.ok(scoreSourceSentence(concern, question) > scoreSourceSentence(stance, question));
+  }
+  assert.ok(scoreSourceSentence(concern, question) > scoreSourceSentence(councilPosition, question));
+  const result = ask(text, question);
+  assert.equal(result.sourceCue, concern);
+  assert.match(result.studentReply, /납품 차량|물건을 받기 어렵/);
+  assert.doesNotMatch(result.sourceCue, /보행자 안전|공사가 필요/);
+});
+
+test('an absent party reason does not borrow a different speaker rationale or invent one', () => {
+  const text = '상인들은 보행 전용 거리 조성에 반대한다고 말했습니다. 시의회는 보행자 안전을 위해 공사가 필요하다고 설명했습니다.';
+  const result = ask(text, '상인들은 왜 반대하나요?');
+  assert.equal(result.sourceCue, '상인들은 보행 전용 거리 조성에 반대한다고 말했습니다.');
+  assert.doesNotMatch(result.sourceCue, /보행자 안전|공사가 필요|납품|매출|손님/);
+  assert.doesNotMatch(result.studentReply, /상인들은 보행자 안전.*반대|매출이 줄|손님이 줄|납품/);
+});
+
+test('a different demand by the same party cannot become the named proposal opposition reason', () => {
+  const text = '주민들은 변전소 증설에 반대한다고 말했습니다. 주민들은 고장난 가로등을 고쳐 달라고 요구했습니다. 정부는 수도권 전력 공급을 위해 변전소 증설이 필요하다고 말했습니다.';
+  const result = ask(text, '주민들은 변전소 증설에 왜 반대하나요?');
+  assert.equal(result.sourceCue, '주민들은 변전소 증설에 반대한다고 말했습니다.');
+  assert.doesNotMatch(result.studentReply, /가로등|고쳐 달라고/);
+});
+
+test('comparing two parties preserves both positions instead of selecting only one actor', () => {
+  const text = '정부는 전력 공급을 위해 변전소 증설이 필요하다고 말했습니다. 주민들은 변전소 증설로 생활이 불편해질까 걱정했습니다.';
+  for (const question of ['주민들과 정부의 입장은 어떻게 다른가요?', '정부와 주민의 입장을 비교해 주세요.']) {
+    const result = ask(text, question);
+    assert.match(result.sourceCue, /정부는 전력 공급/);
+    assert.match(result.sourceCue, /주민들은.*생활이 불편/);
+  }
 });
 
 test('existing development and holdout dialogue expectations survive the shared-core change', () => {

@@ -23,7 +23,7 @@ import {
 } from "@/lib/questioning-conversation-phase";
 
 export const LITE_ENGINE_SCHEMA_VERSION = 1;
-export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v11";
+export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v12";
 
 type LiteOutputContract = "lead_evidence_quote_v1" | "grounded_answer_v2";
 
@@ -558,6 +558,8 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
         ...(outputContract === "grounded_answer_v2" ? [
           "학생의 마지막 질문에 첫 문장부터 직접 답하세요. 인사나 칭찬 없이 쉬운 말로 1~3문장만 씁니다.",
           "몇/얼마 질문은 자료에 있는 해당 수치와 단위를 원문 표기 그대로 먼저 답합니다. 왜/어떻게 질문은 자료에 나온 행동과 결과의 연결을 설명합니다.",
+          "사람이나 집단의 찬반·주장 이유를 물으면 그 당사자가 밝힌 요구·우려·목적을 근거로 답하세요. 다른 당사자의 의견을 바꾸어 붙이거나 말하지 않은 위험을 추측하지 마세요.",
+          "제공된 관련 자료는 전체 지문의 발췌입니다. 이 부분만으로 확인하기 어려우면 제공된 근거에서 확인하기 어렵다고 범위를 밝혀 말하고, 전체 자료에 이유나 설명이 없다고 단정하지 마세요.",
           "추론은 자료가 뒷받침하는 가능성만 말합니다. 함께 시행한 여러 방법 중 하나만 원인이라고 단정하지 않습니다.",
           "자료로 확인되는 건 여기까지, 더 알고 싶은 것은 등의 고정 안내나 불필요한 되묻기는 쓰지 마세요.",
           "answer에는 직접적인 답을, evidenceQuote에는 그 답을 뒷받침하는 관련 자료의 연속된 원문을 넣으세요.",
