@@ -95,7 +95,7 @@ test('exploration accepts blank or omitted design fields through plan and finali
   const input = withoutDesign(makeInput('exploration'));
   const plan = createLiteEnginePlan(input);
   assert.equal(plan.schemaVersion, 1);
-  assert.equal(plan.policyVersion, 'questioning-dialogue-v2-lite-adapter-v7');
+  assert.equal(plan.policyVersion, 'questioning-dialogue-v2-lite-adapter-v8');
   assert.equal(plan.skipModel, false);
   assert.equal(plan.observation.sourceStatus, 'supported');
   const finalized = finalizeLiteEngineReply(finalizeInput(input, plan));
@@ -109,8 +109,8 @@ test('exploration accepts blank or omitted design fields through plan and finali
   assert.equal(createLiteEnginePlan(omitted).planDigest, plan.planDigest);
 });
 
-test('evaluation still requires each design field, including when switched back on', () => {
-  for (const [field, label] of designFields) {
+test('evaluation requires either goal or standard and each remaining design field', () => {
+  for (const [field, label] of designFields.slice(2)) {
     const input = makeInput();
     input.lesson[field] = '  ';
     assert.throws(() => createLiteEnginePlan(input), new RegExp(label));
@@ -118,6 +118,25 @@ test('evaluation still requires each design field, including when switched back 
   const input = withoutDesign(makeInput('exploration'));
   input.activityMode = 'evaluation';
   assert.throws(() => createLiteEnginePlan(input), /수업 목표/);
+});
+
+test('goal-only and standard-only evaluation preserve supplied text without inventing the other', () => {
+  for (const omitted of ['lessonGoal', 'achievementStandard']) {
+    const input = makeInput();
+    delete input.lesson[omitted];
+    const normalized = normalizeLiteEngineInput(input);
+    assert.equal(normalized.lesson[omitted], '');
+    const plan = createLiteEnginePlan(input);
+    const config = createLiteQuestioningConfig(normalized.lesson, 'evaluation');
+    assert.equal(config.standard, omitted === 'achievementStandard' ? '' : input.lesson.achievementStandard);
+    const remaining = omitted === 'lessonGoal' ? 'achievementStandard' : 'lessonGoal';
+    assert.ok(plan.modelRequest.input.includes(input.lesson[remaining]));
+    assert.equal(finalizeLiteEngineReply(finalizeInput(input, plan)).localFallback, false);
+  }
+  const neither = makeInput();
+  neither.lesson.lessonGoal = '';
+  neither.lesson.achievementStandard = '';
+  assert.throws(() => createLiteEnginePlan(neither), /수업 목표 또는 성취기준/);
 });
 
 test('optional design fields retain their size limits instead of silently truncating', () => {
@@ -173,4 +192,104 @@ test('digest still binds inactive saved fields and mode; finalize rejects stale 
   assert.throws(() => finalizeLiteEngineReply(finalizeInput({ ...input, activityMode: 'evaluation' }, plan)), /최신 계획/);
   assert.throws(() => finalizeLiteEngineReply({ ...finalizeInput(input, plan), policyVersion: 'questioning-dialogue-v2-lite-adapter-v3' }), /최신 계획/);
   assert.equal(finalizeLiteEngineReply(finalizeInput(input, plan)).policyVersion, LITE_ENGINE_POLICY_VERSION);
+});
+
+function withFourLevels(input = makeInput()) {
+  return {
+    ...input,
+    lesson: {
+      ...input.lesson,
+      rubricScheme: 'four_levels',
+      rubricHigh: '정확한 근거와 자기 말로 깊이 설명한다.',
+      rubricGood: '관련 근거와 자기 말로 설명한다.',
+      rubricMeet: '기본 내용을 일부 설명한다.',
+      rubricDeveloping: '도움을 받아 기본 내용을 찾는다.',
+    },
+  };
+}
+
+test('older clients and explicit legacy schemes canonicalize to the same three-level plan', () => {
+  const oldClient = makeInput();
+  const explicitLegacy = { ...oldClient, lesson: { ...oldClient.lesson, rubricScheme: 'legacy_three', rubricGood: '' } };
+  assert.deepEqual(normalizeLiteEngineInput(oldClient), normalizeLiteEngineInput(explicitLegacy));
+  assert.equal(createLiteEnginePlan(oldClient).planDigest, createLiteEnginePlan(explicitLegacy).planDigest);
+  const config = createLiteQuestioningConfig(normalizeLiteEngineInput(oldClient).lesson, 'evaluation');
+  assert.match(config.prdText, /수준 기준: 도달=.*성장 중=.*도움 필요=/);
+  assert.doesNotMatch(config.prdText, /매우잘함|노력요함/);
+  for (const criterion of config.rubric) {
+    for (const level of criterion.levels) {
+      const field = level.score >= 4 ? 'rubricHigh' : level.score >= 2 ? 'rubricMeet' : 'rubricDeveloping';
+      assert.ok(level.descriptor.endsWith(`교사 수준 기준: ${oldClient.lesson[field]}`));
+    }
+  }
+  assert.equal(finalizeLiteEngineReply(finalizeInput(explicitLegacy, createLiteEnginePlan(oldClient))).localFallback, false);
+});
+
+test('four-level evaluation requires all four descriptors and retains accurate labels', () => {
+  const input = withFourLevels();
+  const fields = [
+    ['rubricHigh', '매우잘함 수준'], ['rubricGood', '잘함 수준'],
+    ['rubricMeet', '보통 수준'], ['rubricDeveloping', '노력요함 수준'],
+  ];
+  for (const [field, label] of fields) {
+    const invalid = structuredClone(input);
+    delete invalid.lesson[field];
+    assert.throws(() => createLiteEnginePlan(invalid), new RegExp(label));
+  }
+  const config = createLiteQuestioningConfig(normalizeLiteEngineInput(input).lesson, 'evaluation');
+  assert.ok(config.prdText.includes(`매우잘함=${input.lesson.rubricHigh}; 잘함=${input.lesson.rubricGood}; 보통=${input.lesson.rubricMeet}; 노력요함=${input.lesson.rubricDeveloping}`));
+  assert.doesNotMatch(config.prdText, /수준 기준: 도달=|성장 중=|도움 필요=/);
+  const expected = [
+    ['노력요함', 'rubricDeveloping'], ['노력요함', 'rubricDeveloping'],
+    ['보통', 'rubricMeet'], ['보통', 'rubricMeet'], ['잘함', 'rubricGood'], ['매우잘함', 'rubricHigh'],
+  ];
+  for (const criterion of config.rubric) {
+    assert.deepEqual(criterion.levels.map((level) => level.score), [0, 1, 2, 3, 4, 5]);
+    for (const level of criterion.levels) {
+      const [label, field] = expected[level.score];
+      assert.ok(level.descriptor.endsWith(`교사 수준 기준: ${label}: ${input.lesson[field]}`));
+    }
+  }
+  const plan = createLiteEnginePlan(input);
+  assert.equal(finalizeLiteEngineReply(finalizeInput(input, plan)).localFallback, false);
+});
+
+test('optional fourth descriptor is bounded even when inactive and invalid schemes are rejected', () => {
+  for (const activityMode of ['evaluation', 'exploration']) {
+    for (const rubricScheme of ['legacy_three', 'four_levels']) {
+      const input = withFourLevels(makeInput(activityMode));
+      input.lesson.rubricScheme = rubricScheme;
+      input.lesson.rubricGood = '가'.repeat(1000);
+      assert.equal(normalizeLiteEngineInput(input).lesson.rubricGood.length, 1000);
+      input.lesson.rubricGood += '나';
+      assert.throws(() => normalizeLiteEngineInput(input), /잘함 수준.*1000/);
+    }
+  }
+  for (const rubricScheme of ['five_levels', 'FOUR_LEVELS', 4, {}]) {
+    const input = makeInput();
+    input.lesson.rubricScheme = rubricScheme;
+    assert.throws(() => normalizeLiteEngineInput(input), /평가 수준 체계/);
+  }
+});
+
+test('exploration preserves all four descriptors for signing without applying or exposing them', () => {
+  const input = withFourLevels(makeInput('exploration'));
+  const empty = withoutDesign(input);
+  delete empty.lesson.rubricGood;
+  const plan = createLiteEnginePlan(input);
+  const emptyPlan = createLiteEnginePlan(empty);
+  const config = createLiteQuestioningConfig(normalizeLiteEngineInput(input).lesson, 'exploration');
+  assert.deepEqual(withoutTimestamp(config), withoutTimestamp(createLiteQuestioningConfig(normalizeLiteEngineInput(empty).lesson, 'exploration')));
+  assert.deepEqual(plan.modelRequest, emptyPlan.modelRequest);
+  for (const field of ['rubricHigh', 'rubricGood', 'rubricMeet', 'rubricDeveloping']) {
+    assert.equal(normalizeLiteEngineInput(input).lesson[field], input.lesson[field]);
+    assert.ok(!JSON.stringify(config).includes(input.lesson[field]));
+    assert.ok(!JSON.stringify(plan).includes(input.lesson[field]));
+  }
+  for (const editedField of ['rubricScheme', 'rubricGood']) {
+    const edited = structuredClone(input);
+    edited.lesson[editedField] = editedField === 'rubricScheme' ? 'legacy_three' : '잘함 기준을 수정함';
+    assert.notEqual(createLiteEnginePlan(edited).planDigest, plan.planDigest);
+    assert.throws(() => finalizeLiteEngineReply(finalizeInput(edited, plan)), /최신 계획/);
+  }
 });

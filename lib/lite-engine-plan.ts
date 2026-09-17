@@ -23,11 +23,12 @@ import {
 } from "@/lib/questioning-conversation-phase";
 
 export const LITE_ENGINE_SCHEMA_VERSION = 1;
-export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v7";
+export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v8";
 
 type LiteOutputContract = "lead_evidence_quote_v1" | "grounded_answer_v2";
 
 export type LiteMode = "evaluation" | "exploration";
+export type LiteRubricScheme = "legacy_three" | "four_levels";
 
 export type LiteLessonInput = {
   lessonId: string;
@@ -37,7 +38,9 @@ export type LiteLessonInput = {
   lessonGoal: string;
   achievementStandard: string;
   assessmentCriteria: string;
+  rubricScheme?: LiteRubricScheme;
   rubricHigh: string;
+  rubricGood?: string;
   rubricMeet: string;
   rubricDeveloping: string;
   evidenceDescription: string;
@@ -154,6 +157,12 @@ function designText(value: unknown, label: string, max: number, activityMode: Li
   return text;
 }
 
+function normalizeLiteRubricScheme(value: unknown): LiteRubricScheme {
+  if (value === undefined || value === null || value === "") return "legacy_three";
+  if (value === "legacy_three" || value === "four_levels") return value;
+  throw new Error("평가 수준 체계는 legacy_three 또는 four_levels여야 합니다.");
+}
+
 function normalizeHistory(value: unknown): QuestioningConversationEntry[] {
   if (!Array.isArray(value)) return [];
   const entries = value
@@ -208,6 +217,13 @@ export function normalizeLiteEngineInput(value: unknown): NormalizedLiteEnginePl
   if (!activityMode) throw new Error("운영 모드를 확인해 주세요.");
   const materialText = requiredText(lesson.materialText, "수업자료", 30_000);
   if (materialText.length < 30) throw new Error("수업자료는 30자 이상이어야 합니다.");
+  const rubricScheme = normalizeLiteRubricScheme(lesson.rubricScheme);
+  const fourLevels = rubricScheme === "four_levels";
+  const lessonGoal = designText(lesson.lessonGoal, "수업 목표", 500, "exploration");
+  const achievementStandard = designText(lesson.achievementStandard, "성취기준", 1_000, "exploration");
+  if (activityMode === "evaluation" && !lessonGoal && !achievementStandard) {
+    throw new Error("수업 목표 또는 성취기준을 입력해 주세요.");
+  }
 
   return {
     schemaVersion: LITE_ENGINE_SCHEMA_VERSION,
@@ -225,12 +241,14 @@ export function normalizeLiteEngineInput(value: unknown): NormalizedLiteEnginePl
       subject: requiredText(lesson.subject, "교과", 40),
       grade: requiredText(lesson.grade, "학년", 40),
       lessonTitle: requiredText(lesson.lessonTitle, "수업명", 120),
-      lessonGoal: designText(lesson.lessonGoal, "수업 목표", 500, activityMode),
-      achievementStandard: designText(lesson.achievementStandard, "성취기준", 1_000, activityMode),
+      lessonGoal,
+      achievementStandard,
       assessmentCriteria: designText(lesson.assessmentCriteria, "평가기준", 1_500, activityMode),
-      rubricHigh: designText(lesson.rubricHigh, "도달 수준", 1_000, activityMode),
-      rubricMeet: designText(lesson.rubricMeet, "성장 중 수준", 1_000, activityMode),
-      rubricDeveloping: designText(lesson.rubricDeveloping, "도움 필요 수준", 1_000, activityMode),
+      rubricScheme,
+      rubricHigh: designText(lesson.rubricHigh, fourLevels ? "매우잘함 수준" : "도달 수준", 1_000, activityMode),
+      rubricGood: designText(lesson.rubricGood, "잘함 수준", 1_000, fourLevels ? activityMode : "exploration"),
+      rubricMeet: designText(lesson.rubricMeet, fourLevels ? "보통 수준" : "성장 중 수준", 1_000, activityMode),
+      rubricDeveloping: designText(lesson.rubricDeveloping, fourLevels ? "노력요함 수준" : "도움 필요 수준", 1_000, activityMode),
       evidenceDescription: designText(lesson.evidenceDescription, "평가 근거", 1_000, activityMode),
       materialTitle: requiredText(lesson.materialTitle, "자료 제목", 120),
       materialText,
@@ -260,6 +278,12 @@ function historyForPrompt(history: QuestioningConversationEntry[]) {
 }
 
 function descriptorForLiteScore(lesson: LiteLessonInput, score: number) {
+  if (lesson.rubricScheme === "four_levels") {
+    if (score >= 5) return `매우잘함: ${lesson.rubricHigh}`;
+    if (score >= 4) return `잘함: ${lesson.rubricGood || ""}`;
+    if (score >= 2) return `보통: ${lesson.rubricMeet}`;
+    return `노력요함: ${lesson.rubricDeveloping}`;
+  }
   if (score >= 4) return lesson.rubricHigh;
   if (score >= 2) return lesson.rubricMeet;
   return lesson.rubricDeveloping;
@@ -317,7 +341,9 @@ export function createLiteQuestioningConfig(
     prdText: backwardDesignEnabled ? [
       `수업 목표: ${lesson.lessonGoal}`,
       `평가기준: ${lesson.assessmentCriteria}`,
-      `수준 기준: 도달=${lesson.rubricHigh}; 성장 중=${lesson.rubricMeet}; 도움 필요=${lesson.rubricDeveloping}`,
+      lesson.rubricScheme === "four_levels"
+        ? `수준 기준: 매우잘함=${lesson.rubricHigh}; 잘함=${lesson.rubricGood || ""}; 보통=${lesson.rubricMeet}; 노력요함=${lesson.rubricDeveloping}`
+        : `수준 기준: 도달=${lesson.rubricHigh}; 성장 중=${lesson.rubricMeet}; 도움 필요=${lesson.rubricDeveloping}`,
     ].join("\n") : "",
     liveResearchEnabled: activityMode === "exploration",
     updatedAt: new Date().toISOString(),
@@ -512,7 +538,9 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
       ].join(" "),
       input: [
         `[수업명] ${lesson.lessonTitle}`,
-        ...(input.activityMode === "evaluation" ? [`[수업 목표] ${lesson.lessonGoal}`] : []),
+        ...(input.activityMode === "evaluation"
+          ? [lesson.lessonGoal ? `[수업 목표] ${lesson.lessonGoal}` : `[수업 성취기준] ${lesson.achievementStandard}`]
+          : []),
         `[관련 자료 근거] ${source.slice(0, 2_500)}`,
         `[최근 대화]\n${historyForPrompt(input.history)}`,
         `[학생 말] ${input.studentMessage}`,

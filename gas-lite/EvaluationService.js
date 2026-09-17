@@ -4,6 +4,12 @@
  */
 
 const LITE_TEACHER_DECISIONS_ = ['판단 보류', '도달', '성장 중', '도움 필요'];
+const LITE_FOUR_LEVEL_TEACHER_DECISIONS_ = ['판단 보류', '매우잘함', '잘함', '보통', '노력요함'];
+
+function liteTeacherDecisionOptions_(rubricScheme) {
+  return (normalizeLiteRubricScheme_(rubricScheme) === 'four_levels'
+    ? LITE_FOUR_LEVEL_TEACHER_DECISIONS_ : LITE_TEACHER_DECISIONS_).slice();
+}
 const LITE_RUBRIC_SCORE_COLUMNS_ = {
   questioning: 'questioningBest',
   passage_comprehension: 'passageComprehensionBest',
@@ -59,7 +65,7 @@ function liteEvaluationReviewVersion_(row) {
     row.questioningBest, row.passageComprehensionBest,
     row.achievementStandardBest, row.reflectionOpinionBest,
     row.teacherDecision, row.teacherFeedback, row.improvementSuggestion,
-    row.nextLessonSuggestion, row.finalStatus
+    row.nextLessonSuggestion, row.finalStatus, normalizeLiteRubricScheme_(row.rubricScheme)
   ].map(function (value) { return String(value == null ? '' : value); }).join('|'), 32);
 }
 
@@ -101,6 +107,7 @@ function upsertLiteEvaluationDraft_(settings, turn, observation, options) {
       };
     }).filter(Boolean);
     const judgment = liteAutomaticJudgment_(accumulatedScores);
+    const rubricScheme = normalizeLiteRubricScheme_(index >= 0 ? previous.rubricScheme : settings.rubricScheme);
     const priorStatus = String(previous.finalStatus || '');
     const previousEvidenceLines = String(previous.evidenceSummary || '').split('\n')
       .map(function (line) { return line.trim(); }).filter(Boolean);
@@ -130,7 +137,9 @@ function upsertLiteEvaluationDraft_(settings, turn, observation, options) {
       sessionId: turn.sessionId,
       lessonId: settings.lessonId,
       lessonRevision: settings.lessonRevision || 1,
-      automaticJudgment: '공통 질문행동 관찰 · ' + judgment.label + ' · 평균 ' + judgment.average + '/5 · 교사 기준 판단 전',
+      rubricScheme: rubricScheme,
+      automaticJudgment: '공통 질문행동 관찰 · ' + (rubricScheme === 'four_levels' ? '' : judgment.label + ' · ') +
+        '평균 ' + judgment.average + '/5 · 교사 기준 판단 전',
       evidenceSummary: evidenceSummary,
       evidenceRequestIds: evidenceRequestIds,
       teacherDecision: previous.teacherDecision || '판단 보류',
@@ -212,6 +221,8 @@ function getLiteTeacherDashboardData(teacherAccessToken) {
     const evidenceObservationCount = String(row.evidenceRequestIds || '').split('|')
       .map(function (value) { return value.trim(); }).filter(Boolean).length;
     return Object.assign({}, row, {
+      rubricScheme: normalizeLiteRubricScheme_(row.rubricScheme),
+      teacherDecisionOptions: liteTeacherDecisionOptions_(row.rubricScheme),
       sessionConflict: Number(sessionCounts[String(row.studentCode || '')] || 0) > 1,
       sessionLabel: sessionId ? sessionId.slice(-6) : '',
       evidenceObservationCount: evidenceObservationCount,
@@ -220,6 +231,7 @@ function getLiteTeacherDashboardData(teacherAccessToken) {
   };
   return {
     lesson: liteClientData_(lesson),
+    teacherDecisionOptions: liteTeacherDecisionOptions_(lesson.rubricScheme),
     uniqueStudentCount: Object.keys(sessionCounts).length,
     apiUsage: apiUsage,
     students: liteClientData_(students.map(decorate)),
@@ -227,16 +239,18 @@ function getLiteTeacherDashboardData(teacherAccessToken) {
   };
 }
 
-function validateLiteTeacherEvaluation_(payload) {
+function validateLiteTeacherEvaluation_(payload, rubricScheme) {
   payload = payload || {};
+  const scheme = normalizeLiteRubricScheme_(rubricScheme);
+  const decisions = liteTeacherDecisionOptions_(scheme);
   const decision = liteRequired_(payload.teacherDecision, '교사 판단', 30);
-  if (LITE_TEACHER_DECISIONS_.indexOf(decision) < 0) throw new Error('교사 판단 값을 확인해 주세요.');
+  if (decisions.indexOf(decision) < 0) throw new Error('이 평가에 저장된 수준에 맞는 교사 판단을 선택해 주세요.');
   const finalStatus = liteRequired_(payload.finalStatus, '검수 상태', 30);
   if (['검수 중', '최종 확정'].indexOf(finalStatus) < 0) {
     throw new Error('검수 중 또는 최종 확정을 선택해 주세요.');
   }
   if (finalStatus === '최종 확정' && decision === '판단 보류') {
-    throw new Error('최종 확정하려면 도달, 성장 중, 도움 필요 중 하나를 선택해 주세요.');
+    throw new Error('최종 확정하려면 ' + decisions.slice(1).join(', ') + ' 중 하나를 선택해 주세요.');
   }
   const teacherFeedback = liteText_(payload.teacherFeedback, 1500);
   const improvementSuggestion = liteText_(payload.improvementSuggestion, 1500);
@@ -255,6 +269,7 @@ function validateLiteTeacherEvaluation_(payload) {
     sessionId: liteRequired_(payload.sessionId, '대화 세션', 80),
     lessonId: liteRequired_(payload.lessonId, '수업 ID', 80),
     lessonRevision: Math.max(1, Number(payload.lessonRevision || 1)),
+    rubricScheme: scheme,
     teacherDecision: decision,
     teacherFeedback: teacherFeedback,
     improvementSuggestion: improvementSuggestion,
@@ -266,7 +281,13 @@ function validateLiteTeacherEvaluation_(payload) {
 
 function saveLiteTeacherEvaluation(teacherAccessToken, payload) {
   assertLiteTeacherAccess_(teacherAccessToken);
-  const normalized = validateLiteTeacherEvaluation_(payload);
+  payload = payload || {};
+  const identity = {
+    studentCode: normalizeLiteStudentCode_(payload.studentCode),
+    sessionId: liteRequired_(payload.sessionId, '대화 세션', 80),
+    lessonId: liteRequired_(payload.lessonId, '수업 ID', 80),
+    lessonRevision: Math.max(1, Number(payload.lessonRevision || 1))
+  };
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -278,13 +299,16 @@ function saveLiteTeacherEvaluation(teacherAccessToken, payload) {
       .map(function (value) { return String(value).trim(); });
     const rows = liteRowsAsObjects_(sheet);
     const index = rows.findIndex(function (row) {
-      return String(row.studentCode) === normalized.studentCode &&
-        String(row.sessionId) === normalized.sessionId &&
-        String(row.lessonId) === normalized.lessonId &&
-        Number(row.lessonRevision || 1) === normalized.lessonRevision;
+      return String(row.studentCode) === identity.studentCode &&
+        String(row.sessionId) === identity.sessionId &&
+        String(row.lessonId) === identity.lessonId &&
+        Number(row.lessonRevision || 1) === identity.lessonRevision;
     });
     if (index < 0) throw new Error('검수할 자동 판단 초안을 찾지 못했습니다.');
     const previous = rows[index];
+    // 화면에서 보낸 수준 체계 대신 해당 평가 행의 체계를 신뢰한다.
+    // 이전 3수준 평가를 새 수업의 4수준 값으로 조용히 바꾸지 않는다.
+    const normalized = validateLiteTeacherEvaluation_(payload, previous.rubricScheme);
     if (liteEvaluationReviewVersion_(previous) !== normalized.expectedReviewVersion) {
       throw new Error('학생의 새 근거나 다른 교사 검수 내용이 반영되었습니다. 대시보드를 새로고침한 뒤 다시 검수해 주세요.');
     }

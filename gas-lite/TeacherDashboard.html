@@ -40,6 +40,7 @@
       input,textarea,select { width:100%; padding:9px 10px; border:1px solid #94a3b8; border-radius:8px; font:inherit; }
       textarea { min-height:78px; resize:vertical; }
       .empty { padding:28px; border:1px dashed #94a3b8; border-radius:13px; text-align:center; background:white; }
+      .hidden { display:none !important; }
       @media(max-width:700px) { .stats,.grid,.criteria-grid { grid-template-columns:1fr; } .wide { grid-column:auto; } }
     </style>
   </head>
@@ -61,9 +62,10 @@
         <div class="criteria-grid">
           <div class="criterion"><strong>성취기준</strong><span id="achievement-standard"></span></div>
           <div class="criterion"><strong>평가기준</strong><span id="assessment-criteria"></span></div>
-          <div class="criterion"><strong>도달</strong><span id="rubric-high"></span></div>
-          <div class="criterion"><strong>성장 중</strong><span id="rubric-meet"></span></div>
-          <div class="criterion"><strong>도움 필요</strong><span id="rubric-developing"></span></div>
+          <div class="criterion"><strong id="rubric-high-label">도달</strong><span id="rubric-high"></span></div>
+          <div id="rubric-good-field" class="criterion hidden"><strong>잘함</strong><span id="rubric-good"></span></div>
+          <div class="criterion"><strong id="rubric-meet-label">성장 중</strong><span id="rubric-meet"></span></div>
+          <div class="criterion"><strong id="rubric-developing-label">도움 필요</strong><span id="rubric-developing"></span></div>
           <div class="criterion"><strong>확인할 평가 근거</strong><span id="evidence-description"></span></div>
         </div>
       </details>
@@ -103,10 +105,16 @@
         const students = data.students || [];
         const evaluations = data.evaluations || [];
         const apiUsage = data.apiUsage || {};
+        const fourLevels = lesson.rubricScheme === 'four_levels';
         byId('lesson-title').textContent = lesson.lessonTitle || '아직 설정한 수업이 없습니다.';
         byId('achievement-standard').textContent = lesson.achievementStandard || '입력된 성취기준이 없습니다.';
         byId('assessment-criteria').textContent = lesson.assessmentCriteria || '입력된 평가기준이 없습니다.';
         byId('rubric-high').textContent = lesson.rubricHigh || '입력된 기준이 없습니다.';
+        byId('rubric-high-label').textContent = fourLevels ? '매우잘함' : '도달';
+        byId('rubric-good-field').classList.toggle('hidden', !fourLevels);
+        byId('rubric-good').textContent = lesson.rubricGood || '입력된 기준이 없습니다.';
+        byId('rubric-meet-label').textContent = fourLevels ? '보통' : '성장 중';
+        byId('rubric-developing-label').textContent = fourLevels ? '노력요함' : '도움 필요';
         byId('rubric-meet').textContent = lesson.rubricMeet || '입력된 기준이 없습니다.';
         byId('rubric-developing').textContent = lesson.rubricDeveloping || '입력된 기준이 없습니다.';
         byId('evidence-description').textContent = lesson.evidenceDescription || '입력된 평가 근거가 없습니다.';
@@ -166,7 +174,10 @@
         const evidence = document.createElement('p'); evidence.className = 'evidence'; evidence.textContent = row.evidenceSummary || '아직 근거가 없습니다.';
         details.appendChild(summary); details.appendChild(evidence); card.appendChild(details);
         const grid = document.createElement('div'); grid.className = 'grid';
-        grid.appendChild(selectField('교사 판단', 'teacherDecision', ['판단 보류','도달','성장 중','도움 필요'], row.teacherDecision || '판단 보류'));
+        const decisions = row.rubricScheme === 'four_levels'
+          ? ['판단 보류','매우잘함','잘함','보통','노력요함'] : ['판단 보류','도달','성장 중','도움 필요'];
+        if (row.teacherDecision && decisions.indexOf(row.teacherDecision) === -1) decisions.push(row.teacherDecision);
+        grid.appendChild(selectField('교사 판단', 'teacherDecision', decisions, row.teacherDecision || '판단 보류'));
         grid.appendChild(selectField('검수 상태', 'finalStatus', ['검수 중','최종 확정'], row.finalStatus === '최종 확정' ? '최종 확정' : '검수 중'));
         grid.appendChild(textareaField('교사 피드백 · 최종 확정 시 필수', 'teacherFeedback', row.teacherFeedback || '', true));
         grid.appendChild(textareaField('학생 향상 방법 · 최종 확정 시 필수', 'improvementSuggestion', row.improvementSuggestion || '', true));
