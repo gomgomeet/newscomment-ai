@@ -16,7 +16,7 @@
       'student-code-label','student-code-prompt','material-panel','chat-panel','material-title','material-meta',
       'lesson-goal','start-question','material-text','font-smaller','font-larger','messages',
       'onboarding','student-code-input','join-code-input','start-button','status','chat-form','message-input',
-      'definition-button','research-button','hint-button','evidence-button','revise-button',
+      'definition-button','research-button','evidence-button','revise-button',
       'close-button','quick-actions','exit-session-button','retry-bootstrap-button','retry-turn-button'
     ].forEach(function (id) { elements[toCamel(id)] = document.getElementById(id); });
     elements.mobileTabs = Array.from(document.querySelectorAll('.mobile-tab'));
@@ -44,7 +44,6 @@
     elements.retryTurnButton.addEventListener('click', retryPendingTurn);
     elements.definitionButton.addEventListener('click', function () { preparePrompt('___이(가) 뭐예요?'); });
     elements.researchButton.addEventListener('click', function () { preparePrompt('___에 대해 더 알아보고 싶어요.'); });
-    elements.hintButton.addEventListener('click', function () { sendTurn('hint', '힌트가 필요해요.'); });
     elements.evidenceButton.addEventListener('click', function () { preparePrompt('내 생각에는 ___'); });
     elements.reviseButton.addEventListener('click', function () { preparePrompt('다시 생각해 보니 ___'); });
     elements.closeButton.addEventListener('click', function () {
@@ -190,6 +189,7 @@
     elements.startQuestion.textContent = unlocked ? (lesson.startQuestion || '자료를 읽고 가장 궁금한 점을 찾아보세요.') : '수업에 들어온 뒤 첫 생각 질문이 열립니다.';
     elements.materialText.textContent = unlocked ? (lesson.materialText || '') : '아직 수업자료를 공개하지 않았습니다.';
     elements.researchButton.hidden = lesson.activityMode !== 'exploration';
+    elements.quickActions.hidden = lesson.activityMode !== 'exploration';
   }
 
   function beginConversation(rawCode) {
@@ -427,7 +427,7 @@
   }
 
   function setComposerEnabled(enabled) {
-    [elements.messageInput,elements.definitionButton,elements.researchButton,elements.hintButton,
+    [elements.messageInput,elements.definitionButton,elements.researchButton,
       elements.evidenceButton,elements.reviseButton,elements.closeButton]
       .forEach(function (control) { if (control) control.disabled = !enabled; });
     const send = elements.chatForm && elements.chatForm.querySelector('.send-button');
