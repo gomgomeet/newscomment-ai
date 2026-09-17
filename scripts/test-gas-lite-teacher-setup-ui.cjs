@@ -86,6 +86,7 @@ class Element {
   isInvalidControl() {
     if (!['input', 'textarea', 'select'].includes(this.tagName) || this.effectivelyDisabled()) return false;
     if (this.attributes.type === 'hidden') return false;
+    if (this.attributes.type === 'checkbox') return this.required && !this.checked;
     const value = String(this.value);
     if (!value) return this.required;
     if (this.attributes.pattern && !new RegExp('^(?:' + this.attributes.pattern + ')$').test(value)) return true;
@@ -99,6 +100,7 @@ class Element {
   checkValidity() { return !this.querySelector(':invalid'); }
   reportValidity() { this.reportedValidity = true; return this.checkValidity(); }
   scrollTo() {}
+  focus() { this.focused = true; }
 }
 
 function parseForm() {
@@ -154,8 +156,9 @@ const readyData = (settings, context = {}) => ({
 
 function createUi(settings, initialData = readyData(settings)) {
   const elements = parseForm();
+  const liveElements = () => [elements[0], ...elements[0].descendants()];
   const byId = (id) => {
-    const element = elements.find((item) => item.id === id);
+    const element = liveElements().find((item) => item.id === id);
     assert.ok(element, `Production form has #${id}`);
     return element;
   };
@@ -168,7 +171,7 @@ function createUi(settings, initialData = readyData(settings)) {
     getElementById:byId,
     createElement: (tagName) => new Element(tagName),
     querySelectorAll: (selector) => {
-      if (selector === 'button') return elements.filter((element) => element.tagName === 'button');
+      if (selector === 'button') return liveElements().filter((element) => element.tagName === 'button');
       assert.equal(selector, '[data-step]');
       return elements.filter((element) => element.dataset.step);
     },
@@ -209,7 +212,7 @@ function createUi(settings, initialData = readyData(settings)) {
   takeRequest('getLiteTeacherSetupData').success(initialData);
   return {
     byId, context, requests, copied, takeRequest,
-    click(id) { if (!byId(id).disabled) byId(id).dispatch('click'); },
+    click(id) { if (!byId(id).effectivelyDisabled()) byId(id).dispatch('click'); },
     switchTo(enabled) {
       const control = byId('backward-design-enabled');
       if (control.disabled) return;
@@ -225,6 +228,20 @@ function createUi(settings, initialData = readyData(settings)) {
     edit(id, value) {
       byId(id).value = value;
       byId(id).dispatch('input');
+    },
+    check(id, checked) {
+      if (byId(id).effectivelyDisabled()) return;
+      byId(id).checked = checked;
+      // Native checkbox activation fires input before change. The approval
+      // control must keep its new checked state until its change validator runs.
+      byId(id).dispatch('input');
+      byId(id).dispatch('change');
+    },
+    select(id, value) {
+      if (byId(id).effectivelyDisabled()) return;
+      byId(id).value = value;
+      byId(id).dispatch('input');
+      byId(id).dispatch('change');
     },
     submit() { return byId('setup-form').dispatch('submit'); },
     flushTimers() { while (timers.length) timers.shift()(); },
@@ -482,4 +499,166 @@ assert.equal(firstSaveUi.byId('lesson-id').value, settings.lessonId);
 assert.equal(firstSaveUi.byId('readiness-badge').textContent, '학생 배포 준비 완료');
 assertLinksReady(firstSaveUi);
 
-console.log('GAS lite teacher setup UI: draft readiness, toggle, preservation, validation, and saved-payload gates passed');
+const planFixture = {
+  schemaVersion:1, approved:true, criteria:[{
+    id:'reading-evidence', criterion:'자료에서 근거를 찾아 설명하기', responseKind:'explanation',
+    mainQuestion:'글에서 근거를 하나 찾아 설명해 줄래요?',
+    followUpQuestion:'그 생각의 근거가 되는 구절을 인용해 줄래요?',
+    evidenceDescription:'학생이 찾은 자료 구절과 자기 말로 한 설명',
+    sourceQuote:'자신의 생각과 근거를 찾아 설명', requireSourceEvidence:true,
+  }],
+};
+const planSettings = { ...settings, assessmentPlanJson:JSON.stringify(planFixture) };
+const readPlan = (ui) => JSON.parse(ui.context.collectPayload().assessmentPlanJson);
+const criterionField = (id, key) => 'criterion-' + id + '-' + key;
+const assertPlanApproval = (ui, expected) => {
+  assert.equal(readPlan(ui).approved, expected);
+  assert.equal(ui.byId('assessment-plan-approved').checked, expected);
+};
+
+// Legacy lessons remain valid while making the missing criterion plan explicit.
+const legacyPlanUi = createUi(settings);
+assert.match(legacyPlanUi.byId('assessment-plan-status').textContent, /기준별 질문계획 없음/);
+assert.equal(legacyPlanUi.byId('assessment-plan-approved').disabled, true);
+assert.equal(readinessItem(legacyPlanUi, '평가기준별 질문계획').dataset.state, 'pass');
+assert.deepEqual(readPlan(legacyPlanUi), { schemaVersion:1, approved:false, criteria:[] });
+assertLinksReady(legacyPlanUi);
+
+// Empty fields are allowed in drafts, never in an approved plan.
+legacyPlanUi.click('add-assessment-criterion');
+assert.equal(readPlan(legacyPlanUi).criteria.length, 1);
+assert.equal(legacyPlanUi.byId(criterionField('criterion-1', 'criterion')).focused, true);
+assertPlanApproval(legacyPlanUi, false);
+assert.equal(readinessItem(legacyPlanUi, '평가기준별 질문계획').dataset.state, 'block');
+legacyPlanUi.check('assessment-plan-approved', true);
+assertPlanApproval(legacyPlanUi, false);
+assert.match(legacyPlanUi.byId('form-status').textContent, /모든 내용/);
+legacyPlanUi.submit();
+const draftPlanSave = legacyPlanUi.takeRequest('saveLiteTeacherSetup');
+const draftPlanPayload = JSON.parse(JSON.stringify(draftPlanSave.args[1]));
+assert.equal(JSON.parse(draftPlanPayload.assessmentPlanJson).criteria[0].criterion, '');
+draftPlanSave.success({ ...readyData(draftPlanPayload), lessonId:settings.lessonId });
+assertLinksDisabled(legacyPlanUi);
+assert.match(legacyPlanUi.byId('readiness-badge').textContent, /승인 필요/);
+
+// Complete forms require one terminal question mark and a verbatim source hint.
+const newCriterion = { ...planFixture.criteria[0], id:'criterion-1' };
+for (const key of ['criterion', 'mainQuestion', 'followUpQuestion', 'evidenceDescription', 'sourceQuote']) {
+  legacyPlanUi.edit(criterionField('criterion-1', key), newCriterion[key]);
+}
+legacyPlanUi.check(criterionField('criterion-1', 'requireSourceEvidence'), true);
+legacyPlanUi.edit(criterionField('criterion-1', 'mainQuestion'), '무엇인가요? 왜인가요?');
+legacyPlanUi.check('assessment-plan-approved', true);
+assertPlanApproval(legacyPlanUi, false);
+assert.match(legacyPlanUi.byId('form-status').textContent, /물음표 하나/);
+legacyPlanUi.edit(criterionField('criterion-1', 'mainQuestion'), newCriterion.mainQuestion);
+legacyPlanUi.edit(criterionField('criterion-1', 'sourceQuote'), '자료에 없는 구절');
+legacyPlanUi.check('assessment-plan-approved', true);
+assertPlanApproval(legacyPlanUi, false);
+assert.match(legacyPlanUi.byId('form-status').textContent, /본문에서 그대로/);
+legacyPlanUi.edit(criterionField('criterion-1', 'sourceQuote'), '자신의   생각과\n근거를 찾아 설명');
+legacyPlanUi.check('assessment-plan-approved', true);
+assertPlanApproval(legacyPlanUi, true);
+assertDraft(legacyPlanUi);
+legacyPlanUi.submit();
+const approvedSave = legacyPlanUi.takeRequest('saveLiteTeacherSetup');
+const approvedPayload = JSON.parse(JSON.stringify(approvedSave.args[1]));
+assert.equal(JSON.parse(approvedPayload.assessmentPlanJson).approved, true);
+approvedSave.success({ ...readyData(approvedPayload), lessonId:settings.lessonId });
+assertLinksReady(legacyPlanUi);
+const reopenedPlanUi = createUi(approvedPayload);
+assert.deepEqual(readPlan(reopenedPlanUi), JSON.parse(approvedPayload.assessmentPlanJson));
+assertPlanApproval(reopenedPlanUi, true);
+assert.equal(reopenedPlanUi.byId('assessment-plan-preview-list').children.length, 1);
+reopenedPlanUi.check('assessment-plan-approved', false);
+assertPlanApproval(reopenedPlanUi, false);
+assertDraft(reopenedPlanUi);
+reopenedPlanUi.check('assessment-plan-approved', true);
+assertPlanApproval(reopenedPlanUi, true);
+assertLinksReady(reopenedPlanUi);
+
+// OFF/ON never destroys or unapproves a reviewed plan; source edits always do.
+const preservationUi = createUi(planSettings);
+preservationUi.switchTo(false);
+assertPlanApproval(preservationUi, true);
+assert.equal(readinessItem(preservationUi, '평가기준별 질문계획').dataset.state, 'pass');
+preservationUi.switchTo(true);
+assert.deepEqual(readPlan(preservationUi), planFixture);
+assertLinksReady(preservationUi);
+preservationUi.edit('material-text', settings.materialText + ' 추가 수업자료입니다.');
+assertPlanApproval(preservationUi, false);
+preservationUi.click('refresh-readiness');
+preservationUi.takeRequest('getLiteTeacherSetupData').success(readyData(planSettings));
+assertPlanApproval(preservationUi, false);
+assertDraft(preservationUi);
+preservationUi.switchTo(false);
+assert.equal(readinessItem(preservationUi, '평가기준별 질문계획').dataset.state, 'pass');
+assert.equal(readPlan(preservationUi).criteria.length, 1);
+
+for (const field of ['subject', 'grade', 'lesson-title', 'lesson-goal', 'standard-code',
+  'achievement-standard', 'assessment-criteria', 'rubric-high', 'rubric-meet', 'rubric-developing',
+  'evidence-description', 'material-title', 'start-question']) {
+  const fieldUi = createUi(planSettings);
+  fieldUi.edit(field, fieldUi.byId(field).value + ' 수정');
+  assertPlanApproval(fieldUi, false);
+}
+const unrelatedUi = createUi(planSettings);
+unrelatedUi.edit('join-code', '123456');
+assertPlanApproval(unrelatedUi, true);
+
+// Dynamic select/checkbox/card edits revoke approval, with stable IDs and labels.
+const cardUi = createUi(planSettings);
+cardUi.select(criterionField('reading-evidence', 'responseKind'), 'student_question');
+assert.equal(readPlan(cardUi).criteria[0].responseKind, 'student_question');
+assertPlanApproval(cardUi, false);
+cardUi.check('assessment-plan-approved', true);
+cardUi.check(criterionField('reading-evidence', 'requireSourceEvidence'), false);
+assert.equal(readPlan(cardUi).criteria[0].requireSourceEvidence, false);
+assertPlanApproval(cardUi, false);
+cardUi.check('assessment-plan-approved', true);
+cardUi.edit(criterionField('reading-evidence', 'evidenceDescription'), '<img src=x onerror=alert(1)> 학생 설명');
+assertPlanApproval(cardUi, false);
+const previewItem = cardUi.byId('assessment-plan-preview-list').children[0];
+assert.match(previewItem.textContent, /<img src=x onerror=alert\(1\)>/);
+assert.equal(previewItem.children.length, 0, 'Preview treats all teacher content as text, not HTML');
+for (let count = 0; count < 4; count += 1) cardUi.click('add-assessment-criterion');
+assert.equal(readPlan(cardUi).criteria.length, 5);
+assert.equal(cardUi.byId('add-assessment-criterion').disabled, true);
+cardUi.click('add-assessment-criterion');
+assert.equal(readPlan(cardUi).criteria.length, 5);
+assert.equal(new Set(readPlan(cardUi).criteria.map((item) => item.id)).size, 5);
+cardUi.click('remove-criterion-reading-evidence');
+assert.equal(readPlan(cardUi).criteria.length, 4);
+assert.equal(cardUi.byId('add-assessment-criterion').disabled, false);
+assert.equal(cardUi.byId('add-assessment-criterion').focused, true);
+assert.equal(cardUi.byId('criterion-criterion-1-mainQuestion').parentElement.getAttribute('for'), 'criterion-criterion-1-mainQuestion');
+const removeApprovedUi = createUi({ ...settings, assessmentPlanJson:JSON.stringify({
+  ...planFixture, criteria:[planFixture.criteria[0], { ...planFixture.criteria[0], id:'second-criterion' }],
+}) });
+removeApprovedUi.click('remove-criterion-second-criterion');
+assert.equal(readPlan(removeApprovedUi).criteria.length, 1);
+assertPlanApproval(removeApprovedUi, false);
+assertDraft(removeApprovedUi);
+
+const trimUi = createUi(planSettings);
+trimUi.edit(criterionField('reading-evidence', 'criterion'), '  자료에서 근거를 찾아 설명하기  ');
+assert.equal(readPlan(trimUi).criteria[0].criterion, planFixture.criteria[0].criterion,
+  'Serialized plans use the same trimmed canonical string values as the server');
+assertPlanApproval(trimUi, false);
+
+// A save response can acknowledge only the plan that was actually submitted.
+const planRaceUi = createUi(planSettings);
+planRaceUi.edit(criterionField('reading-evidence', 'criterion'), '수정한 평가기준');
+planRaceUi.check('assessment-plan-approved', true);
+planRaceUi.submit();
+const planSave = planRaceUi.takeRequest('saveLiteTeacherSetup');
+const planCapturedPayload = JSON.parse(JSON.stringify(planSave.args[1]));
+assert.equal(planRaceUi.byId('assessment-plan-approved').disabled, true);
+assert.equal(planRaceUi.byId('remove-criterion-reading-evidence').disabled, true);
+planRaceUi.edit(criterionField('reading-evidence', 'mainQuestion'), '새 질문을 설명해 줄래요?');
+planSave.success({ ...readyData(planCapturedPayload), lessonId:settings.lessonId });
+assertPlanApproval(planRaceUi, false);
+assert.equal(readPlan(planRaceUi).criteria[0].mainQuestion, '새 질문을 설명해 줄래요?');
+assertDraft(planRaceUi);
+
+console.log('GAS lite teacher setup UI: draft readiness, toggle, preservation, validation, saved-payload gates, and criterion-plan approval/races passed');

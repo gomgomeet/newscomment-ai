@@ -28,7 +28,7 @@ const LITE_SHEET_HEADERS_ = {
     'achievementStandardCode', 'achievementStandard', 'assessmentCriteria',
     'rubricHigh', 'rubricMeet', 'rubricDeveloping', 'evidenceDescription',
     'materialTitle', 'materialText', 'materialUrl', 'startQuestion',
-    'activityMode', 'version', 'sourceHash', 'lessonRevision', 'updatedAt'
+    'activityMode', 'version', 'sourceHash', 'lessonRevision', 'updatedAt', 'assessmentPlanJson'
   ],
   '학생별 현황': [
     'studentCode', 'lessonId', 'lessonRevision', 'sessionId', 'questionCount', 'relatedQuestionCount', 'lastActiveAt',
@@ -40,14 +40,14 @@ const LITE_SHEET_HEADERS_ = {
     'questionType', 'engagementState', 'curriculumRelation', 'supportLevel',
     'sourceStatus', 'sourceCue', 'primaryMove', 'safetyFlag', 'evidenceIds', 'rubricScoresJson', 'isClosing',
     'engineStatus', 'aiStatus', 'apiModel', 'apiInputTokens', 'apiOutputTokens', 'apiTotalTokens',
-    'isPreview', 'lessonRevision', 'sourceHash'
+    'isPreview', 'lessonRevision', 'sourceHash', 'assessmentProgressJson'
   ],
   '교사 평가': [
     'studentCode', 'sessionId', 'lessonId', 'lessonRevision', 'automaticJudgment', 'evidenceSummary',
     'evidenceRequestIds',
     'questioningBest', 'passageComprehensionBest', 'achievementStandardBest', 'reflectionOpinionBest',
     'teacherDecision', 'teacherFeedback', 'improvementSuggestion',
-    'nextLessonSuggestion', 'finalStatus', 'finalizedAt'
+    'nextLessonSuggestion', 'finalStatus', 'finalizedAt', 'criterionEvidenceJson'
   ]
 };
 
@@ -344,6 +344,69 @@ function assertLiteTeacherAccess_(token) {
   }
 }
 
+function normalizeLiteAssessmentPlan_(value, materialText, validateApproval) {
+  const empty = { schemaVersion:1, approved:false, criteria:[] };
+  if (value == null || value === '') return empty;
+  let plan = value;
+  if (typeof value === 'string') {
+    if (value.length > 12000) throw new Error('기준별 질문계획이 저장 크기를 넘었습니다.');
+    try { plan = JSON.parse(value); }
+    catch (error) { throw new Error('기준별 질문계획 형식을 확인해 주세요.'); }
+  }
+  if (!plan || typeof plan !== 'object' || Array.isArray(plan) || plan.schemaVersion !== 1 ||
+      typeof plan.approved !== 'boolean' || !Array.isArray(plan.criteria) || plan.criteria.length > 5) {
+    throw new Error('기준별 질문계획은 최대 5개 기준의 올바른 형식이어야 합니다.');
+  }
+  const seen = Object.create(null);
+  const material = String(materialText || '').replace(/\s+/g, ' ').trim();
+  const criteria = plan.criteria.map(function (item) {
+    if (!item || typeof item !== 'object' || Array.isArray(item) ||
+        typeof item.id !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(item.id) || seen[item.id] ||
+        ['explanation', 'student_question'].indexOf(item.responseKind) < 0 ||
+        typeof item.requireSourceEvidence !== 'boolean') {
+      throw new Error('질문계획의 기준 ID, 응답 종류, 근거 설정을 확인해 주세요.');
+    }
+    seen[item.id] = true;
+    const textField = function (name, label, limit) {
+      if (typeof item[name] !== 'string') throw new Error(label + '은 글자로 입력해 주세요.');
+      return (plan.approved && validateApproval !== false ? liteRequired_ : liteOptional_)(item[name], label, limit);
+    };
+    const row = {
+      id:item.id,
+      criterion:textField('criterion', '개별 평가기준', 180),
+      responseKind:item.responseKind,
+      mainQuestion:textField('mainQuestion', '기준별 시작 질문', 250),
+      followUpQuestion:textField('followUpQuestion', '기준별 보충 질문', 250),
+      evidenceDescription:textField('evidenceDescription', '확인할 학생 수행', 300),
+      sourceQuote:textField('sourceQuote', '본문 힌트 구절', 240),
+      requireSourceEvidence:item.requireSourceEvidence
+    };
+    if (plan.approved && validateApproval !== false) {
+      [row.mainQuestion, row.followUpQuestion].forEach(function (question) {
+        if ((question.match(/[?？]/g) || []).length !== 1 || !/[?？]$/.test(question)) {
+          throw new Error('기준별 질문은 끝에 물음표가 하나 있는 한 질문으로 입력해 주세요.');
+        }
+      });
+      if (material.indexOf(row.sourceQuote.replace(/\s+/g, ' ').trim()) < 0) {
+        throw new Error('본문 힌트 구절은 현재 수업자료 본문에서 그대로 골라 주세요.');
+      }
+    }
+    return row;
+  });
+  return { schemaVersion:1, approved:Boolean(plan.approved && criteria.length), criteria:criteria };
+}
+
+function liteAssessmentPlan_(settings) {
+  settings = settings || {};
+  return normalizeLiteAssessmentPlan_(settings.assessmentPlanJson, settings.materialText, settings.activityMode !== 'exploration');
+}
+
+function liteAssessmentStartQuestion_(settings) {
+  const plan = liteAssessmentPlan_(settings);
+  return settings.activityMode !== 'exploration' && plan.approved && plan.criteria.length
+    ? plan.criteria[0].mainQuestion : liteText_(settings.startQuestion, 500);
+}
+
 function validateLiteTeacherSetup_(payload) {
   payload = payload || {};
   const materialText = liteRequired_(payload.materialText, '수업자료 본문', 30000);
@@ -378,7 +441,8 @@ function validateLiteTeacherSetup_(payload) {
     materialUrl: materialUrl,
     startQuestion: liteRequired_(payload.startQuestion, '시작 질문', 500),
     activityMode: activityMode,
-    version: liteText_(payload.version, 30) || 'v1'
+    version: liteText_(payload.version, 30) || 'v1',
+    assessmentPlanJson: JSON.stringify(normalizeLiteAssessmentPlan_(payload.assessmentPlanJson, materialText, activityMode !== 'exploration'))
   };
 }
 
@@ -394,7 +458,7 @@ function sanitizeLiteSettingsForStudent_(settings) {
     materialTitle: liteText_(settings.materialTitle, 120),
     materialText: liteText_(settings.materialText, 30000),
     materialUrl: liteText_(settings.materialUrl, 1000),
-    startQuestion: liteText_(settings.startQuestion, 500),
+    startQuestion: liteAssessmentStartQuestion_(settings),
     activityMode: settings.activityMode === 'exploration' ? 'exploration' : 'evaluation',
     version: liteText_(settings.version, 30) || 'v1',
     sourceHash: liteText_(settings.sourceHash, 24),
@@ -422,6 +486,12 @@ function buildLiteReadiness_(settings, context) {
     settings.rubricHigh && settings.rubricMeet && settings.rubricDeveloping &&
     settings.evidenceDescription
   );
+  let assessmentPlan = { criteria:[], approved:false };
+  let assessmentPlanValid = true;
+  try { assessmentPlan = liteAssessmentPlan_(settings); }
+  catch (error) { assessmentPlanValid = false; }
+  const assessmentPlanReady = !backwardDesignEnabled ||
+    (assessmentPlanValid && (!assessmentPlan.criteria.length || assessmentPlan.approved));
   const materialReady = Boolean(
     settings.lessonTitle && settings.materialTitle &&
     String(settings.materialText || '').trim().length >= 30 && settings.startQuestion
@@ -453,6 +523,16 @@ function buildLiteReadiness_(settings, context) {
       detail: !backwardDesignEnabled
         ? '사용 안 함 — 자료 탐색모드에서는 백워드 평가 설계를 적용하지 않습니다.'
         : backwardReady ? '목표·성취기준·평가기준·평가 근거가 준비되었습니다.' : '목표부터 평가 근거까지 필수 항목을 입력해 주세요.'
+    },
+    {
+      key: 'assessmentPlan',
+      label: '평가기준별 질문·근거 계획',
+      state: assessmentPlanReady ? 'pass' : 'block',
+      detail: !backwardDesignEnabled ? '사용 안 함 — 저장한 질문계획은 보존됩니다.'
+        : !assessmentPlanValid ? '질문계획 형식과 본문 힌트 구절을 확인해 주세요.'
+        : !assessmentPlan.criteria.length ? '기준별 질문계획 없음 — 기존 일반 대화로 운영합니다.'
+        : assessmentPlan.approved ? '교사가 확인한 기준별 질문과 근거 계획을 적용합니다.'
+        : '질문계획은 초안입니다. 기준별 질문과 근거를 확인하고 승인해 주세요.'
     },
     {
       key: 'material',
@@ -503,7 +583,7 @@ function buildLiteReadiness_(settings, context) {
       detail: lessonOpen ? '학생 참여를 받을 수 있도록 열려 있습니다.' : '현재 수업 배포를 종료했습니다. 다시 열기 전에는 학생이 참여할 수 없습니다.'
     }
   ];
-  const requiredForSetup = ['apiSaved', 'backwardDesign', 'material', 'lessonAccess', 'mode'];
+  const requiredForSetup = ['apiSaved', 'backwardDesign', 'assessmentPlan', 'material', 'lessonAccess', 'mode'];
   const setupReady = checks.filter(function (item) {
     return requiredForSetup.indexOf(item.key) >= 0;
   }).every(function (item) { return item.state === 'pass'; });
@@ -679,6 +759,7 @@ function saveLiteTeacherSettings_(settings, options) {
   const changed = newLesson || String(previous.sourceHash || '') !== sourceHash;
   const previousRevision = Math.max(0, Number(previous.lessonRevision || 0));
   const row = Object.assign({}, settings, {
+    assessmentPlanJson:JSON.stringify(liteAssessmentPlan_(settings)),
     lessonId: newLesson
       ? ('LESSON-' + Utilities.getUuid().replace(/-/g, '').slice(-12).toUpperCase())
       : settings.lessonId || previous.lessonId || ('LESSON-' + Utilities.getUuid().replace(/-/g, '').slice(-12).toUpperCase()),
@@ -708,7 +789,10 @@ function makeLiteSettingsHash_(settings) {
     'rubricMeet', 'rubricDeveloping', 'evidenceDescription', 'materialTitle',
     'materialText', 'materialUrl', 'startQuestion', 'activityMode', 'version'
   ];
+  const plan = liteAssessmentPlan_(settings);
+  if (plan.criteria.length) fields.push('assessmentPlanJson');
   const source = fields.map(function (field) {
+    if (field === 'assessmentPlanJson') return field + '=' + JSON.stringify(plan);
     return field + '=' + liteText_(settings && settings[field]);
   }).join('\n');
   const digest = Utilities.computeDigest(
