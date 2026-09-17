@@ -200,3 +200,43 @@ test('unusable material, refusal and incomplete responses leave existing setting
   assert.throws(() => generateMaterial(harness({data:{status:'completed',output:[{content:[{type:'refusal'}]}]}})), /초안 형식/);
   assert.equal(h.calls(), 1);
 });
+
+test('teacher-selected 3, 4 or 5 levels control both provider schema and returned paired draft', () => {
+  for (const [rubricScheme, count] of [['legacy_three',3], ['four_levels',4], ['five_levels',5]]) {
+    const draft = {...pairedFixture};
+    if (count === 3) delete draft.rubricGood;
+    if (count === 5) draft.rubricBeginning = '예시와 문장 틀을 함께 살펴보며 자료의 핵심 사실을 한 가지 표현하는 지속적인 도움이 필요하다.';
+    const h = harness({draft});
+    const result = generateMaterial(h, {...materialInput,rubricScheme}).draft;
+    assert.equal(result.rubricScheme,rubricScheme);
+    assert.equal(Object.keys(result).filter(key=>key.startsWith('rubric') && key!=='rubricScheme').length,count);
+    const request = h.request().payload;
+    const schema = request.text.format.schema;
+    assert.equal(schema.required.filter(key=>key.startsWith('rubric')).length,count);
+    assert.equal(Object.hasOwn(schema.properties,'rubricGood'),count>=4);
+    assert.equal(Object.hasOwn(schema.properties,'rubricBeginning'),count===5);
+    assert.equal(JSON.parse(request.input).rubricScheme,rubricScheme);
+    assert.match(request.instructions,new RegExp(count+'단계'));
+    assert.ok(!request.instructions.includes(count===3?'매우잘함':'성장 중'));
+    if (count === 5) {
+      for(const [key,label] of [['rubricHigh','A'],['rubricGood','B'],['rubricMeet','C'],['rubricDeveloping','D'],['rubricBeginning','E']]) {
+        assert.ok(request.instructions.includes(label+'('+key+')'));
+      }
+      assert.doesNotMatch(request.instructions,/매우잘함|많은 노력요함|노력요함/);
+    }
+    const rubricOnly = Object.fromEntries(Object.entries(draft).filter(([key])=>!['materialUsable','reason','startQuestion','expectedAnswer','assessmentEvidence'].includes(key)));
+    assert.equal(generate(harness({draft:rubricOnly}), {...input,rubricScheme}).draft.rubricScheme,rubricScheme);
+  }
+});
+
+test('mismatched, missing, duplicate or extra level output is rejected instead of silently changing chosen scale', () => {
+  assert.throws(()=>generateMaterial(harness({draft:pairedFixture}),{...materialInput,rubricScheme:'legacy_three'}),/항목/);
+  assert.throws(()=>generateMaterial(harness({draft:pairedFixture}),{...materialInput,rubricScheme:'five_levels'}),/항목/);
+  for(const rubricBeginning of ['', '가'.repeat(1001), pairedFixture.rubricDeveloping]) {
+    assert.throws(()=>generateMaterial(harness({draft:{...pairedFixture,rubricBeginning}}),{...materialInput,rubricScheme:'five_levels'}),/AI/);
+  }
+  assert.throws(()=>generateMaterial(harness({draft:{...pairedFixture,rubricBeginning:'추가'}})),/항목/);
+  const h = harness();
+  assert.throws(()=>generateMaterial(h,{...materialInput,rubricScheme:'six_levels'}),/평가 수준/);
+  assert.equal(h.calls(),0);
+});

@@ -3,7 +3,7 @@
  * API 키는 Script Properties에만 저장하며 Sheet 행으로 만들지 않습니다.
  */
 
-const LITE_APP_VERSION_ = '0.7.0';
+const LITE_APP_VERSION_ = '0.8.0';
 const LITE_API_KEY_PROPERTY_ = 'TEACHER_OPENAI_API_KEY';
 const LITE_SPREADSHEET_ID_PROPERTY_ = 'TEACHER_SPREADSHEET_ID';
 const LITE_ENGINE_ENDPOINT_PROPERTY_ = 'CENTRAL_ENGINE_ENDPOINT';
@@ -30,7 +30,7 @@ const LITE_SHEET_HEADERS_ = {
     'rubricHigh', 'rubricMeet', 'rubricDeveloping', 'evidenceDescription',
     'materialTitle', 'materialText', 'materialUrl', 'startQuestion',
     'activityMode', 'version', 'sourceHash', 'lessonRevision', 'updatedAt',
-    'rubricScheme', 'rubricGood', 'expectedAnswer', 'assessmentEvidence'
+    'rubricScheme', 'rubricGood', 'expectedAnswer', 'assessmentEvidence', 'rubricBeginning'
   ],
   '학생별 현황': [
     'studentCode', 'lessonId', 'lessonRevision', 'sessionId', 'questionCount', 'relatedQuestionCount', 'lastActiveAt',
@@ -100,8 +100,8 @@ function normalizeLiteRubricScheme_(value) {
   const scheme = liteText_(value);
   // 열이 없던 기존 사본의 세 수준 기준을 다른 수준으로 바꾸어 해석하지 않는다.
   if (!scheme || scheme === 'legacy_three') return 'legacy_three';
-  if (scheme === 'four_levels') return scheme;
-  throw new Error('평가 수준은 4수준 또는 기존 3수준을 선택해 주세요.');
+  if (scheme === 'four_levels' || scheme === 'five_levels') return scheme;
+  throw new Error('평가 수준은 3수준, 4수준 또는 5수준을 선택해 주세요.');
 }
 
 function normalizeLiteAchievementStandard_(standardValue, codeValue) {
@@ -390,7 +390,8 @@ function validateLiteTeacherSetup_(payload) {
   }
   const activityMode = normalizeLiteMode_(payload.activityMode);
   const rubricScheme = normalizeLiteRubricScheme_(payload.rubricScheme);
-  const fourLevels = rubricScheme === 'four_levels';
+  const expandedLevels = rubricScheme !== 'legacy_three';
+  const fiveLevels = rubricScheme === 'five_levels';
   const lessonGoal = liteOptional_(payload.lessonGoal, '수업 목표', 500);
   const standard = normalizeLiteAchievementStandard_(payload.achievementStandard, payload.achievementStandardCode);
   const achievementStandard = standard.achievementStandard;
@@ -412,10 +413,11 @@ function validateLiteTeacherSetup_(payload) {
     achievementStandard: achievementStandard,
     assessmentCriteria: designField(payload.assessmentCriteria, '평가기준', 1500),
     rubricScheme: rubricScheme,
-    rubricHigh: designField(payload.rubricHigh, fourLevels ? '매우잘함 수준 기준' : '도달 수준 기준', 1000),
-    rubricGood: (fourLevels ? designField : liteOptional_)(payload.rubricGood, '잘함 수준 기준', 1000),
-    rubricMeet: designField(payload.rubricMeet, fourLevels ? '보통 수준 기준' : '성장 중 수준 기준', 1000),
-    rubricDeveloping: designField(payload.rubricDeveloping, fourLevels ? '노력요함 수준 기준' : '도움 필요 수준 기준', 1000),
+    rubricHigh: designField(payload.rubricHigh, fiveLevels ? 'A 수준 기준' : expandedLevels ? '매우잘함 수준 기준' : '도달 수준 기준', 1000),
+    rubricGood: (expandedLevels ? designField : liteOptional_)(payload.rubricGood, fiveLevels ? 'B 수준 기준' : '잘함 수준 기준', 1000),
+    rubricMeet: designField(payload.rubricMeet, fiveLevels ? 'C 수준 기준' : expandedLevels ? '보통 수준 기준' : '성장 중 수준 기준', 1000),
+    rubricDeveloping: designField(payload.rubricDeveloping, fiveLevels ? 'D 수준 기준' : expandedLevels ? '노력요함 수준 기준' : '도움 필요 수준 기준', 1000),
+    rubricBeginning: (fiveLevels ? designField : liteOptional_)(payload.rubricBeginning, 'E 수준 기준', 1000),
     evidenceDescription: designField(payload.evidenceDescription, '평가 근거', 1000),
     materialTitle: liteRequired_(payload.materialTitle, '수업자료 제목', 120),
     materialText: materialText,
@@ -466,7 +468,8 @@ function buildLiteReadiness_(settings, context) {
   const backwardReady = !backwardDesignEnabled || Boolean(
     (settings.lessonGoal || liteAchievementStandardContent_(settings.achievementStandard)) && settings.assessmentCriteria &&
     settings.rubricHigh && settings.rubricMeet && settings.rubricDeveloping &&
-    (normalizeLiteRubricScheme_(settings.rubricScheme) !== 'four_levels' || settings.rubricGood) &&
+    (normalizeLiteRubricScheme_(settings.rubricScheme) === 'legacy_three' || settings.rubricGood) &&
+    (normalizeLiteRubricScheme_(settings.rubricScheme) !== 'five_levels' || settings.rubricBeginning) &&
     settings.evidenceDescription
   );
   const materialReady = Boolean(
@@ -701,6 +704,7 @@ function readLiteTeacherSettings_(spreadsheet, options) {
   if (settings.lessonId) {
     settings.rubricScheme = normalizeLiteRubricScheme_(settings.rubricScheme);
     settings.rubricGood = liteText_(settings.rubricGood, 1000);
+    settings.rubricBeginning = liteText_(settings.rubricBeginning, 1000);
     settings.expectedAnswer = liteText_(settings.expectedAnswer, 1500);
     settings.assessmentEvidence = liteText_(settings.assessmentEvidence, 1000);
     Object.assign(settings, normalizeLiteAchievementStandard_(settings.achievementStandard, settings.achievementStandardCode));
@@ -731,6 +735,7 @@ function saveLiteTeacherSettings_(settings, options) {
   settings = Object.assign({}, settings, {
     rubricScheme: normalizeLiteRubricScheme_(settings.rubricScheme),
     rubricGood: liteText_(settings.rubricGood, 1000),
+    rubricBeginning: liteOptional_(settings.rubricBeginning, 'E 수준 기준', 1000),
     expectedAnswer: liteOptional_(settings.expectedAnswer, '예상 답변', 1500),
     assessmentEvidence: liteOptional_(settings.assessmentEvidence, '평가 문항 근거', 1000)
   }, normalizeLiteAchievementStandard_(settings.achievementStandard, settings.achievementStandardCode));
@@ -768,9 +773,9 @@ function makeLiteSettingsHash_(settings) {
     'rubricMeet', 'rubricDeveloping', 'evidenceDescription', 'materialTitle',
     'materialText', 'materialUrl', 'startQuestion', 'activityMode', 'version'
   ];
-  // 기존 3수준을 그대로 저장하면 이전 해시/개정을 유지한다. 4수준 전환이나
+  // 기존 3수준을 그대로 저장하면 이전 해시/개정을 유지한다. 4·5수준 전환이나
   // 추가 수준의 수정은 미리보기 확인을 다시 받도록 반드시 개정에 포함한다.
-  if (normalizeLiteRubricScheme_(settings && settings.rubricScheme) === 'four_levels' ||
+  if (normalizeLiteRubricScheme_(settings && settings.rubricScheme) !== 'legacy_three' ||
       liteText_(settings && settings.rubricGood)) {
     fields.push('rubricScheme', 'rubricGood');
   }
@@ -778,6 +783,7 @@ function makeLiteSettingsHash_(settings) {
   ['expectedAnswer', 'assessmentEvidence'].forEach(function (field) {
     if (liteText_(settings && settings[field])) fields.push(field);
   });
+  if (liteText_(settings && settings.rubricBeginning)) fields.push('rubricBeginning');
   const source = fields.map(function (field) {
     return field + '=' + liteText_(settings && settings[field]);
   }).join('\n');
