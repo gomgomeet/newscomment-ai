@@ -19,7 +19,8 @@ export const PHASE_B1_PROMPT = "혹시 지문에서 모르는 단어나 이해�
 export const PHASE_B2_PROMPT =
   "혹시 글에 대해서 질문하기가 어려우면 제가 질문해도 될까요? 제 질문에 대한 답을 지문에서 찾아보세요.";
 
-const OPINION_PROMPT = "이 글을 읽고 어떤 생각이나 느낌이 들었어? 네 생각이 궁금해.";
+const OPINION_QUESTION = "이 글을 읽고 어떤 생각이나 느낌이 들었어?";
+const OPINION_PROMPT = `${OPINION_QUESTION} 네 생각이 궁금해.`;
 const COMPREHENSION_MEDIUM_PROMPT =
   "글에서 가장 중요한 사실 한 가지를 찾아 자기 말로 말해 줄래요?";
 const COMPREHENSION_HIGH_PROMPT =
@@ -167,7 +168,11 @@ function classifyAssistantQuestion(text: string, targets: StandardTarget[]): Pha
       difficulty: text.includes("이 문장을 먼저 다시 보고") ? "하" : "상",
     };
   }
-  if (text.includes(OPINION_PROMPT)) return { kind: "opinion", text: OPINION_PROMPT, difficulty: "중" };
+  // 어댑터는 관리 질문을 답변 끝으로 옮기며, 안내 문장은 생략할 수도 있다.
+  // 의견 질문 자체로 식별해야 저장된 최종 답변을 읽을 때 같은 질문을 반복하지 않는다.
+  if (text.replace(/\s+/g, " ").includes(OPINION_QUESTION)) {
+    return { kind: "opinion", text: OPINION_PROMPT, difficulty: "중" };
+  }
   return null;
 }
 

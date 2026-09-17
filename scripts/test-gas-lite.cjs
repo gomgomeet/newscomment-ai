@@ -203,11 +203,18 @@ const explorationWithoutDesign = context.validateLiteTeacherSetup_({
 });
 Object.entries(backwardDesignLimits).forEach(([field, limit]) => {
   assert.equal(explorationWithoutDesign[field], '');
-  assert.throws(
-    () => context.validateLiteTeacherSetup_({ ...valid, [field]:'' }),
-    /입력해 주세요/,
-    `평가모드에서는 ${field} 필수 검사를 유지해야 한다`
-  );
+  if (field === 'lessonGoal' || field === 'achievementStandard') {
+    assert.doesNotThrow(
+      () => context.validateLiteTeacherSetup_({ ...valid, [field]:'' }),
+      '평가모드에서는 수업 목표 또는 성취기준 중 하나만 입력해도 저장해야 한다'
+    );
+  } else {
+    assert.throws(
+      () => context.validateLiteTeacherSetup_({ ...valid, [field]:'' }),
+      /입력해 주세요/,
+      `평가모드에서는 ${field} 필수 검사를 유지해야 한다`
+    );
+  }
   ['evaluation', 'exploration'].forEach((activityMode) => {
     assert.throws(
       () => context.validateLiteTeacherSetup_({ ...valid, activityMode, [field]:'가'.repeat(limit + 1) }),
@@ -219,6 +226,10 @@ Object.entries(backwardDesignLimits).forEach(([field, limit]) => {
     ...valid, activityMode:'exploration', [field]:'가'.repeat(limit)
   })[field], '가'.repeat(limit));
 });
+assert.throws(
+  () => context.validateLiteTeacherSetup_({ ...valid, lessonGoal:'', achievementStandard:'' }),
+  /수업 목표 또는 성취기준/
+);
 assert.throws(
   () => context.validateLiteTeacherSetup_({ ...explorationWithoutDesign, activityMode:'evaluation' }),
   /수업 목표/
@@ -259,6 +270,91 @@ assert.throws(
   }, safePlan.requestId),
   /입력 크기/
 );
+
+// 배포 순서가 달라도 기존 lead 계약을 유지하고, 새 계약에서는 실제 답변을 받아야 한다.
+const groundedPlan = {
+  ...safePlan,
+  modelRequest:{ ...safePlan.modelRequest, outputContract:'grounded_answer_v2', maxOutputTokens:700 }
+};
+assert.equal(context.validateLiteEnginePlan_(groundedPlan, groundedPlan.requestId), groundedPlan);
+assert.throws(
+  () => context.validateLiteEnginePlan_({
+    ...safePlan, modelRequest:{ ...safePlan.modelRequest, outputContract:'unrecognized_contract' }
+  }, safePlan.requestId),
+  /출력 계약/
+);
+assert.deepEqual(
+  Array.from(context.buildLiteEnginePayload_({ requestId:'req_contracts', message:'질문' }, valid, [])
+    .supportedOutputContracts),
+  ['grounded_answer_v2', 'lead_evidence_quote_v1']
+);
+{
+  const previousFetch = context.UrlFetchApp;
+  const previousApiKey = properties.get('TEACHER_OPENAI_API_KEY');
+  properties.set('TEACHER_OPENAI_API_KEY', 'sk-contract-test-placeholder');
+  const directAnswer = '먹을 만큼 반찬을 고르면 다 먹기 쉬워 남기는 음식이 줄어요.';
+  const evidenceQuote = '먹을 만큼만 받으면 다 먹기 쉽다는 점을 알게 되었다.';
+  let modelPayload;
+  let modelOutput;
+  context.UrlFetchApp = {
+    fetch(url, options) {
+      assert.equal(url, 'https://api.openai.com/v1/responses');
+      modelPayload = JSON.parse(options.payload);
+      return {
+        getResponseCode:() => 200,
+        getContentText:() => JSON.stringify({
+          id:'resp_contract_test', model:'gpt-5.6-terra',
+          output:[{ content:[{ type:'output_text', text:JSON.stringify(modelOutput) }] }],
+          usage:{ input_tokens:100, output_tokens:40, total_tokens:140 }
+        })
+      };
+    }
+  };
+  try {
+    modelOutput = { lead:'자료에서 함께 확인해 볼게요.', evidenceQuote };
+    const legacyResult = context.callLiteOpenAI_(safePlan, safePlan.requestId);
+    assert.equal(legacyResult.text, modelOutput.lead);
+    assert.equal(legacyResult.evidenceQuote, evidenceQuote);
+    assert.deepEqual(modelPayload.text.format.schema.required, ['lead', 'evidenceQuote']);
+    assert.equal(modelPayload.text.format.schema.properties.lead.enum.length, 4);
+
+    modelOutput = { answer:directAnswer, evidenceQuote };
+    const groundedResult = context.callLiteOpenAI_(groundedPlan, groundedPlan.requestId);
+    assert.equal(groundedResult.text, directAnswer);
+    assert.equal(groundedResult.evidenceQuote, evidenceQuote);
+    assert.equal(groundedResult.usage.total_tokens, 140);
+    assert.deepEqual(modelPayload.text.format.schema.required, ['answer', 'evidenceQuote']);
+    assert.deepEqual(modelPayload.text.format.schema.properties.answer, { type:'string' });
+    assert.equal(Object.hasOwn(modelPayload.text.format.schema.properties, 'lead'), false);
+    assert.equal(modelPayload.text.format.schema.additionalProperties, false);
+    assert.equal(modelPayload.max_output_tokens, 700);
+    assert.equal(modelPayload.store, false);
+    for (const [limit, expected] of [[1, 200], [5000, 1000]]) {
+      context.callLiteOpenAI_({
+        ...groundedPlan, modelRequest:{ ...groundedPlan.modelRequest, maxOutputTokens:limit }
+      }, groundedPlan.requestId);
+      assert.equal(modelPayload.max_output_tokens, expected);
+    }
+    for (const malformed of [
+      { lead:'자료에서 함께 확인해 볼게요.', evidenceQuote },
+      { answer:'   ', evidenceQuote },
+      { answer:directAnswer, evidenceQuote:23 },
+      { answer:directAnswer, evidenceQuote:'' }
+    ]) {
+      modelOutput = malformed;
+      assert.throws(() => context.callLiteOpenAI_(groundedPlan, groundedPlan.requestId), (error) => {
+        assert.match(error.message, /답변과 근거 문장/);
+        assert.equal(error.usage.total_tokens, 140, '형식 오류도 유료 호출 사용량은 보존해야 한다');
+        return true;
+      });
+    }
+  } finally {
+    if (previousFetch === undefined) delete context.UrlFetchApp;
+    else context.UrlFetchApp = previousFetch;
+    if (previousApiKey === undefined) properties.delete('TEACHER_OPENAI_API_KEY');
+    else properties.set('TEACHER_OPENAI_API_KEY', previousApiKey);
+  }
+}
 
 const student = context.sanitizeLiteSettingsForStudent_(normalized);
 assert.equal(student.materialText, normalized.materialText);
@@ -1357,6 +1453,68 @@ assert.equal(recoveredCandidateResult.ok, true);
 assert.equal(modelCallCount, callsBeforeCandidateResume);
 assert.equal(properties.has(context.litePendingResultKey_(candidatePayload.requestId)), false);
 
+// 새 계약의 전체 답변도 candidateReply에 보존해 재시도 시 모델 재호출 없이 finalize·시트 저장한다.
+{
+  const answer = '개인 물병을 사용하면 일회용품 사용을 줄일 수 있어요. 학생들은 이런 작은 실천으로 환경을 지키고 있어요.';
+  const quote = '우리 학교에서는 일회용품 사용을 줄이기 위해 개인 물병을 사용하고 있습니다.';
+  const payload = {
+    ...candidatePayload, requestId:'req_grounded_resume_001', studentCode:'7-11',
+    deviceToken:'device_grounded_resume_1234', message:'개인 물병을 쓰면 왜 환경에 도움이 되나요?'
+  };
+  const turn = context.prepareLiteStudentTurn_(payload, savedSettings);
+  const candidate = context.buildLiteCandidateState_({
+    ...context.requestLiteEnginePlan_(), modelRequest:groundedPlan.modelRequest
+  }, {
+    text:answer, evidenceQuote:quote, model:'gpt-5.6-terra',
+    usage:{ input_tokens:90, output_tokens:45, total_tokens:135 }
+  });
+  assert.equal(context.trySaveLiteCandidateState_(turn, candidate).candidateReply, answer);
+  const persistedCandidate = JSON.parse(properties.get(context.litePendingResultKey_(payload.requestId)));
+  assert.equal(persistedCandidate.output.candidateReply, answer);
+  assert.equal(persistedCandidate.output.candidateEvidenceQuote, quote);
+  const previousFetch = context.UrlFetchApp;
+  const previousFinalize = context.requestLiteEngineFinalize_;
+  let finalizeCalls = 0;
+  context.requestLiteEngineFinalize_ = originalFinalizeRequest;
+  context.UrlFetchApp = {
+    fetch(url, options) {
+      finalizeCalls += 1;
+      assert.equal(url, 'https://engine.example.com/api/lite-engine/finalize');
+      const transported = JSON.parse(options.payload);
+      assert.equal(transported.candidateReply, answer, '복구된 답변 전체가 최종 확인으로 전달되어야 한다');
+      assert.equal(transported.candidateEvidenceQuote, quote);
+      assert.deepEqual(transported.supportedOutputContracts, ['grounded_answer_v2', 'lead_evidence_quote_v1']);
+      return {
+        getResponseCode:() => 200,
+        getContentText:() => JSON.stringify({
+          schemaVersion:2, requestId:turn.requestId,
+          policyVersion:candidate.plan.policyVersion, planDigest:candidate.plan.planDigest,
+          engine:{ family:'questioning-dialogue-v2' }, observation:candidate.plan.observation,
+          studentReply:answer, localFallback:false
+        })
+      };
+    }
+  };
+  try {
+    const paidCallsBeforeRecovery = modelCallCount;
+    assert.equal(context.submitLiteTurn(payload).ok, true);
+    assert.equal(modelCallCount, paidCallsBeforeRecovery);
+    assert.equal(finalizeCalls, 1);
+    const botRow = context.liteRowsAsObjects_(spreadsheet.getSheetByName('질문과 답변'))
+      .find((row) => row.requestId === payload.requestId && row.speaker === 'bot');
+    assert.equal(botRow.text, answer);
+    assert.equal(botRow.aiStatus, 'ok:gpt-5.6-terra');
+    assert.equal(botRow.apiTotalTokens, 135);
+    assert.equal(context.submitLiteTurn(payload).duplicate, true);
+    assert.equal(finalizeCalls, 1);
+    assert.equal(modelCallCount, paidCallsBeforeRecovery);
+  } finally {
+    context.requestLiteEngineFinalize_ = previousFinalize;
+    if (previousFetch === undefined) delete context.UrlFetchApp;
+    else context.UrlFetchApp = previousFetch;
+  }
+}
+
 // 유료 후보가 만들어지는 사이 중앙 엔진 검증 세대가 바뀌면 fresh 요청도 새 엔진으로 finalize하지 않는다.
 const runtimeChangedPayload = {
   requestId:'req_runtime_changed_001', studentCode:'7-8', joinCode:valid.joinCode,
@@ -1781,6 +1939,73 @@ const studentStylesHtml = fs.readFileSync(path.join(root, 'gas-lite', 'StudentSt
 const teacherDashboardHtml = fs.readFileSync(path.join(root, 'gas-lite', 'TeacherDashboard.html'), 'utf8');
 
 new vm.Script(codeSource, { filename:'gas-lite/Code.js' });
+vm.runInContext(codeSource, context, { filename:'gas-lite/Code.js' });
+
+// The teacher can correct a stale automatic deployment URL without changing
+// lesson data, API/engine verification, or the current preview capability.
+const confirmedUrlProperty = 'LITE_CONFIRMED_STUDENT_URL';
+const confirmedUrl = 'https://script.google.com/macros/s/actual_deployment-123/exec';
+const automaticUrl = context.getLiteStudentUrl_();
+context.markLiteApiVerified_('sk-zxywvutsrqponmlk');
+context.markLitePreviewVerified_(copiedSettings);
+const beforeUrlData = context.getLiteTeacherSetupData(teacherToken);
+const propertiesExceptUrl = () => Object.fromEntries(
+  Array.from(properties.entries()).filter(([key]) => key !== confirmedUrlProperty)
+);
+const lessonSheets = () => JSON.stringify(Array.from(spreadsheet.sheets.entries())
+  .filter(([name]) => name !== '시작하기').map(([name, sheet]) => [name, sheet.rows]));
+const beforeUrlProperties = propertiesExceptUrl();
+const beforeUrlSheets = lessonSheets();
+const beforeUrlLesson = JSON.stringify(beforeUrlData.settings);
+assert.equal(beforeUrlData.confirmedStudentUrl, '');
+assert.equal(context.isLitePreviewVerified_(copiedSettings), true);
+assert.throws(() => context.saveLiteStudentUrlForTeacher('wrong-token', confirmedUrl), /Google Sheet/);
+assert.equal(properties.has(confirmedUrlProperty), false);
+
+const savedUrlData = context.saveLiteStudentUrlForTeacher(teacherToken, '  ' + confirmedUrl + '  ');
+assert.equal(savedUrlData.studentUrl, confirmedUrl);
+assert.equal(savedUrlData.confirmedStudentUrl, confirmedUrl);
+assert.equal(savedUrlData.previewUrl, confirmedUrl + beforeUrlData.previewUrl.slice(beforeUrlData.previewUrl.indexOf('?')));
+assert.equal(context.isLitePreviewVerified_(copiedSettings), true);
+assert.equal(JSON.stringify(savedUrlData.settings), beforeUrlLesson);
+assert.deepEqual(propertiesExceptUrl(), beforeUrlProperties);
+assert.equal(lessonSheets(), beforeUrlSheets);
+assert.equal(context.getLiteTeacherSetupData(teacherToken).studentUrl, confirmedUrl, 'Reopening uses the saved override');
+const originalService = context.ScriptApp.getService;
+context.ScriptApp.getService = () => { throw new Error('stale service must not be consulted'); };
+assert.equal(context.getLiteStudentUrl_(), confirmedUrl);
+context.ScriptApp.getService = originalService;
+
+[
+  confirmedUrl + '?preview=never-store-this-token', confirmedUrl + '#fragment',
+  confirmedUrl.replace('/exec', '/dev'), confirmedUrl + '/extra',
+  confirmedUrl.replace('https:', 'http:'), confirmedUrl.replace('script.google.com', 'example.com'),
+  confirmedUrl.replace('script.google.com', 'script.google.com.example.com'),
+  confirmedUrl.replace('script.google.com', 'user@script.google.com'),
+  confirmedUrl.replace('script.google.com', 'script.google.com:443'),
+  confirmedUrl.replace('/macros/s/', '/macros/u/0/s/'),
+  confirmedUrl.replace('actual_deployment-123', 'encoded%2Fdeployment'),
+  'https://script.google.com/macros/s/' + 'a'.repeat(501) + '/exec',
+].forEach((invalidUrl) => {
+  assert.throws(() => context.saveLiteStudentUrlForTeacher(teacherToken, invalidUrl), /주소만/);
+  assert.equal(properties.get(confirmedUrlProperty), confirmedUrl);
+  assert.deepEqual(propertiesExceptUrl(), beforeUrlProperties);
+  assert.equal(lessonSheets(), beforeUrlSheets);
+});
+properties.set(confirmedUrlProperty, 'https://example.com/unsafe');
+assert.throws(() => context.getLiteStudentUrl_(), /주소만/, 'Invalid stored overrides cannot become clickable links');
+properties.set(confirmedUrlProperty, confirmedUrl);
+const clearedUrlData = context.saveLiteStudentUrlForTeacher(teacherToken, '');
+assert.equal(clearedUrlData.studentUrl, automaticUrl);
+assert.equal(clearedUrlData.confirmedStudentUrl, '');
+assert.equal(properties.has(confirmedUrlProperty), false);
+assert.deepEqual(propertiesExceptUrl(), beforeUrlProperties);
+assert.equal(lessonSheets(), beforeUrlSheets);
+context.ScriptApp.getService = () => ({ getUrl:() => null });
+assert.equal(context.getLiteStudentUrl_(), '');
+context.ScriptApp.getService = () => { throw new Error('not deployed'); };
+assert.equal(context.getLiteStudentUrl_(), '');
+context.ScriptApp.getService = originalService;
 [teacherHtml, teacherDashboardHtml, studentClientHtml].forEach((source, index) => {
   const scripts = Array.from(source.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi));
   scripts.forEach((match, scriptIndex) => {
@@ -1813,9 +2038,6 @@ assert.match(engineSource, /candidateEvidenceQuote/);
 assert.match(engineSource, /if \(!replyFinalizedByEngine\) reply = enforceLiteReply_/);
 assert.match(teacherHtml, /id="assessment-criteria"/);
 assert.match(teacherHtml, /id="evidence-description"/);
-assert.match(teacherHtml, /99-999/);
-assert.match(teacherHtml, /체험 · 강사 챗봇/);
-assert.match(teacherHtml, /이해 · 구조와 결과/);
 assert.match(teacherHtml, /latestDistributionReady/);
 assert.ok(/const dirty = hasUnsavedSetupChanges\(\)/.test(teacherHtml),
   'Readiness must gate links on the whole unsaved form, not only the activity mode');

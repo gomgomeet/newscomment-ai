@@ -72,6 +72,7 @@ function getLiteTeacherSetupData(teacherAccessToken) {
     api: { configured: hasLiteApiKey_(), verified: isLiteApiVerified_() },
     engine: { configured: hasLiteEngineEndpoint_(), verified: isLiteEngineVerified_() },
     studentUrl: studentUrl,
+    confirmedStudentUrl: getLiteConfirmedStudentUrl_(),
     previewUrl: previewUrl,
     readiness: readiness
   };
@@ -94,6 +95,27 @@ function saveLiteTeacherSetup(teacherAccessToken, payload) {
     previewUrl: previewUrl,
     readiness: readiness
   };
+}
+
+function generateLiteAssessmentDraft(teacherAccessToken, payload) {
+  assertLiteTeacherAccess_(teacherAccessToken);
+  return generateLiteAssessmentDraft_(payload);
+}
+
+function generateLiteMaterialAssessmentDraft(teacherAccessToken, payload) {
+  assertLiteTeacherAccess_(teacherAccessToken);
+  return generateLiteMaterialAssessmentDraft_(payload);
+}
+
+function saveLiteStudentUrlForTeacher(teacherAccessToken, studentUrl) {
+  assertLiteTeacherAccess_(teacherAccessToken);
+  const confirmedUrl = saveLiteStudentUrl_(studentUrl);
+  const data = getLiteTeacherSetupData(teacherAccessToken);
+  data.ok = true;
+  data.message = confirmedUrl
+    ? '확인한 웹앱 주소를 저장했습니다. 이 주소로 미리보기와 학생 링크를 엽니다.'
+    : '직접 저장한 주소를 해제했습니다. 자동으로 찾은 웹앱 주소를 사용합니다.';
+  return data;
 }
 
 function saveLiteApiKey(teacherAccessToken, apiKey) {
@@ -270,6 +292,7 @@ function duplicateLiteLessonForTeacher(teacherAccessToken) {
     engine: { configured: hasLiteEngineEndpoint_(), verified: isLiteEngineVerified_() },
     studentUrl: getLiteStudentUrl_(),
     previewUrl: getLiteTeacherPreviewUrl_(saved),
+    confirmedStudentUrl: getLiteConfirmedStudentUrl_(),
     readiness: readiness,
     message: '현재 설계를 새 수업으로 복제했습니다. 내용을 수정해 저장하고 99-999로 다시 미리보기해 주세요.'
   };

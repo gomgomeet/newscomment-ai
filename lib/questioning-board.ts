@@ -336,7 +336,7 @@ export const defaultQuestioningChatbotBehavior: QuestioningChatbotBehavior = {
       "전화번호",
       "주소",
       "주민번호",
-      "주민등록",
+      "주민등록번호",
       "사진",
       "상담",
       "비밀번호",
@@ -413,10 +413,10 @@ function normalizeKeywordList(value: unknown, fallback: string[]) {
 }
 
 function normalizeSafetyKeywordList(value: unknown, fallback: string[]) {
-  // 예전 기본값 '주민'은 지역 주민에 관한 정상 수업 질문까지 차단했다.
-  const normalized = normalizeKeywordList(value, fallback).map((keyword) =>
-    keyword === "주민" ? "주민등록" : keyword,
-  );
+  // Older saved configurations used 주민 as a personal-ID signal, which also
+  // blocked ordinary civics answers about residents. Keep only the specific
+  // ID references supplied by the defaults when migrating that old signal.
+  const normalized = normalizeKeywordList(value, fallback).filter((signal) => signal !== "주민");
   return Array.from(new Set([...fallback, ...normalized])).slice(0, 80);
 }
 
@@ -1316,6 +1316,11 @@ export function emptyMaterialAnalysis(): MaterialAnalysis {
   };
 }
 
+function asksForContextualReason(value: string) {
+  if (/(낱말|단어|용어|뜻|의미|(?:이유|까닭|원인)(?:이)?라는\s*말)/.test(value)) return false;
+  return /[가-힣A-Za-z0-9]+\s+(?:이유|까닭|원인)(?:은|는|이|가|을|를)?\s*(?:무엇|뭐|어떤|알려|설명|궁금|모르)/.test(value);
+}
+
 export function isVocabularyQuestion(value: string, vocabularySignals: string[] = []) {
   const normalized = value.trim().toLowerCase();
   const compact = normalized.replace(/\s+/g, "");
@@ -1324,6 +1329,9 @@ export function isVocabularyQuestion(value: string, vocabularySignals: string[] 
   if (/(다는|라는|했다는|였다는|없다는|있다는|줄었다는|늘었다는)뜻/.test(semanticCompact)) {
     return false;
   }
+  // "반대하는 이유는 무엇인가요?" asks about an event, whereas
+  // "이유라는 낱말은 무슨 뜻인가요?" still asks for a definition.
+  if (asksForContextualReason(value)) return false;
 
   // '주민들이 반대하는 이유는 뭐야?'는 '이유'의 사전 뜻을 묻는 말이 아니다.
   if (
@@ -1383,6 +1391,10 @@ export function isVocabularyQuestion(value: string, vocabularySignals: string[] 
   );
 }
 
+function mentionsResidentRegistrationNumber(text: string) {
+  return /주민(?:등록)?번호/.test(text.replace(/\s+/g, ""));
+}
+
 export function classifyQuestionLocally(
   question: string,
   behaviorValue?: QuestioningChatbotBehavior,
@@ -1399,7 +1411,8 @@ export function classifyQuestionLocally(
     (/(써줘|작성해줘|만들어줘|대신해줘|보여줘)/.test(compact) &&
       /(답|문장|문단|소개문|수행평가|숙제|예시)/.test(compact));
 
-  if (unsafeAnswerRequest || keywords.safety.some((signal) => normalized.includes(signal.toLowerCase()))) {
+  if (unsafeAnswerRequest || mentionsResidentRegistrationNumber(question) ||
+      keywords.safety.some((signal) => normalized.includes(signal.toLowerCase()))) {
     return "safety";
   }
 
@@ -1410,6 +1423,7 @@ export function classifyQuestionLocally(
   if (isVocabularyQuestion(question, keywords.vocabulary)) {
     return "vocabulary";
   }
+  if (asksForContextualReason(question)) return "inference";
 
   if (keywords.reflection.some((signal) => normalized.includes(signal.toLowerCase()))) {
     return "reflection";
@@ -1524,12 +1538,123 @@ function normalizeSearchToken(token: string) {
   return normalized;
 }
 
+const sourceQuantityPattern = /(?:\d+(?:[.,]\d+)*|한|두|세|네|다섯|여섯|일곱|여덟|아홉|열|백|천)\s*(킬로그램|퍼센트|리터|시간|개월|kg|km|cm|mm|ml|명|개|통|권|원|도|년|월|일|분|초|배|%)/gi;
+
+function comparesPositions(question: string) {
+  const compact = question.replace(/\s+/g, "");
+  return /(입장|의견|주장|요구)/.test(compact) &&
+    (/(비교|차이|다르|다른|각각|서로)/.test(compact) ||
+      /(?:와|과|및).{0,18}(?:입장|의견|주장|요구)/.test(compact));
+}
+
+function positionQuestionActor(question: string) {
+  const compact = question.replace(/\s+/g, "");
+  // A comparison needs both parties' evidence, not one inferred speaker.
+  if (comparesPositions(question)) return "";
+  if (!/(입장|의견|주장|요구|우려|걱정|반대|찬성|거부|반발|원하)/.test(compact) ||
+      !/(왜|이유|까닭|무엇|어떤|뭐|입장|의견|주장|요구)/.test(compact)) return "";
+  const possessive = question.match(/([가-힣A-Za-z0-9]+?)(?:들)?의\s*(?:입장|의견|주장|요구|우려|걱정|반대|찬성)/);
+  const subject = question.match(/(?:^|\s)([가-힣A-Za-z0-9]+?)(?:들은|들이|께서|은|는|이|가)\s/);
+  return normalizeSearchToken(possessive?.[1] || subject?.[1] || "");
+}
+
+function sourcePositionActor(sentence: string) {
+  // A party merely mentioned in another party's statement is not its speaker.
+  // Use the first explicit subject, including plural Korean subject particles.
+  const subject = sentence.match(/(?:^|[\s“‘"'])([가-힣A-Za-z0-9]+?)(?:들은|들이|께서|은|는|이|가|도)\s/);
+  return normalizeSearchToken(subject?.[1] || "");
+}
+
+function positionMatchesQuestionTopic(sentence: string, question: string, actor: string) {
+  const topics = (question.match(/[가-힣A-Za-z0-9]+/g) || []).map(normalizeSearchToken)
+    .filter((term) => term.length >= 2 && term !== actor && !questionSearchStopwords.has(term) &&
+      !questionIntentTerms.has(term) && !/^(입장|의견|주장|요구|우려|걱정|반대|찬성|거부|반발|원하)/.test(term));
+  // If the question names a proposal, a different demand from the same speaker
+  // cannot supply its reason. Without an explicit topic, use that party's text.
+  const compactSentence = sentence.toLowerCase().replace(/\s+/g, "");
+  return !topics.length || topics.some((topic) => compactSentence.includes(topic));
+}
+
+function hasExplicitPosition(sentence: string) {
+  // Opposition alone names the event, not its reason. A reported demand,
+  // concern or statement provides the party's stated grounds without guessing.
+  if (/(?:반대|찬성|거부|반발)(?:한다고|한다는|했다고|하겠다고|하고\s*있다고|할\s*것이라고|(?:의|한다는)?\s*입장).{0,15}(?:말|밝|설명|주장)/.test(sentence) &&
+      !/(때문|덕분|탓|위해|므로|어서|해서|아져|어져|우려|걱정|염려)/.test(sentence)) return false;
+  return /(주장|요구|우려|걱정|염려|입장|(?:다고|라고).{0,15}(?:말|설명|생각|밝|강조))/.test(sentence);
+}
+
+export function scoreSourceSentence(
+  sentence: string,
+  question: string,
+  prioritizeQuestionIntent = /[?？]/.test(question),
+) {
+  const compactQuestion = question.toLowerCase().replace(/\s+/g, "");
+  const compactSentence = sentence.toLowerCase().replace(/\s+/g, "");
+  const terms = Array.from(new Set((question.match(/[가-힣A-Za-z0-9]+/g) || [])
+    .map(normalizeSearchToken)
+    .filter((term) => term.length >= 2 && !questionSearchStopwords.has(term))));
+  const topicScore = terms.reduce((total, term) => total + (
+    compactSentence.includes(term)
+      ? prioritizeQuestionIntent && questionIntentTerms.has(term) ? 10 : Math.min(term.length, 6)
+      : 0
+  ), 0);
+  let score = topicScore;
+
+  const positionActor = positionQuestionActor(question);
+  if (positionActor) {
+    const sentenceActor = sourcePositionActor(sentence);
+    if (sentenceActor === positionActor && hasExplicitPosition(sentence) &&
+        positionMatchesQuestionTopic(sentence, question, positionActor)) score += 16;
+    else if (sentenceActor && sentenceActor !== positionActor) score -= 8;
+  }
+
+  // "설명했다"라는 말만으로 질문한 대상의 원인을 설명한 문장이라고 볼 수 없다.
+  // 문장 자체의 관련성과 실제 인과 표현을 함께 보며 이웃 문장의 점수를 빌리지 않는다.
+  if (!asksForCausalCertainty(question) && /(왜|이유|까닭|때문)/.test(compactQuestion) && topicScore > 0 &&
+      /(때문|덕분|탓|(으로|로)\s*인해|원인|져서|아져|어져|(?:으면|하면|받으면|고르면).{0,40}(?:쉽|줄|늘|수\s*있))/.test(sentence)) {
+    score += 5;
+  }
+  if (!asksForCausalCertainty(question) && /(할수있|어떻게해|어떡|방법|하면돼|하면좋)/.test(compactQuestion) && topicScore > 0 &&
+      /(늘리|줄이|바꾸|정했|하기로|방안|대책|마련|설치|실천|시작했)/.test(sentence)) {
+    score += 5;
+  }
+  if (/(어떻게|무엇|어떤)/.test(compactQuestion) && /(고르|고를|선택)/.test(compactQuestion) &&
+      /(고르|고를|골라|고른|선택|고르게)/.test(sentence) && /[,，]|또는|거나|중에서|가운데/.test(sentence)) {
+    score += 6;
+  }
+  if (asksForCausalCertainty(question) && /(확인하지|알 수 없|따로 조사|아직 조사|비교하지)/.test(sentence)) {
+    score += 8;
+  }
+
+  // 수량 질문은 숫자가 없는 일반 설명보다 요청한 단위가 있는 문장을 우선한다.
+  // 한글 수량과 소수도 그대로 인용하며 별도의 계산이나 단위 변환은 하지 않는다.
+  const quantities = [...sentence.matchAll(sourceQuantityPattern)];
+  if (/(몇|얼마|어느정도)/.test(compactQuestion) && quantities.length) {
+    const unit = compactQuestion.match(/몇(?:킬로그램|퍼센트|리터|시간|개월|kg|km|cm|mm|ml|명|개|통|권|원|도|년|월|일|분|초|배)/i)?.[0].slice(1);
+    const aliases: Record<string, string> = { 킬로그램: "kg", 퍼센트: "%", 리터: "l" };
+    const matchesUnit = !unit || quantities.some((quantity) =>
+      (aliases[quantity[1].toLowerCase()] || quantity[1].toLowerCase()) === (aliases[unit] || unit));
+    if (matchesUnit) {
+      score += 8;
+      if (/(최종|결과|지금|현재|이후|뒤|줄|늘|변|감소|증가)/.test(compactQuestion) &&
+          /(결과|이후|뒤|줄|늘|변|감소|증가)/.test(compactSentence)) score += 5;
+    }
+  }
+  return score;
+}
+
+function asksForCausalCertainty(question: string) {
+  const compact = question.replace(/\s+/g, "");
+  return asksRatherThanStates(question) &&
+    /(확실|반드시|무조건|단정|증명|확정|(?:하나|한가지)(?:만|로|때문)|오직|(?:뜻|의미)(?:아니|맞|이죠|죠))/.test(compact) &&
+    /(때문|덕분|원인|영향|효과|줄.*줄|늘.*늘)/.test(compact);
+}
+
 function findRelevantSourceExcerpt(question: string, material: MaterialAnalysis, prioritizeQuestionIntent: boolean) {
   const visibleText = material.visibleText.trim();
   const summary = material.summary.trim();
   const isReferenceOnly = visibleText === REFERENCE_ONLY_QUESTION_MATERIAL_TEXT;
   const source = isReferenceOnly ? summary : visibleText || summary;
-  const compactQuestion = question.replace(/\s+/g, "");
 
   if (!source) {
     return "교사가 입력한 질문 자료에서 관련 내용을 확인해 보세요.";
@@ -1539,13 +1664,6 @@ function findRelevantSourceExcerpt(question: string, material: MaterialAnalysis,
     return "원본 자료의 해당 부분을 직접 살펴보며 근거를 확인해 보세요.";
   }
 
-  const terms = Array.from(
-    new Set(
-      (question.match(/[가-힣A-Za-z0-9]+/g) || [])
-        .map(normalizeSearchToken)
-        .filter((term) => term.length >= 2 && !questionSearchStopwords.has(term)),
-    ),
-  );
   const segments = source
     .split(/\r?\n+/)
     .flatMap((paragraph, paragraphIndex) =>
@@ -1561,62 +1679,9 @@ function findRelevantSourceExcerpt(question: string, material: MaterialAnalysis,
     return source.slice(0, 280);
   }
 
-  const environmentalQuestion = /(환경|지구|자원|음식물쓰레기|쓰레기|영향|낭비)/.test(compactQuestion);
-  if (environmentalQuestion) {
-    const environmentalSegmentIndex = segments.findIndex((segment) =>
-      /(전문가|지구|자원|음식이 버려지면|음식물 쓰레기|환경)/.test(segment.text),
-    );
-    const environmentalSegment =
-      environmentalSegmentIndex >= 0 ? segments[environmentalSegmentIndex] : undefined;
-    if (environmentalSegment) {
-      const relatedSegments = [environmentalSegment];
-      for (let index = environmentalSegmentIndex + 1; index < segments.length; index += 1) {
-        const nextSegment = segments[index];
-        const combinedLength = relatedSegments.map((segment) => segment.text).join(" ").length + nextSegment.text.length;
-        if (nextSegment.paragraphIndex !== environmentalSegment.paragraphIndex || combinedLength > 340) {
-          break;
-        }
-        relatedSegments.push(nextSegment);
-      }
-      const combinedEnvironmentalText = relatedSegments.map((segment) => segment.text).join(" ");
-      return combinedEnvironmentalText.length > 340
-        ? `${combinedEnvironmentalText.slice(0, 337)}...`
-        : combinedEnvironmentalText;
-    }
-  }
-
-  // 까닭을 묻는 질문에는 낱말이 겹치는 문장보다 원인을 밝힌 문장이 답이다.
-  const asksWhy = /(왜|이유|까닭|때문)/.test(compactQuestion);
-  // "우리가 뭘 할 수 있어요?"에는 실제 행동을 적은 문장이 답이다.
-  const asksAction = /(할수있|어떻게해|어떡|방법|하면돼|하면좋)/.test(compactQuestion);
-  const scored = segments.map((segment, index) => {
-    const nextSegment = segments[index + 1];
-    const scoringText =
-      nextSegment &&
-      nextSegment.paragraphIndex === segment.paragraphIndex &&
-      nextSegment.sentenceIndex === segment.sentenceIndex + 1 &&
-      segment.text.length + nextSegment.text.length <= 260
-        ? `${segment.text} ${nextSegment.text}`
-        : segment.text;
-    const normalizedSegment = scoringText.toLowerCase().replace(/\s+/g, "");
-    // 가산은 이웃 문장을 합친 텍스트가 아니라 그 문장 자체에만 준다. 합친 텍스트에
-    // 주면 원인 문장 앞의 엉뚱한 문장이 덤으로 점수를 받는다.
-    const causalBonus =
-      asksWhy && /(때문|덕분|탓|(으로|로)\s*인해|원인|설명한다|설명했다|져서|아져|어져)/.test(segment.text) ? 5 : 0;
-    const actionBonus =
-      asksAction && /(늘리|줄이|바꾸|정했|하기로|방안|대책|마련|설치|실천|시작했)/.test(segment.text) ? 5 : 0;
-    const score = causalBonus + actionBonus + terms.reduce(
-      (total, term) =>
-        total +
-        (normalizedSegment.includes(term.replace(/\s+/g, ""))
-          ? prioritizeQuestionIntent && questionIntentTerms.has(term)
-            ? 10
-            : Math.min(term.length, 6)
-          : 0),
-      0,
-    );
-    return { index, score };
-  });
+  const scored = segments.map((segment, index) => ({
+    index, score: scoreSourceSentence(segment.text, question, prioritizeQuestionIntent),
+  }));
   const best = scored.reduce((current, candidate) => (candidate.score > current.score ? candidate : current));
   if (best.score === 0 && material.summary.trim()) {
     const summary = material.summary.trim();
@@ -1624,13 +1689,49 @@ function findRelevantSourceExcerpt(question: string, material: MaterialAnalysis,
   }
   const bestSegment = segments[best.index];
   const nextSegment = segments[best.index + 1];
-  const combined =
+  let combined =
     nextSegment &&
     nextSegment.paragraphIndex === bestSegment.paragraphIndex &&
     nextSegment.sentenceIndex === bestSegment.sentenceIndex + 1 &&
     bestSegment.text.length + nextSegment.text.length <= 260
       ? `${bestSegment.text} ${nextSegment.text}`
       : bestSegment.text;
+
+  const positionActor = positionQuestionActor(question);
+  if (positionActor) {
+    // Keep evidence attributed to the requested party even when its explanation
+    // is in a later paragraph. An adjacent opposing statement is not its reason.
+    const statements = scored.filter(({ index }) =>
+      sourcePositionActor(segments[index].text) === positionActor &&
+      hasExplicitPosition(segments[index].text) &&
+      positionMatchesQuestionTopic(segments[index].text, question, positionActor))
+      .sort((left, right) => right.score - left.score);
+    combined = statements.length ? segments[statements[0].index].text : bestSegment.text;
+    const additional = statements.slice(1).find(({ index }) =>
+      combined.length + segments[index].text.length + 2 <= 260);
+    if (additional) combined += `\n\n${segments[additional.index].text}`;
+  }
+  if (comparesPositions(question)) {
+    const previous = segments[best.index - 1];
+    if (previous && previous.paragraphIndex === bestSegment.paragraphIndex &&
+        scored[best.index - 1].score > 0 && sourcePositionActor(previous.text) &&
+        sourcePositionActor(previous.text) !== sourcePositionActor(bestSegment.text) &&
+        previous.text.length + bestSegment.text.length + 1 <= 260) {
+      combined = `${previous.text} ${bestSegment.text}`;
+    }
+  }
+
+  // 원인 확정을 물으면 결과뿐 아니라 교사가 제공한 한계도 같은 근거 묶음에 둔다.
+  // 요약에서 새 조건을 만들어 보태지 않고 본문 문장을 그대로 사용한다.
+  if (asksForCausalCertainty(question)) {
+    const limitation = sourceLimitationSentence({ ...material, summary: "" }, question);
+    if (limitation) {
+      const context = scored.filter((item) => segments[item.index].text !== limitation)
+        .sort((left, right) => right.score - left.score)[0];
+      combined = context ? `${segments[context.index].text} ${limitation}` : limitation;
+    }
+    return combined.length > 500 ? `${combined.slice(0, 497)}...` : combined;
+  }
 
   return combined.length > 260 ? `${combined.slice(0, 257)}...` : combined;
 }
@@ -2384,7 +2485,7 @@ function withSubjectJosa(word: string): string {
 function isClosingStudentTurn(value: string) {
   const compact = value.toLowerCase().replace(/\s+/g, "");
   // '힌트가 도움이 됐어요. ...'처럼 답변 속에 쓰인 '됐어요'는 종료가 아니다.
-  if (/^(네|응|아|오케이|ㅇㅋ)?(이제)?(됐어요|됐어|알겠어요|알겠어|알겠음)[.!?？]*$/.test(compact)) return true;
+  if (/^(네|응|아|오케이|ㅇㅋ)?[,，.!~]*(이제)?(됐어요|됐어|알겠어요|알겠어|알겠음)[.!?？~]*$/.test(compact)) return true;
   // "네 알겠어요 이제 그만할래요"처럼 인사말이 앞에 붙고 '-요'로 끝나도 종결이다.
   return /(네|응|아|오케이|ㅇㅋ)?(알겠어요|알겠어)?(이제)?(알겠음그만|그만할래|그만할게요|그만할게|마칠래요|마칠래|마칠게요|마칠게|끝낼래|끝낼게요|끝낼게|여기까지만할게요|여기까지만할게|여기까지만|안할래|쉬고싶|ㅇㅋ이제끝|ㅇㅋ끝|그만)(요)?([.!?？]|$)/.test(
     compact,
@@ -2446,28 +2547,9 @@ function bestSourceSentence(value: string, studentTurn: string, maxLength = 165)
     .filter(Boolean);
   if (!sentences?.length) return firstSourceSentence(value, maxLength);
 
-  const terms = (studentTurn.match(/[가-힣A-Za-z0-9]+/g) || [])
-    .map(normalizeSearchToken)
-    .filter((term) => term.length >= 2 && !questionSearchStopwords.has(term));
-  // 까닭을 묻는 질문에는 낱말이 겹치는 문장보다 원인을 밝힌 문장이 답이다.
-  // "이번 여름은 왜 더웠어?"에 "39도까지 올랐다"(여름 일치)가 아니라
-  // "온실가스 배출로 기온이 올라"(원인)를 집어야 한다.
-  const asksWhy = /(왜|이유|까닭|때문)/.test(studentTurn);
-  const asksAction = /(할\s*수\s*있|어떻게\s*해|어떡|방법|하면\s*돼|하면\s*좋)/.test(studentTurn);
-  const scored = sentences.map((sentence, index) => {
-    const compactSentence = sentence.toLowerCase().replace(/\s+/g, "");
-    let score = terms.reduce(
-      (total, term) => total + (compactSentence.includes(term.replace(/\s+/g, "")) ? Math.min(term.length, 6) : 0),
-      0,
-    );
-    if (asksWhy && /(때문|덕분|탓|(으로|로)\s*인해|원인|설명한다|설명했다|져서|아져|어져)/.test(sentence)) {
-      score += 5;
-    }
-    if (asksAction && /(늘리|줄이|바꾸|정했|하기로|방안|대책|마련|설치|실천|시작했)/.test(sentence)) {
-      score += 5;
-    }
-    return { sentence, index, score };
-  });
+  const scored = sentences.map((sentence) => ({
+    sentence, score: scoreSourceSentence(sentence, studentTurn, /[?？]/.test(studentTurn)),
+  }));
   const best = scored.reduce((current, candidate) => (candidate.score > current.score ? candidate : current));
   const selected = best.score > 0 ? best.sentence : sentences[0];
 
@@ -2553,7 +2635,7 @@ function isPersonalReaction(value: string) {
   return explicitSelf || (!reportedReaction && (feelsAboutOthers || !thirdPartySubject));
 }
 
-function sourceLimitationCue(material: MaterialAnalysis) {
+function sourceLimitationSentence(material: MaterialAnalysis, question = "") {
   const source = stripMarkdownNoise(`${material.summary}\n${material.visibleText}`);
   const sentences = source
     .replace(/(\d)\.(\d)/g, "$1<decimal>$2")
@@ -2561,13 +2643,24 @@ function sourceLimitationCue(material: MaterialAnalysis) {
     ?.map((sentence) => sentence.replace(/<decimal>/g, ".").trim())
     .filter(Boolean)
     .filter(looksLikeSentence);
-  const limitation = sentences?.find((sentence) =>
+  const limitations = sentences?.filter((sentence) =>
     // '-지만'은 우리말 기사가 반대 사정을 붙이는 가장 흔한 방식이다.
     // "안심된다는 주민이 있었지만, 빛이 창문으로 들어와 잠들기 어렵다는 의견도 있었다."
     /(다만|하지만|그러나|반면|지만|달랐|같지|확인하지|확인하지 못|알 수 없|하나뿐|하나씩|따로 조사|아직 조사|전문가.*없|비교하지)/.test(
       sentence,
     ),
   );
+  if (!limitations?.length) return "";
+  if (!asksForCausalCertainty(question)) return limitations[0];
+  // 비용이나 취향의 반대 의견보다 인과관계를 확인하지 못한 조건을 우선한다.
+  return limitations.map((sentence) => ({
+    sentence,
+    score: scoreSourceSentence(sentence, question),
+  })).reduce((best, candidate) => candidate.score > best.score ? candidate : best).sentence;
+}
+
+function sourceLimitationCue(material: MaterialAnalysis, question = "") {
+  const limitation = sourceLimitationSentence(material, question);
   // 한계를 밝힌 문장이 없으면 요약을 억지로 끼워 넣지 않는다. 요약은 한계가
   // 아니라서 "다만 …" 뒤에 붙으면 말이 어긋난다.
   if (!limitation) return "자료가 모든 조건을 다 보여 주지는 않아요.";
@@ -2832,13 +2925,32 @@ function createGeneralNaturalTurn({
     };
   }
 
+  // A student's intended action is not an assertion of an exclusive cause.
+  const statesPersonalIntention = !asksRatherThanStates(studentTurn) &&
+    (questionType === "application" || questionType === "reflection") &&
+    /(나는|저는|내가|제가|우리)/.test(compactTurn) &&
+    /(실천하고싶|해보고싶|하고싶|받고싶|바꾸고싶|함께.*좋겠)/.test(compactTurn) &&
+    !/(무조건|반드시|확실히|유일한원인|때문이라고단정)/.test(compactTurn);
+  if (statesPersonalIntention) {
+    return {
+      reply: /때문|이유|왜냐하면/.test(compactTurn)
+        ? "앞으로 해 보고 싶은 실천과 그 이유를 말해 줬군요."
+        : "앞으로 해 보고 싶은 실천을 말해 줬군요.",
+      primaryMove: "receive",
+      engagementState: "personally_connecting",
+      curriculumRelation: "productive_extension",
+      sourceStatus: "reasonable_inference",
+      supportLevel: 0,
+    };
+  }
+
   // 학생이 까닭을 제안한 평서문은 발화 전체를 인용해 되돌려 주지 않는다. 가능한
   // 설명과 자료에서 직접 확인한 원인을 구분하면 학생 생각을 존중하면서도 과장을 막는다.
   const statesPossibleCause =
     !asksRatherThanStates(studentTurn) &&
     /(왜냐하면|때문에|때문인|원인은|까닭은|영향을.*수있|해서.*수있)/.test(compactTurn);
   if (statesPossibleCause) {
-    const studentAlreadyLimitedClaim = /(수있다고만|단정하지|확정하지|조심해서|가능성으로)/.test(compactTurn);
+    const studentAlreadyLimitedClaim = /(수있다고만|단정하지|단정할수(?:는)?없|확정하지|확정할수(?:는)?없|조심해서|가능성으로)/.test(compactTurn);
     return {
       reply: studentAlreadyLimitedClaim
         ? "좋아요. 다른 조건도 함께 보고 ‘영향을 주었을 수 있다’고 표현하면, 가능성은 남기면서 원인으로 단정하지 않게 돼요. 스스로 근거의 한계를 반영해 생각을 고친 점이 정확해요."
@@ -2851,8 +2963,10 @@ function createGeneralNaturalTurn({
     };
   }
 
-  const limitation = withoutLeadingConnector(sourceLimitationCue(material));
+  const limitation = withoutLeadingConnector(sourceLimitationCue(material, studentTurn));
   const studentIdea = compactStudentIdea(studentTurn);
+  const ideaWasTruncated = studentIdea.length === 42 &&
+    studentTurn.replace(/\s/g, "").length > studentIdea.replace(/\s/g, "").length;
   // compactStudentIdea가 물음표를 지우므로, 질문 여부는 반드시 원문으로 본다.
   // 지운 뒤에 판정하면 "이게 맞는 거야?"가 진술로 읽혀 그대로 되받게 된다.
   const studentAsks =
@@ -3106,9 +3220,20 @@ function createGeneralNaturalTurn({
     };
   }
 
+  if (asksForCausalCertainty(studentTurn)) {
+    return {
+      reply: `${cue} 다만 ${limitation} 한 가지 원인으로 확정할 수 있는지는 따로 확인해야 해요.`,
+      primaryMove: "compare_possibilities",
+      engagementState: "exploring_possibilities",
+      curriculumRelation: "direct",
+      sourceStatus: "reasonable_inference",
+      supportLevel: 1,
+    };
+  }
+
   if (questionType === "inference") {
     return {
-      reply: `${cue} 이 근거로 한 가지 가능성은 설명할 수 있어요. 다만 ${limitation} 자료가 확인한 범위와 우리가 추론한 부분은 나누어 말하는 게 좋아요.`,
+      reply: cue,
       primaryMove: "compare_possibilities",
       engagementState: "exploring_possibilities",
       curriculumRelation: "direct",
@@ -3122,7 +3247,9 @@ function createGeneralNaturalTurn({
       // "우리가 뭘 할 수 있어요?"는 생각이 아니라 물음이다. 자료 속 실천 사례를 보여 준다.
       reply: studentAsks
         ? `${cue} 자료 속 사람들이 한 방법이에요. 우리 상황에서는 무엇을 바꿔야 할지 하나만 골라 볼까요?`
-        : `“${studentIdea}”처럼 네 상황에 연결한 점이 중요해요. ${cue} 자료의 방법을 그대로 복사하기보다 네 상황에서 달라지는 조건을 함께 보면 돼요.`,
+        : ideaWasTruncated
+          ? `자료와 연결해 생각을 설명했군요. ${cue}`
+          : `“${studentIdea}”처럼 네 상황에 연결한 점이 중요해요. ${cue} 자료의 방법을 그대로 복사하기보다 네 상황에서 달라지는 조건을 함께 보면 돼요.`,
       primaryMove: "follow_student_lead",
       engagementState: "personally_connecting",
       curriculumRelation: "productive_extension",
@@ -3147,11 +3274,9 @@ function createGeneralNaturalTurn({
   // "설명해 주세요"를 "라고 짚었군요"로 받으면 묻는 사람을 무안하게 만든다.
   if (studentAsks) {
     return {
-      // 되묻기만 하면 물은 사람이 답을 못 받는다. 자료로 확인되는 데까지 먼저 말하고
-      // 그다음에 한 걸음을 권한다.
-      reply: cue
-        ? `${cue} 자료로 확인되는 건 여기까지예요. 이 문장에서 더 알고 싶은 곳은 어디인가요?`
-        : "자료에서 그 내용을 찾지 못했어요. 어느 문장이 궁금한지 알려 주면 같이 살펴볼게요.",
+      // 자료에 있는 답을 물었으면 관련 근거를 먼저 제공한다. 일반적인 한계 문구나
+      // 되묻기는 붙이지 않고 대화 단계에 필요한 질문은 공통 상태기가 관리한다.
+      reply: cue,
       primaryMove: "clarify",
       engagementState: "curious",
       curriculumRelation: "direct",
@@ -3161,7 +3286,7 @@ function createGeneralNaturalTurn({
   }
 
   return {
-    reply: `${receiveStudentIdea(studentIdea)} ${cue}`,
+    reply: `${ideaWasTruncated ? "답을 확인했어요." : receiveStudentIdea(studentIdea)} ${cue}`,
     primaryMove: "receive",
     engagementState: "noticing",
     curriculumRelation: "direct",
@@ -3705,7 +3830,8 @@ export function createLocalQuestionResult({
   const hasPrivateInformation =
     asksToAvoidPersonalInformation ||
     introducesOwnName ||
-    /(전화번호|주소|비밀번호|주민번호|주민등록|이름은|이름이|이름을|실명|사진)/.test(turn);
+    mentionsResidentRegistrationNumber(turn) ||
+    /(전화번호|주소|비밀번호|이름은|이름이|이름을|실명|사진)/.test(turn);
 
   // "고마워", "알려줘서 고마워~"처럼 감사만 남긴 말. 종료로 보기에는 이르다.
   const thanksOnly =

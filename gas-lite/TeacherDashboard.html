@@ -45,6 +45,7 @@
       input,textarea,select { width:100%; padding:9px 10px; border:1px solid #94a3b8; border-radius:8px; font:inherit; }
       textarea { min-height:78px; resize:vertical; }
       .empty { padding:28px; border:1px dashed #94a3b8; border-radius:13px; text-align:center; background:white; }
+      .hidden { display:none !important; }
       @media(max-width:700px) { .stats,.grid,.criteria-grid { grid-template-columns:1fr; } .wide { grid-column:auto; } }
     </style>
   </head>
@@ -62,19 +63,25 @@
       </div>
       <p class="muted">전체 사용 토큰에는 교사 미리보기와 응답 형식 검증에 실패한 유료 응답도 포함합니다. 기록 누락 가능성이 있으므로 정확한 청구 금액과 전체 사용량은 교사의 API 제공자 화면에서 확인하세요.</p>
       <details class="card" open>
-        <summary><strong>이 수업의 평가기준과 수준별 기준</strong></summary>
+        <summary><strong>이 수업의 평가 질문과 기준</strong></summary>
         <div class="criteria-grid">
+          <div class="criterion wide"><strong>학생 시작 질문</strong><span id="assessment-question"></span></div>
+          <div class="criterion"><strong>답변의 핵심 요소 · 교사용</strong><span id="expected-answer"></span></div>
+          <div class="criterion"><strong>자료의 근거 문장 · 교사용</strong><span id="assessment-evidence"></span></div>
           <div class="criterion"><strong>성취기준</strong><span id="achievement-standard"></span></div>
           <div class="criterion"><strong>평가기준</strong><span id="assessment-criteria"></span></div>
-          <div class="criterion"><strong>도달</strong><span id="rubric-high"></span></div>
-          <div class="criterion"><strong>성장 중</strong><span id="rubric-meet"></span></div>
-          <div class="criterion"><strong>도움 필요</strong><span id="rubric-developing"></span></div>
+          <div class="criterion"><strong id="rubric-high-label">도달</strong><span id="rubric-high"></span></div>
+          <div id="rubric-good-field" class="criterion hidden"><strong id="rubric-good-label">잘함</strong><span id="rubric-good"></span></div>
+          <div class="criterion"><strong id="rubric-meet-label">성장 중</strong><span id="rubric-meet"></span></div>
+          <div class="criterion"><strong id="rubric-developing-label">도움 필요</strong><span id="rubric-developing"></span></div>
+          <div id="rubric-beginning-field" class="criterion hidden"><strong>E</strong><span id="rubric-beginning"></span></div>
+          <div class="criterion wide"><strong>수준별 예상 학생 답변 예시 · 교사용</strong><span id="answer-examples"></span><p class="muted">수업 전에 만드는 가상 응답 예시입니다. 다른 표현도 같은 내용을 설명하면 인정할 수 있습니다.</p></div>
           <div class="criterion"><strong>확인할 평가 근거</strong><span id="evidence-description"></span></div>
         </div>
       </details>
       <section class="card">
         <h2>참여 현황</h2>
-        <p class="muted">참여 현황에는 질문 전문을 표시하지 않습니다. 아래 기준별 검수 표에는 연결된 질문과 학생 답변을 보여주며, 전체 대화는 `질문과 답변` 시트에서 교사만 확인합니다.</p>
+        <p class="muted">참여 현황에는 질문 전문을 표시하지 않습니다. 아래 검수 카드에서 시작 질문의 첫 응답 또는 기준별 실제 질문과 답변을 확인하고, 전체 대화는 ‘질문과 답변’ 시트에서 교사만 확인합니다.</p>
         <div id="students" class="students"></div>
       </section>
       <div class="toolbar">
@@ -108,10 +115,24 @@
         const students = data.students || [];
         const evaluations = data.evaluations || [];
         const apiUsage = data.apiUsage || {};
+        const detailedLevels = lesson.rubricScheme === 'four_levels' || lesson.rubricScheme === 'five_levels';
+        const fiveLevels = lesson.rubricScheme === 'five_levels';
         byId('lesson-title').textContent = lesson.lessonTitle || '아직 설정한 수업이 없습니다.';
+        byId('assessment-question').textContent = lesson.startQuestion || '입력된 시작 질문이 없습니다.';
+        byId('expected-answer').textContent = lesson.expectedAnswer || '입력된 답변 핵심 요소가 없습니다.';
+        byId('assessment-evidence').textContent = lesson.assessmentEvidence || '입력된 자료 근거 문장이 없습니다.';
+        byId('answer-examples').textContent = lesson.answerExamples || '입력된 수준별 예상 답변 예시가 없습니다.';
         byId('achievement-standard').textContent = lesson.achievementStandard || '입력된 성취기준이 없습니다.';
         byId('assessment-criteria').textContent = lesson.assessmentCriteria || '입력된 평가기준이 없습니다.';
         byId('rubric-high').textContent = lesson.rubricHigh || '입력된 기준이 없습니다.';
+        byId('rubric-high-label').textContent = fiveLevels ? 'A' : detailedLevels ? '매우잘함' : '도달';
+        byId('rubric-good-label').textContent = fiveLevels ? 'B' : '잘함';
+        byId('rubric-good-field').classList.toggle('hidden', !detailedLevels);
+        byId('rubric-good').textContent = lesson.rubricGood || '입력된 기준이 없습니다.';
+        byId('rubric-meet-label').textContent = fiveLevels ? 'C' : detailedLevels ? '보통' : '성장 중';
+        byId('rubric-developing-label').textContent = fiveLevels ? 'D' : detailedLevels ? '노력요함' : '도움 필요';
+        byId('rubric-beginning-field').classList.toggle('hidden', lesson.rubricScheme !== 'five_levels');
+        byId('rubric-beginning').textContent = lesson.rubricBeginning || '입력된 기준이 없습니다.';
         byId('rubric-meet').textContent = lesson.rubricMeet || '입력된 기준이 없습니다.';
         byId('rubric-developing').textContent = lesson.rubricDeveloping || '입력된 기준이 없습니다.';
         byId('evidence-description').textContent = lesson.evidenceDescription || '입력된 평가 근거가 없습니다.';
@@ -173,6 +194,14 @@
         auto.appendChild(autoStrong); auto.appendChild(document.createTextNode(summaryText));
         card.appendChild(auto);
         if (!hasCriterionEvidence) {
+          if (row.assessmentResponse !== undefined) {
+            const answerTitle = document.createElement('strong'); answerTitle.textContent = '시작 질문 뒤 첫 응답';
+            const answer = document.createElement('p'); answer.className = 'evidence';
+            answer.textContent = row.assessmentResponse || '아직 확인할 첫 답변이 없습니다.';
+            const note = document.createElement('p'); note.className = 'muted';
+            note.textContent = '추가 질문일 수도 있으므로 전체 대화와 위 기준을 함께 확인해 주세요. 공통 관찰 점수는 이 문항의 성적이 아닙니다.';
+            card.appendChild(answerTitle); card.appendChild(answer); card.appendChild(note);
+          }
           const details = document.createElement('details');
           const summary = document.createElement('summary');
           summary.textContent = '공통 관찰 근거 확인 · 관찰 ' + Number(row.evidenceObservationCount || 0) + '회';
@@ -243,7 +272,11 @@
           table.appendChild(body); tableWrap.appendChild(table); card.appendChild(tableWrap);
         }
         const grid = document.createElement('div'); grid.className = 'grid';
-        grid.appendChild(selectField('교사 판단', 'teacherDecision', ['판단 보류','도달','성장 중','도움 필요'], row.teacherDecision || '판단 보류'));
+        const decisions = row.rubricScheme === 'five_levels'
+          ? ['판단 보류','A','B','C','D','E'] : row.rubricScheme === 'four_levels'
+            ? ['판단 보류','매우잘함','잘함','보통','노력요함'] : ['판단 보류','도달','성장 중','도움 필요'];
+        if (row.teacherDecision && decisions.indexOf(row.teacherDecision) === -1) decisions.push(row.teacherDecision);
+        grid.appendChild(selectField('교사 판단', 'teacherDecision', decisions, row.teacherDecision || '판단 보류'));
         grid.appendChild(selectField('검수 상태', 'finalStatus', ['검수 중','최종 확정'], row.finalStatus === '최종 확정' ? '최종 확정' : '검수 중'));
         grid.appendChild(textareaField('교사 피드백 · 최종 확정 시 필수', 'teacherFeedback', row.teacherFeedback || '', true));
         grid.appendChild(textareaField('학생 향상 방법 · 최종 확정 시 필수', 'improvementSuggestion', row.improvementSuggestion || '', true));

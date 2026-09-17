@@ -85,7 +85,7 @@ async function planFor(message, activityMode, materialOverride) {
   assert.equal(descriptor.acceptsTeacherApiKey, false);
 
   const supported = await planFor('학교는 무엇을 줄이기 위해 개인 물병 사용을 권했나요?');
-  assert.equal(supported.plan.policyVersion, 'questioning-dialogue-v2-lite-adapter-v6');
+  assert.equal(supported.plan.policyVersion, 'questioning-dialogue-v2-lite-adapter-v13');
   assert.equal(supported.plan.modelRequest.outputContract, 'lead_evidence_quote_v1');
   assert.equal(supported.plan.skipModel, false);
   assert.equal(supported.plan.observation.sourceStatus, 'supported');
@@ -105,6 +105,89 @@ async function planFor(message, activityMode, materialOverride) {
   });
   assert.equal(finalized.localFallback, false);
   assert.match(finalized.studentReply, /자료 근거는/);
+
+  const explicitLegacyPlan = await jsonRequest('/api/lite-engine/plan', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      ...supported.input,
+      lesson: { ...supported.input.lesson, rubricScheme: 'legacy_three', rubricGood: '', rubricBeginning: '' },
+    }),
+  });
+  assert.equal(explicitLegacyPlan.planDigest, supported.plan.planDigest);
+
+  const fourInput = makeInput('학교는 무엇을 줄이기 위해 개인 물병 사용을 권했나요?');
+  fourInput.lesson.rubricScheme = 'four_levels';
+  fourInput.lesson.rubricGood = '관련 근거를 들어 자신의 말로 설명한다.';
+  const fourPlan = await jsonRequest('/api/lite-engine/plan', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(fourInput),
+  });
+  assert.equal(fourPlan.schemaVersion, 1);
+  assert.equal(fourPlan.skipModel, false);
+  const fourFinalized = await jsonRequest('/api/lite-engine/finalize', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      ...fourInput, candidateReply: '좋은 질문이에요.', candidateEvidenceQuote: fourPlan.observation.sourceCue,
+      policyVersion: fourPlan.policyVersion, planDigest: fourPlan.planDigest,
+    }),
+  });
+  assert.equal(fourFinalized.localFallback, false);
+  const missingGood = await jsonRequest('/api/lite-engine/plan', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ...fourInput, lesson: { ...fourInput.lesson, rubricGood: '' } }),
+  }, 400);
+  assert.match(missingGood.error, /잘함 수준/);
+  const changedGood = await jsonRequest('/api/lite-engine/finalize', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      ...fourInput, lesson: { ...fourInput.lesson, rubricGood: '수정한 잘함 기준' },
+      candidateReply: '좋은 질문이에요.', candidateEvidenceQuote: fourPlan.observation.sourceCue,
+      policyVersion: fourPlan.policyVersion, planDigest: fourPlan.planDigest,
+    }),
+  }, 400);
+  assert.match(changedGood.error, /최신 계획/);
+
+  const fiveInput = {
+    ...makeInput('학교는 무엇을 줄이기 위해 개인 물병 사용을 권했나요?'),
+    lesson: { ...fourInput.lesson, rubricScheme: 'five_levels', rubricBeginning: '교사와 함께 자료에서 관련 낱말을 찾아본다.' },
+  };
+  const fivePlan = await jsonRequest('/api/lite-engine/plan', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(fiveInput),
+  });
+  assert.equal(fivePlan.schemaVersion, 1);
+  assert.equal(fivePlan.skipModel, false);
+  const fiveFinalized = await jsonRequest('/api/lite-engine/finalize', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      ...fiveInput, candidateReply: '좋은 질문이에요.', candidateEvidenceQuote: fivePlan.observation.sourceCue,
+      policyVersion: fivePlan.policyVersion, planDigest: fivePlan.planDigest,
+    }),
+  });
+  assert.equal(fiveFinalized.localFallback, false);
+  for (const rubricBeginning of ['', '가'.repeat(1001)]) {
+    const invalidFive = await jsonRequest('/api/lite-engine/plan', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...fiveInput, lesson: { ...fiveInput.lesson, rubricBeginning } }),
+    }, 400);
+    assert.match(invalidFive.error, /E 수준/);
+  }
+  const changedBeginning = await jsonRequest('/api/lite-engine/finalize', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      ...fiveInput, lesson: { ...fiveInput.lesson, rubricBeginning: '수정한 다섯째 수준 기준' },
+      candidateReply: '좋은 질문이에요.', candidateEvidenceQuote: fivePlan.observation.sourceCue,
+      policyVersion: fivePlan.policyVersion, planDigest: fivePlan.planDigest,
+    }),
+  }, 400);
+  assert.match(changedBeginning.error, /최신 계획/);
+  const privateFivePlan = await jsonRequest('/api/lite-engine/plan', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      ...fiveInput, lesson: { ...fiveInput.lesson, expectedAnswer: '교사비공개답안_4f81', assessmentEvidence: '교사비공개근거_b379' },
+    }),
+  });
+  assert.equal(privateFivePlan.planDigest, fivePlan.planDigest);
+  assert.ok(!JSON.stringify(privateFivePlan).includes('교사비공개'));
 
   const explorationInput = makeInput('학교는 무엇을 줄이기 위해 개인 물병 사용을 권했나요?', 'exploration');
   for (const field of ['lessonGoal', 'achievementStandard', 'assessmentCriteria', 'rubricHigh', 'rubricMeet', 'rubricDeveloping', 'evidenceDescription']) {
