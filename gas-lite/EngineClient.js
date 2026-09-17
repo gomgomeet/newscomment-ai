@@ -698,6 +698,7 @@ function checkLiteEngineConnection_() {
 function buildLiteEnginePayload_(turn, settings, history) {
   return {
     schemaVersion: 1,
+    supportedOutputContracts: ['grounded_answer_v2', 'lead_evidence_quote_v1'],
     requestId: turn.requestId,
     sessionKey: turn.sessionId,
     activityMode: turn.activityMode,
@@ -842,7 +843,9 @@ function validateLiteEnginePlan_(plan, requestId, expectedPolicyVersion) {
   if (!['low'].includes(String(plan.modelRequest.reasoningEffort))) {
     throw new Error('배포본에서 허용하지 않은 추론 설정이 지정되었습니다.');
   }
-  if (String(plan.modelRequest.outputContract || '') !== 'lead_evidence_quote_v1') {
+  if (['grounded_answer_v2', 'lead_evidence_quote_v1'].indexOf(
+      String(plan.modelRequest.outputContract || '')
+    ) < 0) {
     throw new Error('개인 API 출력 계약이 배포본과 맞지 않습니다.');
   }
   const instructions = String(plan.modelRequest.instructions || '');
@@ -865,6 +868,13 @@ function callLiteOpenAI_(plan, requestId) {
   const key = PropertiesService.getScriptProperties().getProperty(LITE_API_KEY_PROPERTY_);
   if (!key) throw new Error('교사 개인 API 키가 없습니다. 교사 설정에서 연결해 주세요.');
   const request = plan.modelRequest;
+  const groundedAnswer = request.outputContract === 'grounded_answer_v2';
+  const replyField = groundedAnswer ? 'answer' : 'lead';
+  const replyProperties = { evidenceQuote: { type: 'string' } };
+  replyProperties[replyField] = groundedAnswer ? { type: 'string' } : {
+    type: 'string',
+    enum: ['좋은 질문이에요.', '궁금한 점을 잘 짚었어요.', '자료에서 함께 확인해 볼게요.', '차근차근 살펴볼게요.']
+  };
   const response = UrlFetchApp.fetch(LITE_OPENAI_RESPONSES_URL_, {
     method: 'post',
     contentType: 'application/json',
@@ -885,14 +895,8 @@ function callLiteOpenAI_(plan, requestId) {
           type: 'json_schema', name: 'student_reply', strict: true,
           schema: {
             type: 'object',
-            properties: {
-              lead: {
-                type: 'string',
-                enum: ['좋은 질문이에요.', '궁금한 점을 잘 짚었어요.', '자료에서 함께 확인해 볼게요.', '차근차근 살펴볼게요.']
-              },
-              evidenceQuote: { type: 'string' }
-            },
-            required: ['lead', 'evidenceQuote'], additionalProperties: false
+            properties: replyProperties,
+            required: [replyField, 'evidenceQuote'], additionalProperties: false
           }
         }
       }
@@ -912,8 +916,12 @@ function callLiteOpenAI_(plan, requestId) {
   let value;
   try { value = JSON.parse(output); }
   catch (error) { throw liteOpenAIContractError_('개인 API의 답변 형식을 확인하지 못했습니다.', data, request); }
+  if (!value || typeof value[replyField] !== 'string' || !value[replyField].trim() ||
+      typeof value.evidenceQuote !== 'string' || !value.evidenceQuote.trim()) {
+    throw liteOpenAIContractError_('개인 API의 답변과 근거 문장을 확인하지 못했습니다.', data, request);
+  }
   return {
-    text: liteText_(value && value.lead, 3000),
+    text: liteText_(value[replyField], 3000),
     evidenceQuote: liteText_(value && value.evidenceQuote, 500),
     model: liteText_(data.model || request.model, 80),
     responseId: liteText_(data.id, 100),
