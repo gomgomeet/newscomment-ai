@@ -335,7 +335,8 @@ export const defaultQuestioningChatbotBehavior: QuestioningChatbotBehavior = {
       "이름",
       "전화번호",
       "주소",
-      "주민",
+      "주민번호",
+      "주민등록",
       "사진",
       "상담",
       "비밀번호",
@@ -371,7 +372,7 @@ export const defaultQuestioningChatbotBehavior: QuestioningChatbotBehavior = {
     reflection: ["내 질문", "내 생각", "고칠", "좋은 질문", "배운 점", "성찰"],
     extension: ["더 알아", "추가", "관련", "다른 예", "비슷한 사례", "배경", "확장", "조사"],
     application: ["우리", "나라면", "실천", "해결", "적용", "다른 상황"],
-    inference: ["왜", "어떻게", "까닭", "원인", "의미", "결과"],
+    inference: ["왜", "어떻게", "이유", "까닭", "원인", "의미", "결과"],
   },
   offTopicResponse:
     "수업 내용과 관련된 질문에 대해서만 응답할 수 있어요. 자료 속 장면·문장·표현을 다시 살펴봐요.",
@@ -412,7 +413,10 @@ function normalizeKeywordList(value: unknown, fallback: string[]) {
 }
 
 function normalizeSafetyKeywordList(value: unknown, fallback: string[]) {
-  const normalized = normalizeKeywordList(value, fallback);
+  // 예전 기본값 '주민'은 지역 주민에 관한 정상 수업 질문까지 차단했다.
+  const normalized = normalizeKeywordList(value, fallback).map((keyword) =>
+    keyword === "주민" ? "주민등록" : keyword,
+  );
   return Array.from(new Set([...fallback, ...normalized])).slice(0, 80);
 }
 
@@ -1320,6 +1324,12 @@ export function isVocabularyQuestion(value: string, vocabularySignals: string[] 
   if (/(다는|라는|했다는|였다는|없다는|있다는|줄었다는|늘었다는)뜻/.test(semanticCompact)) {
     return false;
   }
+
+  // '주민들이 반대하는 이유는 뭐야?'는 '이유'의 사전 뜻을 묻는 말이 아니다.
+  if (
+    !/(뜻|낱말|단어|용어|의미)/.test(semanticCompact) &&
+    /^.+(?:이유|까닭|원인)(?:은|는|이|가|을|를)?(?:뭐|무엇|알려|설명)/.test(semanticCompact)
+  ) return false;
 
   // "양 선택제에 대해서 설명해 주세요"처럼 낱말을 콕 집어 설명해 달라는 말.
   // 자료·기사처럼 글 전체를 가리키는 말은 낱말이 아니므로 제외한다.
@@ -2373,8 +2383,10 @@ function withSubjectJosa(word: string): string {
 
 function isClosingStudentTurn(value: string) {
   const compact = value.toLowerCase().replace(/\s+/g, "");
+  // '힌트가 도움이 됐어요. ...'처럼 답변 속에 쓰인 '됐어요'는 종료가 아니다.
+  if (/^(네|응|아|오케이|ㅇㅋ)?(이제)?(됐어요|됐어|알겠어요|알겠어|알겠음)[.!?？]*$/.test(compact)) return true;
   // "네 알겠어요 이제 그만할래요"처럼 인사말이 앞에 붙고 '-요'로 끝나도 종결이다.
-  return /(네|응|아|오케이|ㅇㅋ)?(알겠어요|알겠어)?(이제)?(됐어요|됐어|알겠어요|알겠어|알겠음그만|알겠음|그만할래|그만할게요|그만할게|마칠래요|마칠래|마칠게요|마칠게|끝낼래|끝낼게요|끝낼게|여기까지만할게요|여기까지만할게|여기까지만|안할래|쉬고싶|ㅇㅋ이제끝|ㅇㅋ끝|그만)(요)?([.!?？]|$)/.test(
+  return /(네|응|아|오케이|ㅇㅋ)?(알겠어요|알겠어)?(이제)?(알겠음그만|그만할래|그만할게요|그만할게|마칠래요|마칠래|마칠게요|마칠게|끝낼래|끝낼게요|끝낼게|여기까지만할게요|여기까지만할게|여기까지만|안할래|쉬고싶|ㅇㅋ이제끝|ㅇㅋ끝|그만)(요)?([.!?？]|$)/.test(
     compact,
   );
 }
@@ -2504,9 +2516,41 @@ function quoteSourceSentence(sentence: string) {
 function isUncertainStudentTurn(value: string) {
   const normalized = value.trim();
   return (
+    isQuestioningHintRequest(value) ||
     /^(그래도\s*)?(잘\s*)?(모르겠는데요|모르겠어|모르겠어요|모르겠|몰라요|몰라)([.!?？]|$)/.test(normalized) ||
-    /(글쎄|그냥\s*그런|생각\s*안\s*나|어려워|힌트|뭘\s*보|무슨\s*말)/.test(normalized)
+    /(글쎄|그냥\s*그런|생각\s*안\s*나|어려워|뭘\s*보|무슨\s*말)/.test(normalized)
   );
+}
+
+/** 도움 요청은 학생의 답변이나 대화 중단 요청이 아니다. */
+export function isQuestioningHintRequest(value: string) {
+  const compact = value.replace(/\s+/g, "");
+  if (/힌트(?:는|가|를)?(?:없이|말고|필요없|그만|싫)/.test(compact)) return false;
+  return /^(?:다시|조금더|더)?힌트(?:요|받기)?[.!?？]*$/.test(compact) ||
+    /힌트(?:가|를|좀|하나|한개|조금|더|만)*(?:필요(?:해요|해|합니다|한데요)|부탁(?:해요|해|드려요|합니다)|주세요|주실래요|주시겠어요|줄래요?|줘요?|알려(?:줘요?|주세요)|줄수있(?:어요|어)|받고싶(?:어요|어))([.!?？]|$)/.test(compact);
+}
+
+function hintContext(conversation: QuestioningConversationEntry[]) {
+  const previousStudent = [...conversation].reverse().find((entry) =>
+    entry.role === "student" && !isUncertainStudentTurn(entry.content) &&
+    !isRepairStudentTurn(entry.content) && !isClosingStudentTurn(entry.content),
+  );
+  const previousQuestion = [...conversation].reverse().find((entry) =>
+    entry.role === "assistant" && /[?？]/.test(entry.content),
+  )?.content.match(/[^.!?？]*[?？]/g)?.at(-1)?.trim();
+  return [previousStudent?.content, previousQuestion].filter(Boolean).join(" ");
+}
+
+function isPersonalReaction(value: string) {
+  // 질문 속 '반대'나 자료 속 인물의 걱정은 학생 자신의 감정이 아니다.
+  if (asksRatherThanStates(value)) return false;
+  const compact = value.replace(/\s+/g, "");
+  if (!/(불쌍|무서|아프|싫|걱정|불편|반대|중요|좋을것|좋다고|예쁠|화내|편리|돈이들|떨어뜨)/.test(compact)) return false;
+  const explicitSelf = /(?:^|[\s,.])(?:저는|나는|전|난|제가|내가|저에게|나에게|제\s*생각|내\s*생각)/.test(value);
+  const reportedReaction = /(?:다고|다는|라며|라고).*(?:말|했|해요|합니다|설명|적혀|나와)/.test(compact);
+  const thirdPartySubject = /(?:주민|정부|학생|사람|친구|학교|전문가|글쓴이|필자|그|그녀)(?:들)?(?:은|는|이|가|에서는|에서)/.test(compact);
+  const feelsAboutOthers = /(?:까봐|보니|생각하니)(?:너무|정말|조금)?(?:걱정돼|무서워|안타까워|불쌍해)(?:요)?[.!]*$/.test(compact);
+  return explicitSelf || (!reportedReaction && (feelsAboutOthers || !thirdPartySubject));
 }
 
 function sourceLimitationCue(material: MaterialAnalysis) {
@@ -2848,9 +2892,7 @@ function createGeneralNaturalTurn({
     compactTurn,
   );
   const moralJudgment = /(나쁜사람|잘못한사람|나쁜건가|잘못인가)/.test(compactTurn);
-  const emotionalOrPosition = /(불쌍|무서|아프|싫|걱정|불편|반대|중요|좋을것|좋다고|예쁠|화내|편리|돈이들|떨어뜨)/.test(
-    compactTurn,
-  );
+  const emotionalOrPosition = !studentAsks && isPersonalReaction(studentTurn);
   const asksWhetherSourceSays = /(기사|자료).*(나와|있어|말해|써있)/.test(compactTurn);
   const givesOwnStartingIdea =
     followsCopyingRequest && /(저는|나는|제가|내가).*(쓰고싶|말하고싶|좋아|했어요|할머니|축구)/.test(studentTurn);
@@ -3040,14 +3082,8 @@ function createGeneralNaturalTurn({
   }
 
   if (emotionalOrPosition) {
-    const repeatedEmotionFrame = recentAssistantText.includes("생각이나 느낌이 분명하네요");
-    const seesPositiveSide = /(예쁘|좋을|좋아|기대)/.test(compactTurn);
     return {
-      reply: repeatedEmotionFrame
-        ? seesPositiveSide
-          ? `걱정되는 마음과 “${studentIdea}”라는 기대가 함께 있군요. 둘 중 하나를 지우지 않고 두 마음을 모두 고려해도 돼요.`
-          : `“${studentIdea}”라고 느끼는 데에는 이유가 있네요. 자료의 장점을 이야기할 때도 네 걱정을 없는 것처럼 다루지는 않을게요.`
-        : `“${studentIdea}”라는 네 생각이나 느낌이 분명하네요. ${cue} 자료의 다른 조건을 인정하더라도 네가 중요하게 본 기준은 그대로 말할 수 있어요.`,
+      reply: `“${studentIdea}”라는 생각을 말해 줬네요. 그렇게 생각한 이유를 자료의 어느 부분과 연결할 수 있는지 살펴봐도 좋아요.`,
       primaryMove: "follow_student_lead",
       engagementState: "personally_connecting",
       curriculumRelation: "productive_extension",
@@ -3599,8 +3635,12 @@ export function createLocalQuestionResult({
     behavior,
   });
   const compactTurn = turn.replace(/\s+/g, "");
-  const sourceCue = findRelevantSourceExcerpt(turn, material, /[?？]/.test(turn));
-  const shortSourceCue = firstSourceSentence(sourceCue, 115);
+  const requestsHint = isQuestioningHintRequest(turn);
+  const sourceSearch = requestsHint ? hintContext(conversation) || turn : turn;
+  const sourceCue = findRelevantSourceExcerpt(sourceSearch, material, /[?？]/.test(sourceSearch));
+  const shortSourceCue = requestsHint
+    ? bestSourceSentence(sourceCue, sourceSearch, 115)
+    : firstSourceSentence(sourceCue, 115);
   const isClosing = isClosingStudentTurn(turn);
   const recentStudentNeedsRepair = conversation
     .filter((entry) => entry.role === "student")
@@ -3665,7 +3705,7 @@ export function createLocalQuestionResult({
   const hasPrivateInformation =
     asksToAvoidPersonalInformation ||
     introducesOwnName ||
-    /(전화번호|주소|비밀번호|주민번호|이름은|이름이|이름을|실명|사진)/.test(turn);
+    /(전화번호|주소|비밀번호|주민번호|주민등록|이름은|이름이|이름을|실명|사진)/.test(turn);
 
   // "고마워", "알려줘서 고마워~"처럼 감사만 남긴 말. 종료로 보기에는 이르다.
   const thanksOnly =
@@ -3736,6 +3776,19 @@ export function createLocalQuestionResult({
     sourceStatus = vocabularyTurn.sourceStatus;
     supportLevel = vocabularyTurn.supportLevel;
     studentReply = vocabularyTurn.reply;
+  } else if (requestsHint) {
+    primaryMove = "offer_clue";
+    engagementState = "seeking_evidence";
+    curriculumRelation = "direct";
+    sourceStatus = shortSourceCue ? "supported" : "source_insufficient";
+    supportLevel = repeatedUncertainty ? 3 : 2;
+    const repeatedHint = conversation.filter((entry) => entry.role === "student").at(-1)?.content;
+    const hintStep = /(왜|이유|까닭)/.test(sourceSearch)
+      ? "이 문장에서 이유에 해당하는 말부터 찾아보세요."
+      : "이 문장에서 방금 이야기한 내용과 연결되는 말 하나부터 찾아보세요.";
+    studentReply = shortSourceCue
+      ? `${repeatedHint && isQuestioningHintRequest(repeatedHint) ? "조금 더 작게 나눠 볼게요." : "방금 이야기하던 내용에서 단서를 찾아볼게요."} ${quoteSourceSentence(shortSourceCue)} ${hintStep}`
+      : "어느 부분이 막혔는지 짧게 적어 주세요. 그 부분에 맞춰 작은 단서부터 찾아볼게요.";
   } else if (isUncertain) {
     primaryMove = repeatedUncertainty ? "repair" : "offer_clue";
     engagementState = "disengaged";
@@ -3794,7 +3847,7 @@ export function createLocalQuestionResult({
   const normalizedReply = keepAtMostOneQuestion(
     // 지문으로 돌려보내는 말은 같은 대목을 일부러 다시 짚는다. 반복 검사에 걸려
     // 덮어써지면 되돌리기 자체가 사라진다.
-    asksSameQuestionAgain
+    asksSameQuestionAgain || requestsHint
       ? studentReply
       : avoidRepeatedStudentReply(studentReply, conversation, sourceCue, turn),
   ).trim();
