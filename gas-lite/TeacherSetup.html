@@ -34,6 +34,12 @@
       .wide { grid-column:1 / -1; }
       .design-toggle { display:flex; align-items:center; gap:10px; margin:14px 0 6px; padding:12px; border:1px solid var(--line); border-radius:10px; }
       .design-toggle input { width:22px; height:22px; margin:0; accent-color:var(--blue); }
+      .criterion-card { min-width:0; margin:12px 0; padding:14px; border:1px solid var(--line); border-radius:10px; }
+      .criterion-card legend { padding:0 5px; font-weight:800; }
+      .inline-check { display:flex; align-items:flex-start; gap:9px; margin:12px 0; }
+      .inline-check input { width:20px; height:20px; margin:2px 0 0; flex:0 0 auto; }
+      .plan-preview { padding-left:22px; }
+      .plan-preview li { margin:10px 0; white-space:pre-wrap; overflow-wrap:anywhere; }
       #backward-design-fields,#evaluation-goal-fields { min-width:0; margin:14px 0 0; padding:0; border:0; }
       label { display:grid; gap:5px; font-weight:700; }
       input,textarea,select { width:100%; padding:10px 11px; border:1px solid #94a3b8; border-radius:9px; color:var(--ink); background:white; font:inherit; }
@@ -99,6 +105,7 @@
       .sharing-box details { margin-top:10px; }
       .readiness { grid-template-columns:1fr; gap:6px; margin:0; }
       .readiness [data-state="pass"] { display:none; }
+      .readiness [data-state="inactive"] { color:#64748b; background:#f8fafc; }
       .readiness li { padding:8px 11px; }
       #save-state { font-weight:700; }
       @media (max-width:480px) { main { padding:14px; } .flow button { padding:8px; } }
@@ -209,13 +216,13 @@
             </label>
             <div id="legacy-assessment-generator">
               <button id="generate-assessment" type="button" class="secondary" disabled>AI로 질문·평가기준 생성</button>
-              <p class="help">AI 생성 → 아래 입력란에 적용 → 설정 저장</p>
+              <p class="help">AI 생성 → 입력란·질문계획에 적용 → 교사 검토·승인 → 설정 저장</p>
               <p id="assessment-ai-hint" class="help">API 연결을 확인하고 수업 목표 또는 성취기준을 입력해 주세요.</p>
               <p id="assessment-ai-status" class="status" role="status" aria-live="polite"></p>
               <section id="assessment-draft" class="assessment-draft hidden" aria-label="AI 질문·평가기준 초안">
                 <strong id="assessment-draft-title">AI 질문·평가기준 초안</strong>
-                <p class="help">질문·수준별 예상 답변·평가기준을 확인하세요. 아래 입력란에 적용한 뒤 직접 수정하고 저장할 수 있습니다.</p>
-                <button id="apply-assessment-draft" type="button" class="primary" disabled>아래 입력란에 적용</button>
+                <p class="help">질문·수준별 예상 답변·평가기준을 확인하세요. 적용하면 비어 있는 평가기준별 질문·근거 계획도 함께 채웁니다. 교사가 작성한 계획은 덮어쓰지 않습니다.</p>
+                <button id="apply-assessment-draft" type="button" class="primary" disabled>입력란·질문계획에 적용</button>
                 <dl id="assessment-draft-content"></dl>
               </section>
             </div>
@@ -225,8 +232,8 @@
             <p class="help">자료와 목표로 문항 생성 → 교사 수정·확정 → 분석 기준표 생성 → 검토 후 저장</p>
             <button id="generate-required-questions" type="button" class="secondary" disabled>AI로 필수 문항 2개 생성</button>
             <p id="required-assessment-hint" class="help"></p>
-            <label class="required-question">문항 1<textarea id="required-question-1" maxlength="500" placeholder="첫 번째 필수 평가 문항"></textarea></label>
-            <label class="required-question">문항 2<textarea id="required-question-2" maxlength="500" placeholder="두 번째 필수 평가 문항"></textarea></label>
+            <label class="required-question">문항 1<textarea id="required-question-1" maxlength="250" placeholder="한 문장으로 묻고 물음표로 끝내 주세요."></textarea></label>
+            <label class="required-question">문항 2<textarea id="required-question-2" maxlength="250" placeholder="한 문장으로 묻고 물음표로 끝내 주세요."></textarea></label>
             <div class="button-row">
               <button id="confirm-required-questions" type="button" class="secondary" disabled>이 2문항으로 확정</button>
               <button id="generate-required-rubrics" type="button" class="primary" disabled>확정 문항의 분석 기준표 생성</button>
@@ -234,13 +241,16 @@
             <p id="required-assessment-status" class="status" role="status" aria-live="polite"></p>
             <section id="required-rubric-section" class="hidden" aria-label="문항별 답변 분석 기준표">
               <h3>② 문항별 답변 분석 기준표</h3>
-              <p class="help">AI 초안을 검토·수정해 주세요. 학생의 두 답변을 이 기준으로 분석하며, 최종 평가는 교사가 검수합니다.</p>
+              <p class="help">AI 초안을 검토·수정해 주세요. 챗봇이 대화에서 두 문항을 한 번에 하나씩 묻고 답변을 이 기준으로 분석합니다. 최종 평가는 교사가 검수합니다.</p>
+              <p class="help">근거가 부족하면 “답변을 뒷받침하는 수업자료의 정확한 구절은 무엇인가요?”라고 보충 질문합니다. 아래 자료 근거의 앞부분을 힌트로 사용합니다.</p>
               <div id="required-rubric-items"></div>
+              <details><summary>대화에서 질문하는 순서·보충 질문·힌트</summary><ol id="required-question-plan-preview" class="plan-preview"></ol></details>
+              <label class="inline-check" for="required-assessment-approved"><input id="required-assessment-approved" type="checkbox">두 문항·분석 기준표·보충 질문과 힌트를 검토하고 승인합니다.</label>
             </section>
           </section>
-          <label class="wide">학생 시작 질문
-            <textarea id="start-question" maxlength="500" required placeholder="예: 자료를 근거로 자신의 생각을 설명해 볼까요?"></textarea>
-            <span class="help">대화를 여는 첫 질문입니다. 필수 평가 문항 2개는 별도로 제출합니다.</span>
+          <label id="start-question-field" class="wide"><span id="start-question-label">학생 시작 질문</span>
+            <textarea id="start-question" maxlength="500" placeholder="예: 자료를 근거로 자신의 생각을 설명해 볼까요?"></textarea>
+            <span id="start-question-help" class="help">학생 화면의 첫 질문입니다.</span>
           </label>
           <fieldset id="backward-design-fields" class="grid" aria-label="질문과 평가기준 입력">
             <label class="wide">답변의 핵심 요소 (교사용)
@@ -275,6 +285,22 @@
             <label class="wide">④ 수집할 평가 근거
               <textarea id="evidence-description" maxlength="1000" required placeholder="예: 기사 핵심을 묻는 질문, 근거를 찾은 답변, 자신의 의견과 이유"></textarea>
             </label>
+            <section class="wide" aria-labelledby="assessment-plan-title">
+              <h3 id="assessment-plan-title">⑤ 평가기준별 질문·근거 계획</h3>
+              <p class="help" id="assessment-plan-help">평가기준마다 챗봇이 물을 질문과 학생에게서 확인할 수행을 연결합니다. 최대 5개이며, 한 번에 한 질문만 합니다. ‘학생 스스로 질문 만들기’는 학생이 자기 질문을 작성하도록 안내해 주세요. 근거 수집은 성적 판정이 아니며 최종 평가는 교사가 확인합니다.</p>
+              <p id="assessment-plan-status" class="notice" role="status" aria-live="polite"></p>
+              <div id="assessment-plan-cards"></div>
+              <button id="add-assessment-criterion" type="button" class="secondary" aria-describedby="assessment-plan-help">평가기준 추가</button>
+              <label class="inline-check" for="assessment-plan-approved">
+                <input id="assessment-plan-approved" type="checkbox" aria-describedby="assessment-plan-approval-help">
+                질문·힌트·수집할 학생 수행을 검토했고 이 계획을 승인합니다.
+              </label>
+              <p class="help" id="assessment-plan-approval-help">승인 후 질문이나 수업자료를 수정하면 승인이 해제됩니다. 평가모드는 승인된 계획이 있어야 저장할 수 있고, 자료 탐색모드에서는 미승인 초안도 보관할 수 있습니다.</p>
+              <details id="assessment-plan-preview">
+                <summary>질문 진행 미리보기</summary>
+                <ol id="assessment-plan-preview-list" class="plan-preview"></ol>
+              </details>
+            </section>
           </fieldset>
         </section>
 
@@ -343,6 +369,7 @@
       let readinessVersion = 0;
       let apiVerified = false;
       let controlsBusy = false;
+      let assessmentPlan = { schemaVersion:1, approved:false, criteria:[] };
       let assessmentGenerating = false;
       let assessmentEditVersion = 0;
       let assessmentDraft = null;
@@ -351,6 +378,7 @@
       let requiredGenerationVersion = 0;
       let requiredGenerating = false;
       let requiredRubricControls = [];
+      let requiredAssessmentApproved = false;
       const assessmentDraftFields = {
         startQuestion:['start-question', '학생 시작 질문', 500],
         expectedAnswer:['expected-answer', '답변의 핵심 요소 (교사용)', 1500],
@@ -372,6 +400,10 @@
         byId('prev-step').addEventListener('click', function () { showStep(currentStep - 1); });
         byId('next-step').addEventListener('click', function () { showStep(currentStep + 1); });
         byId('setup-form').addEventListener('submit', saveSetup);
+        byId('setup-form').addEventListener('input', handleSetupEdit);
+        byId('setup-form').addEventListener('change', handleSetupEdit);
+        byId('add-assessment-criterion').addEventListener('click', addAssessmentCriterion);
+        byId('assessment-plan-approved').addEventListener('change', approveAssessmentPlan);
         byId('save-api').addEventListener('click', saveApi);
         byId('test-api').addEventListener('click', testApi);
         byId('clear-api').addEventListener('click', clearApi);
@@ -392,6 +424,10 @@
         byId('generate-required-questions').addEventListener('click', generateRequiredQuestions);
         byId('confirm-required-questions').addEventListener('click', confirmRequiredQuestions);
         byId('generate-required-rubrics').addEventListener('click', generateRequiredRubrics);
+        byId('required-assessment-approved').addEventListener('change', function () {
+          requiredAssessmentApproved = this.checked;
+          updateRequiredControls(); updateReadinessDisplay();
+        });
         ['required-question-1', 'required-question-2'].forEach(function (id) {
           byId(id).addEventListener('input', invalidateRequiredAssessment);
         });
@@ -423,9 +459,179 @@
         return byId('activity-mode').value !== savedActivityMode;
       }
 
+      function handleSetupEdit(event) {
+        // Checkbox activation emits input before change. Its dedicated change
+        // handler must validate the new checked state before any render resets it.
+        if (event && event.target.id === 'assessment-plan-approved') return;
+        const affectsPlan = ['subject', 'grade', 'lesson-title', 'lesson-goal', 'standard-code',
+          'achievement-standard', 'assessment-criteria', 'rubric-scheme', 'rubric-high', 'rubric-good',
+          'rubric-meet', 'rubric-developing', 'rubric-beginning', 'evidence-description',
+          'material-title', 'material-text', 'expected-answer',
+          'assessment-evidence', 'answer-examples'];
+        if (event && affectsPlan.indexOf(event.target.id) >= 0) assessmentPlan.approved = false;
+        updateAssessmentPlanDisplay();
+        updateReadinessDisplay();
+      }
+
+      function parseAssessmentPlan(value) {
+        if (!value) return { schemaVersion:1, approved:false, criteria:[] };
+        const plan = typeof value === 'string' ? JSON.parse(value) : value;
+        if (!plan || plan.schemaVersion !== 1 || !Array.isArray(plan.criteria)) {
+          throw new Error('평가기준별 질문계획 형식을 확인해 주세요.');
+        }
+        return {
+          schemaVersion:1, approved:plan.approved === true && plan.criteria.length > 0,
+          criteria:plan.criteria.map(function (item) {
+            return {
+              id:String(item.id || ''), criterion:String(item.criterion || '').trim(),
+              responseKind:item.responseKind || 'explanation', mainQuestion:String(item.mainQuestion || '').trim(),
+              followUpQuestion:String(item.followUpQuestion || '').trim(), evidenceDescription:String(item.evidenceDescription || '').trim(),
+              sourceQuote:String(item.sourceQuote || '').trim(), requireSourceEvidence:item.requireSourceEvidence === true
+            };
+          })
+        };
+      }
+
+      function assessmentPlanError() {
+        if (!assessmentPlan.criteria.length) return '먼저 평가기준을 하나 이상 추가해 주세요.';
+        if (assessmentPlan.criteria.length > 5) return '평가기준은 최대 5개까지 사용할 수 있습니다.';
+        const ids = [];
+        const limits = { criterion:180, mainQuestion:250, followUpQuestion:250, evidenceDescription:300, sourceQuote:240 };
+        const normalizedSource = byId('material-text').value.replace(/\s+/g, ' ').trim();
+        for (let index = 0; index < assessmentPlan.criteria.length; index += 1) {
+          const item = assessmentPlan.criteria[index];
+          const prefix = (index + 1) + '번 평가기준: ';
+          if (!/^[A-Za-z0-9_-]{1,40}$/.test(item.id) || ids.indexOf(item.id) >= 0) return prefix + '고유 ID를 확인해 주세요.';
+          ids.push(item.id);
+          if (item.responseKind !== 'explanation' && item.responseKind !== 'student_question') return prefix + '학생 수행 유형을 선택해 주세요.';
+          const fields = Object.keys(limits);
+          for (let fieldIndex = 0; fieldIndex < fields.length; fieldIndex += 1) {
+            const key = fields[fieldIndex];
+            if (!item[key].trim() || item[key].trim().length > limits[key]) return prefix + '모든 내용을 입력하고 글자 수 제한을 확인해 주세요.';
+          }
+          for (const key of ['mainQuestion', 'followUpQuestion']) {
+            const question = item[key].trim();
+            if ((question.match(/[?？]/g) || []).length !== 1 || !/[?？]$/.test(question)) {
+              return prefix + '질문마다 문장 끝에 물음표 하나만 사용해 주세요.';
+            }
+          }
+          const quote = item.sourceQuote.replace(/\s+/g, ' ').trim();
+          if (!normalizedSource.includes(quote)) return prefix + '힌트 구절을 3단계 수업자료 본문에서 그대로 가져와 주세요.';
+        }
+        return '';
+      }
+
+      function renderAssessmentCards() {
+        const container = byId('assessment-plan-cards');
+        container.textContent = '';
+        assessmentPlan.criteria.forEach(function (item, index) {
+          const card = document.createElement('fieldset'); card.className = 'criterion-card';
+          const legend = document.createElement('legend'); legend.textContent = '평가기준 ' + (index + 1); card.appendChild(legend);
+          const specs = [
+            ['criterion', '확인할 평가기준', 180],
+            ['responseKind', '학생 수행 유형', 0],
+            ['mainQuestion', '처음 물을 질문', 250],
+            ['followUpQuestion', '근거가 부족할 때 보충 질문', 250],
+            ['evidenceDescription', '학생에게서 수집할 수행·근거', 300],
+            ['sourceQuote', '힌트로 보여줄 수업자료의 정확한 구절', 240]
+          ];
+          specs.forEach(function (spec) {
+            const label = document.createElement('label'); label.textContent = spec[1];
+            const input = document.createElement(spec[0] === 'responseKind' ? 'select' : 'textarea');
+            input.id = 'criterion-' + item.id + '-' + spec[0]; label.setAttribute('for', input.id);
+            if (spec[0] === 'responseKind') {
+              [['explanation', '학생이 설명하기'], ['student_question', '학생 스스로 질문 만들기']].forEach(function (choice) {
+                const option = document.createElement('option'); option.value = choice[0]; option.textContent = choice[1]; input.appendChild(option);
+              });
+            } else input.setAttribute('maxlength', spec[2]);
+            input.value = item[spec[0]];
+            input.addEventListener(spec[0] === 'responseKind' ? 'change' : 'input', function () {
+              item[spec[0]] = input.value; assessmentPlan.approved = false;
+            });
+            label.appendChild(input); card.appendChild(label);
+          });
+          const evidenceLabel = document.createElement('label'); evidenceLabel.className = 'inline-check';
+          const evidenceCheck = document.createElement('input'); evidenceCheck.setAttribute('type', 'checkbox');
+          evidenceCheck.id = 'criterion-' + item.id + '-requireSourceEvidence'; evidenceCheck.checked = item.requireSourceEvidence;
+          evidenceLabel.setAttribute('for', evidenceCheck.id);
+          evidenceCheck.addEventListener('change', function () { item.requireSourceEvidence = evidenceCheck.checked; assessmentPlan.approved = false; });
+          evidenceLabel.appendChild(evidenceCheck);
+          const evidenceText = document.createElement('span'); evidenceText.textContent = '학생 답변에 자료의 직접 인용 근거가 필요합니다.';
+          evidenceLabel.appendChild(evidenceText); card.appendChild(evidenceLabel);
+          const remove = document.createElement('button'); remove.setAttribute('type', 'button'); remove.className = 'danger';
+          remove.id = 'remove-criterion-' + item.id; remove.textContent = '평가기준 ' + (index + 1) + ' 삭제';
+          remove.addEventListener('click', function () {
+            assessmentPlan.criteria = assessmentPlan.criteria.filter(function (entry) { return entry.id !== item.id; });
+            assessmentPlan.approved = false; renderAssessmentCards(); updateReadinessDisplay(); byId('add-assessment-criterion').focus();
+          });
+          card.appendChild(remove); container.appendChild(card);
+        });
+        updateAssessmentPlanDisplay();
+      }
+
+      function addAssessmentCriterion() {
+        if (controlsBusy || assessmentPlan.criteria.length >= 5) return;
+        let sequence = 1;
+        while (assessmentPlan.criteria.some(function (item) { return item.id === 'criterion-' + sequence; })) sequence += 1;
+        const item = { id:'criterion-' + sequence, criterion:'', responseKind:'explanation', mainQuestion:'',
+          followUpQuestion:'', evidenceDescription:'', sourceQuote:'', requireSourceEvidence:false };
+        assessmentPlan.criteria.push(item); assessmentPlan.approved = false;
+        renderAssessmentCards(); updateReadinessDisplay(); byId('criterion-' + item.id + '-criterion').focus();
+      }
+
+      function approveAssessmentPlan() {
+        if (controlsBusy) return;
+        const error = byId('assessment-plan-approved').checked ? assessmentPlanError() : '';
+        assessmentPlan.approved = byId('assessment-plan-approved').checked && !error;
+        updateAssessmentPlanDisplay(); updateReadinessDisplay();
+        if (error) setStatus(error, true);
+      }
+
+      function updateAssessmentPlanDisplay() {
+        const empty = assessmentPlan.criteria.length === 0;
+        const evaluation = byId('activity-mode').value !== 'exploration';
+        let state = 'inactive';
+        if (evaluation && empty) state = 'none';
+        else if (evaluation && (!assessmentPlan.approved || assessmentPlanError())) state = 'draft';
+        else if (evaluation && !assessmentPlanMatchesSavedSetup()) state = 'approved-unsaved';
+        else if (evaluation) state = 'saved-active';
+        byId('assessment-plan-approved').checked = assessmentPlan.approved;
+        byId('assessment-plan-approved').disabled = controlsBusy || empty;
+        byId('add-assessment-criterion').disabled = controlsBusy || assessmentPlan.criteria.length >= 5;
+        byId('assessment-plan-status').dataset.state = state;
+        byId('assessment-plan-status').textContent = state === 'inactive'
+          ? (empty ? '질문계획 없음·비활성 · 자료 탐색모드에서는 질문계획을 실행하지 않습니다.'
+            : '보관됨·비활성 · 자료 탐색모드에서는 저장한 질문계획을 학생 대화에 실행하지 않습니다.')
+          : state === 'none' ? '질문계획 없음 · 평가모드에서는 계획을 하나 이상 만들고 승인해야 저장할 수 있습니다.'
+          : state === 'draft' ? '미승인 초안 · 질문·힌트·수집할 학생 수행을 모두 확인하고 승인해야 평가모드로 저장할 수 있습니다.'
+          : state === 'approved-unsaved' ? '교사 승인 완료 · 아직 저장되지 않았습니다. 4단계에서 저장해야 학생 대화에 반영됩니다.'
+          : '승인·저장 완료 · 평가모드에서 이 순서로 질문합니다.';
+        const preview = byId('assessment-plan-preview-list'); preview.textContent = '';
+        assessmentPlan.criteria.forEach(function (item) {
+          const entry = document.createElement('li');
+          entry.textContent = (item.criterion || '(평가기준 미입력)') + '\n처음 질문: ' + (item.mainQuestion || '(미입력)') +
+            '\n보충 질문: ' + (item.followUpQuestion || '(미입력)') + '\n힌트: ' + (item.sourceQuote || '(미입력)') +
+            '\n수집할 학생 수행: ' + (item.evidenceDescription || '(미입력)') +
+            '\n유형: ' + (item.responseKind === 'student_question' ? '학생 스스로 질문 만들기' : '학생이 설명하기') +
+            (item.requireSourceEvidence ? ' · 자료 직접 인용 필요' : '') + '\n교사가 최종 판단합니다.';
+          preview.appendChild(entry);
+        });
+      }
+
       function hasUnsavedSetupChanges() {
         return savedSetupSnapshot === null || hasUnsavedModeChange() ||
           JSON.stringify(collectPayload()) !== savedSetupSnapshot;
+      }
+
+      function assessmentPlanMatchesSavedSetup() {
+        if (!savedSetupSnapshot) return false;
+        try {
+          const saved = JSON.parse(savedSetupSnapshot);
+          return saved.activityMode === 'evaluation' &&
+            saved.assessmentPlanJson === JSON.stringify(parseAssessmentPlan(assessmentPlan));
+        } catch (error) {
+          return false;
+        }
       }
 
       function syncBackwardDesign(changed) {
@@ -436,12 +642,18 @@
         fields.disabled = !enabled || requiredMode;
         fields.classList.toggle('hidden', !enabled || requiredMode);
         byId('required-assessment-editor').classList.toggle('hidden', !requiredMode);
+        byId('start-question-field').classList.toggle('hidden', requiredMode);
         byId('legacy-assessment-generator').classList.toggle('hidden', requiredMode);
         byId('evaluation-goal-fields').disabled = !enabled;
         byId('evaluation-goal-fields').classList.toggle('hidden', !enabled);
         byId('assessment-ai-section').classList.toggle('hidden', !enabled);
         byId('assessment-step-label').textContent = enabled ? '질문·평가기준' : '시작 질문';
         byId('title-assessment').textContent = enabled ? '3. 질문·평가기준' : '3. 시작 질문';
+        byId('start-question').required = !enabled;
+        byId('start-question-label').textContent = enabled ? '평가 질문 초안 (선택)' : '학생 시작 질문';
+        byId('start-question-help').textContent = enabled
+          ? '평가모드의 실제 첫 질문은 아래에서 승인한 질문계획의 첫 질문입니다. 이 칸은 AI 초안 생성용으로 보존됩니다.'
+          : '자료 탐색모드에서 학생 화면에 처음 보여줄 질문입니다.';
         ['assessment-criteria', 'rubric-high',
           'rubric-meet', 'rubric-developing', 'evidence-description'].forEach(function (id) {
           byId(id).required = enabled && !requiredMode;
@@ -451,7 +663,7 @@
           ? '평가에 사용할 목표와 기준을 입력해 주세요.'
           : '평가 항목 없이 자료로 대화합니다. 기존 평가 내용은 보관됩니다.';
         if (changed) {
-          setStatus('백워드 평가 설계를 ' + (enabled ? '켰습니다.' : '껐습니다.') + ' 설정 저장 후 미리보기를 확인해 주세요.');
+          setStatus('백워드 평가 설계를 ' + (enabled ? '켰습니다.' : '껐습니다.') + ' 4단계에서 저장한 뒤 준비 상태와 미리보기를 다시 확인해 주세요.');
         }
         updateReadinessDisplay();
       }
@@ -543,7 +755,8 @@
 
       function requiredQuestionsValid() {
         const questions = requiredQuestions();
-        return questions.every(function (item) { return item.question.length > 0 && item.question.length <= 500; }) &&
+        return questions.every(function (item) { return item.question.length > 0 && item.question.length <= 250 &&
+          (item.question.match(/[?？]/g) || []).length === 1 && /[?？]$/.test(item.question); }) &&
           questions[0].question !== questions[1].question;
       }
 
@@ -566,13 +779,35 @@
       }
 
       function requiredAssessmentReady() {
-        return requiredQuestionsConfirmed === requiredContext() && validRequiredEnvelope(requiredAssessment);
+        return requiredAssessmentApproved && requiredQuestionsValid() && requiredQuestionsConfirmed === requiredContext() && validRequiredEnvelope(requiredAssessment);
+      }
+
+      function requiredPlanProjection() {
+        // The server derives and validates the authoritative plan when saving.
+        // This matching projection makes the exact questions/hints reviewable first.
+        return { schemaVersion:1, approved:requiredAssessmentApproved, criteria:requiredAssessment ? requiredAssessment.items.map(function (item, index) {
+          return { id:item.id, criterion:('문항 ' + (index + 1) + ' · ' + item.assessmentCriteria).trim().slice(0, 180),
+            responseKind:'explanation', mainQuestion:item.question,
+            followUpQuestion:'답변을 뒷받침하는 수업자료의 정확한 구절은 무엇인가요?',
+            evidenceDescription:item.evidenceDescription.trim().slice(0, 300),
+            sourceQuote:item.assessmentEvidence.replace(/\s+/g, ' ').trim().slice(0, 240), requireSourceEvidence:true };
+        }) : [] };
+      }
+
+      function renderRequiredPlanPreview() {
+        const container = byId('required-question-plan-preview'); container.textContent = '';
+        requiredPlanProjection().criteria.forEach(function (item) {
+          const entry = document.createElement('li');
+          entry.textContent = item.mainQuestion + '\n근거 보충: ' + item.followUpQuestion + '\n힌트: ' + item.sourceQuote + '\n확인할 수행: ' + item.evidenceDescription;
+          container.appendChild(entry);
+        });
       }
 
       function invalidateRequiredAssessment() {
         requiredGenerationVersion += 1;
         requiredQuestionsConfirmed = '';
         requiredAssessment = null;
+        requiredAssessmentApproved = false;
         requiredRubricControls = [];
         byId('required-rubric-items').textContent = '';
         byId('required-rubric-section').classList.toggle('hidden', true);
@@ -593,6 +828,8 @@
         byId('required-assessment-mode').disabled = controlsBusy || requiredGenerating;
         [1, 2].forEach(function (number) { byId('required-question-' + number).disabled = controlsBusy || !enabled; });
         requiredRubricControls.forEach(function (control) { control.disabled = busy || !enabled; });
+        byId('required-assessment-approved').checked = requiredAssessmentApproved;
+        byId('required-assessment-approved').disabled = busy || !enabled || !validRequiredEnvelope(requiredAssessment);
         byId('required-assessment-hint').textContent = !apiVerified ? '상단 AI 연결을 확인해 주세요.'
           : !sourceReady ? '1단계 목표 또는 성취기준과 2단계 수업자료를 입력해 주세요.'
           : '문항을 직접 작성해도 됩니다. AI 생성에는 연결한 API 사용료가 발생합니다.';
@@ -619,7 +856,8 @@
           if (generationVersion !== requiredGenerationVersion || snapshot !== requiredContext() || !requiredAssessmentEnabled() || !apiVerified) {
             byId('required-assessment-status').textContent = '생성 중 입력이 바뀌어 문항을 적용하지 않았습니다. 다시 생성해 주세요.';
           } else if (!result || !result.ok || !Array.isArray(result.questions) || result.questions.length !== 2 ||
-            !result.questions.every(function (item, index) { return item.id === 'q' + (index + 1) && typeof item.question === 'string' && item.question.trim() && item.question.length <= 500; }) ||
+            !result.questions.every(function (item, index) { return item.id === 'q' + (index + 1) && typeof item.question === 'string' && item.question.trim() && item.question.length <= 250 &&
+              (item.question.match(/[?？]/g) || []).length === 1 && /[?？]$/.test(item.question.trim()); }) ||
             result.questions[0].question.trim() === result.questions[1].question.trim()) {
             byId('required-assessment-status').textContent = '2개 문항의 형식을 확인하지 못했습니다. 다시 생성해 주세요.';
           } else {
@@ -658,8 +896,9 @@
             byId('required-assessment-status').textContent = '문항별 분석 기준표의 형식을 확인하지 못했습니다. 다시 생성해 주세요.';
           } else {
             requiredAssessment = JSON.parse(JSON.stringify(result.requiredAssessment));
+            requiredAssessmentApproved = false;
             renderRequiredRubrics();
-            byId('required-assessment-status').textContent = '분석 기준표 초안이 준비되었습니다. 문항별 기준과 예상 답변을 검토·수정한 뒤 설정을 저장해 주세요.';
+            byId('required-assessment-status').textContent = '분석 기준표 초안이 준비되었습니다. 문항별 기준과 대화 진행을 검토·승인한 뒤 설정을 저장해 주세요.';
           }
           updateRequiredControls(); updateReadinessDisplay();
         }).withFailureHandler(function (error) {
@@ -686,11 +925,15 @@
             heading.textContent = fields[key][1]; const cell = document.createElement('td');
             const input = document.createElement('textarea'); input.value = item[key] || ''; input.maxLength = fields[key][2] || 1000;
             input.setAttribute('aria-label', '문항 ' + (index + 1) + ' ' + fields[key][1]);
-            input.addEventListener('input', function () { item[key] = input.value; updateReadinessDisplay(); });
+            input.addEventListener('input', function () {
+              item[key] = input.value; requiredAssessmentApproved = false;
+              renderRequiredPlanPreview(); updateRequiredControls(); updateReadinessDisplay();
+            });
             requiredRubricControls.push(input); cell.appendChild(input); row.appendChild(heading); row.appendChild(cell); body.appendChild(row);
           });
           card.appendChild(table); container.appendChild(card);
         });
+        renderRequiredPlanPreview();
       }
 
       function achievementStandardCode() {
@@ -771,6 +1014,47 @@
           });
       }
 
+      function assessmentPlanIsBlankDraft() {
+        if (!assessmentPlan.criteria.length) return true;
+        const textFields = ['criterion', 'mainQuestion', 'followUpQuestion', 'evidenceDescription', 'sourceQuote'];
+        return assessmentPlan.criteria.every(function (item) {
+          return textFields.every(function (key) { return !String(item[key] || '').trim(); }) &&
+            (item.responseKind || 'explanation') === 'explanation' && item.requireSourceEvidence !== true;
+        });
+      }
+
+      function fitAssessmentPlanText(value, limit) {
+        const text = String(value || '').replace(/\s+/g, ' ').trim();
+        if (text.length <= limit) return text;
+        const clipped = text.slice(0, limit).trim();
+        const boundary = Math.max(clipped.lastIndexOf('.'), clipped.lastIndexOf('。'), clipped.lastIndexOf(' '));
+        return boundary >= Math.floor(limit * 0.6) ? clipped.slice(0, boundary + 1).trim() : clipped;
+      }
+
+      function assessmentPlanQuestionFromDraft(value) {
+        const text = String(value || '').replace(/\s+/g, ' ').trim();
+        const stem = fitAssessmentPlanText(text.replace(/[?？]/g, '').trim(), 249)
+          .replace(/[.!。]+$/, '').trim();
+        return stem + '?';
+      }
+
+      function assessmentPlanFromDraft(draft) {
+        return {
+          schemaVersion:1,
+          approved:false,
+          criteria:[{
+            id:'ai-criterion-1',
+            criterion:fitAssessmentPlanText(draft.assessmentCriteria, 180),
+            responseKind:'explanation',
+            mainQuestion:assessmentPlanQuestionFromDraft(draft.startQuestion),
+            followUpQuestion:'그 설명을 뒷받침하는 수업자료의 정확한 구절은 무엇인가요?',
+            evidenceDescription:fitAssessmentPlanText(draft.evidenceDescription, 300),
+            sourceQuote:fitAssessmentPlanText(draft.assessmentEvidence, 240),
+            requireSourceEvidence:true
+          }]
+        };
+      }
+
       function applyAssessmentDraft() {
         if (!assessmentDraft || controlsBusy || !apiVerified || byId('activity-mode').value !== 'evaluation') return;
         if (assessmentDraft.snapshot !== assessmentSnapshot() || assessmentDraft.editVersion !== assessmentEditVersion) {
@@ -783,13 +1067,23 @@
         if (draft.rubricScheme === 'legacy_three') byId('rubric-good').value = '';
         if (draft.rubricScheme !== 'five_levels') byId('rubric-beginning').value = '';
         byId('rubric-scheme').value = draft.rubricScheme;
+        const filledQuestionPlan = assessmentPlanIsBlankDraft();
+        assessmentPlan = filledQuestionPlan ? assessmentPlanFromDraft(draft) : {
+          schemaVersion:1, approved:false, criteria:assessmentPlan.criteria
+        };
         assessmentDraft = null;
         assessmentEditVersion += 1;
         byId('assessment-draft').classList.toggle('hidden', true);
         syncRubricScheme();
+        if (filledQuestionPlan) renderAssessmentCards();
+        else updateAssessmentPlanDisplay();
         updateReadinessDisplay();
-        byId('assessment-ai-status').textContent = '초안을 입력란에 적용했습니다. 내용을 검토·수정한 뒤 설정을 저장해 주세요.';
-        setStatus('질문·수준별 예상 답변·평가기준을 적용했습니다. 검토 후 설정을 저장해 주세요.');
+        byId('assessment-ai-status').textContent = filledQuestionPlan
+          ? '초안과 평가기준별 질문·근거 계획을 적용했습니다. 계획을 검토·수정하고 승인한 뒤 설정을 저장해 주세요.'
+          : '초안을 입력란에 적용했습니다. 교사가 작성한 질문계획은 보존했으며 승인은 해제했습니다. 새 평가기준과 맞는지 검토해 주세요.';
+        setStatus(filledQuestionPlan
+          ? 'AI가 질문계획까지 채웠습니다. 교사가 검토·승인한 뒤 설정을 저장해 주세요.'
+          : '기존 질문계획은 덮어쓰지 않았습니다. 새 평가기준에 맞게 검토한 뒤 다시 승인해 주세요.');
       }
 
       function showStep(index) {
@@ -807,10 +1101,8 @@
         document.querySelector('main').scrollTo({ top:0, behavior:'smooth' });
       }
 
-      function fillData(data) {
-        assessmentInputsChanged();
-        requiredGenerationVersion += 1;
-        const value = data.settings || {};
+      function applySettingsValues(value) {
+        value = value || {};
         const mapping = {
           'lesson-id':'lessonId', 'app-name':'appName', subject:'subject', grade:'grade',
           'lesson-title':'lessonTitle', 'lesson-goal':'lessonGoal', 'standard-code':'achievementStandardCode',
@@ -833,13 +1125,24 @@
           : value.rubricScheme === 'legacy_three' || value.lessonId || value.rubricHigh || value.rubricMeet || value.rubricDeveloping ? 'legacy_three' : 'four_levels';
         const savedRequired = value.requiredAssessment && Array.isArray(value.requiredAssessment.items) && value.requiredAssessment.items.length === 2
           ? JSON.parse(JSON.stringify(value.requiredAssessment)) : null;
-        byId('required-assessment-mode').value = savedRequired || value.requiredAssessmentMode === 'required_two' || !value.lessonId ? 'required_two' : 'legacy';
+        byId('required-assessment-mode').value = savedRequired || value.requiredAssessmentMode === 'required_two'
+          ? 'required_two' : value.requiredAssessmentMode === 'legacy' || value.lessonId ? 'legacy' : 'required_two';
         [1, 2].forEach(function (number) { byId('required-question-' + number).value = savedRequired ? savedRequired.items[number - 1].question : ''; });
         requiredAssessment = savedRequired;
+        requiredAssessmentApproved = Boolean(savedRequired && value.requiredAssessmentApproved);
         requiredQuestionsConfirmed = savedRequired ? requiredContext() : '';
         renderRequiredRubrics();
         byId('required-assessment-status').textContent = savedRequired ? '저장된 필수 문항과 분석 기준표입니다.' : '';
+        assessmentPlan = parseAssessmentPlan(value.assessmentPlanJson);
+        renderAssessmentCards();
+      }
+
+      function fillData(data) {
+        assessmentInputsChanged();
+        requiredGenerationVersion += 1;
+        applySettingsValues(data.settings || {});
         savedActivityMode = byId('activity-mode').value;
+        // Keep the persisted baseline separate from defaults filled only in this form.
         savedSetupSnapshot = assessmentSnapshot();
         if (!byId('version').value) byId('version').value = 'v1';
         syncBackwardDesign(false);
@@ -847,6 +1150,7 @@
         if (!byId('join-code').value) byId('join-code').value = String(Math.floor(100000 + Math.random() * 900000));
         byId('confirmed-student-url').value = data.confirmedStudentUrl || '';
         updateApi(data.api || {});
+        updateAssessmentPlanDisplay();
         renderReadiness(data.readiness || {}, data.studentUrl || '', data.previewUrl || '');
         setStatus('설정을 확인하고 순서대로 입력해 주세요.');
       }
@@ -863,11 +1167,13 @@
           rubricHigh:byId('rubric-high').value, rubricMeet:byId('rubric-meet').value,
           rubricDeveloping:byId('rubric-developing').value,
           evidenceDescription:byId('evidence-description').value,
+          assessmentPlanJson:JSON.stringify(byId('required-assessment-mode').value === 'required_two' ? requiredPlanProjection() : parseAssessmentPlan(assessmentPlan)),
           materialTitle:byId('material-title').value, materialText:byId('material-text').value,
           materialUrl:byId('material-url').value, startQuestion:byId('start-question').value,
           expectedAnswer:byId('expected-answer').value, assessmentEvidence:byId('assessment-evidence').value,
           answerExamples:byId('answer-examples').value,
           requiredAssessmentMode:byId('required-assessment-mode').value,
+          requiredAssessmentApproved:byId('required-assessment-mode').value === 'required_two' && requiredAssessmentApproved,
           requiredAssessment:byId('required-assessment-mode').value === 'required_two' ? requiredAssessment : null,
           joinCode:byId('join-code').value,
           activityMode:byId('activity-mode').value, version:byId('version').value
@@ -901,7 +1207,18 @@
         }
         if (requiredAssessmentEnabled() && !requiredAssessmentReady()) {
           showStep(steps.indexOf('assessment'));
-          setStatus('필수 문항 2개를 확정하고 문항별 분석 기준표의 빈 항목을 모두 채운 뒤 저장해 주세요.', true);
+          setStatus('필수 문항 2개를 확정하고 분석 기준표·대화 진행을 검토·승인한 뒤 저장해 주세요.', true);
+          return;
+        }
+        if (byId('activity-mode').value === 'evaluation' && !requiredAssessmentEnabled() && !assessmentPlan.criteria.length) {
+          showStep(steps.indexOf('assessment'));
+          setStatus('평가모드에서는 평가기준별 질문계획을 하나 이상 추가해 주세요.', true);
+          return;
+        }
+        if (byId('activity-mode').value === 'evaluation' && !requiredAssessmentEnabled() &&
+            (!assessmentPlan.approved || assessmentPlanError())) {
+          showStep(steps.indexOf('assessment'));
+          setStatus(assessmentPlanError() || '평가 질문계획을 검토하고 승인해 주세요.', true);
           return;
         }
         setStatus('평가 설계와 수업자료를 저장하는 중입니다.');
@@ -910,9 +1227,38 @@
         setButtonsDisabled(true);
         google.script.run
           .withSuccessHandler(function (result) {
-            byId('lesson-id').value = result.lessonId || '';
-            savedActivityMode = payload.activityMode;
-            savedSetupSnapshot = JSON.stringify(Object.assign({}, payload, { lessonId:result.lessonId || '' }));
+            const returned = Object.assign({}, payload, result.settings || {}, {
+              lessonId:result.lessonId || (result.settings && result.settings.lessonId) || payload.lessonId
+            });
+            const savedPayload = {};
+            Object.keys(payload).forEach(function (key) {
+              savedPayload[key] = returned[key] == null ? '' : returned[key];
+            });
+            savedPayload.activityMode = returned.activityMode === 'exploration' ? 'exploration' : 'evaluation';
+            savedPayload.rubricScheme = returned.rubricScheme === 'five_levels' ? 'five_levels'
+              : returned.rubricScheme === 'four_levels' ? 'four_levels' : 'legacy_three';
+            savedPayload.achievementStandard = combineAchievementStandard(
+              returned.achievementStandardCode,
+              returned.achievementStandard
+            );
+            const standardMatch = savedPayload.achievementStandard.match(/^(\[\d{1,2}[가-힣][가-힣\d-]{0,24}-\d{2}\])/);
+            savedPayload.achievementStandardCode = standardMatch ? standardMatch[1] : '';
+            savedPayload.assessmentPlanJson = JSON.stringify(parseAssessmentPlan(returned.assessmentPlanJson));
+            savedPayload.requiredAssessment = returned.requiredAssessment || null;
+            savedPayload.requiredAssessmentMode = returned.requiredAssessmentMode === 'required_two' ? 'required_two' : 'legacy';
+            savedPayload.requiredAssessmentApproved = savedPayload.requiredAssessmentMode === 'required_two' && returned.requiredAssessmentApproved === true;
+            const currentPayload = collectPayload();
+            const displayedPayload = Object.assign({}, savedPayload);
+            Object.keys(payload).forEach(function (key) {
+              if (currentPayload[key] !== payload[key]) displayedPayload[key] = currentPayload[key];
+            });
+            displayedPayload.lessonId = savedPayload.lessonId;
+            assessmentInputsChanged();
+            applySettingsValues(displayedPayload);
+            savedActivityMode = savedPayload.activityMode;
+            savedSetupSnapshot = JSON.stringify(savedPayload);
+            syncBackwardDesign(false);
+            updateAssessmentPlanDisplay();
             renderReadiness(result.readiness || {}, result.studentUrl || '', result.previewUrl || '');
             setStatus(result.message || '저장했습니다.');
             setButtonsDisabled(false);
@@ -1019,7 +1365,7 @@
 
       function updateReadinessDisplay() {
         const enabled = byId('activity-mode').value !== 'exploration';
-        byId('save-setup').textContent = '설정 저장';
+        byId('save-setup').textContent = enabled ? '평가 설계·수업자료 저장' : '자료 탐색 설정·수업자료 저장';
         if (!latestReadinessData) return;
         const report = latestReadinessData.report;
         const studentUrl = latestReadinessData.studentUrl;
@@ -1034,16 +1380,29 @@
             return hasText(payload[key]);
           }) && (payload.rubricScheme === 'legacy_three' || hasText(payload.rubricGood)) &&
           (payload.rubricScheme !== 'five_levels' || hasText(payload.rubricBeginning))));
-        const materialReady = hasText(payload.lessonTitle) && hasText(payload.materialTitle) &&
-          payload.materialText.trim().length >= 30 && hasText(payload.startQuestion);
         const codeReady = /^\d{6}$/.test(payload.joinCode);
         const modeReady = payload.activityMode === 'evaluation' || payload.activityMode === 'exploration';
+        const planReady = !enabled || (requiredAssessmentEnabled() ? requiredAssessmentReady() :
+          assessmentPlan.criteria.length > 0 && assessmentPlan.approved && !assessmentPlanError());
+        const planSaved = !enabled || (requiredAssessmentEnabled() ? !dirty : assessmentPlanMatchesSavedSetup());
+        const materialReady = hasText(payload.lessonTitle) && hasText(payload.materialTitle) &&
+          payload.materialText.trim().length >= 30 && (enabled ? planReady : hasText(payload.startQuestion));
         const inputChecks = {
+          assessmentPlan: {
+            label:requiredAssessmentEnabled() ? '필수 2문항 대화·분석 계획' : '평가기준별 질문·근거 계획',
+            state:!enabled ? 'inactive' : planReady && planSaved ? 'pass' : 'block',
+            detail:!enabled ? '보관됨·비활성 — 자료 탐색모드에서는 질문계획을 학생 대화에 실행하지 않습니다.'
+              : requiredAssessmentEnabled() ? (!planReady ? '두 문항을 확정하고 분석 기준표를 검토해 주세요.' : !planSaved ? '저장하면 두 문항을 대화에서 차례로 묻고 답변을 분석합니다.' : '저장된 두 문항을 대화에서 차례로 묻고 답변을 분석합니다.')
+              : !assessmentPlan.criteria.length ? '평가모드에서는 기준별 질문계획을 하나 이상 만들고 승인해 주세요.'
+                : !planReady ? '질문·힌트·학생 수행을 확인하고 계획을 승인해 주세요.'
+                  : !planSaved ? '승인됨·저장 필요 — 4단계에서 저장해야 학생 대화에 반영됩니다.'
+                    : '교사가 승인하고 저장한 질문·근거 계획을 학생 대화에 적용합니다.'
+          },
           backwardDesign: {
-            label: enabled ? '백워드 평가 설계' : '백워드 평가 설계 · 사용 안 함',
+            label: enabled ? '평가 설계 기본항목' : '평가 설계 기본항목 · 사용 안 함',
             state: backwardReady ? 'pass' : 'block', enabled:enabled,
             detail: !enabled ? '사용 안 함 — 자료 탐색모드에서는 백워드 평가 설계를 적용하지 않습니다.'
-              : backwardReady ? '목표 또는 성취기준과 수준별 평가기준·평가 근거가 준비되었습니다.'
+              : backwardReady ? '목표 또는 성취기준과 수준별 평가기준·평가 근거가 준비되었습니다. 질문 실행 준비는 아래에서 별도로 확인합니다.'
               : '목표부터 평가 근거까지 필수 항목을 입력해 주세요.'
           },
           mode: {
@@ -1053,7 +1412,8 @@
           },
           material: {
             state: materialReady ? 'pass' : 'block',
-            detail: materialReady ? '학생 질문의 근거 자료와 시작 질문이 준비되었습니다.'
+            detail: materialReady ? '학생 질문의 근거 자료와 실제 시작 질문이 준비되었습니다.'
+              : enabled ? '30자 이상의 수업자료와 승인된 질문계획의 첫 질문을 준비해 주세요.'
               : '30자 이상의 수업자료와 시작 질문을 입력해 주세요.'
           },
           lessonAccess: {
@@ -1065,13 +1425,20 @@
         const note = byId('readiness-draft-note');
         note.classList.toggle('hidden', !dirty);
         note.textContent = dirty
-          ? '변경 사항을 저장해 주세요. 새로고침은 저장하지 않습니다.'
+          ? '현재 입력 기준: 평가 설계 ' + (enabled ? '켬 · 평가모드' : '끔 · 자료 탐색모드') +
+            '. 아직 저장 전입니다. 아래 저장 버튼을 눌러 운영 설정에 반영해 주세요. 준비 상태 새로고침은 설정을 저장하지 않습니다.'
           : '';
         const badge = byId('readiness-badge');
-        badge.className = 'badge ' + (dirty ? '' : report.distributionReady ? 'pass' : report.setupReady ? '' : 'block');
-        badge.textContent = dirty ? '저장 필요' : report.distributionReady ? '교사 미리보기 확인 완료' : report.setupReady ? '미리보기·연결 확인 필요' : '필수 설정 필요';
+        badge.className = 'badge ' + (!planReady ? 'block' : dirty ? '' : report.distributionReady ? 'pass' : report.setupReady ? '' : 'block');
+        badge.textContent = !planReady
+          ? (requiredAssessmentEnabled() ? '필수 문항·기준표 확인 필요' : !assessmentPlan.criteria.length ? '질문계획 작성 필요' : '질문계획 승인 필요')
+          : dirty && enabled && !planSaved ? '승인됨·저장 필요'
+          : dirty ? '변경 사항 저장 필요'
+          : report.distributionReady ? '학생 배포 준비 완료' : report.setupReady ? '교사 입력 완료' : '필수 설정 필요';
         const list = byId('readiness-list'); list.textContent = '';
-        (report.checks || []).forEach(function (savedCheck) {
+        const checks = (report.checks || []).slice();
+        if (!checks.some(function (check) { return check.key === 'assessmentPlan'; })) checks.push({ key:'assessmentPlan' });
+        checks.forEach(function (savedCheck) {
           // The local projection never changes the saved server report or its runtime gates.
           const check = Object.assign({}, savedCheck, inputChecks[savedCheck.key] || {});
           if (dirty && check.key === 'preview') {
@@ -1081,18 +1448,21 @@
           const item = document.createElement('li'); item.dataset.state = check.state || 'block';
           item.dataset.key = check.key || '';
           const title = document.createElement('strong');
-          title.textContent = (check.state === 'pass' ? '✓ ' : '! ') + check.label;
+          title.textContent = (check.state === 'pass' ? '✓ ' : check.state === 'inactive' ? '– ' : '! ') + check.label;
           const detail = document.createElement('span'); detail.textContent = check.detail || '';
           item.appendChild(title); item.appendChild(detail); list.appendChild(item);
         });
-        byId('readiness-summary').textContent = dirty
-          ? '저장 후 미리보기를 확인해 주세요.'
-          : report.distributionReady ? '수업 설정과 교사 미리보기를 확인했습니다.' : '아래 필요한 항목을 확인해 주세요.';
+        byId('readiness-summary').textContent = !planReady
+          ? (requiredAssessmentEnabled() ? '3단계에서 두 문항을 확정하고 분석 기준표를 검토한 뒤 저장해 주세요.' : !assessmentPlan.criteria.length
+            ? '평가모드에는 승인된 질문계획이 필요합니다. 3단계에서 계획을 만들고 승인해 주세요.'
+            : '질문계획은 아직 실행할 수 없는 초안입니다. 3단계에서 검토·승인한 뒤 저장해 주세요.')
+          : dirty ? '변경한 수업 설정을 저장해야 운영에 반영됩니다. 저장 후 현재 수업 미리보기를 확인해 주세요.'
+            : report.summary || '준비 상태를 확인해 주세요.';
         byId('student-url').textContent = studentUrl || '아직 학생용 주소가 없습니다.';
         const link = byId('open-student');
-        if (previewUrl && report.runtimeReady && !dirty && !controlsBusy) { link.href = previewUrl; link.setAttribute('aria-disabled', 'false'); }
+        if (previewUrl && report.runtimeReady && planReady && !dirty && !controlsBusy) { link.href = previewUrl; link.setAttribute('aria-disabled', 'false'); }
         else { link.removeAttribute('href'); link.setAttribute('aria-disabled', 'true'); }
-        byId('copy-student-url').disabled = controlsBusy || dirty || !(studentUrl && report.distributionReady);
+        byId('copy-student-url').disabled = controlsBusy || dirty || !planReady || !(studentUrl && report.distributionReady);
         const toggle = byId('toggle-lesson');
         toggle.dataset.open = report.lessonOpen === false ? 'false' : 'true';
         toggle.textContent = report.lessonOpen === false ? '현재 수업 다시 열기' : '현재 수업 배포 종료';
@@ -1155,6 +1525,7 @@
         byId('rubric-scheme').disabled = disabled;
         byId('confirmed-student-url').disabled = disabled;
         if (!disabled) byId('copy-student-url').disabled = hasUnsavedSetupChanges() || !(latestStudentUrl && latestDistributionReady);
+        updateAssessmentPlanDisplay();
         updateAssessmentControls();
         updateReadinessDisplay();
       }

@@ -90,6 +90,7 @@ function saveLiteTeacherSetup(teacherAccessToken, payload) {
     ok: true,
     message: '평가 설계와 수업자료를 교사 Google Sheet에 저장했습니다.',
     lessonId: saved.lessonId,
+    settings: liteClientData_(saved),
     studentUrl: studentUrl,
     previewUrl: previewUrl,
     readiness: readiness

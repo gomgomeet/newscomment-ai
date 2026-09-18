@@ -71,8 +71,20 @@ const legacy = {
   materialText:'학교는 학생들이 반찬을 먹을 만큼 고르는 선택제를 실시했다. 학생들은 먹을 만큼만 받으면 다 먹기 쉽다는 것을 알게 되었다.',
   materialUrl:'', startQuestion:'글에서 궁금한 점은 무엇인가요?', activityMode:'evaluation', version:'v1'
 };
+const fourAssessmentCriterion = {
+  id:'food-waste-reason',
+  criterion:'자료의 근거와 의견 연결하기',
+  responseKind:'explanation',
+  mainQuestion:legacy.startQuestion,
+  followUpQuestion:'그 생각의 근거가 되는 문장을 자료에서 찾아 줄래요?',
+  evidenceDescription:'음식 낭비를 줄이는 방법과 이유를 자료 근거로 설명한 학생 답변',
+  sourceQuote:'학생들이 반찬을 먹을 만큼 고르는 선택제를 실시했다.',
+  requireSourceEvidence:true
+};
+const fourAssessmentPlan = { schemaVersion:1, approved:true, criteria:[fourAssessmentCriterion] };
 const four = {
-  ...legacy, rubricScheme:'four_levels', rubricHigh:'정확한 근거와 의견을 스스로 연결한다.',
+  ...legacy, assessmentPlanJson:JSON.stringify(fourAssessmentPlan),
+  rubricScheme:'four_levels', rubricHigh:'정확한 근거와 의견을 스스로 연결한다.',
   rubricGood:'자료의 근거를 찾아 의견을 설명한다.', rubricMeet:'안내를 받아 근거를 찾는다.',
   rubricDeveloping:'근거를 찾고 의견을 말하는 연습이 필요하다.'
 };
@@ -93,7 +105,8 @@ assert.equal(reopened.rubricScheme, 'legacy_three');
 assert.equal(reopened.rubricHigh, legacy.rubricHigh);
 assert.equal(reopened.sourceHash, originalHash);
 assert.equal(reopened.lessonRevision, 7);
-const unchanged = context.saveLiteTeacherSettings_(context.validateLiteTeacherSetup_(reopened));
+assert.throws(() => context.validateLiteTeacherSetup_(reopened), /질문계획을 하나 이상/);
+const unchanged = context.saveLiteTeacherSettings_(reopened);
 assert.equal(unchanged.lessonRevision, 7);
 assert.equal(unchanged.sourceHash, originalHash);
 
@@ -171,25 +184,30 @@ assert.equal(oldSaved.teacherDecision, '성장 중');
 assert.equal(oldSaved.rubricScheme, 'legacy_three');
 assert.equal(oldSaved.lessonRevision, 7);
 
-// Appending teacher-only assessment guidance also preserves the existing 25-column workbook.
-const previousHeaders = lessonSheet.rows[0].filter((name) => !['expectedAnswer', 'assessmentEvidence', 'rubricBeginning', 'answerExamples', 'requiredAssessmentMode', 'requiredAssessmentJson'].includes(name));
+// Appending teacher-only assessment guidance and the criterion plan also preserves the existing 25-column workbook.
+const previousHeaders = lessonSheet.rows[0].filter((name) => ![
+  'expectedAnswer', 'assessmentEvidence', 'rubricBeginning', 'answerExamples', 'assessmentPlanJson', 'requiredAssessmentMode', 'requiredAssessmentJson',
+].includes(name));
 assert.equal(previousHeaders.length, 25);
 lessonSheet.rows = [previousHeaders.slice(), previousHeaders.map((header) => editedFour[header] ?? '')];
 const previousCells = structuredClone(lessonSheet.rows[1]);
 const priorFour = context.readLiteTeacherSettings_();
 assert.deepEqual(lessonSheet.rows[0].slice(0, 25), previousHeaders);
-assert.deepEqual(lessonSheet.rows[0].slice(25), ['expectedAnswer', 'assessmentEvidence', 'rubricBeginning', 'answerExamples', 'requiredAssessmentMode', 'requiredAssessmentJson']);
+assert.deepEqual(lessonSheet.rows[0].slice(25), [
+  'expectedAnswer', 'assessmentEvidence', 'rubricBeginning', 'answerExamples', 'assessmentPlanJson', 'requiredAssessmentMode', 'requiredAssessmentJson',
+]);
 assert.deepEqual(plain(lessonSheet.rows[1]), plain(previousCells));
 assert.equal(priorFour.expectedAnswer, '');
 assert.equal(priorFour.assessmentEvidence, '');
 assert.equal(priorFour.sourceHash, editedFour.sourceHash);
-assert.equal(context.saveLiteTeacherSettings_(priorFour).lessonRevision, editedFour.lessonRevision);
+assert.throws(() => context.validateLiteTeacherSetup_(priorFour), /질문계획을 하나 이상/);
 assert.equal(context.makeLiteSettingsHash_({ ...priorFour, expectedAnswer:undefined, assessmentEvidence:undefined }),
   context.makeLiteSettingsHash_({ ...priorFour, expectedAnswer:'', assessmentEvidence:'' }));
 
 const guidance = {
   ...priorFour, expectedAnswer:'선택제로 학생들이 먹을 만큼 받을 수 있게 되어 남기는 음식이 줄었다.',
-  assessmentEvidence:'학생들은 먹을 만큼만 받으면 다 먹기 쉽다는 것을 알게 되었다.'
+  assessmentEvidence:'학생들은 먹을 만큼만 받으면 다 먹기 쉽다는 것을 알게 되었다.',
+  assessmentPlanJson:editedFour.assessmentPlanJson
 };
 for (const activityMode of ['evaluation', 'exploration']) {
   const normalizedGuide = context.validateLiteTeacherSetup_({ ...guidance, activityMode });
@@ -350,22 +368,29 @@ assert.throws(() => context.validateLiteTeacherSetup_({ ...four, lessonGoal:'', 
 assert.equal(context.buildLiteReadiness_({ ...four, lessonGoal:'', achievementStandard:'[4사08-02]' }, {}).checks.find((entry) => entry.key === 'backwardDesign').state, 'block');
 assert.equal(context.liteAchievementStandardContent_(fullStandard), '글에 드러난 사실을 찾아 자신의 생각을 설명한다.');
 
-// A fifth level appends one column and never reinterprets saved three/four-level rows.
-const old27Headers = lessonSheet.rows[0].filter((name) => !['rubricBeginning', 'answerExamples', 'requiredAssessmentMode', 'requiredAssessmentJson'].includes(name));
+// A fifth level and criterion plan append columns without reinterpreting saved three/four-level rows.
+const old27Headers = lessonSheet.rows[0].filter((name) => ![
+  'rubricBeginning', 'answerExamples', 'assessmentPlanJson', 'requiredAssessmentMode', 'requiredAssessmentJson',
+].includes(name));
 assert.equal(old27Headers.length, 27);
 lessonSheet.rows = [old27Headers.slice(), old27Headers.map((header) => copiedGuidance[header] ?? '')];
 const old27Cells = plain(lessonSheet.rows[1]);
 const reloaded27 = context.readLiteTeacherSettings_();
 assert.deepEqual(lessonSheet.rows[0].slice(0, 27), old27Headers);
-assert.deepEqual(lessonSheet.rows[0].slice(27), ['rubricBeginning', 'answerExamples', 'requiredAssessmentMode', 'requiredAssessmentJson']);
+assert.deepEqual(lessonSheet.rows[0].slice(27), ['rubricBeginning', 'answerExamples', 'assessmentPlanJson', 'requiredAssessmentMode', 'requiredAssessmentJson']);
 assert.deepEqual(plain(lessonSheet.rows[1]), old27Cells);
 assert.equal(reloaded27.rubricBeginning, '');
 assert.equal(reloaded27.sourceHash, copiedGuidance.sourceHash);
-assert.equal(context.saveLiteTeacherSettings_(reloaded27).lessonRevision, copiedGuidance.lessonRevision);
+assert.throws(() => context.validateLiteTeacherSetup_(reloaded27), /질문계획을 하나 이상/);
 for (const settings of [legacy, four, copiedGuidance]) {
   assert.equal(context.makeLiteSettingsHash_(settings), context.makeLiteSettingsHash_({ ...settings, rubricBeginning:'' }));
 }
-const five = { ...reloaded27, rubricScheme:'five_levels', rubricBeginning:'자료를 함께 읽고 근거를 찾는 순서부터 연습한다.' };
+const five = {
+  ...reloaded27,
+  assessmentPlanJson:copiedGuidance.assessmentPlanJson,
+  rubricScheme:'five_levels',
+  rubricBeginning:'자료를 함께 읽고 근거를 찾는 순서부터 연습한다.'
+};
 assert.equal(context.validateLiteTeacherSetup_(five).rubricBeginning, five.rubricBeginning);
 for (const [field, label] of [['rubricHigh', 'A'], ['rubricGood', 'B'], ['rubricMeet', 'C'], ['rubricDeveloping', 'D'], ['rubricBeginning', 'E']]) {
   assert.throws(() => context.validateLiteTeacherSetup_({ ...five, [field]:'' }), new RegExp(label + ' 수준 기준'));
@@ -425,31 +450,32 @@ assert.equal(context.getLiteTeacherDashboardData(token).evaluations.some((entry)
 context.saveLiteTeacherEvaluation(token, { ...fiveReview, expectedReviewVersion:fiveRow.reviewVersion });
 assert.equal(context.liteRowsAsObjects_(sheets.get('교사 평가')).find((entry) => entry.sessionId === fiveTurn.sessionId).teacherDecision, 'E');
 
-// Optional teacher answer patterns append after all 28 existing columns and preserve older hashes.
-const old28Headers = lessonSheet.rows[0].filter((name) => !['answerExamples', 'requiredAssessmentMode', 'requiredAssessmentJson'].includes(name));
+// Optional teacher answer patterns and criterion plans append after all 28 existing columns and preserve older hashes.
+const old28Headers = lessonSheet.rows[0].filter((name) => !['answerExamples', 'assessmentPlanJson', 'requiredAssessmentMode', 'requiredAssessmentJson'].includes(name));
 assert.equal(old28Headers.length, 28);
 lessonSheet.rows = [old28Headers.slice(), old28Headers.map((header) => switchedFour[header] ?? '')];
 const old28Cells = plain(lessonSheet.rows[1]);
 const previousStudentRecords = JSON.stringify([sheets.get('학생별 현황').rows, sheets.get('질문과 답변').rows, sheets.get('교사 평가').rows]);
 const reloaded28 = context.readLiteTeacherSettings_();
 assert.deepEqual(lessonSheet.rows[0].slice(0, 28), old28Headers);
-assert.deepEqual(lessonSheet.rows[0].slice(28), ['answerExamples', 'requiredAssessmentMode', 'requiredAssessmentJson']);
+assert.deepEqual(lessonSheet.rows[0].slice(28), ['answerExamples', 'assessmentPlanJson', 'requiredAssessmentMode', 'requiredAssessmentJson']);
 assert.deepEqual(plain(lessonSheet.rows[1]), old28Cells);
 assert.equal(reloaded28.answerExamples, '');
 assert.equal(reloaded28.sourceHash, switchedFour.sourceHash);
-assert.equal(context.saveLiteTeacherSettings_(reloaded28).lessonRevision, switchedFour.lessonRevision);
+assert.throws(() => context.validateLiteTeacherSetup_(reloaded28), /질문계획을 하나 이상/);
 for (const settings of [legacy, four, savedFive, switchedFour]) {
   assert.equal(context.makeLiteSettingsHash_(settings), context.makeLiteSettingsHash_({ ...settings, answerExamples:'' }));
 }
 const answerExamples = '근거와 이유 연결: 먹을 만큼 받으면 남기는 음식이 줄어들기 때문이에요.\n일부만 설명: 남는 음식이 줄었어요.\n근거 없이 추측: 급식 메뉴가 바뀌었기 때문이에요.';
+const answerExampleBase = { ...reloaded28, assessmentPlanJson:switchedFour.assessmentPlanJson };
 for (const activityMode of ['evaluation', 'exploration']) {
-  assert.equal(context.validateLiteTeacherSetup_({ ...reloaded28, activityMode, answerExamples }).answerExamples, answerExamples);
-  assert.equal(context.validateLiteTeacherSetup_({ ...reloaded28, activityMode, answerExamples:'가'.repeat(3500) }).answerExamples.length, 3500);
-  assert.throws(() => context.validateLiteTeacherSetup_({ ...reloaded28, activityMode, answerExamples:'가'.repeat(3501) }), /3500자/);
+  assert.equal(context.validateLiteTeacherSetup_({ ...answerExampleBase, activityMode, answerExamples }).answerExamples, answerExamples);
+  assert.equal(context.validateLiteTeacherSetup_({ ...answerExampleBase, activityMode, answerExamples:'가'.repeat(3500) }).answerExamples.length, 3500);
+  assert.throws(() => context.validateLiteTeacherSetup_({ ...answerExampleBase, activityMode, answerExamples:'가'.repeat(3501) }), /3500자/);
 }
 assert.throws(() => context.saveLiteTeacherSettings_({ ...reloaded28, answerExamples:'가'.repeat(3501) }), /3500자/);
 properties.set('LITE_PREVIEW_ACCESS_TOKEN', 'before-answer-patterns');
-const savedPatterns = context.saveLiteTeacherSettings_(context.validateLiteTeacherSetup_({ ...reloaded28, answerExamples }));
+const savedPatterns = context.saveLiteTeacherSettings_(context.validateLiteTeacherSetup_({ ...answerExampleBase, answerExamples }));
 assert.equal(savedPatterns.lessonRevision, reloaded28.lessonRevision + 1);
 assert.notEqual(savedPatterns.sourceHash, reloaded28.sourceHash);
 assert.equal(properties.has('LITE_PREVIEW_ACCESS_TOKEN'), false);
@@ -475,7 +501,7 @@ assert.equal(copiedPatterns.expectedAnswer, reloaded28.expectedAnswer);
 assert.equal(copiedPatterns.assessmentEvidence, reloaded28.assessmentEvidence);
 const clearedPatterns = context.saveLiteTeacherSettings_({ ...copiedPatterns, answerExamples:'' });
 assert.equal(clearedPatterns.answerExamples, '');
-assert.equal(clearedPatterns.sourceHash, reloaded28.sourceHash);
+assert.equal(clearedPatterns.sourceHash, context.makeLiteSettingsHash_(answerExampleBase));
 assert.equal(clearedPatterns.lessonRevision, copiedPatterns.lessonRevision + 1);
 assert.equal(JSON.stringify([sheets.get('학생별 현황').rows, sheets.get('질문과 답변').rows, sheets.get('교사 평가').rows]), previousStudentRecords);
 

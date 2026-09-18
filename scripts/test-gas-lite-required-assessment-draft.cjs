@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const crypto = require('node:crypto');
+const {execFileSync} = require('node:child_process');
+const ts = require('typescript');
 const {test} = require('node:test');
 const root = path.resolve(__dirname,'..');
 const input = {activityMode:'evaluation',subject:'사회',grade:'초등 4학년',lessonTitle:'주민 참여',
@@ -11,7 +13,7 @@ const input = {activityMode:'evaluation',subject:'사회',grade:'초등 4학년'
   achievementStandard:'[4사08-02] 주민 참여의 중요성을 설명한다.',rubricScheme:'four_levels',
   materialTitle:'횡단보도',materialText:'우리 마을 주민들은 위험한 횡단보도 문제를 주민 회의에서 논의했다. 주민들은 시청에 신호등 설치를 건의했고 시청은 현장을 조사했다.'};
 const questions = [{id:'q1',question:'주민들은 횡단보도 문제에 어떻게 참여했나요?'},
-  {id:'q2',question:'주민 참여가 문제 해결에 어떤 도움이 되었나요? 자료를 근거로 설명해 주세요.'}];
+  {id:'q2',question:'자료를 근거로 볼 때 주민 참여가 문제 해결에 어떤 도움이 되었나요?'}];
 function item(id) {return {id,expectedAnswer:id==='q1'?'1. 주민 회의에서 문제를 논의했다. 2. 신호등 설치를 건의했다.':'1. 주민이 의견을 모아 시청에 알렸다. 2. 시청의 현장 조사로 이어졌다.',
   assessmentEvidence:'주민들은 시청에 신호등 설치를 건의했고 시청은 현장을 조사했다.',
   assessmentCriteria:'주민 참여의 방법과 의미를 자료의 사실에 연결해 설명한다.',
@@ -62,10 +64,10 @@ test('question draft makes exactly two editable questions with one budgeted call
 test('question counts, IDs, duplicate and oversized questions are rejected',()=>{
   for (const invalid of [questions.slice(0,1),[...questions,questions[0]],
     [{...questions[0],id:'q2'},questions[1]], [{...questions[0],question:''},questions[1]],
-    [{...questions[0],question:'가'.repeat(501)},questions[1]],
+    [{...questions[0],question:'가'.repeat(250)+'?'},questions[1]],
     [questions[0],{...questions[1],question:questions[0].question}]]) {
     const h=harness({draft:{materialUsable:true,reason:'',questions:invalid}});
-    assert.throws(()=>h.context.generateLiteRequiredQuestionDraft_(input),/문항|질문|500자/);
+    assert.throws(()=>h.context.generateLiteRequiredQuestionDraft_(input),/문항|질문|250자/);
   }
 });
 
@@ -143,7 +145,7 @@ test('changing design inputs or confirmed questions invalidates the analysis tab
     assert.throws(()=>h.context.normalizeLiteRequiredAssessment_(draft,{...input,[key]:input[key]+' 변경'}),/변경|원문/);
   }
   assert.throws(()=>h.context.normalizeLiteRequiredAssessment_(draft,{...input,rubricScheme:'five_levels'}),/변경/);
-  const changed=plain(draft);changed.items[0].question+=' 이유도 설명해 주세요.';
+  const changed=plain(draft);changed.items[0].question='주민들이 참여한 이유는 무엇인가요?';
   assert.throws(()=>h.context.normalizeLiteRequiredAssessment_(changed,input),/변경/);
 });
 
@@ -204,7 +206,7 @@ function installStorage(h) {
 
 function settingsPayload(requiredAssessment) {
   return {...input,appName:'simbot',joinCode:'123456',materialUrl:'',startQuestion:questions[0].question,version:'v1',
-    requiredAssessmentMode:'required_two',requiredAssessment};
+    requiredAssessmentMode:'required_two',requiredAssessment,requiredAssessmentApproved:true};
 }
 
 test('two-question design validates, saves to appended JSON columns, reopens, and exposes only questions to students',()=>{
@@ -234,7 +236,7 @@ test('question, passage and criteria edits all change the saved revision and inv
   for(const kind of ['criteria','question','passage']) {
     const next=plain(saved);next.requiredAssessment=plain(saved.requiredAssessment);
     if(kind==='criteria') next.requiredAssessment.items[1].rubricGood+=' 주민들의 의견을 모은 과정을 확인한다.';
-    if(kind==='question') next.requiredAssessment.items[1].question+=' 그 이유를 덧붙여 주세요.';
+    if(kind==='question') next.requiredAssessment.items[1].question='주민 참여의 의미를 알 수 있는 원문 근거는 무엇인가요?';
     if(kind==='passage') next.materialText+=' 이후 주민들은 조사 결과를 함께 확인했다.';
     if(kind!=='criteria') next.requiredAssessment.questionSetHash=h.context.liteRequiredQuestionSetHash_(next,next.requiredAssessment.items);
     h.properties.set('LITE_PREVIEW_ACCESS_TOKEN','old-preview');
@@ -247,15 +249,21 @@ test('question, passage and criteria edits all change the saved revision and inv
   }
 });
 
-test('legacy lesson hash and revision are unchanged by absent new assessment columns',()=>{
+test('live approved-plan lesson hash and revision are unchanged by absent new required assessment columns',()=>{
   const h=harness();const sheet=installStorage(h);
   const legacy={...settingsPayload(null),...item('q1'),rubricScheme:'legacy_three',rubricGood:'',answerExamples:'',
     achievementStandardCode:'[4사08-02]',requiredAssessmentMode:'legacy',requiredAssessment:null,requiredAssessmentJson:'',
     expectedAnswer:'',assessmentEvidence:''};
   delete legacy.id;delete legacy.answerExamples;
+  const plan={schemaVersion:1,approved:true,criteria:Array.from({length:5},(_,index)=>({
+    id:'criterion-'+(index+1),criterion:'주민 참여 기준 '+(index+1),responseKind:index===4?'student_question':'explanation',
+    mainQuestion:'주민 참여의 의미 '+(index+1)+'은 무엇인가요?',followUpQuestion:'자료에서 확인한 구절은 무엇인가요?',
+    evidenceDescription:'학생이 말한 근거 설명',sourceQuote:input.materialText.slice(0,35),requireSourceEvidence:index!==4
+  }))};
+  legacy.assessmentPlanJson=JSON.stringify(plan);
   const originalFields=['appName','subject','grade','lessonTitle','joinCode','lessonGoal','achievementStandardCode','achievementStandard',
     'assessmentCriteria','rubricHigh','rubricMeet','rubricDeveloping','evidenceDescription','materialTitle','materialText','materialUrl',
-    'startQuestion','activityMode','version'];
+    'activityMode','version','assessmentPlanJson'];
   const oldHash=crypto.createHash('sha256').update(originalFields.map(key=>key+'='+String(legacy[key]??'').trim()).join('\n')).digest('base64url').slice(0,24);
   assert.equal(h.context.makeLiteSettingsHash_(legacy),oldHash);
   const oldRow={...legacy,lessonId:'LESSON-OLD',lessonRevision:7,sourceHash:oldHash};
@@ -263,4 +271,123 @@ test('legacy lesson hash and revision are unchanged by absent new assessment col
   const reopened=h.context.readLiteTeacherSettings_();
   const saved=h.context.saveLiteTeacherSettings_(h.context.validateLiteTeacherSetup_(reopened));
   assert.equal(saved.sourceHash,oldHash);assert.equal(saved.lessonRevision,7);assert.equal(saved.requiredAssessment,null);
+  assert.deepEqual(JSON.parse(saved.assessmentPlanJson),plan);
+  assert.equal(h.context.liteAssessmentStartQuestion_(saved),plan.criteria[0].mainQuestion);
+});
+
+test('required mode derives exactly two approved live-plan criteria, ignoring a spoofed extra plan',()=>{
+  const h=harness();const result=generate(h);const requiredAssessment=plain(result.requiredAssessment);
+  requiredAssessment.items[0].assessmentCriteria+=' 구체적인 근거와 의미를 확인한다.'.repeat(35);
+  requiredAssessment.items[0].evidenceDescription+=' 답변에서 내용과 근거의 연결을 확인한다.'.repeat(20);
+  const payload={...settingsPayload(requiredAssessment),assessmentPlanJson:'invalid forged plan'};
+  const saved=h.context.validateLiteTeacherSetup_(payload);
+  const plan=JSON.parse(saved.assessmentPlanJson);
+  assert.equal(plan.approved,true);assert.equal(plan.criteria.length,2);
+  assert.deepEqual(plan.criteria.map(item=>item.id),['q1','q2']);
+  assert.deepEqual(plan.criteria.map(item=>item.mainQuestion),questions.map(item=>item.question));
+  assert.ok(plan.criteria.every(item=>item.criterion.length<=180 && item.evidenceDescription.length<=300 && item.sourceQuote.length<=240));
+  assert.equal(saved.requiredAssessment.items[0].assessmentCriteria,requiredAssessment.items[0].assessmentCriteria);
+  assert.equal(saved.requiredAssessment.items[0].evidenceDescription,requiredAssessment.items[0].evidenceDescription);
+  assert.equal(h.context.sanitizeLiteSettingsForStudent_(saved).startQuestion,questions[0].question);
+  assert.equal(JSON.parse(result.assessmentPlanJson).criteria[0].mainQuestion,questions[0].question);
+  for(const requiredAssessmentApproved of [undefined,false,'true']) assert.throws(()=>h.context.validateLiteTeacherSetup_({...payload,requiredAssessmentApproved}),/승인/);
+});
+
+test('required question wording must fit the existing live engine contract without silent truncation',()=>{
+  const h=harness();
+  for(const question of ['물음표 없는 지시문입니다.','무엇인가요? 이유는 무엇인가요?','질문인가요? 뒤에 설명','가'.repeat(250)+'?']) {
+    assert.throws(()=>generate(h,{...input,questions:[{id:'q1',question},questions[1]],questionsConfirmed:true}),/문항|250자/);
+  }
+  assert.equal(h.calls(),0);
+});
+
+test('unapproved rubric edits saved in exploration remain unapproved after reload and require review before evaluation',()=>{
+  const h=harness();const generated=generate(h);installStorage(h);
+  const approved=h.context.saveLiteTeacherSettings_(h.context.validateLiteTeacherSetup_(settingsPayload(generated.requiredAssessment)));
+  const edited=plain(approved);
+  edited.activityMode='exploration';
+  edited.requiredAssessmentApproved=false;
+  edited.requiredAssessment.items[1].rubricGood+=' 주민 의견을 모으는 과정을 확인한다.';
+  const pending=h.context.validateLiteTeacherSetup_(edited);
+  assert.equal(pending.requiredAssessmentApproved,false);
+  assert.equal(JSON.parse(pending.assessmentPlanJson).approved,false);
+  const saved=h.context.saveLiteTeacherSettings_(pending);
+  const loaded=h.context.readLiteTeacherSettings_();
+  assert.equal(saved.requiredAssessmentApproved,false);
+  assert.equal(loaded.requiredAssessmentApproved,false);
+  assert.equal(h.context.liteAssessmentPlan_(loaded).approved,false);
+  assert.equal(loaded.requiredAssessment.items[1].rubricGood,edited.requiredAssessment.items[1].rubricGood);
+  assert.throws(()=>h.context.validateLiteTeacherSetup_({...loaded,activityMode:'evaluation'}),/승인/);
+  assert.equal(h.context.liteAssessmentStartQuestion_({...loaded,activityMode:'evaluation'}),'');
+  const reapproved=h.context.validateLiteTeacherSetup_({...loaded,activityMode:'evaluation',requiredAssessmentApproved:true});
+  assert.equal(JSON.parse(reapproved.assessmentPlanJson).approved,true);
+  assert.equal(reapproved.requiredAssessmentApproved,true);
+  assert.equal(h.context.liteAssessmentStartQuestion_(reapproved),questions[0].question);
+});
+
+test('pre-live and live sheet schemas gain columns only at the end without moving existing data',()=>{
+  const h=harness();
+  const expected=plain(vm.runInContext("LITE_SHEET_HEADERS_",h.context));
+  for(const name of ['수업 자료','질문과 답변','교사 평가']) {
+    const newer=name==='수업 자료'?['assessmentPlanJson','requiredAssessmentMode','requiredAssessmentJson']:
+      name==='질문과 답변'?['assessmentProgressJson']:['criterionEvidenceJson','questionId'];
+    for(const prior of ['pre-live','live']) {
+      const missing=prior==='pre-live'?newer:newer.filter(key=>!['assessmentPlanJson','assessmentProgressJson','criterionEvidenceJson'].includes(key));
+      const headers=expected[name].filter(key=>!missing.includes(key));
+      const originalValues=headers.map((key,index)=>key+'-original-'+index);
+      const rows=[headers.slice(),originalValues.slice()];
+      const sheet={getLastRow:()=>rows.length,getLastColumn:()=>rows[0].length,setFrozenRows(){},
+        getRange(row,column,rowCount=1,columnCount=1){return {
+          getDisplayValues:()=>Array.from({length:rowCount},(_,r)=>Array.from({length:columnCount},(_,c)=>String(rows[row-1+r]?.[column-1+c]??''))),
+          setValues:values=>values.forEach((valuesRow,r)=>{rows[row-1+r]||=[];valuesRow.forEach((value,c)=>rows[row-1+r][column-1+c]=value);})
+        };}};
+      h.context.ensureLiteSheet_({getSheetByName:()=>sheet},name,expected[name]);
+      assert.deepEqual(rows[0].slice(0,headers.length),headers);
+      assert.deepEqual(rows[0].slice(headers.length),missing);
+      assert.deepEqual(rows[1],originalValues);
+    }
+  }
+});
+
+test('generated required tables produce plans accepted unchanged by the real central-engine contract',()=>{
+  // During the live-v19 integration the contract may still be on origin/main.
+  // Once merged, always exercise the checked-out module used by the build.
+  const contractPath=path.join(root,'lib','lite-assessment-plan.ts');
+  const contractSource=fs.existsSync(contractPath)?fs.readFileSync(contractPath,'utf8'):
+    execFileSync('git',['-c','safe.directory='+root,'show','origin/main:lib/lite-assessment-plan.ts'],{cwd:root,encoding:'utf8'});
+  const code=ts.transpileModule(contractSource,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+  const exported={};
+  const central=vm.createContext({exports:exported,module:{exports:exported},require(specifier){
+    if(specifier==='node:crypto') return crypto;
+    // The unrelated conversation classifier is imported by this module, but the
+    // real normalization/hash functions below must never call it.
+    if(specifier==='@/lib/questioning-board') return {isQuestioningHintRequest(){assert.fail('normalization must not classify student text');}};
+    throw new Error('Unexpected contract import: '+specifier);
+  }});
+  vm.runInContext(code,central,{filename:'central-lite-assessment-plan.js'});
+  for(const [rubricScheme,count] of [['legacy_three',3],['four_levels',4],['five_levels',5]]) {
+    const draft=plain(fixture);
+    for(const row of draft.items) {
+      if(count===3){delete row.rubricGood;delete row.answerExamples.rubricGood;}
+      if(count===5){row.rubricBeginning='주민 참여와 관련된 내용이 아직 드러나지 않는다.';row.answerExamples.rubricBeginning='잘 모르겠어요.';}
+    }
+    const editedQuestions=[{id:'q1',question:'주민들이 실제로 참여한 두 가지 방법은 무엇인가요?'},questions[1]];
+    const h=harness({draft});
+    const generated=generate(h,{...input,rubricScheme,questions:editedQuestions,questionsConfirmed:true});
+    const plan=JSON.parse(generated.assessmentPlanJson);
+    const normalized=exported.normalizeAssessmentPlan(plan,input.materialText,true);
+    assert.deepEqual(plain(normalized),plan);
+    assert.deepEqual(plan.criteria.map(row=>({id:row.id,question:row.mainQuestion})),editedQuestions);
+    assert.ok(plan.criteria.every(row=>input.materialText.includes(row.sourceQuote)));
+    const lessonIdentity=JSON.stringify(['LESSON-CENTRAL-CONTRACT',1,'synthetic-source-hash']);
+    const planId=exported.createAssessmentPlanId(normalized,lessonIdentity);
+    assert.equal(planId,crypto.createHash('sha256').update(JSON.stringify([lessonIdentity,plan])).digest('base64url'));
+    const publicLesson=h.context.sanitizeLiteSettingsForStudent_(h.context.validateLiteTeacherSetup_({
+      ...settingsPayload(generated.requiredAssessment),rubricScheme
+    }));
+    assert.equal(publicLesson.startQuestion,plan.criteria[0].mainQuestion);
+    assert.deepEqual(plain(publicLesson.requiredQuestions),editedQuestions);
+    assert.equal(Object.hasOwn(publicLesson,'assessmentPlanJson'),false);
+    assert.equal(Object.hasOwn(publicLesson,'requiredAssessment'),false);
+  }
 });

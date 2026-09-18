@@ -31,7 +31,7 @@ const LITE_SHEET_HEADERS_ = {
     'materialTitle', 'materialText', 'materialUrl', 'startQuestion',
     'activityMode', 'version', 'sourceHash', 'lessonRevision', 'updatedAt',
     'rubricScheme', 'rubricGood', 'expectedAnswer', 'assessmentEvidence', 'rubricBeginning', 'answerExamples',
-    'requiredAssessmentMode', 'requiredAssessmentJson'
+    'assessmentPlanJson', 'requiredAssessmentMode', 'requiredAssessmentJson'
   ],
   '학생별 현황': [
     'studentCode', 'lessonId', 'lessonRevision', 'sessionId', 'questionCount', 'relatedQuestionCount', 'lastActiveAt',
@@ -43,14 +43,14 @@ const LITE_SHEET_HEADERS_ = {
     'questionType', 'engagementState', 'curriculumRelation', 'supportLevel',
     'sourceStatus', 'sourceCue', 'primaryMove', 'safetyFlag', 'evidenceIds', 'rubricScoresJson', 'isClosing',
     'engineStatus', 'aiStatus', 'apiModel', 'apiInputTokens', 'apiOutputTokens', 'apiTotalTokens',
-    'isPreview', 'lessonRevision', 'sourceHash'
+    'isPreview', 'lessonRevision', 'sourceHash', 'assessmentProgressJson'
   ],
   '교사 평가': [
     'studentCode', 'sessionId', 'lessonId', 'lessonRevision', 'automaticJudgment', 'evidenceSummary',
     'evidenceRequestIds',
     'questioningBest', 'passageComprehensionBest', 'achievementStandardBest', 'reflectionOpinionBest',
     'teacherDecision', 'teacherFeedback', 'improvementSuggestion',
-    'nextLessonSuggestion', 'finalStatus', 'finalizedAt', 'rubricScheme', 'questionId'
+    'nextLessonSuggestion', 'finalStatus', 'finalizedAt', 'rubricScheme', 'criterionEvidenceJson', 'questionId'
   ],
   '필수 평가 응답': [
     'requestId', 'sessionId', 'studentCode', 'lessonId', 'lessonRevision', 'sourceHash',
@@ -385,6 +385,96 @@ function assertLiteTeacherAccess_(token) {
   }
 }
 
+function normalizeLiteAssessmentPlan_(value, materialText, validateApproval) {
+  const empty = { schemaVersion:1, approved:false, criteria:[] };
+  if (value == null || value === '') return empty;
+  let plan = value;
+  if (typeof value === 'string') {
+    if (value.length > 12000) throw new Error('기준별 질문계획이 저장 크기를 넘었습니다.');
+    try { plan = JSON.parse(value); }
+    catch (error) { throw new Error('기준별 질문계획 형식을 확인해 주세요.'); }
+  }
+  if (!plan || typeof plan !== 'object' || Array.isArray(plan) || plan.schemaVersion !== 1 ||
+      typeof plan.approved !== 'boolean' || !Array.isArray(plan.criteria) || plan.criteria.length > 5) {
+    throw new Error('기준별 질문계획은 최대 5개 기준의 올바른 형식이어야 합니다.');
+  }
+  const seen = Object.create(null);
+  const material = String(materialText || '').replace(/\s+/g, ' ').trim();
+  const criteria = plan.criteria.map(function (item) {
+    if (!item || typeof item !== 'object' || Array.isArray(item) ||
+        typeof item.id !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(item.id) || seen[item.id] ||
+        ['explanation', 'student_question'].indexOf(item.responseKind) < 0 ||
+        typeof item.requireSourceEvidence !== 'boolean') {
+      throw new Error('질문계획의 기준 ID, 응답 종류, 근거 설정을 확인해 주세요.');
+    }
+    seen[item.id] = true;
+    const textField = function (name, label, limit) {
+      if (typeof item[name] !== 'string') throw new Error(label + '은 글자로 입력해 주세요.');
+      return (plan.approved && validateApproval !== false ? liteRequired_ : liteOptional_)(item[name], label, limit);
+    };
+    const row = {
+      id:item.id,
+      criterion:textField('criterion', '개별 평가기준', 180),
+      responseKind:item.responseKind,
+      mainQuestion:textField('mainQuestion', '기준별 시작 질문', 250),
+      followUpQuestion:textField('followUpQuestion', '기준별 보충 질문', 250),
+      evidenceDescription:textField('evidenceDescription', '확인할 학생 수행', 300),
+      sourceQuote:textField('sourceQuote', '본문 힌트 구절', 240),
+      requireSourceEvidence:item.requireSourceEvidence
+    };
+    if (plan.approved && validateApproval !== false) {
+      [row.mainQuestion, row.followUpQuestion].forEach(function (question) {
+        if ((question.match(/[?？]/g) || []).length !== 1 || !/[?？]$/.test(question)) {
+          throw new Error('기준별 질문은 끝에 물음표가 하나 있는 한 질문으로 입력해 주세요.');
+        }
+      });
+      if (material.indexOf(row.sourceQuote.replace(/\s+/g, ' ').trim()) < 0) {
+        throw new Error('본문 힌트 구절은 현재 수업자료 본문에서 그대로 골라 주세요.');
+      }
+    }
+    return row;
+  });
+  return { schemaVersion:1, approved:Boolean(plan.approved && criteria.length), criteria:criteria };
+}
+
+function liteAssessmentPlan_(settings) {
+  settings = settings || {};
+  if (settings.requiredAssessment || settings.requiredAssessmentJson) {
+    const savedPlan = normalizeLiteAssessmentPlan_(settings.assessmentPlanJson,settings.materialText,settings.activityMode !== 'exploration');
+    return deriveLiteRequiredAssessmentPlan_(settings.requiredAssessment || settings.requiredAssessmentJson,settings,savedPlan.approved);
+  }
+  return normalizeLiteAssessmentPlan_(settings.assessmentPlanJson, settings.materialText, settings.activityMode !== 'exploration');
+}
+
+// The analysis table is the authority for required mode. Client-provided plans
+// cannot swap the reviewed questions or introduce a third assessment criterion.
+function deriveLiteRequiredAssessmentPlan_(raw, context, approved) {
+  const assessment = normalizeLiteRequiredAssessment_(raw,context);
+  if (!assessment) throw new Error('필수 평가 문항의 분석 기준표를 먼저 확정해 주세요.');
+  const plan = {schemaVersion:1,approved:approved !== false,criteria:assessment.items.map(function (item,index) {
+    return {
+      id:item.id,
+      criterion:liteText_('문항 ' + (index+1) + ' · ' + item.assessmentCriteria,180),
+      responseKind:'explanation',
+      mainQuestion:item.question,
+      followUpQuestion:'답변을 뒷받침하는 수업자료의 정확한 구절은 무엇인가요?',
+      evidenceDescription:liteText_(item.evidenceDescription,300),
+      sourceQuote:liteText_(item.assessmentEvidence.replace(/\s+/g,' '),240),
+      requireSourceEvidence:true
+    };
+  })};
+  return normalizeLiteAssessmentPlan_(plan,context.materialText,true);
+}
+
+function liteAssessmentStartQuestion_(settings) {
+  settings = settings || {};
+  if (settings.activityMode === 'exploration') return liteText_(settings.startQuestion, 500);
+  let plan;
+  try { plan = liteAssessmentPlan_(settings); }
+  catch (error) { return ''; }
+  return plan.approved && plan.criteria.length ? plan.criteria[0].mainQuestion : '';
+}
+
 function validateLiteTeacherSetup_(payload) {
   payload = payload || {};
   const materialText = liteRequired_(payload.materialText, '수업자료 본문', 30000);
@@ -409,6 +499,9 @@ function validateLiteTeacherSetup_(payload) {
   if (activityMode === 'evaluation' && requiredAssessmentMode === 'required_two' && !requiredAssessment) {
     throw new Error('필수 평가 문항 2개를 확정하고 문항별 분석 기준표를 만든 뒤 저장해 주세요.');
   }
+  if (activityMode === 'evaluation' && requiredAssessmentMode === 'required_two' && payload.requiredAssessmentApproved !== true) {
+    throw new Error('필수 두 문항과 분석 기준표·보충 질문을 검토하고 승인해 주세요.');
+  }
   // 공통 대화 엔진의 기존 필드는 첫 문항의 검토된 기준으로 채웁니다.
   // 실제 수행평가는 별도 문항별 기준표와 명시적으로 제출된 답변만 사용합니다.
   if (requiredAssessment) payload = Object.assign({}, payload, requiredAssessment.items[0]);
@@ -417,6 +510,17 @@ function validateLiteTeacherSetup_(payload) {
   }
   // 탐색모드에서는 설계를 적용하지 않지만, 다시 켤 수 있도록 입력 내용은 보존한다.
   const designField = activityMode === 'exploration' ? liteOptional_ : liteRequired_;
+  const assessmentPlan = requiredAssessment ? deriveLiteRequiredAssessmentPlan_(requiredAssessment,payload,payload.requiredAssessmentApproved === true) : normalizeLiteAssessmentPlan_(
+    payload.assessmentPlanJson,
+    materialText,
+    activityMode !== 'exploration'
+  );
+  if (activityMode === 'evaluation' && !assessmentPlan.criteria.length) {
+    throw new Error('평가모드에서는 평가기준별 질문계획을 하나 이상 추가해 주세요.');
+  }
+  if (activityMode === 'evaluation' && !assessmentPlan.approved) {
+    throw new Error('평가 질문계획을 검토하고 승인해 주세요.');
+  }
 
   return {
     lessonId: liteText_(payload.lessonId, 80),
@@ -439,15 +543,17 @@ function validateLiteTeacherSetup_(payload) {
     materialTitle: liteRequired_(payload.materialTitle, '수업자료 제목', 120),
     materialText: materialText,
     materialUrl: materialUrl,
-    startQuestion: liteRequired_(payload.startQuestion, '시작 질문', 500),
+    startQuestion: (activityMode === 'exploration' ? liteRequired_ : liteOptional_)(payload.startQuestion, '시작 질문', 500),
     expectedAnswer: liteOptional_(payload.expectedAnswer, '예상 답변', 1500),
     assessmentEvidence: liteOptional_(payload.assessmentEvidence, '평가 문항 근거', 1000),
     answerExamples: liteOptional_(payload.answerExamples, '예상 답변 유형', 3500),
     requiredAssessmentMode: requiredAssessmentMode,
     requiredAssessment: requiredAssessment,
     requiredAssessmentJson: requiredAssessment ? JSON.stringify(requiredAssessment) : '',
+    requiredAssessmentApproved: Boolean(requiredAssessment && assessmentPlan.approved),
     activityMode: activityMode,
-    version: liteText_(payload.version, 30) || 'v1'
+    version: liteText_(payload.version, 30) || 'v1',
+    assessmentPlanJson: JSON.stringify(assessmentPlan)
   };
 }
 
@@ -463,7 +569,7 @@ function sanitizeLiteSettingsForStudent_(settings) {
     materialTitle: liteText_(settings.materialTitle, 120),
     materialText: liteText_(settings.materialText, 30000),
     materialUrl: liteText_(settings.materialUrl, 1000),
-    startQuestion: liteText_(settings.startQuestion, 500),
+    startQuestion: liteAssessmentStartQuestion_(settings),
     requiredQuestions: settings.activityMode !== 'exploration' && settings.requiredAssessment
       ? settings.requiredAssessment.items.map(function (item) { return { id:item.id, question:item.question }; }) : [],
     activityMode: settings.activityMode === 'exploration' ? 'exploration' : 'evaluation',
@@ -496,9 +602,15 @@ function buildLiteReadiness_(settings, context) {
     (normalizeLiteRubricScheme_(settings.rubricScheme) !== 'five_levels' || settings.rubricBeginning) &&
     settings.evidenceDescription
   );
+  let assessmentPlan = { criteria:[], approved:false };
+  let assessmentPlanValid = true;
+  try { assessmentPlan = liteAssessmentPlan_(settings); }
+  catch (error) { assessmentPlanValid = false; }
+  const assessmentPlanReady = !backwardDesignEnabled ||
+    (assessmentPlanValid && assessmentPlan.criteria.length > 0 && assessmentPlan.approved);
   const materialReady = Boolean(
-    settings.lessonTitle && settings.materialTitle &&
-    String(settings.materialText || '').trim().length >= 30 && settings.startQuestion
+    settings.lessonTitle && settings.materialTitle && String(settings.materialText || '').trim().length >= 30 &&
+    (backwardDesignEnabled ? assessmentPlanReady && liteAssessmentStartQuestion_(settings) : settings.startQuestion)
   );
   const apiConfigured = Boolean(context.apiConfigured);
   const apiVerified = apiConfigured && Boolean(context.apiVerified);
@@ -521,18 +633,30 @@ function buildLiteReadiness_(settings, context) {
     },
     {
       key: 'backwardDesign',
-      label: '백워드 평가 설계',
+      label: '평가 설계 기본항목',
       state: backwardReady ? 'pass' : 'block',
       enabled: backwardDesignEnabled,
       detail: !backwardDesignEnabled
         ? '사용 안 함 — 자료 탐색모드에서는 백워드 평가 설계를 적용하지 않습니다.'
-        : backwardReady ? '목표·성취기준·평가기준·평가 근거가 준비되었습니다.' : '목표부터 평가 근거까지 필수 항목을 입력해 주세요.'
+        : backwardReady ? '목표·성취기준·평가기준·평가 근거가 준비되었습니다. 질문 실행 준비는 아래에서 별도로 확인합니다.' : '목표부터 평가 근거까지 필수 항목을 입력해 주세요.'
+    },
+    {
+      key: 'assessmentPlan',
+      label: '평가기준별 질문·근거 계획',
+      state: assessmentPlanReady ? 'pass' : 'block',
+      detail: !backwardDesignEnabled ? '보관됨·비활성 — 저장한 질문계획은 보존되지만 학생 대화에는 실행하지 않습니다.'
+        : !assessmentPlanValid ? '질문계획 형식과 본문 힌트 구절을 확인해 주세요.'
+        : !assessmentPlan.criteria.length ? '평가모드에서는 기준별 질문계획을 하나 이상 만들고 승인해 주세요.'
+        : assessmentPlan.approved ? '교사가 확인한 기준별 질문과 근거 계획을 적용합니다.'
+        : '질문계획은 초안입니다. 기준별 질문과 근거를 확인하고 승인해 주세요.'
     },
     {
       key: 'material',
       label: '수업자료',
       state: materialReady ? 'pass' : 'block',
-      detail: materialReady ? '학생 질문의 근거 자료와 시작 질문이 준비되었습니다.' : '30자 이상의 수업자료와 시작 질문을 입력해 주세요.'
+      detail: materialReady ? '학생 질문의 근거 자료와 실제 시작 질문이 준비되었습니다.'
+        : backwardDesignEnabled ? '30자 이상의 수업자료와 승인된 질문계획의 첫 질문을 준비해 주세요.'
+        : '30자 이상의 수업자료와 시작 질문을 입력해 주세요.'
     },
     {
       key: 'lessonAccess',
@@ -577,7 +701,7 @@ function buildLiteReadiness_(settings, context) {
       detail: lessonOpen ? '학생 참여를 받을 수 있도록 열려 있습니다.' : '현재 수업 배포를 종료했습니다. 다시 열기 전에는 학생이 참여할 수 없습니다.'
     }
   ];
-  const requiredForSetup = ['apiSaved', 'backwardDesign', 'material', 'lessonAccess', 'mode'];
+  const requiredForSetup = ['apiSaved', 'backwardDesign', 'assessmentPlan', 'material', 'lessonAccess', 'mode'];
   const setupReady = checks.filter(function (item) {
     return requiredForSetup.indexOf(item.key) >= 0;
   }).every(function (item) { return item.state === 'pass'; });
@@ -671,7 +795,7 @@ function writeLiteStartHere_(spreadsheet) {
   const rows = [
     ['항목', '상태', '안내'],
     ['1. API 연결', '', 'simbot → 교사 설정 열기에서 개인 API를 저장합니다.'],
-    ['2. 평가 설계', '', '백워드 평가 설계를 켜면 목표부터 평가 근거까지 입력합니다. 끄면 자료 탐색모드로 운영하며 입력한 설계는 보관합니다.'],
+    ['2. 평가 설계', '', '평가모드는 목표·평가기준과 기준별 질문계획을 만들고 승인합니다. 자료 탐색모드에서는 입력한 설계를 보관만 합니다.'],
     ['3. 수업자료', '', '학생이 질문할 본문과 시작 질문, 운영 모드를 입력합니다.'],
     ['4. 미리보기', '', '학생용 주소에서 99-999로 전체 과정을 점검합니다.'],
     ['5. 학생 배포', '', '점검이 모두 통과한 뒤 학생용 /exec 주소만 공유합니다.']
@@ -691,7 +815,8 @@ function updateLiteStartHereStatus_(spreadsheet, readiness) {
   (readiness && readiness.checks || []).forEach(function (item) { checks[item.key] = item.state === 'pass'; });
   const statuses = [
     checks.apiSaved && checks.apiVerified ? '완료' : checks.apiSaved ? '연결 확인 필요' : '입력 필요',
-    readiness && readiness.backwardDesignEnabled === false ? '사용 안 함' : checks.backwardDesign ? '완료' : '입력 필요',
+    readiness && readiness.backwardDesignEnabled === false ? '사용 안 함'
+      : checks.backwardDesign && checks.assessmentPlan ? '완료' : '입력 필요',
     checks.material && checks.mode ? '완료' : '입력 필요',
     checks.preview ? '완료' : readiness && readiness.runtimeReady ? '99-999 점검 필요' : '연결 준비 필요',
     readiness && readiness.distributionReady ? '배포 가능' : readiness && readiness.lessonOpen === false ? '수업 종료' : '점검 필요'
@@ -736,6 +861,8 @@ function readLiteTeacherSettings_(spreadsheet, options) {
     settings.requiredAssessment = settings.requiredAssessmentJson
       ? normalizeLiteRequiredAssessment_(settings.requiredAssessmentJson, settings) : null;
     settings.requiredAssessmentMode = settings.requiredAssessment ? 'required_two' : settings.requiredAssessmentMode || 'legacy';
+    settings.requiredAssessmentApproved = Boolean(settings.requiredAssessment &&
+      normalizeLiteAssessmentPlan_(settings.assessmentPlanJson,settings.materialText,settings.activityMode !== 'exploration').approved);
   }
   // 0.1.x 사본은 개정 열이 없으므로, 다시 저장하기 전에도 새 중앙 엔진을 사용할 수 있게
   // 같은 설정에서 항상 같은 해시와 첫 개정 번호를 계산해 돌려준다.
@@ -777,6 +904,7 @@ function saveLiteTeacherSettings_(settings, options) {
   const changed = newLesson || String(previous.sourceHash || '') !== sourceHash;
   const previousRevision = Math.max(0, Number(previous.lessonRevision || 0));
   const row = Object.assign({}, settings, {
+    assessmentPlanJson:JSON.stringify(liteAssessmentPlan_(settings)),
     lessonId: newLesson
       ? ('LESSON-' + Utilities.getUuid().replace(/-/g, '').slice(-12).toUpperCase())
       : settings.lessonId || previous.lessonId || ('LESSON-' + Utilities.getUuid().replace(/-/g, '').slice(-12).toUpperCase()),
@@ -804,8 +932,14 @@ function makeLiteSettingsHash_(settings) {
     'appName', 'subject', 'grade', 'lessonTitle', 'joinCode', 'lessonGoal',
     'achievementStandardCode', 'achievementStandard', 'assessmentCriteria', 'rubricHigh',
     'rubricMeet', 'rubricDeveloping', 'evidenceDescription', 'materialTitle',
-    'materialText', 'materialUrl', 'startQuestion', 'activityMode', 'version'
+    'materialText', 'materialUrl', 'activityMode', 'version'
   ];
+  // 평가모드의 실제 첫 질문은 승인 계획에 들어 있다. 초안용 입력은 학생 수업 개정을 만들지 않는다.
+  if (settings && settings.activityMode === 'exploration') {
+    fields.splice(fields.indexOf('activityMode'), 0, 'startQuestion');
+  }
+  const plan = liteAssessmentPlan_(settings);
+  if (plan.criteria.length) fields.push('assessmentPlanJson');
   // 기존 3수준을 그대로 저장하면 이전 해시/개정을 유지한다. 4·5수준 전환이나
   // 추가 수준의 수정은 미리보기 확인을 다시 받도록 반드시 개정에 포함한다.
   if (normalizeLiteRubricScheme_(settings && settings.rubricScheme) !== 'legacy_three' ||
@@ -820,6 +954,7 @@ function makeLiteSettingsHash_(settings) {
   if (liteText_(settings && settings.answerExamples)) fields.push('answerExamples');
   if (liteText_(settings && settings.requiredAssessmentJson)) fields.push('requiredAssessmentMode', 'requiredAssessmentJson');
   const source = fields.map(function (field) {
+    if (field === 'assessmentPlanJson') return field + '=' + JSON.stringify(plan);
     return field + '=' + liteText_(settings && settings[field]);
   }).join('\n');
   const digest = Utilities.computeDigest(

@@ -383,16 +383,18 @@ function trySaveLiteCandidateState_(turn, candidate) {
         rationale:liteText_(item.rationale, 40)
       };
     });
+    // 기준 진행은 재시도에 필수이므로 상태를 버리지 않고 후보 설명을 더 짧게 보관한다.
+    const hasAssessmentProgress = Boolean(compactObservation.assessmentProgress);
     const compact = Object.assign({}, candidate, {
-      candidateReply:liteText_(candidate && candidate.candidateReply, 800),
-      candidateEvidenceQuote:liteText_(candidate && candidate.candidateEvidenceQuote, 300),
+      candidateReply:liteText_(candidate && candidate.candidateReply, hasAssessmentProgress ? 350 : 800),
+      candidateEvidenceQuote:liteText_(candidate && candidate.candidateEvidenceQuote, hasAssessmentProgress ? 120 : 300),
       plan:Object.assign({}, candidate && candidate.plan, {
-        fallbackReply:liteText_(candidate && candidate.plan && candidate.plan.fallbackReply, 800),
+        fallbackReply:liteText_(candidate && candidate.plan && candidate.plan.fallbackReply, hasAssessmentProgress ? 350 : 800),
         enforcement:Object.assign({}, candidate && candidate.plan && candidate.plan.enforcement, {
           managedQuestion:liteText_(
             candidate && candidate.plan && candidate.plan.enforcement &&
               candidate.plan.enforcement.managedQuestion,
-            300
+            hasAssessmentProgress ? 250 : 300
           )
         }),
         observation:compactObservation
@@ -696,7 +698,7 @@ function checkLiteEngineConnection_() {
 }
 
 function buildLiteEnginePayload_(turn, settings, history) {
-  return {
+  const payload = {
     schemaVersion: 1,
     supportedOutputContracts: ['grounded_answer_v2', 'lead_evidence_quote_v1'],
     requestId: turn.requestId,
@@ -721,12 +723,21 @@ function buildLiteEnginePayload_(turn, settings, history) {
       evidenceDescription: settings.evidenceDescription,
       materialTitle: settings.materialTitle,
       materialText: settings.materialText,
-      startQuestion: settings.startQuestion,
+      startQuestion: liteAssessmentStartQuestion_(settings),
       version: settings.version,
       sourceHash: settings.sourceHash,
       lessonRevision: settings.lessonRevision || 1
     }
   };
+  if (turn.activityMode === 'evaluation') {
+    const plan = liteAssessmentPlan_(settings);
+    if (!plan.approved || !plan.criteria.length) {
+      throw new Error('평가 질문계획이 승인·저장되지 않았습니다. 교사 설정에서 질문계획을 확인해 주세요.');
+    }
+    payload.lesson.assessmentPlan = plan;
+    if (turn.assessmentProgress) payload.assessmentProgress = normalizeLiteAssessmentProgress_(turn.assessmentProgress);
+  }
+  return payload;
 }
 
 function compactLiteEngineHistory_(history) {
@@ -743,6 +754,28 @@ function compactLiteEngineHistory_(history) {
     total += entries[index].text.length;
   }
   return kept;
+}
+
+function assertLiteAssessmentEngineResponse_(payload, body) {
+  const lesson = payload && payload.lesson || {};
+  const plan = lesson.assessmentPlan;
+  if (!payload || payload.activityMode !== 'evaluation' || !plan || !plan.approved || !plan.criteria.length) return;
+  const errorMessage = '중앙 엔진을 업데이트하고 연결 확인을 다시 실행해 주세요. 승인한 기준별 질문계획의 진행 기록을 확인하지 못했습니다.';
+  let progress;
+  try { progress = normalizeLiteAssessmentProgress_(body && body.observation && body.observation.assessmentProgress); }
+  catch (error) { throw new Error(errorMessage); }
+  // 중앙 createAssessmentPlanId와 동일한 정규형: 수업 개정·해시와 교사 계획에 묶인다.
+  const identity = JSON.stringify([
+    liteText_(lesson.lessonId, 80),
+    Math.max(1, Math.min(10000, Math.floor(Number(lesson.lessonRevision) || 1))),
+    liteText_(lesson.sourceHash, 80)
+  ]);
+  const expectedPlanId = liteFingerprint_(JSON.stringify([identity, plan]), 100);
+  if (!progress || progress.planId !== expectedPlanId || progress.items.length !== plan.criteria.length ||
+      (progress.stage === 'complete') !== (progress.activeIndex === plan.criteria.length) ||
+      progress.items.some(function (item, index) {
+        return item.id !== plan.criteria[index].id || item.label !== plan.criteria[index].criterion.slice(0, 80);
+      })) throw new Error(errorMessage);
 }
 
 function requestLiteEnginePlan_(turn, settings, history) {
@@ -769,6 +802,7 @@ function requestLiteEnginePlan_(turn, settings, history) {
     invalidateLiteEngineVerificationIfMatches_(turn.engineEndpoint, turn.enginePolicyVersion);
   }
   validateLiteEnginePlan_(body, turn.requestId, turn.enginePolicyVersion);
+  assertLiteAssessmentEngineResponse_(payload, body);
   return body;
 }
 
@@ -819,6 +853,7 @@ function requestLiteEngineFinalize_(
       !body.engine || body.engine.family !== 'questioning-dialogue-v2' || !body.observation || !body.studentReply) {
     throw new Error('중앙 최종 확인 응답 형식이 맞지 않습니다.');
   }
+  assertLiteAssessmentEngineResponse_(payload, body);
   return body;
 }
 
@@ -864,6 +899,7 @@ function validateLiteEnginePlan_(plan, requestId, expectedPolicyVersion) {
   if (!/^[A-Za-z0-9_-]{32,100}$/.test(String(plan.planDigest || ''))) {
     throw new Error('중앙 정책 엔진 계획 식별값이 없습니다.');
   }
+  normalizeLiteAssessmentProgress_(plan.observation.assessmentProgress);
   return plan;
 }
 
@@ -996,7 +1032,8 @@ function findLiteDuplicateRequest_(requestId, expectedTurn, rowsOverride, spread
     safetyFlag: String(bot.safetyFlag) === 'true' || bot.safetyFlag === true,
     evidenceIds: String(bot.evidenceIds || '').split('|').filter(Boolean),
     rubricScores: Array.isArray(rubricScores) ? rubricScores : [],
-    isClosing: String(bot.isClosing) === 'true' || bot.isClosing === true
+    isClosing: String(bot.isClosing) === 'true' || bot.isClosing === true,
+    assessmentProgress:normalizeLiteAssessmentProgress_(bot.assessmentProgressJson)
   };
   return {
     text: unescapeLiteSheetText_(bot.text),
@@ -1041,6 +1078,7 @@ function compactLitePreparedObservation_(observation) {
     sourceStatus:liteText_(observation.sourceStatus, 80),
     sourceCue:liteText_(observation.sourceCue, 150),
     safetyFlag:Boolean(observation.safetyFlag),
+    assessmentProgress:normalizeLiteAssessmentProgress_(observation.assessmentProgress),
     rubricScores:(Array.isArray(observation.rubricScores) ? observation.rubricScores : [])
       .slice(0, 4).map(function (item) {
         return {
@@ -1073,6 +1111,7 @@ function commitLitePreparedResult_(settings, turn, prepared, runtimeContext) {
     primaryMove:observation.primaryMove,
     safetyFlag:observation.safetyFlag,
     rubricScores:observation.rubricScores,
+    assessmentProgress:observation.assessmentProgress,
     apiModel:liteText_(prepared.apiModel, 80),
     apiInputTokens:Math.max(0, Number(prepared.apiInputTokens || 0)),
     apiOutputTokens:Math.max(0, Number(prepared.apiOutputTokens || 0)),
@@ -1103,11 +1142,16 @@ function commitLitePreparedResult_(settings, turn, prepared, runtimeContext) {
   }
   const repairRequired = Boolean(evaluationWarning);
   if (!repairRequired) clearLitePendingState_(turn.requestId);
+  const requiredState = typeof liteRequiredChatState_ === 'function'
+    ? liteRequiredChatState_(settings,observation.assessmentProgress)
+    : {requiredAssessmentReady:false,requiredAssessmentProgress:null};
   return {
     ok:!repairRequired,
     duplicate:Boolean(saved.duplicate),
     sessionId:turn.sessionId,
     reply:saved.assistantText || reply,
+    requiredAssessmentReady:requiredState.requiredAssessmentReady,
+    requiredAssessmentProgress:requiredState.requiredAssessmentProgress,
     expectsStudentReply:!observation.isClosing && /[?？]/.test(reply),
     isClosing:Boolean(observation.isClosing),
     preview:turn.isPreview,
@@ -1173,11 +1217,16 @@ function handleLiteDuplicateRequest_(
     };
   }
   if (!duplicate.retryable) clearLitePendingState_(turn.requestId);
+  const requiredState = typeof liteRequiredChatState_ === 'function'
+    ? liteRequiredChatState_(settings,latestLiteAssessmentProgress_(sessionRows) || duplicate.observation.assessmentProgress)
+    : {requiredAssessmentReady:false,requiredAssessmentProgress:null};
   return {
     ok:!duplicate.retryable,
     duplicate:true,
     sessionId:duplicate.sessionId,
     reply:duplicate.text,
+    requiredAssessmentReady:requiredState.requiredAssessmentReady,
+    requiredAssessmentProgress:requiredState.requiredAssessmentProgress,
     expectsStudentReply:!duplicate.isClosing && /[?？]/.test(duplicate.text),
     isClosing:duplicate.isClosing,
     retryable:duplicate.retryable,
@@ -1269,6 +1318,8 @@ function submitLiteTurn(payload) {
   const sessionRows = qaRows.filter(function (row) {
     return String(row.sessionId) === String(turn.sessionId);
   });
+  // 저장이 끝난 bot 행만 신뢰하며 학생 payload의 진행 지정은 받아들이지 않는다.
+  turn.assessmentProgress = latestLiteAssessmentProgress_(sessionRows);
   const runtimeContext = {
     spreadsheet:spreadsheet,
     workbookReady:true,
@@ -1340,7 +1391,7 @@ function submitLiteTurn(payload) {
     appendLiteTurnPair_(turn, {
       text:limitReply, phase:2, managedKind:'close', evidenceIds:[], relatedQuestion:false,
       responseScore:'', isClosing:true, questionType:'', sourceStatus:'', primaryMove:'close',
-      engineStatus:'limit:student_lesson', aiStatus:'not_called'
+      engineStatus:'limit:student_lesson', aiStatus:'not_called', assessmentProgress:turn.assessmentProgress
     }, runtimeContext);
     return {
       ok:false, retryable:false, sessionId:turn.sessionId, isClosing:true,

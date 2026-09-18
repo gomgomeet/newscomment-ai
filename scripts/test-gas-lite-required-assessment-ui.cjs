@@ -44,6 +44,8 @@ function draftRubrics(ui, scheme = 'four_levels') {
   assert.equal(request.args[1].questionsConfirmed, true);
   assert.deepEqual(clone(request.args[1].questions), questions);
   request.success({ok:true, requiredAssessment:envelope(scheme)});
+  assert.equal(vm.runInContext('requiredAssessmentReady()',ui.context),false,'New AI criteria require teacher review');
+  ui.byId('required-assessment-approved').checked = true; ui.byId('required-assessment-approved').dispatch('change');
 }
 
 const legacy = createUi(base);
@@ -62,12 +64,28 @@ draftRubrics(ui);
 assert.equal(vm.runInContext('requiredAssessmentReady()',ui.context),true);
 const rubricInput = ui.byId('required-rubric-items').descendants().find((node) => node.tagName === 'textarea');
 rubricInput.value = '교사가 다듬은 답변 핵심'; rubricInput.dispatch('input');
-assert.equal(vm.runInContext('requiredAssessmentReady()',ui.context),true,'Editing criteria preserves question confirmation');
+assert.equal(vm.runInContext('requiredAssessmentReady()',ui.context),false,'Editing criteria requires renewed teacher approval');
+assert.equal(ui.byId('generate-required-rubrics').disabled,false,'Editing criteria preserves question confirmation');
+ui.byId('required-assessment-approved').checked = true; ui.byId('required-assessment-approved').dispatch('change');
 ui.submit();
 const save = ui.takeRequest('saveLiteTeacherSetup');
 assert.equal(save.args[1].requiredAssessmentMode,'required_two');
+assert.equal(save.args[1].requiredAssessmentApproved,true);
+const savedPlan = JSON.parse(save.args[1].assessmentPlanJson);
+assert.equal(savedPlan.approved,true);
+assert.deepEqual(savedPlan.criteria.map((item)=>item.id),['q1','q2']);
+assert.deepEqual(savedPlan.criteria.map((item)=>item.mainQuestion),questions.map((item)=>item.question));
+assert.ok(savedPlan.criteria.every((item)=>item.requireSourceEvidence && item.followUpQuestion.endsWith('?')));
 assert.equal(save.args[1].requiredAssessment.items[0].expectedAnswer,'교사가 다듬은 답변 핵심');
 assert.equal(save.args[1].startQuestion,base.startQuestion);
+save.success({lessonId:base.lessonId,settings:clone(save.args[1]),readiness:{distributionReady:false,runtimeReady:true,setupReady:true,checks:[]}});
+assert.equal(ui.byId('save-state').textContent,'저장된 설정','Server-normalized required plan becomes the saved baseline');
+
+for (const question of ['물음표가 없는 문항입니다.', '무엇인가요? 왜인가요?', '가'.repeat(250)+'?']) {
+  const invalidQuestion = requiredUi(); draftQuestions(invalidQuestion);
+  invalidQuestion.byId('required-question-1').value = question; invalidQuestion.byId('required-question-1').dispatch('input');
+  assert.equal(invalidQuestion.byId('confirm-required-questions').disabled,true,'The live plan accepts one question within 250 characters');
+}
 
 for (const field of ['required-question-1','material-text','material-title','lesson-title','lesson-goal','achievement-standard','rubric-scheme']) {
   const changed = requiredUi(); draftQuestions(changed); draftRubrics(changed);
@@ -96,7 +114,7 @@ const firstCriterion = incomplete.byId('required-rubric-items').descendants().fi
 firstCriterion.value = ''; firstCriterion.dispatch('input'); incomplete.submit(); assert.equal(incomplete.requests.length,0);
 
 for (const scheme of ['legacy_three','four_levels','five_levels']) {
-  const saved = createUi({...base,rubricScheme:scheme,requiredAssessmentMode:'required_two',requiredAssessment:envelope(scheme)});
+  const saved = createUi({...base,rubricScheme:scheme,requiredAssessmentMode:'required_two',requiredAssessmentApproved:true,requiredAssessment:envelope(scheme)});
   assert.equal(vm.runInContext('requiredAssessmentReady()',saved.context),true,'Reopen saved '+scheme+' criteria');
   assert.equal(saved.byId('save-state').textContent,'저장된 설정');
   const tables = saved.byId('required-rubric-items').descendants().filter((node) => node.tagName === 'table');
@@ -124,4 +142,19 @@ assert.ok(byId('evaluations').textContent.includes('문항 1'));
 assert.ok(byId('evaluations').textContent.includes(questions[0].question));
 assert.equal(byId('evaluations').textContent.includes('시작 질문 뒤 첫 응답'),false);
 assert.equal(byId('required-submissions').descendants().some((node)=>node.tagName==='img'),false);
+const responses=[{requestId:'answer-1',questionText:'실제로 물었던 문항?',answerText:'학생의 실제 설명',evidenceVerified:false},
+  {requestId:'answer-2',questionText:'정확한 근거는 무엇인가요?',answerText:'학생이 인용한 원문',evidenceVerified:true}];
+dashboard.renderDashboard({lesson:{...base,requiredAssessment:envelope()},requiredAssessmentSubmissions:[
+  {studentCode:'4-12',sessionId:'session-ready',analysisStatus:'ready',answers:[]},
+  {studentCode:'4-13',sessionId:'session-processing',analysisStatus:'processing',answers:[]},
+  {studentCode:'4-14',sessionId:'session-pending',analysisStatus:'pending',answers:[]},
+],evaluations:[{studentCode:'4-12',questionId:'q1',assessmentQuestion:questions[0].question,assessmentResponse:'학생의 실제 설명',
+  automaticJudgment:'잘함',criterionEvidence:[{id:'q1',label:'근거 설명',status:'collected',responses,
+    nonAnswerEvents:[{kind:'hint',requestId:'hint-1',answerText:'힌트 주세요'}]}]}]});
+assert.equal(byId('required-submissions').descendants().filter(node=>node.tagName==='button'&&node.textContent==='답변 분석').length,1,
+  'Only never-started analysis receives a teacher trigger; processing and failed/pending results cannot incur a duplicate paid call');
+assert.ok(byId('evaluations').textContent.includes('실제로 물었던 문항?'));
+assert.ok(byId('evaluations').textContent.includes('학생이 인용한 원문'));
+assert.ok(byId('evaluations').textContent.includes('힌트 요청'));
+assert.ok(byId('evaluations').textContent.includes('문항별 AI 분석 초안: 잘함'),'Item analysis does not get replaced by collection counts');
 console.log('Required assessment UI: teacher-confirmed two-question generation, per-item editable criteria, 3/4/5 levels, stale-source invalidation, legacy preservation, and safe dashboard analysis passed');

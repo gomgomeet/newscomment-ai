@@ -132,6 +132,12 @@ function assertLiteStudentAccessReady_(studentCode, settings, previewAccessToken
     throw new Error('선생님이 이 수업 활동을 마쳤습니다. 다음 수업 안내를 기다려 주세요.');
   }
   if (!readiness.runtimeReady) {
+    const assessmentPlanCheck = (readiness.checks || []).find(function (item) {
+      return item.key === 'assessmentPlan';
+    });
+    if (assessmentPlanCheck && assessmentPlanCheck.state !== 'pass') {
+      throw new Error('선생님이 평가 질문을 준비하고 있습니다. 잠시 뒤 다시 들어와 주세요.');
+    }
     throw new Error('선생님이 개인 API와 공통 대화 엔진의 연결을 확인하고 있습니다. 잠시 뒤 다시 들어와 주세요.');
   }
   if (isPreview) return readiness;
@@ -181,7 +187,7 @@ function prepareLiteRecoveryTurn_(payload, settings) {
     lessonId:lessonId,
     lessonRevision:lessonRevision,
     sourceHash:sourceHash,
-    startQuestion:currentIdentity ? liteText_(settings.startQuestion, 500) : ''
+    startQuestion:currentIdentity ? liteAssessmentStartQuestion_(settings) : ''
   };
 }
 
@@ -214,6 +220,67 @@ function prepareLiteStudentTurn_(payload, settings) {
   return turn;
 }
 
+function normalizeLiteAssessmentProgress_(value) {
+  if (value == null || value === '') return null;
+  let progress = value;
+  if (typeof value === 'string') {
+    if (value.length > 7000) throw new Error('평가 진행 기록의 크기를 확인해 주세요.');
+    try { progress = JSON.parse(value); }
+    catch (error) { throw new Error('평가 진행 기록 형식을 확인해 주세요.'); }
+  }
+  const text = function (input, limit, optional) {
+    if (typeof input !== 'string' || input.length > limit || (!optional && !input)) {
+      throw new Error('평가 진행 기록의 글자 항목을 확인해 주세요.');
+    }
+    return input;
+  };
+  const integer = function (input, limit) {
+    if (!Number.isInteger(input) || input < 0 || input > limit) {
+      throw new Error('평가 진행 기록의 횟수를 확인해 주세요.');
+    }
+    return input;
+  };
+  if (!progress || typeof progress !== 'object' || Array.isArray(progress) || progress.schemaVersion !== 1 ||
+      !Array.isArray(progress.items) || !progress.items.length || progress.items.length > 5 ||
+      ['main', 'followup', 'complete'].indexOf(progress.stage) < 0) {
+    throw new Error('평가 진행 기록 형식을 확인해 주세요.');
+  }
+  const seen = Object.create(null);
+  const items = progress.items.map(function (item) {
+    if (!item || typeof item.id !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(item.id) || seen[item.id] ||
+        ['pending', 'awaiting_evidence', 'collected', 'needs_review'].indexOf(item.status) < 0 ||
+        typeof item.assisted !== 'boolean') throw new Error('평가 진행 기준을 확인해 주세요.');
+    seen[item.id] = true;
+    return {
+      id:item.id, label:text(item.label, 80, false), status:item.status,
+      attempts:integer(item.attempts, 2), hintCount:integer(item.hintCount, 99), assisted:item.assisted,
+      answerRequestId:text(item.answerRequestId, 100, true),
+      evidenceRequestId:text(item.evidenceRequestId, 100, true)
+    };
+  });
+  const event = progress.lastEvent;
+  if (!event || ['answer', 'hint', 'question', 'skip', 'safety', 'closing', 'prompt'].indexOf(event.kind) < 0 ||
+      typeof event.evidenceVerified !== 'boolean') throw new Error('평가 진행 사건을 확인해 주세요.');
+  const activeIndex = integer(progress.activeIndex, items.length);
+  if (progress.stage !== 'complete' && activeIndex >= items.length) throw new Error('현재 평가기준을 확인해 주세요.');
+  const criterionId = text(event.criterionId, 40, true);
+  if (criterionId && !seen[criterionId]) throw new Error('평가 진행 사건의 기준을 확인해 주세요.');
+  return {
+    schemaVersion:1, planId:text(progress.planId, 100, false), activeIndex:activeIndex,
+    stage:progress.stage, items:items,
+    lastEvent:{ requestId:text(event.requestId, 100, true), criterionId:criterionId,
+      kind:event.kind, evidenceVerified:event.evidenceVerified }
+  };
+}
+
+function latestLiteAssessmentProgress_(rows) {
+  const botRows = (rows || []).filter(function (row) {
+    return row.speaker === 'bot' && String(row.engineStatus || '').indexOf('engine_failed:') !== 0;
+  }).sort(function (a, b) { return Number(b.turnNo || 0) - Number(a.turnNo || 0); });
+  if (!botRows.length) return null;
+  return normalizeLiteAssessmentProgress_(botRows[0].assessmentProgressJson);
+}
+
 function startLiteStudentSession(payload) {
   const spreadsheet = getLiteSpreadsheet_();
   const settings = readLiteTeacherSettings_(spreadsheet, { skipEnsure:true });
@@ -228,8 +295,11 @@ function startLiteStudentSession(payload) {
   if (!qaSheet) throw new Error('교사가 수업 시트 준비를 다시 실행해 주세요.');
   const sessionRows = liteRowsByColumnValue_(qaSheet, 'sessionId', sessionId);
   const history = withLiteVirtualStartQuestion_(
-    getLiteSessionHistory_(sessionId, spreadsheet, sessionRows), settings.startQuestion
+    getLiteSessionHistory_(sessionId, spreadsheet, sessionRows), liteAssessmentStartQuestion_(settings)
   );
+  const requiredState = typeof liteRequiredChatState_ === 'function'
+    ? liteRequiredChatState_(settings,latestLiteAssessmentProgress_(sessionRows))
+    : {requiredAssessmentReady:false,requiredAssessmentProgress:null};
   return {
     sessionId: sessionId,
     studentCode: code,
@@ -237,6 +307,8 @@ function startLiteStudentSession(payload) {
     lesson: sanitizeLiteSettingsForStudent_(settings),
     requiredSubmission: settings.requiredAssessment
       ? getLiteRequiredSubmissionForStudent_(settings, sessionId, spreadsheet) : null,
+    requiredAssessmentReady:requiredState.requiredAssessmentReady,
+    requiredAssessmentProgress:requiredState.requiredAssessmentProgress,
     history: history.map(function (row) {
       return {
         requestId: liteText_(row.requestId, 100),
@@ -371,6 +443,8 @@ function appendLiteTurnPair_(turn, result, options) {
       Object.assign({}, common, {
         turnNo: turnBase + 2, speaker: 'bot', text: escapeLiteSheetText_(liteText_(result.text, 4000)),
         rubricScoresJson: liteText_(JSON.stringify(result.rubricScores || []), 6000),
+        assessmentProgressJson:result.assessmentProgress
+          ? JSON.stringify(normalizeLiteAssessmentProgress_(result.assessmentProgress)) : '',
         apiModel: liteText_(result.apiModel, 80),
         apiInputTokens: Math.max(0, Number(result.apiInputTokens || 0)),
         apiOutputTokens: Math.max(0, Number(result.apiOutputTokens || 0)),

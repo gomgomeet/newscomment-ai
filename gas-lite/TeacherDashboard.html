@@ -34,6 +34,11 @@
       .criterion { padding:11px; border-radius:9px; background:#f8fafc; white-space:pre-wrap; }
       .criterion strong { display:block; margin-bottom:4px; color:#1d4ed8; }
       .evidence { max-height:150px; overflow:auto; padding:10px; white-space:pre-wrap; background:#f8fafc; }
+      .criterion-table-wrap { overflow:auto; margin:12px 0; }
+      .criterion-table { width:100%; min-width:640px; border-collapse:collapse; table-layout:fixed; font-size:14px; }
+      .criterion-table th,.criterion-table td { padding:9px; border:1px solid var(--line); text-align:left; vertical-align:top; overflow-wrap:anywhere; }
+      .criterion-table th { background:#eff6ff; }
+      .criterion-table th:last-child { width:42%; }
       .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:11px; }
       .wide { grid-column:1 / -1; }
       label { display:grid; gap:5px; font-weight:700; }
@@ -77,7 +82,7 @@
       </details>
       <section class="card">
         <h2>참여 현황</h2>
-        <p class="muted">시작 질문 뒤 학생의 첫 응답은 아래 검수 카드에서 확인합니다. 전체 대화는 ‘질문과 답변’ 시트에서 확인할 수 있습니다.</p>
+        <p class="muted">참여 현황에는 질문 전문을 표시하지 않습니다. 아래 검수 카드에서 시작 질문의 첫 응답 또는 기준별 실제 질문과 답변을 확인하고, 전체 대화는 ‘질문과 답변’ 시트에서 교사만 확인합니다.</p>
         <div id="students" class="students"></div>
       </section>
       <div class="toolbar">
@@ -85,8 +90,8 @@
         <span id="status" class="status" role="status" aria-live="polite"></span>
       </div>
       <section>
-        <h2 id="evaluation-section-title">공통 질문행동 관찰 → 교사 기준 검수 → 최종 평가</h2>
-        <p id="evaluation-section-help" class="muted">자동 점수는 질문·지문 이해·성취기준 연결·의견 표현을 관찰한 초안입니다. 교사가 입력한 수준 기준으로 근거를 다시 판단하고 피드백·향상 방법을 저장한 뒤에만 최종 확정합니다.</p>
+        <h2 id="evaluation-section-title">학생 응답·근거 확인 → 교사 기준 검수 → 최종 평가</h2>
+        <p id="evaluation-section-help" class="muted">기준별 질문계획은 학생 응답과 자료인용 확인 기록을 모으며 자동 성적을 만들지 않습니다. 최종 평가는 교사가 확인합니다.</p>
         <div id="required-submissions" class="evaluation-list"></div>
         <div id="evaluations" class="evaluation-list"></div>
       </section>
@@ -119,10 +124,10 @@
         byId('required-lesson-criteria').classList.toggle('hidden', !requiredMode);
         renderRequiredLesson(lesson);
         renderRequiredSubmissions(data.requiredAssessmentSubmissions || []);
-        byId('evaluation-section-title').textContent = requiredMode ? '문항별 답변 분석 → 교사 검수 → 최종 평가' : '공통 질문행동 관찰 → 교사 기준 검수 → 최종 평가';
+        byId('evaluation-section-title').textContent = requiredMode ? '문항별 답변 분석 → 교사 검수 → 최종 평가' : '학생 응답·근거 확인 → 교사 기준 검수 → 최종 평가';
         byId('evaluation-section-help').textContent = requiredMode
-          ? 'AI가 제출한 두 답변을 문항별 기준표로 분석합니다. 인용한 답변과 판단 이유를 확인하고 문항별 교사 판단·피드백을 저장해 최종 확정해 주세요.'
-          : '자동 점수는 질문·지문 이해·성취기준 연결·의견 표현을 관찰한 초안입니다. 교사가 입력한 수준 기준으로 근거를 다시 판단하고 피드백·향상 방법을 저장한 뒤에만 최종 확정합니다.';
+          ? 'AI가 대화에서 수집한 두 문항의 답변을 기준표로 분석합니다. 실제 질문·답변과 인용 근거를 확인하고 문항별 교사 판단·피드백을 저장해 최종 확정해 주세요.'
+          : '기준별 질문계획은 학생 응답과 자료인용 확인 기록을 모으며 자동 성적을 만들지 않습니다. 일반 대화의 공통 관찰도 교사 검수용 초안입니다. 교사가 근거를 판단하고 피드백·향상 방법을 저장한 뒤에만 최종 확정합니다.';
         byId('lesson-title').textContent = lesson.lessonTitle || '아직 설정한 수업이 없습니다.';
         byId('assessment-question').textContent = lesson.startQuestion || '입력된 시작 질문이 없습니다.';
         byId('expected-answer').textContent = lesson.expectedAnswer || '입력된 답변 핵심 요소가 없습니다.';
@@ -196,20 +201,30 @@
         const root = byId('required-submissions'); root.textContent = '';
         rows.forEach(function (row) {
           const card = document.createElement('article'); card.className = 'evaluation';
-          const title = document.createElement('h3'); title.textContent = row.studentCode + ' · 필수 평가 답변 제출';
+          const title = document.createElement('h3'); title.textContent = row.studentCode + ' · 필수 평가 대화 답변';
           card.appendChild(title);
           const status = document.createElement('p'); status.className = 'muted';
-          status.textContent = '제출 ' + formatTime(row.submittedAt) + ' · ' + (row.analysisStatus === 'completed' ? 'AI 분석 완료 · 교사 검수 필요'
+          status.textContent = '수집 ' + formatTime(row.submittedAt) + ' · ' + (row.analysisStatus === 'completed' ? 'AI 분석 완료 · 교사 검수 필요'
             : row.analysisStatus === 'processing' ? 'AI가 답변을 분석하고 있습니다.'
             : row.analysisError ? 'AI 분석을 마치지 못했습니다. 아래 문항별 답변을 직접 검수해 주세요.' : 'AI 분석 대기 · 교사 직접 검수 가능');
           card.appendChild(status);
+          if (row.analysisStatus === 'ready') {
+            const analyze = document.createElement('button'); analyze.type = 'button'; analyze.textContent = '답변 분석';
+            analyze.addEventListener('click', function () {
+              analyze.disabled = true; setStatus('수집한 두 문항의 답변을 분석하고 있습니다.');
+              google.script.run.withSuccessHandler(function (result) { setStatus(result.message || '분석 결과를 확인합니다.'); loadDashboard(); })
+                .withFailureHandler(function (error) { showError(error); loadDashboard(); })
+                .analyzeLiteRequiredAssessment(teacherAccessToken, { sessionId:row.sessionId });
+            });
+            card.appendChild(analyze);
+          }
           if (row.analysisError) { const error = document.createElement('p'); error.className = 'warning'; error.textContent = row.analysisError; card.appendChild(error); }
           (row.answers || []).forEach(function (answer, index) {
             const item = (row.items || []).find(function (question) { return question.id === answer.questionId; });
             const analysis = (row.analysis || []).find(function (value) { return value.questionId === answer.questionId; });
             const details = document.createElement('details');
             const summary = document.createElement('summary'); summary.textContent = '문항 ' + (index + 1) + (item ? ' · ' + item.question : ''); details.appendChild(summary);
-            appendEvidenceBlock(details, '제출한 답변', answer.text);
+            appendEvidenceBlock(details, '대화에서 수집한 답변', answer.text);
             if (analysis) {
               appendEvidenceBlock(details, 'AI 분석 수준 · 교사 검수 전', analysis.level);
               appendEvidenceBlock(details, '학생 답변에서 확인한 근거', analysis.answerQuote);
@@ -244,23 +259,99 @@
           warning.textContent = '같은 반-번호의 다른 접속이 있습니다. 두 평가를 합치지 말고 질문과 답변 시트에서 접속별 근거를 확인하세요.';
           card.appendChild(warning);
         }
+        const hasCriterionEvidence = Boolean(row.criterionEvidence && row.criterionEvidence.length);
         const auto = document.createElement('p');
-        const autoStrong = document.createElement('strong'); autoStrong.textContent = row.questionId ? '문항별 AI 분석 초안: ' : '공통 질문행동 관찰: ';
-        auto.appendChild(autoStrong); auto.appendChild(document.createTextNode(row.automaticJudgment || '판단 보류'));
+        const autoStrong = document.createElement('strong');
+        autoStrong.textContent = row.questionId ? '문항별 AI 분석 초안: ' : hasCriterionEvidence ? '기준별 수행 기록: ' : '공통 질문행동 관찰: ';
+        const collectedCount = hasCriterionEvidence ? row.criterionEvidence.filter(function (item) { return item.status === 'collected'; }).length : 0;
+        const reviewCount = hasCriterionEvidence ? row.criterionEvidence.filter(function (item) { return item.status === 'needs_review'; }).length : 0;
+        const summaryText = row.questionId ? row.automaticJudgment || '판단 보류' : hasCriterionEvidence
+          ? '응답 형식 수집 ' + collectedCount + '/' + row.criterionEvidence.length + '개 · 교사 확인 필요 ' + reviewCount + '개 · 성적·성취 판정 아님'
+          : row.automaticJudgment || '판단 보류';
+        auto.appendChild(autoStrong); auto.appendChild(document.createTextNode(summaryText));
         card.appendChild(auto);
-        if (row.assessmentResponse !== undefined) {
-          const answerTitle = document.createElement('strong'); answerTitle.textContent = row.questionId ? row.assessmentQuestion || '필수 평가 문항의 답변' : '시작 질문 뒤 첫 응답';
-          const answer = document.createElement('p'); answer.className = 'evidence';
-          answer.textContent = row.assessmentResponse || '아직 확인할 첫 답변이 없습니다.';
-          const note = document.createElement('p'); note.className = 'muted';
-          note.textContent = row.questionId ? '학생이 이 문항에 제출한 답변입니다. 문항별 분석 기준표와 답변 근거를 확인해 최종 판단해 주세요.' : '추가 질문일 수도 있으므로 전체 대화와 위 기준을 함께 확인해 주세요. 공통 관찰 점수는 이 문항의 성적이 아닙니다.';
-          card.appendChild(answerTitle); card.appendChild(answer); card.appendChild(note);
+        if (row.questionId) {
+          appendEvidenceBlock(card, row.assessmentQuestion || '필수 평가 문항', row.assessmentResponse);
+          appendEvidenceBlock(card, 'AI 분석 근거 · 교사 검수 전', row.evidenceSummary);
         }
-        const details = document.createElement('details');
-        const summary = document.createElement('summary');
-        summary.textContent = '자동 판단 근거 확인 · 관찰 ' + Number(row.evidenceObservationCount || 0) + '회';
-        const evidence = document.createElement('p'); evidence.className = 'evidence'; evidence.textContent = row.evidenceSummary || '아직 근거가 없습니다.';
-        details.appendChild(summary); details.appendChild(evidence); card.appendChild(details);
+        if (!hasCriterionEvidence && !row.questionId) {
+          if (row.assessmentResponse !== undefined) {
+            const answerTitle = document.createElement('strong'); answerTitle.textContent = '시작 질문 뒤 첫 응답';
+            const answer = document.createElement('p'); answer.className = 'evidence';
+            answer.textContent = row.assessmentResponse || '아직 확인할 첫 답변이 없습니다.';
+            const note = document.createElement('p'); note.className = 'muted';
+            note.textContent = '추가 질문일 수도 있으므로 전체 대화와 위 기준을 함께 확인해 주세요. 공통 관찰 점수는 이 문항의 성적이 아닙니다.';
+            card.appendChild(answerTitle); card.appendChild(answer); card.appendChild(note);
+          }
+          const details = document.createElement('details');
+          const summary = document.createElement('summary');
+          summary.textContent = '공통 관찰 근거 확인 · 관찰 ' + Number(row.evidenceObservationCount || 0) + '회';
+          const evidence = document.createElement('p'); evidence.className = 'evidence'; evidence.textContent = row.evidenceSummary || '아직 근거가 없습니다.';
+          details.appendChild(summary); details.appendChild(evidence); card.appendChild(details);
+        }
+        if (hasCriterionEvidence) {
+          const note = document.createElement('p');
+          note.textContent = '수집됨은 응답·자료인용 형식을 확인했다는 뜻입니다. 교사 확인 필요는 보충 후 확인할 내용이나 건너뛴 항목이며 낮은 성취를 뜻하지 않습니다. 내용의 타당성과 성취 충족 여부는 교사가 판단합니다.';
+          card.appendChild(note);
+          const tableWrap = document.createElement('div'); tableWrap.className = 'criterion-table-wrap';
+          const table = document.createElement('table'); table.className = 'criterion-table';
+          const heading = document.createElement('tr');
+          ['평가기준', '수집 상태', '도움받음', '실제 질문 → 학생 답변 → 자료인용 확인'].forEach(function (label) {
+            const cell = document.createElement('th'); cell.textContent = label; cell.setAttribute('scope', 'col'); heading.appendChild(cell);
+          });
+          const tableHead = document.createElement('thead'); tableHead.appendChild(heading); table.appendChild(tableHead);
+          const body = document.createElement('tbody');
+          const labels = { pending:'아직 평가 응답 없음', awaiting_evidence:'보충 근거 기다림', collected:'응답 형식 수집됨', needs_review:'교사 확인 필요' };
+          row.criterionEvidence.forEach(function (item) {
+            const tr = document.createElement('tr');
+            const values = [item.label + ' (' + item.id + ')', labels[item.status] || '교사 확인 필요',
+              (item.assisted ? '도움받음' : '도움 기록 없음') + ' · 힌트 ' + Number(item.hintCount || 0) + '회'];
+            values.forEach(function (value) {
+              const cell = document.createElement('td'); cell.textContent = value; cell.style.whiteSpace = 'pre-wrap';
+              tr.appendChild(cell);
+            });
+            const responsesCell = document.createElement('td');
+            const responses = Array.isArray(item.responses) ? item.responses.slice(0, 2) : [];
+            responses.forEach(function (response, index) {
+              const responseBlock = document.createElement('p'); responseBlock.style.whiteSpace = 'pre-wrap';
+              responseBlock.textContent = (index + 1) + '차 학생 답변 [' + response.requestId + ']' +
+                '\n직전 실제 챗봇 발화: ' + (response.questionText || '원본 질문 기록을 확인해 주세요.') +
+                '\n학생 답변: ' + response.answerText +
+                '\n자료인용 확인: ' + (response.evidenceVerified
+                  ? '이 답변에서 본문 인용 일치가 기록됨 · 내용의 타당성은 교사 확인'
+                  : '검증된 자료인용 기록 없음');
+              responsesCell.appendChild(responseBlock);
+            });
+            if (!responses.length) {
+              const missing = document.createElement('p');
+              missing.textContent = item.answerRequestId
+                ? '개별 답변 사건 기록을 확인해 주세요. 저장된 마지막 답변 연결 [' + item.answerRequestId + '] ' + item.answerText
+                : '평가 응답 기록 없음 · 도움 요청이나 건너뛰기는 답변으로 세지 않습니다.';
+              responsesCell.appendChild(missing);
+            }
+            if (item.evidenceRequestId && !responses.some(function (response) { return response.requestId === item.evidenceRequestId; })) {
+              const evidenceLink = document.createElement('p');
+              evidenceLink.textContent = '저장된 자료인용 연결 [' + item.evidenceRequestId + '] ' + item.evidenceText;
+              responsesCell.appendChild(evidenceLink);
+            }
+            const nonAnswers = Array.isArray(item.nonAnswerEvents) ? item.nonAnswerEvents.slice(-3) : [];
+            if (nonAnswers.length) {
+              const support = document.createElement('details');
+              const supportSummary = document.createElement('summary');
+              supportSummary.textContent = '도움 요청·건너뛰기 등 최근 기록 (평가 답변 아님)'; support.appendChild(supportSummary);
+              const eventLabels = { hint:'힌트 요청', question:'질문·작성 도움 요청', skip:'건너뛰기', safety:'안전 안내', closing:'종료 요청' };
+              nonAnswers.forEach(function (event) {
+                const entry = document.createElement('p');
+                entry.textContent = (eventLabels[event.kind] || '진행 기록') + ' [' + event.requestId + '] ' + event.answerText;
+                support.appendChild(entry);
+              });
+              responsesCell.appendChild(support);
+            }
+            tr.appendChild(responsesCell);
+            body.appendChild(tr);
+          });
+          table.appendChild(body); tableWrap.appendChild(table); card.appendChild(tableWrap);
+        }
         const grid = document.createElement('div'); grid.className = 'grid';
         const decisions = row.rubricScheme === 'five_levels'
           ? ['판단 보류','A','B','C','D','E'] : row.rubricScheme === 'four_levels'
