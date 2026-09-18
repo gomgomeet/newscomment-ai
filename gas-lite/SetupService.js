@@ -3,7 +3,7 @@
  * API 키는 Script Properties에만 저장하며 Sheet 행으로 만들지 않습니다.
  */
 
-const LITE_APP_VERSION_ = '0.12.0';
+const LITE_APP_VERSION_ = '0.12.1';
 const LITE_API_KEY_PROPERTY_ = 'TEACHER_OPENAI_API_KEY';
 const LITE_SPREADSHEET_ID_PROPERTY_ = 'TEACHER_SPREADSHEET_ID';
 const LITE_ENGINE_ENDPOINT_PROPERTY_ = 'CENTRAL_ENGINE_ENDPOINT';
@@ -13,6 +13,7 @@ const LITE_API_VERIFIED_AT_PROPERTY_ = 'LITE_API_VERIFIED_AT';
 const LITE_ENGINE_VERIFIED_ENDPOINT_PROPERTY_ = 'LITE_ENGINE_VERIFIED_ENDPOINT';
 const LITE_ENGINE_VERIFIED_POLICY_PROPERTY_ = 'LITE_ENGINE_VERIFIED_POLICY';
 const LITE_ENGINE_VERIFIED_AT_PROPERTY_ = 'LITE_ENGINE_VERIFIED_AT';
+const LITE_ENGINE_VERIFICATION_REVISION_PROPERTY_ = 'LITE_ENGINE_VERIFICATION_REVISION';
 const LITE_PREVIEW_VERIFIED_LESSON_PROPERTY_ = 'LITE_PREVIEW_VERIFIED_LESSON';
 const LITE_CLOSED_LESSON_PROPERTY_ = 'LITE_CLOSED_LESSON';
 const LITE_PREVIEW_ACCESS_TOKEN_PROPERTY_ = 'LITE_PREVIEW_ACCESS_TOKEN';
@@ -207,9 +208,28 @@ function clearLiteEngineVerification_() {
   properties.deleteProperty(LITE_ENGINE_VERIFIED_ENDPOINT_PROPERTY_);
   properties.deleteProperty(LITE_ENGINE_VERIFIED_POLICY_PROPERTY_);
   properties.deleteProperty(LITE_ENGINE_VERIFIED_AT_PROPERTY_);
+  properties.setProperty(LITE_ENGINE_VERIFICATION_REVISION_PROPERTY_, Utilities.getUuid());
 }
 
-function markLiteEngineVerified_(endpoint, policyVersion) {
+function liteEngineVerificationSnapshot_() {
+  const properties = PropertiesService.getScriptProperties();
+  return {
+    endpoint:liteText_(getLiteEngineEndpoint_(),1000),
+    verifiedEndpoint:properties.getProperty(LITE_ENGINE_VERIFIED_ENDPOINT_PROPERTY_) || '',
+    policyVersion:properties.getProperty(LITE_ENGINE_VERIFIED_POLICY_PROPERTY_) || '',
+    checkedAt:properties.getProperty(LITE_ENGINE_VERIFIED_AT_PROPERTY_) || '',
+    revision:properties.getProperty(LITE_ENGINE_VERIFICATION_REVISION_PROPERTY_) || ''
+  };
+}
+
+function readLiteEngineVerificationSnapshot_() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try { return liteEngineVerificationSnapshot_(); }
+  finally { lock.releaseLock(); }
+}
+
+function markLiteEngineVerified_(endpoint, policyVersion, expectedSnapshot) {
   endpoint = liteText_(endpoint, 1000);
   policyVersion = liteText_(policyVersion, 120);
   if (!endpoint || !policyVersion) throw new Error('확인한 중앙 엔진 정보가 비어 있습니다.');
@@ -220,9 +240,14 @@ function markLiteEngineVerified_(endpoint, policyVersion) {
     if (getLiteEngineEndpoint_() !== endpoint) {
       throw new Error('연결을 확인하는 동안 중앙 엔진 주소가 변경되었습니다. 다시 확인해 주세요.');
     }
+    if (expectedSnapshot && JSON.stringify(liteEngineVerificationSnapshot_()) !== JSON.stringify(expectedSnapshot)) {
+      return false;
+    }
     properties.setProperty(LITE_ENGINE_VERIFIED_ENDPOINT_PROPERTY_, endpoint);
     properties.setProperty(LITE_ENGINE_VERIFIED_POLICY_PROPERTY_, policyVersion);
     properties.setProperty(LITE_ENGINE_VERIFIED_AT_PROPERTY_, new Date().toISOString());
+    properties.setProperty(LITE_ENGINE_VERIFICATION_REVISION_PROPERTY_, Utilities.getUuid());
+    return true;
   } finally {
     lock.releaseLock();
   }
@@ -244,6 +269,7 @@ function invalidateLiteEngineVerificationIfMatches_(endpoint, policyVersion) {
     properties.deleteProperty(LITE_ENGINE_VERIFIED_ENDPOINT_PROPERTY_);
     properties.deleteProperty(LITE_ENGINE_VERIFIED_POLICY_PROPERTY_);
     properties.deleteProperty(LITE_ENGINE_VERIFIED_AT_PROPERTY_);
+    properties.setProperty(LITE_ENGINE_VERIFICATION_REVISION_PROPERTY_, Utilities.getUuid());
     return true;
   } finally {
     lock.releaseLock();
@@ -476,6 +502,30 @@ function liteAssessmentStartQuestion_(settings) {
   try { plan = liteAssessmentPlan_(settings); }
   catch (error) { return ''; }
   return plan.approved && plan.criteria.length ? plan.criteria[0].mainQuestion : '';
+}
+
+function autoCheckLiteEngineForTeacher_() {
+  if (!hasLiteEngineEndpoint_()) return {
+    checkStatus:'not_configured',warning:'공통 챗봇의 연결 정보가 배포본에 없습니다. 운영자가 준비한 최신 교사 사본인지 확인해 주세요.'
+  };
+  try {
+    const snapshot = readLiteEngineVerificationSnapshot_();
+    if (snapshot.endpoint && snapshot.verifiedEndpoint === snapshot.endpoint && snapshot.policyVersion) {
+      return {checkStatus:'verified',warning:''};
+    }
+    const checked = checkLiteEngineConnection_();
+    const saved = markLiteEngineVerified_(checked.endpoint,checked.policyVersion,snapshot);
+    if (saved || isLiteEngineVerified_()) return {checkStatus:'verified',warning:''};
+    return {checkStatus:'changed',warning:'공통 챗봇 연결을 검사하는 동안 연결 상태가 변경되었습니다. 상태 새로고침으로 다시 확인해 주세요.'};
+  } catch (error) {
+    // A newer successful check may have completed while this older request was failing.
+    if (isLiteEngineVerified_()) return {checkStatus:'verified',warning:''};
+    const message = liteText_(error && error.message,240);
+    const detail = /^(중앙 정책 엔진|현재 웹 챗봇|기존 질문중심 챗봇|연결을 확인하는 동안 중앙 엔진)/.test(message)
+      ? message : '중앙 엔진에서 응답을 받지 못했습니다.';
+    return {checkStatus:'failed',warning:'공통 챗봇 연결 확인에 실패했습니다. ' +
+      detail + ' 상태 새로고침이나 챗봇 연결 확인으로 다시 시도해 주세요.'};
+  }
 }
 
 function liteUnderstandingStartQuestion_() {
@@ -730,7 +780,11 @@ function buildLiteReadiness_(settings, context) {
       : runtimeReady && context.studentUrl
         ? '학생 화면에서 99-999로 질문을 한 번 보낸 뒤 준비 상태를 새로고침해 주세요.'
         : setupReady
-          ? '교사 입력은 완료되었습니다. 개인 API와 기존 질문중심 챗봇의 실제 연결 확인이 남았습니다.'
+          ? !apiVerified && !engineVerified
+            ? '교사 입력은 완료되었습니다. 개인 API와 공통 챗봇의 연결 확인이 남았습니다.'
+            : !apiVerified ? '교사 입력은 완료되었습니다. 개인 API 연결 확인이 남았습니다.'
+            : !engineVerified ? '교사 입력과 개인 API 연결은 완료되었습니다. 공통 챗봇 연결 확인이 남았습니다.'
+            : '교사 입력과 연결 확인은 완료되었습니다. 웹앱 배포 주소를 확인해 주세요.'
         : '위에서 “필수”로 표시된 교사 설정부터 완료해 주세요.'
   };
 }

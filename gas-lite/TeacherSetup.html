@@ -106,6 +106,7 @@
       .onboarding-body ol { margin:7px 0 10px; padding-left:21px; }
       .onboarding-body .button-link { max-width:100%; }
       #onboarding-status:empty { display:none; }
+      #preview-copy-fallback { margin-top:10px; }
       .mode-choice { margin-top:16px; }
       .sharing-box { margin-top:18px; padding-top:16px; border-top:1px solid var(--line); }
       .sharing-box input { max-width:180px; }
@@ -154,6 +155,7 @@
                 <button id="save-student-url" type="button" class="primary">연결 검사·주소 저장</button>
                 <button id="test-engine" type="button" class="secondary">챗봇 연결 확인</button>
                 <a id="onboarding-open-preview" class="button-link" target="_blank" rel="noopener noreferrer" aria-disabled="true">교사 미리보기</a>
+                <button id="onboarding-copy-preview-url" type="button" class="secondary" disabled>미리보기 주소 복사</button>
               </div>
               <p id="onboarding-preview-help" class="help">AI 연결과 수업 설정을 저장하면 미리보기를 열 수 있습니다.</p>
               <p id="onboarding-status" class="status" role="status" aria-live="polite"></p>
@@ -363,7 +365,12 @@
           <p id="readiness-summary" class="help">준비 상태를 불러오는 중입니다.</p>
           <div class="button-row">
             <a id="open-student" class="button-link" target="_blank" rel="noopener noreferrer" aria-disabled="true">교사 미리보기</a>
+            <button id="copy-preview-url" type="button" class="secondary" disabled>미리보기 주소 복사</button>
             <button id="refresh-readiness" type="button" class="secondary">상태 새로고침</button>
+          </div>
+          <div id="preview-copy-fallback" class="hidden">
+            <label>교사용 미리보기 주소<input id="preview-url-fallback" type="text" readonly autocomplete="off" spellcheck="false"></label>
+            <p class="help">주소를 직접 복사해 새 탭 주소창에 붙여 넣으세요. 학생 배포에는 아래 ‘학생 링크 복사’를 사용합니다.</p>
           </div>
           <div class="sharing-box">
             <label>학생 참여코드 · 숫자 6자리<input id="join-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required></label>
@@ -457,6 +464,9 @@
         });
         byId('refresh-readiness').addEventListener('click', function () { refreshData('준비 상태를 새로고침했습니다.'); });
         byId('copy-student-url').addEventListener('click', copyStudentUrl);
+        byId('copy-preview-url').addEventListener('click', copyPreviewUrl);
+        byId('onboarding-copy-preview-url').addEventListener('click', copyPreviewUrl);
+        byId('preview-url-fallback').addEventListener('click', function () { this.select(); });
         byId('toggle-lesson').addEventListener('click', toggleLesson);
         byId('duplicate-lesson').addEventListener('click', duplicateLesson);
         byId('generate-assessment').addEventListener('click', generateAssessmentDraft);
@@ -1581,6 +1591,11 @@
           if (previewEnabled) { link.href = previewUrl; link.setAttribute('aria-disabled', 'false'); }
           else { link.removeAttribute('href'); link.setAttribute('aria-disabled', 'true'); }
         });
+        ['copy-preview-url', 'onboarding-copy-preview-url'].forEach(function (id) { byId(id).disabled = !previewEnabled; });
+        if (!previewEnabled || byId('preview-url-fallback').value !== previewUrl) {
+          byId('preview-copy-fallback').classList.toggle('hidden', true);
+          byId('preview-url-fallback').value = '';
+        }
         byId('copy-student-url').disabled = controlsBusy || dirty || !planReady || !deploymentIsVerified() || !(studentUrl && report.distributionReady);
         const toggle = byId('toggle-lesson');
         toggle.dataset.open = report.lessonOpen === false ? 'false' : 'true';
@@ -1599,13 +1614,55 @@
         }
       }
 
-      function fallbackCopy(value, onSuccess) {
+      function previewUrlForCopy() {
+        if (byId('copy-preview-url').disabled || controlsBusy || hasUnsavedSetupChanges() || !deploymentIsVerified()) return '';
+        return byId('open-student').getAttribute('href') || '';
+      }
+
+      function showPreviewCopyFallback(value) {
+        if (!value || value !== previewUrlForCopy()) return;
+        showStep(steps.indexOf('check'));
+        byId('preview-copy-fallback').classList.toggle('hidden', false);
+        const field = byId('preview-url-fallback');
+        field.value = value;
+        field.focus();
+        field.select();
+        setStatus('자동 복사가 되지 않아 주소를 선택했습니다. 직접 복사해 새 탭 주소창에 붙여 넣으세요.', true);
+      }
+
+      function copyPreviewUrl() {
+        const value = previewUrlForCopy();
+        if (!value) return;
+        const copied = function () {
+          if (value !== previewUrlForCopy()) return;
+          byId('preview-copy-fallback').classList.toggle('hidden', true);
+          byId('preview-url-fallback').value = '';
+          setStatus('미리보기 주소를 복사했습니다. 새 탭 주소창에 붙여 넣으세요.');
+        };
+        const failed = function () { showPreviewCopyFallback(value); };
+        const fallback = function () { if (value === previewUrlForCopy()) fallbackCopy(value, copied, failed); };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          try { navigator.clipboard.writeText(value).then(copied).catch(fallback); }
+          catch (error) { fallback(); }
+        } else {
+          fallback();
+        }
+      }
+
+      function fallbackCopy(value, onSuccess, onFailure) {
         const area = document.createElement('textarea');
         area.value = value; area.setAttribute('readonly', ''); area.style.position = 'fixed'; area.style.opacity = '0';
-        document.body.appendChild(area); area.select();
-        try { document.execCommand('copy'); onSuccess(); }
-        catch (error) { setStatus('주소를 길게 눌러 직접 복사해 주세요.', true); }
-        document.body.removeChild(area);
+        let appended = false;
+        let copied = false;
+        try {
+          document.body.appendChild(area); appended = true;
+          area.select();
+          copied = document.execCommand('copy') === true;
+        } catch (error) {}
+        finally { if (appended) document.body.removeChild(area); }
+        if (copied) onSuccess();
+        else if (onFailure) onFailure();
+        else setStatus('주소를 길게 눌러 직접 복사해 주세요.', true);
       }
 
       function toggleLesson() {
