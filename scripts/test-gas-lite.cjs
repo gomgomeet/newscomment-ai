@@ -516,11 +516,12 @@ const savedEmptyExploration = toggleContext.saveLiteTeacherSettings_(exploration
 assert.equal(toggleContext.readLiteTeacherSettings_().activityMode, 'exploration');
 Object.keys(backwardDesignLimits).forEach((field) => assert.equal(savedEmptyExploration[field], ''));
 toggleContext.updateLiteStartHereStatus_(toggleSpreadsheet, explorationReadiness);
-assert.equal(toggleSpreadsheet.getSheetByName('시작하기').getCell(3, 2), '사용 안 함');
+assert.equal(toggleSpreadsheet.getSheetByName('시작하기').getCell(3, 2), '교사가 진행');
 toggleContext.updateLiteStartHereStatus_(toggleSpreadsheet, distributionReady);
-assert.equal(toggleSpreadsheet.getSheetByName('시작하기').getCell(3, 2), '완료');
+assert.equal(toggleSpreadsheet.getSheetByName('시작하기').getCell(3, 2), '교사가 진행');
 toggleContext.updateLiteStartHereStatus_(toggleSpreadsheet, incompleteEvaluationReadiness);
-assert.equal(toggleSpreadsheet.getSheetByName('시작하기').getCell(3, 2), '입력 필요');
+assert.equal(toggleSpreadsheet.getSheetByName('시작하기').getCell(3, 2), '교사가 진행');
+assert.match(toggleSpreadsheet.getSheetByName('시작하기').getCell(7, 3), /사본마다/);
 
 const headers = vm.runInContext('LITE_SHEET_HEADERS_', context);
 assert.deepEqual(
@@ -2002,11 +2003,18 @@ vm.runInContext(codeSource, context, { filename:'gas-lite/Code.js' });
 const confirmedUrlProperty = 'LITE_CONFIRMED_STUDENT_URL';
 const confirmedUrl = 'https://script.google.com/macros/s/actual_deployment-123/exec';
 const automaticUrl = context.getLiteStudentUrl_();
+context.ScriptApp.getScriptId = () => 'current-test-project';
+const originalDeploymentVerifier = context.verifyLiteStudentDeployment_;
+context.verifyLiteStudentDeployment_ = (url) => ({
+  url, appVersion:vm.runInContext('LITE_APP_VERSION_', context),
+  projectFingerprint:context.liteFingerprint_('current-test-project',48),
+  checkedAt:'2026-09-18T00:00:00.000Z'
+});
 context.markLiteApiVerified_('sk-zxywvutsrqponmlk');
 context.markLitePreviewVerified_(copiedSettings);
 const beforeUrlData = context.getLiteTeacherSetupData(teacherToken);
 const propertiesExceptUrl = () => Object.fromEntries(
-  Array.from(properties.entries()).filter(([key]) => key !== confirmedUrlProperty)
+  Array.from(properties.entries()).filter(([key]) => ![confirmedUrlProperty,'LITE_DEPLOYMENT_VERIFIED'].includes(key))
 );
 const lessonSheets = () => JSON.stringify(Array.from(spreadsheet.sheets.entries())
   .filter(([name]) => name !== '시작하기').map(([name, sheet]) => [name, sheet.rows]));
@@ -2021,6 +2029,7 @@ assert.equal(properties.has(confirmedUrlProperty), false);
 const savedUrlData = context.saveLiteStudentUrlForTeacher(teacherToken, '  ' + confirmedUrl + '  ');
 assert.equal(savedUrlData.studentUrl, confirmedUrl);
 assert.equal(savedUrlData.confirmedStudentUrl, confirmedUrl);
+assert.equal(savedUrlData.onboarding.deploymentVerified, true);
 assert.equal(savedUrlData.previewUrl, confirmedUrl + beforeUrlData.previewUrl.slice(beforeUrlData.previewUrl.indexOf('?')));
 assert.equal(context.isLitePreviewVerified_(copiedSettings), true);
 assert.equal(JSON.stringify(savedUrlData.settings), beforeUrlLesson);
@@ -2051,9 +2060,10 @@ context.ScriptApp.getService = originalService;
 properties.set(confirmedUrlProperty, 'https://example.com/unsafe');
 assert.throws(() => context.getLiteStudentUrl_(), /주소만/, 'Invalid stored overrides cannot become clickable links');
 properties.set(confirmedUrlProperty, confirmedUrl);
-const clearedUrlData = context.saveLiteStudentUrlForTeacher(teacherToken, '');
-assert.equal(clearedUrlData.studentUrl, automaticUrl);
-assert.equal(clearedUrlData.confirmedStudentUrl, '');
+assert.throws(() => context.saveLiteStudentUrlForTeacher(teacherToken, ''), /주소를 입력/);
+assert.equal(context.getLiteStudentUrl_(), confirmedUrl, 'Empty input preserves the verified deployment');
+context.saveLiteStudentUrl_('');
+assert.equal(context.getLiteStudentUrl_(), automaticUrl);
 assert.equal(properties.has(confirmedUrlProperty), false);
 assert.deepEqual(propertiesExceptUrl(), beforeUrlProperties);
 assert.equal(lessonSheets(), beforeUrlSheets);
@@ -2062,6 +2072,7 @@ assert.equal(context.getLiteStudentUrl_(), '');
 context.ScriptApp.getService = () => { throw new Error('not deployed'); };
 assert.equal(context.getLiteStudentUrl_(), '');
 context.ScriptApp.getService = originalService;
+context.verifyLiteStudentDeployment_ = originalDeploymentVerifier;
 [teacherHtml, teacherDashboardHtml, studentClientHtml].forEach((source, index) => {
   const scripts = Array.from(source.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi));
   scripts.forEach((match, scriptIndex) => {
@@ -2097,8 +2108,8 @@ assert.match(teacherHtml, /id="evidence-description"/);
 assert.match(teacherHtml, /latestDistributionReady/);
 assert.ok(/const dirty = hasUnsavedSetupChanges\(\)/.test(teacherHtml),
   'Readiness must gate links on the whole unsaved form, not only the activity mode');
-assert.ok(/copy-student-url'\)\.disabled = controlsBusy \|\| dirty \|\| !planReady \|\| !\(studentUrl && report\.distributionReady\)/.test(teacherHtml),
-  'Student link copying requires saved settings, no active operation, and server distribution readiness');
+assert.ok(/copy-student-url'\)\.disabled = controlsBusy \|\| dirty \|\| !planReady \|\| !deploymentIsVerified\(\) \|\| !\(studentUrl && report\.distributionReady\)/.test(teacherHtml),
+  'Student link copying requires saved settings, a verified deployment, no active operation, and server distribution readiness');
 assert.match(teacherHtml, /id="test-engine"/);
 assert.match(teacherHtml, /id="copy-student-url"/);
 assert.match(teacherHtml, /id="toggle-lesson"/);

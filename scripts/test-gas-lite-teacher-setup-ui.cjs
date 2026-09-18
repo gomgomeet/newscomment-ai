@@ -1070,6 +1070,75 @@ const urlSave = urlUi.takeRequest('saveLiteStudentUrlForTeacher');
 assert.equal(urlSave.args[1], 'https://script.google.com/macros/s/example-test/exec');
 urlSave.success({ ...readyData(settings), confirmedStudentUrl:urlSave.args[1] });
 
+const onboardingUrl = 'https://script.google.com/macros/s/test-onboarding-deployment/exec';
+const scriptEditorUrl = 'https://script.google.com/home/projects/test-teacher-script/edit';
+const initialOnboarding = {scriptEditorUrl, authorizationReady:true, deploymentVerified:false, confirmedStudentUrl:''};
+const onboardingUi = createUi(settings, {
+  ...readyData(settings, {engineVerified:false, previewVerified:false}), onboarding:initialOnboarding,
+});
+assert.equal((html.match(/id="confirmed-student-url"/g) || []).length, 1, 'Only one deployment URL field is shown');
+assert.equal(onboardingUi.byId('onboarding-settings').open, true);
+assert.equal(onboardingUi.byId('onboarding-authorization').open, false, 'Completed authorization is collapsed');
+assert.equal(onboardingUi.byId('onboarding-authorization-state').textContent, '완료');
+assert.equal(onboardingUi.byId('onboarding-deployment').open, true, 'The first unfinished setup step opens');
+assert.equal(onboardingUi.byId('onboarding-connection').open, false);
+assert.equal(onboardingUi.byId('open-script-editor').href, scriptEditorUrl);
+assertLinksDisabled(onboardingUi);
+onboardingUi.click('deployment-address-ready');
+assert.equal(onboardingUi.byId('onboarding-deployment').open, false);
+assert.equal(onboardingUi.byId('onboarding-deployment').dataset.state, 'pending', 'Reading the instructions does not verify a deployment');
+assert.equal(onboardingUi.byId('onboarding-connection').open, true);
+onboardingUi.click('save-student-url');
+assert.equal(onboardingUi.requests.length, 0, 'Empty URLs cannot restore an unverified automatic URL');
+assert.match(onboardingUi.byId('onboarding-status').textContent, /exec 주소를 입력/);
+onboardingUi.byId('confirmed-student-url').value = onboardingUrl;
+onboardingUi.byId('confirmed-student-url').dispatch('input');
+assertLinksDisabled(onboardingUi);
+onboardingUi.click('save-student-url');
+const invalidDeployment = onboardingUi.takeRequest('saveLiteStudentUrlForTeacher');
+assertLinksDisabled(onboardingUi);
+invalidDeployment.failure({message:'다른 사본의 웹앱 주소입니다.'});
+assert.match(onboardingUi.byId('onboarding-status').textContent, /다른 사본/);
+assert.equal(onboardingUi.byId('confirmed-student-url').value, onboardingUrl, 'A failed check does not silently substitute another URL');
+assert.equal(onboardingUi.byId('onboarding-connection').open, true);
+assertLinksDisabled(onboardingUi);
+onboardingUi.click('save-student-url');
+onboardingUi.takeRequest('saveLiteStudentUrlForTeacher').success({
+  ...readyData(settings, {engineVerified:false, previewVerified:false}),
+  studentUrl:onboardingUrl, previewUrl:onboardingUrl+'?preview=fixture', confirmedStudentUrl:onboardingUrl,
+  onboarding:{...initialOnboarding, deploymentVerified:true, confirmedStudentUrl:onboardingUrl},
+});
+assert.equal(onboardingUi.byId('onboarding-deployment').dataset.state, 'done');
+assert.equal(onboardingUi.byId('onboarding-connection').open, true, 'The central engine still needs a connection check');
+assert.equal(onboardingUi.byId('test-engine').classList.contains('hidden'), false);
+assertLinksDisabled(onboardingUi);
+onboardingUi.click('test-engine');
+onboardingUi.takeRequest('testLiteEngineConnection').success({message:'챗봇 연결 확인 완료'});
+onboardingUi.takeRequest('getLiteTeacherSetupData').success({
+  ...readyData(settings, {previewVerified:false}),
+  studentUrl:onboardingUrl, previewUrl:onboardingUrl+'?preview=fixture', confirmedStudentUrl:onboardingUrl,
+  onboarding:{...initialOnboarding, deploymentVerified:true, confirmedStudentUrl:onboardingUrl},
+});
+assert.equal(onboardingUi.byId('onboarding-settings').open, false, 'Completed one-time setup is collapsed');
+assert.equal(onboardingUi.byId('onboarding-badge').textContent, '완료');
+assert.equal(onboardingUi.byId('onboarding-open-preview').href, onboardingUrl+'?preview=fixture');
+assert.equal(onboardingUi.byId('open-student').href, onboardingUrl+'?preview=fixture');
+assert.equal(onboardingUi.byId('copy-student-url').disabled, true, 'A verified deployment does not skip the lesson preview');
+onboardingUi.click('manage-onboarding');
+assert.equal(onboardingUi.byId('onboarding-settings').open, true);
+onboardingUi.byId('confirmed-student-url').value = 'https://script.google.com/macros/s/a-different-deployment/exec';
+onboardingUi.byId('confirmed-student-url').dispatch('input');
+assertLinksDisabled(onboardingUi);
+assert.equal(onboardingUi.byId('onboarding-open-preview').getAttribute('href'), null, 'An edited URL must pass its own verification');
+const staleAddressUi = createUi(settings, {
+  ...readyData(settings), confirmedStudentUrl:onboardingUrl,
+  onboarding:{...initialOnboarding, confirmedStudentUrl:onboardingUrl, scriptEditorUrl:'javascript:alert(1)'},
+});
+assert.equal(staleAddressUi.byId('onboarding-deployment').dataset.state, 'pending', 'A stored URL alone is not proof of a working deployment');
+assert.equal(staleAddressUi.byId('onboarding-connection').open, true, 'An existing unchecked URL goes directly to verification');
+assert.equal(staleAddressUi.byId('open-script-editor').getAttribute('href'), null);
+assertLinksDisabled(staleAddressUi);
+
 const dirtyUi = createUi(settings);
 dirtyUi.byId('join-code').value = '123456';
 dirtyUi.byId('join-code').dispatch('input');

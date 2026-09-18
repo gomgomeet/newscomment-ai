@@ -37,7 +37,7 @@ function setupLiteProject() {
   getOrCreateLiteDeploymentId_();
   ensureLiteWorkbook_(spreadsheet);
   spreadsheet.toast(
-    '교사용 수업·대화·평가 시트를 준비했습니다. 이제 교사 설정을 열어 주세요.',
+    '최초 준비를 마쳤습니다. 교사 설정의 3단계 안내에 따라 웹앱을 배포하고 주소를 확인해 주세요.',
     'simbot',
     7
   );
@@ -73,6 +73,7 @@ function getLiteTeacherSetupData(teacherAccessToken) {
     engine: { configured: hasLiteEngineEndpoint_(), verified: isLiteEngineVerified_() },
     studentUrl: studentUrl,
     confirmedStudentUrl: getLiteConfirmedStudentUrl_(),
+    onboarding: buildLiteTeacherOnboarding_(),
     previewUrl: previewUrl,
     readiness: readiness
   };
@@ -93,6 +94,7 @@ function saveLiteTeacherSetup(teacherAccessToken, payload) {
     settings: liteClientData_(saved),
     studentUrl: studentUrl,
     previewUrl: previewUrl,
+    onboarding: buildLiteTeacherOnboarding_(),
     readiness: readiness
   };
 }
@@ -119,12 +121,10 @@ function generateLiteRequiredRubricDraft(teacherAccessToken, payload) {
 
 function saveLiteStudentUrlForTeacher(teacherAccessToken, studentUrl) {
   assertLiteTeacherAccess_(teacherAccessToken);
-  const confirmedUrl = saveLiteStudentUrl_(studentUrl);
+  saveLiteVerifiedStudentUrl_(studentUrl);
   const data = getLiteTeacherSetupData(teacherAccessToken);
   data.ok = true;
-  data.message = confirmedUrl
-    ? '확인한 웹앱 주소를 저장했습니다. 이 주소로 미리보기와 학생 링크를 엽니다.'
-    : '직접 저장한 주소를 해제했습니다. 자동으로 찾은 웹앱 주소를 사용합니다.';
+  data.message = '이 교사 사본의 최신 웹앱이 로그인 없이 열리는 것을 확인하고 주소를 저장했습니다. 수업 준비와 교사 미리보기는 별도로 점검합니다.';
   return data;
 }
 
@@ -241,6 +241,10 @@ function showLiteStudentLink() {
 }
 
 function doGet(e) {
+  if (e && e.parameter && e.parameter.simbotHealth === 'deployment-v1') {
+    return ContentService.createTextOutput(JSON.stringify(liteDeploymentHealthResponse_(e.parameter.nonce)))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
   const template = HtmlService.createTemplateFromFile('Student');
   template.previewAccessToken = liteText_(e && e.parameter && e.parameter.preview, 128);
   return template.evaluate()
@@ -279,6 +283,7 @@ function setLiteLessonOpenForTeacher(teacherAccessToken, shouldOpen) {
     readiness: readiness,
     studentUrl: getLiteStudentUrl_(),
     previewUrl: getLiteTeacherPreviewUrl_(settings),
+    onboarding: buildLiteTeacherOnboarding_(),
     message: open
       ? '현재 수업을 다시 열었습니다. 준비 상태를 확인해 주세요.'
       : '현재 수업 배포를 종료했습니다. 학생의 새 입장과 질문을 차단합니다.'
@@ -303,6 +308,7 @@ function duplicateLiteLessonForTeacher(teacherAccessToken) {
     studentUrl: getLiteStudentUrl_(),
     previewUrl: getLiteTeacherPreviewUrl_(saved),
     confirmedStudentUrl: getLiteConfirmedStudentUrl_(),
+    onboarding: buildLiteTeacherOnboarding_(),
     readiness: readiness,
     message: '현재 설계를 새 수업으로 복제했습니다. 내용을 수정해 저장하고 99-999로 다시 미리보기해 주세요.'
   };
