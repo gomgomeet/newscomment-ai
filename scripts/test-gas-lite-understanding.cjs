@@ -86,7 +86,7 @@ const plain = value => JSON.parse(JSON.stringify(value));
   const x=setup(), {context:c,payload:p,settings:s}=x;
   let session=c.startLiteStudentSession(p);
   assert.equal(session.learningStage,'understanding');assert.equal(session.canStartAssessment,false);
-  assert.match(session.history[0].text,/궁금한 낱말/);
+  assert.match(session.history[0].text,/글을 읽고 궁금한 것을 질문해 주세요! 제목을 보고 어떤 내용인지 생각해 볼까요\?/);
   assert.notEqual(session.history[0].text,c.liteAssessmentStartQuestion_(s));
   assert.throws(() => c.submitLiteTurn({...p,action:'start_assessment'}),/먼저 글/);
   assert.throws(() => c.submitLiteTurn({...p,action:'forged-action'}),/종류/);

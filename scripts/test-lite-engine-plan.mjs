@@ -665,7 +665,7 @@ test('GAS session opens with understanding and uses the saved approved question 
   assert.equal(session.history[0].speaker, 'bot');
   assert.equal(session.learningStage, 'understanding');
   assert.equal(session.canStartAssessment, false);
-  assert.match(session.history[0].text, /궁금한 낱말|이해하기 어려운/);
+  assert.match(session.history[0].text, /글을 읽고 궁금한 것을 질문해 주세요! 제목을 보고 어떤 내용인지 생각해 볼까요\?/);
   assert.notEqual(session.history[0].text, effectiveQuestion);
   assert.equal(session.lesson.startQuestion, session.history[0].text);
   assert.ok(!JSON.stringify(session).includes('교사전용'));

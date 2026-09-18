@@ -477,7 +477,7 @@ function liteAssessmentStartQuestion_(settings) {
 
 function liteUnderstandingStartQuestion_(settings) {
   if (!settings || settings.activityMode !== 'evaluation') return liteAssessmentStartQuestion_(settings);
-  return '먼저 글을 읽고 궁금한 낱말이나 이해하기 어려운 내용을 질문해 보세요. 예를 들어 “이 말은 무슨 뜻인가요?”, “왜 이런 일이 생겼나요?”처럼 물어볼 수 있어요. 충분히 이해했다면 ‘평가 시작하기’를 눌러 주세요.';
+  return '글을 읽고 궁금한 것을 질문해 주세요! 제목을 보고 어떤 내용인지 생각해 볼까요?';
 }
 
 function validateLiteTeacherSetup_(payload) {
