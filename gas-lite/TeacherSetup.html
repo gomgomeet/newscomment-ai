@@ -368,10 +368,11 @@
             <button id="copy-preview-url" type="button" class="secondary" disabled>미리보기 주소 복사</button>
             <button id="refresh-readiness" type="button" class="secondary">상태 새로고침</button>
           </div>
-          <div id="preview-copy-fallback" class="hidden">
+          <details id="preview-copy-fallback" class="help hidden">
+            <summary>미리보기 주소 직접 복사</summary>
             <label>교사용 미리보기 주소<input id="preview-url-fallback" type="text" readonly autocomplete="off" spellcheck="false"></label>
             <p class="help">주소를 직접 복사해 새 탭 주소창에 붙여 넣으세요. 학생 배포에는 아래 ‘학생 링크 복사’를 사용합니다.</p>
-          </div>
+          </details>
           <div class="sharing-box">
             <label>학생 참여코드 · 숫자 6자리<input id="join-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required></label>
             <p class="help">학생에게 링크와 참여코드를 함께 안내하세요.</p>
@@ -1593,9 +1594,10 @@
         });
         ['copy-preview-url', 'onboarding-copy-preview-url'].forEach(function (id) { byId(id).disabled = !previewEnabled; });
         if (!previewEnabled || byId('preview-url-fallback').value !== previewUrl) {
-          byId('preview-copy-fallback').classList.toggle('hidden', true);
-          byId('preview-url-fallback').value = '';
+          byId('preview-copy-fallback').open = false;
         }
+        byId('preview-copy-fallback').classList.toggle('hidden', !previewEnabled);
+        byId('preview-url-fallback').value = previewEnabled ? previewUrl : '';
         byId('copy-student-url').disabled = controlsBusy || dirty || !planReady || !deploymentIsVerified() || !(studentUrl && report.distributionReady);
         const toggle = byId('toggle-lesson');
         toggle.dataset.open = report.lessonOpen === false ? 'false' : 'true';
@@ -1623,6 +1625,7 @@
         if (!value || value !== previewUrlForCopy()) return;
         showStep(steps.indexOf('check'));
         byId('preview-copy-fallback').classList.toggle('hidden', false);
+        byId('preview-copy-fallback').open = true;
         const field = byId('preview-url-fallback');
         field.value = value;
         field.focus();
@@ -1635,8 +1638,8 @@
         if (!value) return;
         const copied = function () {
           if (value !== previewUrlForCopy()) return;
-          byId('preview-copy-fallback').classList.toggle('hidden', true);
-          byId('preview-url-fallback').value = '';
+          byId('preview-copy-fallback').open = false;
+          byId('preview-url-fallback').value = value;
           setStatus('미리보기 주소를 복사했습니다. 새 탭 주소창에 붙여 넣으세요.');
         };
         const failed = function () { showPreviewCopyFallback(value); };
