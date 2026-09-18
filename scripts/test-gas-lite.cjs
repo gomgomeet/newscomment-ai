@@ -149,6 +149,9 @@ const engineSource = rawEngineSource.replace(
 vm.runInContext(engineSource, context, { filename: 'gas-lite/EngineClient.js' });
 const evaluationSource = fs.readFileSync(path.join(root, 'gas-lite', 'EvaluationService.js'), 'utf8');
 vm.runInContext(evaluationSource, context, { filename: 'gas-lite/EvaluationService.js' });
+// These recovery/security fixtures model a formal assessment already in progress.
+// Understanding-stage entry and transition use the real state machine in test-gas-lite-understanding.cjs.
+context.liteLearningState_ = () => ({ learningStage:'assessment', canStartAssessment:false });
 
 const validAssessmentCriterion = {
   id: 'main-evidence',
@@ -2114,7 +2117,7 @@ assert.match(studentHtml, /id="join-code-input"/);
 assert.match(studentClientHtml, /getLiteStudentBootstrap/);
 assert.match(studentClientHtml, /startLiteStudentSession/);
 assert.match(studentClientHtml, /submitLiteTurn/);
-assert.match(studentClientHtml, /elements\.quickActions\.hidden = lesson\.activityMode !== 'exploration'/);
+// Visibility across exploration/understanding/formal stages is exercised by the student UI behavior tests.
 assert.doesNotMatch(studentClientHtml, /elements\.hintButton|sendTurn\('hint'/);
 assert.match(studentClientHtml, /lessonIdentity\(\)/);
 assert.match(studentClientHtml, /sessionStorage\.getItem\(key\)/);
@@ -2173,6 +2176,7 @@ const planContext = vm.createContext({
   LockService:{ getScriptLock:() => ({ waitLock() {}, tryLock() { return true; }, releaseLock() {} }) }
 });
 [setupSource, conversationSource, engineSource, evaluationSource, codeSource].forEach((source) => vm.runInContext(source, planContext));
+planContext.liteLearningState_ = () => ({ learningStage:'assessment', canStartAssessment:false });
 const planCriterion = {
   id:'reason', criterion:'자료에서 이유 찾기', responseKind:'explanation',
   mainQuestion:'학교에서 개인 물병을 사용하는 이유는 무엇인가요?',
@@ -2235,7 +2239,8 @@ assert.match(planContext.buildLiteReadiness_({ ...valid, assessmentPlanJson:'' }
 assert.match(planContext.buildLiteReadiness_(draftSettings, readinessContext)
   .checks.find((item) => item.key === 'assessmentPlan').detail, /보관됨·비활성/);
 assert.equal(planContext.liteAssessmentStartQuestion_(planSettings), planCriterion.mainQuestion);
-assert.equal(planContext.sanitizeLiteSettingsForStudent_(planSettings).startQuestion, planCriterion.mainQuestion);
+assert.equal(planContext.sanitizeLiteSettingsForStudent_(planSettings).startQuestion, planContext.liteUnderstandingStartQuestion_(planSettings));
+assert.equal(planContext.sanitizeLiteSettingsForStudent_(planSettings).understandingEnabled, true);
 assert.equal(planContext.liteAssessmentStartQuestion_({ ...planSettings, activityMode:'exploration' }), valid.startQuestion);
 assert.doesNotMatch(JSON.stringify(planContext.sanitizeLiteSettingsForStudent_(planSettings)), /assessmentPlan|sourceQuote|evidenceDescription/);
 assert.doesNotMatch(JSON.stringify(planContext.sanitizeLiteBootstrapForStudent_(planSettings)), /assessmentPlan|sourceQuote|evidenceDescription/);

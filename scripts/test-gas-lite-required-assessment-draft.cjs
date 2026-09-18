@@ -288,7 +288,8 @@ test('required mode derives exactly two approved live-plan criteria, ignoring a 
   assert.ok(plan.criteria.every(item=>item.criterion.length<=180 && item.evidenceDescription.length<=300 && item.sourceQuote.length<=240));
   assert.equal(saved.requiredAssessment.items[0].assessmentCriteria,requiredAssessment.items[0].assessmentCriteria);
   assert.equal(saved.requiredAssessment.items[0].evidenceDescription,requiredAssessment.items[0].evidenceDescription);
-  assert.equal(h.context.sanitizeLiteSettingsForStudent_(saved).startQuestion,questions[0].question);
+  assert.equal(h.context.sanitizeLiteSettingsForStudent_(saved).startQuestion,h.context.liteUnderstandingStartQuestion_(saved));
+  assert.equal(h.context.liteAssessmentStartQuestion_(saved),questions[0].question);
   assert.equal(JSON.parse(result.assessmentPlanJson).criteria[0].mainQuestion,questions[0].question);
   for(const requiredAssessmentApproved of [undefined,false,'true']) assert.throws(()=>h.context.validateLiteTeacherSetup_({...payload,requiredAssessmentApproved}),/승인/);
 });
@@ -385,7 +386,8 @@ test('generated required tables produce plans accepted unchanged by the real cen
     const publicLesson=h.context.sanitizeLiteSettingsForStudent_(h.context.validateLiteTeacherSetup_({
       ...settingsPayload(generated.requiredAssessment),rubricScheme
     }));
-    assert.equal(publicLesson.startQuestion,plan.criteria[0].mainQuestion);
+    assert.equal(publicLesson.startQuestion,h.context.liteUnderstandingStartQuestion_({activityMode:'evaluation'}));
+    assert.equal(publicLesson.understandingEnabled,true);
     assert.deepEqual(plain(publicLesson.requiredQuestions),editedQuestions);
     assert.equal(Object.hasOwn(publicLesson,'assessmentPlanJson'),false);
     assert.equal(Object.hasOwn(publicLesson,'requiredAssessment'),false);

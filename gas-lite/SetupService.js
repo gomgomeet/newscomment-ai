@@ -3,7 +3,7 @@
  * API 키는 Script Properties에만 저장하며 Sheet 행으로 만들지 않습니다.
  */
 
-const LITE_APP_VERSION_ = '0.10.0';
+const LITE_APP_VERSION_ = '0.11.0';
 const LITE_API_KEY_PROPERTY_ = 'TEACHER_OPENAI_API_KEY';
 const LITE_SPREADSHEET_ID_PROPERTY_ = 'TEACHER_SPREADSHEET_ID';
 const LITE_ENGINE_ENDPOINT_PROPERTY_ = 'CENTRAL_ENGINE_ENDPOINT';
@@ -475,6 +475,11 @@ function liteAssessmentStartQuestion_(settings) {
   return plan.approved && plan.criteria.length ? plan.criteria[0].mainQuestion : '';
 }
 
+function liteUnderstandingStartQuestion_(settings) {
+  if (!settings || settings.activityMode !== 'evaluation') return liteAssessmentStartQuestion_(settings);
+  return '먼저 글을 읽고 궁금한 낱말이나 이해하기 어려운 내용을 질문해 보세요. 예를 들어 “이 말은 무슨 뜻인가요?”, “왜 이런 일이 생겼나요?”처럼 물어볼 수 있어요. 충분히 이해했다면 ‘평가 시작하기’를 눌러 주세요.';
+}
+
 function validateLiteTeacherSetup_(payload) {
   payload = payload || {};
   const materialText = liteRequired_(payload.materialText, '수업자료 본문', 30000);
@@ -569,7 +574,8 @@ function sanitizeLiteSettingsForStudent_(settings) {
     materialTitle: liteText_(settings.materialTitle, 120),
     materialText: liteText_(settings.materialText, 30000),
     materialUrl: liteText_(settings.materialUrl, 1000),
-    startQuestion: liteAssessmentStartQuestion_(settings),
+    startQuestion: liteUnderstandingStartQuestion_(settings),
+    understandingEnabled: settings.activityMode === 'evaluation',
     requiredQuestions: settings.activityMode !== 'exploration' && settings.requiredAssessment
       ? settings.requiredAssessment.items.map(function (item) { return { id:item.id, question:item.question }; }) : [],
     activityMode: settings.activityMode === 'exploration' ? 'exploration' : 'evaluation',

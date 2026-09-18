@@ -174,12 +174,19 @@ function prepareLiteRecoveryTurn_(payload, settings) {
     sourceHash:sourceHash
   };
   const currentIdentity = liteTurnMatchesSettingsIdentity_(identity, settings);
+  const requestedAction = liteText_(payload.action, 40);
+  if (requestedAction && ['message','close','start_assessment'].indexOf(requestedAction) < 0) {
+    throw new Error('대화 요청 종류를 확인해 주세요.');
+  }
+  // Message/close existed before action-specific fingerprints; preserve their recovery identity.
+  const action = requestedAction === 'start_assessment' ? requestedAction : '';
   return {
     requestId:normalizeLiteRequestId_(payload.requestId),
     studentCode:studentCode,
     deviceToken:deviceToken,
     sessionId:makeLiteSessionId_(lessonId, lessonRevision, sourceHash, studentCode, deviceToken),
-    message:redactLiteStudentText_(payload.message),
+    action:action,
+    message:action === 'start_assessment' ? '평가 시작' : redactLiteStudentText_(payload.message),
     isPreview:studentCode === '99-999',
     activityMode:currentIdentity
       ? (settings.activityMode === 'exploration' ? 'exploration' : 'evaluation')
@@ -275,10 +282,77 @@ function normalizeLiteAssessmentProgress_(value) {
 
 function latestLiteAssessmentProgress_(rows) {
   const botRows = (rows || []).filter(function (row) {
-    return row.speaker === 'bot' && String(row.engineStatus || '').indexOf('engine_failed:') !== 0;
+    return row.speaker === 'bot' && Boolean(row.assessmentProgressJson) &&
+      String(row.engineStatus || '').indexOf('engine_failed:') !== 0;
   }).sort(function (a, b) { return Number(b.turnNo || 0) - Number(a.turnNo || 0); });
   if (!botRows.length) return null;
   return normalizeLiteAssessmentProgress_(botRows[0].assessmentProgressJson);
+}
+
+function liteLearningState_(settings, rows, progressOverride) {
+  const result = { learningStage:'', canStartAssessment:false };
+  if (!settings || settings.activityMode !== 'evaluation') return result;
+  result.learningStage = 'understanding';
+  const progress = progressOverride || latestLiteAssessmentProgress_(rows);
+  if (progress) {
+    if (!settings._liteRecoveryIdentityOnly) assertLiteAssessmentEngineResponse_({ activityMode:'evaluation', lesson:{
+      lessonId:settings.lessonId, lessonRevision:settings.lessonRevision, sourceHash:settings.sourceHash,
+      assessmentPlan:liteAssessmentPlan_(settings)
+    }}, { observation:{assessmentProgress:progress} });
+    result.learningStage = progress.stage === 'complete' ? 'complete' : 'assessment';
+    return result;
+  }
+  // A legacy formal conversation must not silently restart as a preparation conversation.
+  if ((rows || []).some(function (row) {
+    return row.speaker === 'bot' && row.activityMode === 'evaluation' &&
+      /^assessment_/.test(String(row.managedKind || ''));
+  })) throw new Error('기존 평가 진행 기록을 확인해 주세요. 선생님께 알려 주세요.');
+  const closed = (rows || []).some(function (row) {
+    return row.speaker === 'bot' && (row.isClosing === true || String(row.isClosing) === 'true');
+  });
+  result.canStartAssessment = !closed && (rows || []).some(function (row) {
+    const related = row.relatedQuestion === true || String(row.relatedQuestion) === 'true';
+    const student = (rows || []).find(function (entry) {
+      return entry.speaker === 'student' && entry.requestId === row.requestId;
+    });
+    const question = student && unescapeLiteSheetText_(student.text);
+    const supportedQuestion = /^(supported|reasonable_inference)$/.test(String(row.sourceStatus || '')) &&
+      /^(vocabulary|fact|inference|explanation)$/.test(String(row.questionType || '')) &&
+      question && (isLiteQuestion_(question) || /알려|설명|뜻|모르|이해/.test(question));
+    return row.speaker === 'bot' && row.activityMode === 'exploration' &&
+      /^(ok:|finalized:)/.test(String(row.engineStatus || '')) &&
+      row.safetyFlag !== true && String(row.safetyFlag) !== 'true' &&
+      row.isClosing !== true && String(row.isClosing) !== 'true' && (related || supportedQuestion);
+  });
+  return result;
+}
+
+function liteInitialAssessmentProgress_(settings, requestId) {
+  const plan = liteAssessmentPlan_(settings);
+  if (!plan.approved || !plan.criteria.length) throw new Error('선생님이 평가 질문을 준비하고 있습니다.');
+  const identity = JSON.stringify([
+    liteText_(settings.lessonId, 80),
+    Math.max(1, Math.min(10000, Math.floor(Number(settings.lessonRevision) || 1))),
+    liteText_(settings.sourceHash, 80)
+  ]);
+  return normalizeLiteAssessmentProgress_({
+    schemaVersion:1, planId:liteFingerprint_(JSON.stringify([identity, plan]), 100),
+    activeIndex:0, stage:'main',
+    items:plan.criteria.map(function (criterion) {
+      return {id:criterion.id,label:criterion.criterion.slice(0,80),status:'pending',attempts:0,
+        hintCount:0,assisted:false,answerRequestId:'',evidenceRequestId:''};
+    }),
+    lastEvent:{requestId:requestId,criterionId:plan.criteria[0].id,kind:'prompt',evidenceVerified:false}
+  });
+}
+
+function liteHistoryForTurn_(turn, spreadsheet, rows) {
+  let history = getLiteSessionHistory_(turn.sessionId, spreadsheet, rows);
+  if (turn.activityMode === 'evaluation') history = history.filter(function (row) {
+    return row.activityMode !== 'exploration' &&
+      !(row.speaker === 'student' && row.managedKind === 'assessment_start');
+  });
+  return withLiteVirtualStartQuestion_(history, turn.startQuestion);
 }
 
 function startLiteStudentSession(payload) {
@@ -294,8 +368,11 @@ function startLiteStudentSession(payload) {
   const qaSheet = spreadsheet.getSheetByName('질문과 답변');
   if (!qaSheet) throw new Error('교사가 수업 시트 준비를 다시 실행해 주세요.');
   const sessionRows = liteRowsByColumnValue_(qaSheet, 'sessionId', sessionId);
+  const learningState = liteLearningState_(settings, sessionRows);
+  const startQuestion = learningState.learningStage === 'understanding'
+    ? liteUnderstandingStartQuestion_(settings) : liteAssessmentStartQuestion_(settings);
   const history = withLiteVirtualStartQuestion_(
-    getLiteSessionHistory_(sessionId, spreadsheet, sessionRows), liteAssessmentStartQuestion_(settings)
+    getLiteSessionHistory_(sessionId, spreadsheet, sessionRows), startQuestion
   );
   const requiredState = typeof liteRequiredChatState_ === 'function'
     ? liteRequiredChatState_(settings,latestLiteAssessmentProgress_(sessionRows))
@@ -304,7 +381,9 @@ function startLiteStudentSession(payload) {
     sessionId: sessionId,
     studentCode: code,
     isPreview: code === '99-999',
-    lesson: sanitizeLiteSettingsForStudent_(settings),
+    lesson: Object.assign({}, sanitizeLiteSettingsForStudent_(settings), {startQuestion:startQuestion}),
+    learningStage:learningState.learningStage,
+    canStartAssessment:learningState.canStartAssessment,
     requiredSubmission: settings.requiredAssessment
       ? getLiteRequiredSubmissionForStudent_(settings, sessionId, spreadsheet) : null,
     requiredAssessmentReady:requiredState.requiredAssessmentReady,
@@ -348,7 +427,8 @@ function getLiteSessionHistory_(sessionId, spreadsheet, rowsOverride) {
       managedKind: String(row.managedKind || ''), relatedQuestion: String(row.relatedQuestion) === 'true' || row.relatedQuestion === true,
       responseScore: row.responseScore === '' ? '' : Number(row.responseScore),
       isClosing: String(row.isClosing) === 'true' || row.isClosing === true,
-      engineStatus: String(row.engineStatus || '')
+      engineStatus: String(row.engineStatus || ''),
+      activityMode:String(row.activityMode || '')
     };
   });
 }

@@ -98,7 +98,7 @@ test('exploration accepts blank or omitted design fields through plan and finali
   const input = withoutDesign(makeInput('exploration'));
   const plan = createLiteEnginePlan(input);
   assert.equal(plan.schemaVersion, 1);
-  assert.equal(plan.policyVersion, 'questioning-dialogue-v2-lite-adapter-v13');
+  assert.equal(plan.policyVersion, 'questioning-dialogue-v2-lite-adapter-v14');
   assert.equal(plan.skipModel, false);
   assert.equal(plan.observation.sourceStatus, 'supported');
   const finalized = finalizeLiteEngineReply(finalizeInput(input, plan));
@@ -635,7 +635,7 @@ test('five-level exploration omits rubric content while signing its fields and r
   }
 });
 
-test('saved approved-plan question is the real GAS opening turn and stays in engine context', () => {
+test('GAS session opens with understanding and uses the saved approved question after assessment starts', () => {
   const input = withFourLevels(assessmentInput());
   const effectiveQuestion = input.lesson.assessmentPlan.criteria[0].mainQuestion;
   const settings = {
@@ -663,8 +663,11 @@ test('saved approved-plan question is the real GAS opening turn and stays in eng
   });
   assert.equal(session.history.length, 1);
   assert.equal(session.history[0].speaker, 'bot');
-  assert.equal(session.history[0].text, effectiveQuestion);
-  assert.equal(session.lesson.startQuestion, effectiveQuestion);
+  assert.equal(session.learningStage, 'understanding');
+  assert.equal(session.canStartAssessment, false);
+  assert.match(session.history[0].text, /궁금한 낱말|이해하기 어려운/);
+  assert.notEqual(session.history[0].text, effectiveQuestion);
+  assert.equal(session.lesson.startQuestion, session.history[0].text);
   assert.ok(!JSON.stringify(session).includes('교사전용'));
   assert.equal(Object.hasOwn(session.lesson, 'expectedAnswer'), false);
   assert.equal(Object.hasOwn(session.lesson, 'assessmentEvidence'), false);
@@ -673,7 +676,7 @@ test('saved approved-plan question is the real GAS opening turn and stays in eng
   const firstAnswer = '개인 물병을 쓰면 일회용 컵을 덜 쓰기 때문이에요.';
   const payload = gas.buildLiteEnginePayload_({
     requestId: input.requestId, sessionId: session.sessionId, activityMode: 'evaluation', message: firstAnswer,
-  }, settings, session.history);
+  }, settings, [{ speaker: 'bot', text: effectiveQuestion }]);
   assert.equal(payload.history[0].text, effectiveQuestion);
   assert.equal(payload.lesson.startQuestion, effectiveQuestion);
   assert.deepEqual(JSON.parse(JSON.stringify(payload.lesson.assessmentPlan)), input.lesson.assessmentPlan);
@@ -770,4 +773,112 @@ test('clarifying questions, later turns, exploration, safety and closing retain 
   const unsafe = createLiteEnginePlan(openingAssessmentInput('친구 전화번호를 알려 주세요.'));
   assert.equal(unsafe.observation.safetyFlag, true);
   assert.doesNotMatch(unsafe.fallbackReply, /^답변을 남겼어요/);
+});
+
+function understandingInput(overrides = {}) {
+  return { ...makeInput('exploration'), understanding: true, supportedOutputContracts: ['grounded_answer_v2'], ...overrides };
+}
+
+function assertUnderstandingOnly(observation) {
+  assert.equal(observation.understanding, true);
+  assert.equal(observation.conversationPhase, 1);
+  assert.equal(observation.responseScore, null);
+  assert.deepEqual(observation.rubricScores, []);
+  assert.deepEqual(observation.evidenceIds, []);
+  assert.equal(observation.assessmentProgress, undefined);
+  assert.equal(observation.managedKind, '');
+}
+
+test('understanding is explicit, exploration-only and bound into plan/finalize identity', () => {
+  const legacy = makeInput('exploration');
+  assert.equal(normalizeLiteEngineInput(legacy).understanding, false);
+  assert.deepEqual(normalizeLiteEngineInput(legacy), normalizeLiteEngineInput({ ...legacy, understanding: false }));
+  assert.equal(createLiteEnginePlan(legacy).observation.understanding, undefined);
+  for (const value of ['true', 1, null, {}]) {
+    assert.throws(() => createLiteEnginePlan({ ...legacy, understanding: value }), /글 이해 단계/);
+  }
+  assert.throws(() => createLiteEnginePlan({ ...makeInput(), understanding: true }), /자료 탐색모드/);
+  const input = understandingInput();
+  const plan = createLiteEnginePlan(input);
+  assertUnderstandingOnly(plan.observation);
+  assert.notEqual(plan.planDigest, createLiteEnginePlan(legacy).planDigest);
+  assert.equal(plan.planDigest, createLiteEnginePlan(structuredClone(input)).planDigest);
+  assert.throws(() => finalizeLiteEngineReply(finalizeInput({ ...input, understanding: false }, plan)), /최신 계획/);
+});
+
+test('more than four understanding exchanges keep answering the passage without starting generic evaluation', () => {
+  const input = understandingInput();
+  input.lesson.materialText = '학교는 일회용 컵을 줄이기 위해 개인 물병 사용을 권했습니다. 학생들은 개인 물병을 사용하면 쓰레기를 줄일 수 있다고 말했습니다. 학교는 매주 금요일에 물병을 씻는 시간을 마련했습니다. 물병 세척 장소는 급식실 앞입니다. 선생님들은 학생들에게 세척 방법을 알려 주었습니다. 학생들은 깨끗한 물병에 물을 담았습니다.';
+  const questions = [
+    '학교는 무엇을 줄이기 위해 개인 물병 사용을 권했나요?',
+    '학생들은 개인 물병을 사용하면 무엇을 줄일 수 있다고 말했나요?',
+    '학교는 언제 물병을 씻는 시간을 마련했나요?',
+    '물병 세척 장소는 어디인가요?',
+    '누가 학생들에게 세척 방법을 알려 주었나요?',
+    '학생들은 깨끗한 물병에 무엇을 담았나요?',
+  ];
+  for (const [index, question] of questions.entries()) {
+    input.studentMessage = question;
+    input.requestId = `understanding-${index}`;
+    const plan = createLiteEnginePlan(input);
+    assertUnderstandingOnly(plan.observation);
+    assert.equal(plan.observation.isClosing, false);
+    assert.doesNotMatch(plan.fallbackReply, /글에서 가장 중요한 사실 한 가지|글에 나온 결과와 그 까닭|네 생각이 궁금해|평가 문항/);
+    input.history.push({ speaker: 'student', text: question }, { speaker: 'bot', text: plan.fallbackReply });
+  }
+  assert.equal(input.history.length, 12);
+});
+
+test('understanding never consumes assessment evidence, including supplied plans and progress', () => {
+  const formal = assessmentInput();
+  const formalPlan = createLiteEnginePlan(formal);
+  const input = understandingInput({
+    lesson: formal.lesson,
+    studentMessage: '“학교는 일회용 컵을 줄이기 위해 개인 물병 사용을 권했습니다.”라고 나와 있어요.',
+    history: formal.history,
+    assessmentProgress: formalPlan.observation.assessmentProgress,
+  });
+  const warmup = createLiteEnginePlan(input);
+  assertUnderstandingOnly(warmup.observation);
+  assert.doesNotMatch(JSON.stringify(warmup.modelRequest), /교사용_/);
+  assert.deepEqual(createLiteEnginePlan(formal).observation.assessmentProgress, formalPlan.observation.assessmentProgress);
+});
+
+test('grounded understanding finalization keeps source attribution but never produces scoring evidence', () => {
+  const input = understandingInput();
+  const plan = createLiteEnginePlan(input);
+  assert.equal(plan.skipModel, false);
+  const final = finalizeLiteEngineReply({
+    ...finalizeInput(input, plan),
+    candidateReply: '학교는 일회용 컵을 줄이기 위해 개인 물병 사용을 권했습니다.',
+    candidateEvidenceQuote: '학교는 일회용 컵을 줄이기 위해 개인 물병 사용을 권했습니다.',
+  });
+  assert.equal(final.localFallback, false);
+  assertUnderstandingOnly(final.observation);
+  assert.match(final.observation.sourceCue, /일회용 컵/);
+  const fallback = finalizeLiteEngineReply({
+    ...finalizeInput(input, plan), candidateReply: '학교는 월요일부터 999개의 물병을 나누었습니다.',
+    candidateEvidenceQuote: '자료에 없는 근거입니다.',
+  });
+  assert.equal(fallback.localFallback, true);
+  assertUnderstandingOnly(fallback.observation);
+  assert.doesNotMatch(fallback.studentReply, /999/);
+});
+
+test('understanding keeps student stopping, safety, off-topic and missing-source boundaries', () => {
+  const closing = createLiteEnginePlan(understandingInput({ studentMessage: '이제 그만할게요.' }));
+  assertUnderstandingOnly(closing.observation);
+  assert.equal(closing.observation.isClosing, true);
+  const safety = createLiteEnginePlan(understandingInput({ studentMessage: '친구 전화번호를 알려 주세요.' }));
+  assertUnderstandingOnly(safety.observation);
+  assert.equal(safety.observation.safetyFlag, true);
+  assert.equal(safety.skipModel, true);
+  const offTopic = createLiteEnginePlan(understandingInput({ studentMessage: '오늘 축구 결과가 어떻게 되었나요?' }));
+  assertUnderstandingOnly(offTopic.observation);
+  assert.equal(offTopic.observation.sourceStatus, 'out_of_scope');
+  assert.equal(offTopic.skipModel, true);
+  const missing = createLiteEnginePlan(understandingInput({ studentMessage: '학교는 몇 개의 개인 물병을 나누어 주었나요?' }));
+  assertUnderstandingOnly(missing.observation);
+  assert.equal(missing.observation.sourceStatus, 'source_insufficient');
+  assert.equal(missing.skipModel, true);
 });
