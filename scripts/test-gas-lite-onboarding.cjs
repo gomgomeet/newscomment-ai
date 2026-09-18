@@ -20,7 +20,9 @@ function setup(options={}) {
   const properties=new Map([['LITE_TEACHER_ACCESS_TOKEN','teacher-only-token'],['TEACHER_OPENAI_API_KEY','private-api-secret']]);
   const sheet=new Sheet();
   const spreadsheet={getSheetByName:name => name==='시작하기' ? sheet : null};
-  let projectId=options.projectId || 'synthetic-current-project-1234',uuid=0,locked=false,fetches=0;
+  let projectId=options.projectId || 'synthetic-current-project-1234',uuid=0,locked=false,fetches=0,engineFetches=0;
+  let engineResponder=() => ({status:200,body:JSON.stringify({ok:true,schemaVersion:1,
+    engineFamily:'questioning-dialogue-v2',sharedWithWebChatbot:true,policyVersion:'synthetic-engine-v1'})});
   let responder=(url) => {
     const parsed=new URL(url);
     return {status:200,body:c.doGet({parameter:{simbotHealth:parsed.searchParams.get('simbotHealth'),nonce:parsed.searchParams.get('nonce')}}).text};
@@ -37,22 +39,35 @@ function setup(options={}) {
     ScriptApp:{getScriptId:() => projectId,getService:() => ({getUrl:() => 'https://script.google.com/macros/s/unverified_auto_url/exec'})},
     ContentService:{MimeType:{JSON:'application/json'},createTextOutput:text => ({text,setMimeType(value) {this.mimeType=value;return this;}})},
     HtmlService:{createTemplateFromFile:name => ({evaluate:() => ({name,setTitle() {return this;},addMetaTag() {return this;}})})},
-    UrlFetchApp:{fetch:(url,fetchOptions) => {assert.equal(locked,false,'network request stays outside script lock');fetches++;
+    UrlFetchApp:{fetch:(url,fetchOptions) => {assert.equal(locked,false,'network request stays outside script lock');
+      if (/\/api\/lite-engine\/plan$/.test(url)) {
+        engineFetches++;
+        assert.equal(fetchOptions.method,'get','automatic engine check never sends a lesson or paid request');
+        assert.equal(fetchOptions.payload,undefined);assert.equal(fetchOptions.headers.Authorization,undefined);
+        assert.equal(fetchOptions.headers['X-Lite-Engine-Key'],'synthetic-engine-access-key-1234567890');
+        assert.match(fetchOptions.headers['X-Lite-Deployment-Id'],/^LD-/);
+        const result=engineResponder(url);return {getResponseCode:() => result.status,getContentText:() => result.body};
+      }
+      fetches++;
       assert.equal(fetchOptions.headers,undefined,'no teacher, Google or API credentials go to the webapp');
       assert.equal(fetchOptions.method,'get');assert.equal(fetchOptions.followRedirects,true);
       const result=responder(url);return {getResponseCode:() => result.status,getContentText:() => result.body};}}
   });
-  for (const file of ['SetupService','Code']) {
+  for (const file of ['SetupService','EngineClient','Code']) {
     let source=fs.readFileSync(path.join(__dirname,'..','gas-lite',file+'.js'),'utf8');
-    if (options.version) source=source.replace("const LITE_APP_VERSION_ = '0.12.0';",`const LITE_APP_VERSION_ = '${options.version}';`);
+    if (options.version) source=source.replace(/const LITE_APP_VERSION_ = '[^']+';/,`const LITE_APP_VERSION_ = '${options.version}';`);
+    if (file==='EngineClient') source=source.replace("const LITE_CENTRAL_ENGINE_ACCESS_KEY_ = '';",
+      "const LITE_CENTRAL_ENGINE_ACCESS_KEY_ = 'synthetic-engine-access-key-1234567890';");
     vm.runInContext(source,c,{filename:file});
   }
   c.readLiteTeacherSettings_=() => ({lessonId:'synthetic-lesson'});
   c.getLiteSpreadsheet_=() => spreadsheet;
   c.getLiteTeacherPreviewUrl_=() => '';
-  c.buildLiteCurrentReadiness_=() => ({runtimeReady:false,distributionReady:false,checks:[]});
-  c.hasLiteApiKey_=c.isLiteApiVerified_=c.hasLiteEngineEndpoint_=c.isLiteEngineVerified_=() => false;
-  return {c,properties,sheet,setResponder:fn => {responder=fn;},setProjectId:id => {projectId=id;},get fetches(){return fetches;}};
+  c.buildLiteCurrentReadiness_=() => ({runtimeReady:false,distributionReady:false,
+    checks:[{key:'engineVerified',state:c.isLiteEngineVerified_() ? 'pass' : 'block',detail:'default engine detail'}]});
+  c.hasLiteApiKey_=c.isLiteApiVerified_=() => false;
+  return {c,properties,sheet,setResponder:fn => {responder=fn;},setEngineResponder:fn => {engineResponder=fn;},
+    setProjectId:id => {projectId=id;},get fetches(){return fetches;},get engineFetches(){return engineFetches;}};
 }
 
 const goodUrl='https://script.google.com/macros/s/synthetic_good_deployment/exec';
@@ -167,4 +182,116 @@ const nonce='test_challenge_nonce_0123456789';
   c.updateLiteStartHereStatus_(spreadsheet,{distributionReady:true,checks:[{key:'apiSaved',state:'pass'}]});
   assert.equal(sheet.writes,writes,'readiness no longer writes copied completion statuses');
 }
-console.log('gas-lite onboarding: passed (anonymous project/version proof, URL preservation, access failures, teacher-only state, static copy-safe guide)');
+const engineHealth = policyVersion => ({status:200,body:JSON.stringify({ok:true,schemaVersion:1,
+  engineFamily:'questioning-dialogue-v2',sharedWithWebChatbot:true,policyVersion})});
+
+{
+  const x=setup(),{c,properties}=x;
+  assert.throws(() => c.getLiteTeacherSetupData('wrong-token'),/Google Sheet/);
+  assert.throws(() => c.testLiteEngineConnection('wrong-token'),/Google Sheet/);
+  assert.equal(x.engineFetches,0,'unauthorized callers cannot trigger engine probes');
+  const first=c.getLiteTeacherSetupData(token);
+  assert.equal(first.engine.verified,true);assert.equal(first.engine.checkStatus,'verified');assert.equal(first.engine.warning,'');
+  assert.equal(first.api.verified,false);assert.equal(first.readiness.runtimeReady,false);
+  assert.equal(properties.get('LITE_ENGINE_VERIFIED_POLICY'),'synthetic-engine-v1');
+  assert.ok(properties.get('LITE_ENGINE_VERIFICATION_REVISION'));
+  c.getLiteTeacherSetupData(token);c.saveLiteStudentUrlForTeacher(token,goodUrl);
+  assert.equal(x.engineFetches,1,'successful auto-check is not repeated on later data loads');
+}
+
+{
+  const x=setup(),{c}=x;
+  c.hasLiteEngineEndpoint_=() => false;
+  const data=c.getLiteTeacherSetupData(token);
+  assert.equal(data.engine.checkStatus,'not_configured');assert.equal(data.engine.verified,false);
+  assert.match(data.engine.warning,/배포본/);assert.equal(x.engineFetches,0);
+}
+
+{
+  const x=setup(),{c,properties}=x;
+  const failures=[{status:401,body:'unauthorized'},{status:503,body:'busy'},
+    {status:200,body:'not json'},
+    {status:200,body:JSON.stringify({ok:true,schemaVersion:99})},
+    {status:200,body:JSON.stringify({ok:true,schemaVersion:1,engineFamily:'other',sharedWithWebChatbot:true,policyVersion:'x'})},
+    {status:200,body:JSON.stringify({ok:true,schemaVersion:1,engineFamily:'questioning-dialogue-v2',sharedWithWebChatbot:false,policyVersion:'x'})},
+    engineHealth('')];
+  for (const failure of failures) {
+    x.setEngineResponder(() => failure);
+    const data=c.getLiteTeacherSetupData(token);
+    assert.equal(data.engine.verified,false);assert.equal(data.engine.checkStatus,'failed');
+    assert.match(data.engine.warning,/공통 챗봇 연결 확인에 실패/);
+    assert.equal(data.readiness.checks.find(item => item.key==='engineVerified').detail,data.engine.warning);
+    assert.equal(properties.has('LITE_ENGINE_VERIFIED_POLICY'),false);
+  }
+  x.setEngineResponder(() => {throw new Error('synthetic timeout private-api-secret');});
+  assert.equal(c.getLiteTeacherSetupData(token).engine.warning.includes('private-api-secret'),false);
+  x.setEngineResponder(() => engineHealth('synthetic-engine-recovered'));
+  const recovered=c.getLiteTeacherSetupData(token);
+  assert.equal(recovered.engine.verified,true);assert.equal(recovered.engine.warning,'');
+  const count=x.engineFetches;c.getLiteTeacherSetupData(token);assert.equal(x.engineFetches,count);
+}
+
+{
+  const x=setup(),{c}=x;
+  x.setEngineResponder(() => ({status:401,body:'unauthorized'}));
+  const partial=c.saveLiteStudentUrlForTeacher(token,goodUrl);
+  assert.equal(partial.ok,true);assert.equal(partial.onboarding.deploymentVerified,true);
+  assert.equal(partial.confirmedStudentUrl,goodUrl);assert.equal(partial.engine.verified,false);
+  assert.match(partial.message,/주소를 저장했습니다/);assert.match(partial.message,/공통 챗봇 연결 확인에 실패/);
+  assert.match(partial.readiness.checks.find(item => item.key==='engineVerified').detail,/HTTP 401/);
+}
+
+{
+  const x=setup(),{c,properties}=x;
+  x.setEngineResponder(() => {
+    properties.set('CENTRAL_ENGINE_ENDPOINT','https://changed.example.test/api/lite-engine/plan');
+    c.clearLiteEngineVerification_();
+    return engineHealth('stale-engine-policy');
+  });
+  const changed=c.getLiteTeacherSetupData(token);
+  assert.equal(changed.engine.verified,false);assert.match(changed.engine.warning,/주소가 변경/);
+  assert.equal(properties.has('LITE_ENGINE_VERIFIED_POLICY'),false);
+  x.setEngineResponder(() => engineHealth('new-endpoint-policy'));
+  assert.equal(c.getLiteTeacherSetupData(token).engine.verified,true);
+  assert.equal(properties.get('LITE_ENGINE_VERIFIED_ENDPOINT'),'https://changed.example.test/api/lite-engine/plan');
+}
+
+{
+  const x=setup(),{c,properties}=x;
+  x.setEngineResponder(() => {
+    c.markLiteEngineVerified_(c.getLiteEngineEndpoint_(),'newer-concurrent-policy');
+    return engineHealth('older-slow-policy');
+  });
+  assert.equal(c.getLiteTeacherSetupData(token).engine.verified,true);
+  assert.equal(properties.get('LITE_ENGINE_VERIFIED_POLICY'),'newer-concurrent-policy');
+  c.clearLiteEngineVerification_();
+  x.setEngineResponder(() => {
+    c.markLiteEngineVerified_(c.getLiteEngineEndpoint_(),'temporary-new-policy');
+    c.invalidateLiteEngineVerificationIfMatches_(c.getLiteEngineEndpoint_(),'temporary-new-policy');
+    return engineHealth('older-slow-policy');
+  });
+  const invalidated=c.getLiteTeacherSetupData(token);
+  assert.equal(invalidated.engine.verified,false);assert.equal(invalidated.engine.checkStatus,'changed');
+  assert.equal(properties.has('LITE_ENGINE_VERIFIED_POLICY'),false,'empty-to-verified-to-empty ABA cannot revive a stale result');
+}
+
+{
+  const x=setup(),{c,properties}=x;
+  x.setEngineResponder(() => {
+    x.setEngineResponder(() => engineHealth('newer-auto-policy'));
+    assert.equal(c.getLiteTeacherSetupData(token).engine.verified,true);
+    return engineHealth('older-manual-policy');
+  });
+  const manual=c.testLiteEngineConnection(token);
+  assert.equal(manual.verified,true);assert.equal(manual.policyVersion,'newer-auto-policy');
+  assert.equal(properties.get('LITE_ENGINE_VERIFIED_POLICY'),'newer-auto-policy','slow manual check cannot overwrite newer auto result');
+  c.clearLiteEngineVerification_();
+  x.setEngineResponder(() => {
+    x.setEngineResponder(() => engineHealth('newer-manual-policy'));
+    c.testLiteEngineConnection(token);
+    return engineHealth('older-auto-policy');
+  });
+  assert.equal(c.getLiteTeacherSetupData(token).engine.verified,true);
+  assert.equal(properties.get('LITE_ENGINE_VERIFIED_POLICY'),'newer-manual-policy','slow auto check cannot overwrite newer manual result');
+}
+console.log('gas-lite onboarding: passed (anonymous deployment proof, copy-safe guide, authenticated automatic engine checks, retry, partial success, and concurrent verification/invalidation)');

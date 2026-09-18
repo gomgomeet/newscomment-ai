@@ -103,6 +103,7 @@ class Element {
   reportValidity() { this.reportedValidity = true; return this.checkValidity(); }
   scrollTo() {}
   focus() { this.focused = true; }
+  select() { this.selected = true; }
 }
 
 function parseForm(markupHtml = html) {
@@ -288,12 +289,16 @@ function assertLinksDisabled(ui) {
   assert.equal(ui.byId('copy-student-url').disabled, true);
   assert.equal(ui.byId('open-student').getAttribute('aria-disabled'), 'true');
   assert.equal(ui.byId('open-student').getAttribute('href'), null);
+  assert.equal(ui.byId('copy-preview-url').disabled, true);
+  assert.equal(ui.byId('onboarding-copy-preview-url').disabled, true);
 }
 
 function assertLinksReady(ui) {
   assert.equal(ui.byId('copy-student-url').disabled, false);
   assert.equal(ui.byId('open-student').getAttribute('aria-disabled'), 'false');
   assert.equal(ui.byId('open-student').href, readyData(settings).previewUrl);
+  assert.equal(ui.byId('copy-preview-url').disabled, false);
+  assert.equal(ui.byId('onboarding-copy-preview-url').disabled, false);
 }
 
 function readinessItem(ui, label) {
@@ -1069,6 +1074,51 @@ urlUi.click('save-student-url');
 const urlSave = urlUi.takeRequest('saveLiteStudentUrlForTeacher');
 assert.equal(urlSave.args[1], 'https://script.google.com/macros/s/example-test/exec');
 urlSave.success({ ...readyData(settings), confirmedStudentUrl:urlSave.args[1] });
+
+const previewCopyUi = createUi(settings, readyData(settings, {previewVerified:false}));
+assert.equal(previewCopyUi.byId('copy-student-url').disabled, true, 'Student sharing still waits for a completed preview');
+assert.equal(previewCopyUi.byId('copy-preview-url').disabled, false, 'Copying the teacher preview does not depend on completing that preview');
+assert.equal(previewCopyUi.byId('onboarding-copy-preview-url').disabled, false);
+previewCopyUi.click('copy-preview-url');
+assert.equal(previewCopyUi.copied[0], readyData(settings).previewUrl, 'Teacher copy includes the preview access URL');
+previewCopyUi.context.copyStudentUrl();
+assert.equal(previewCopyUi.copied.length, 1, 'Teacher preview copying does not bypass student sharing gates');
+previewCopyUi.context.navigator.clipboard = undefined;
+previewCopyUi.context.document.execCommand = () => false;
+const copyBodyChildCount = previewCopyUi.context.document.body.children.length;
+previewCopyUi.click('onboarding-copy-preview-url');
+assert.equal(previewCopyUi.byId('preview-copy-fallback').classList.contains('hidden'), false);
+assert.equal(previewCopyUi.byId('preview-url-fallback').value, readyData(settings).previewUrl);
+assert.equal(previewCopyUi.byId('preview-url-fallback').getAttribute('readonly'), '');
+assert.equal(previewCopyUi.byId('preview-url-fallback').selected, true, 'Failed automatic copy selects a visible manual alternative');
+assert.match(previewCopyUi.byId('form-status').textContent, /자동 복사가 되지 않아/);
+assert.doesNotMatch(previewCopyUi.byId('form-status').textContent, /복사했습니다/);
+assert.equal(previewCopyUi.context.document.body.children.length, copyBodyChildCount, 'Temporary copy controls are removed after failure');
+previewCopyUi.context.document.execCommand = () => true;
+previewCopyUi.click('copy-preview-url');
+assert.match(previewCopyUi.byId('form-status').textContent, /미리보기 주소를 복사했습니다/);
+assert.equal(previewCopyUi.byId('preview-copy-fallback').classList.contains('hidden'), true);
+assert.equal(previewCopyUi.byId('preview-url-fallback').value, '');
+previewCopyUi.context.navigator.clipboard = {writeText() { return {then() { return {catch(rejected) { rejected(new Error('clipboard denied')); }}; }}; }};
+previewCopyUi.context.document.execCommand = () => false;
+previewCopyUi.click('copy-preview-url');
+assert.equal(previewCopyUi.byId('preview-copy-fallback').classList.contains('hidden'), false, 'A rejected clipboard API also provides manual copying');
+previewCopyUi.edit('join-code', '987654');
+assertLinksDisabled(previewCopyUi);
+assert.equal(previewCopyUi.byId('preview-copy-fallback').classList.contains('hidden'), true);
+assert.equal(previewCopyUi.byId('preview-url-fallback').value, '', 'Unsaved changes clear a stale manual preview URL');
+previewCopyUi.context.copyPreviewUrl();
+assert.equal(previewCopyUi.byId('preview-url-fallback').value, '');
+const delayedCopyUi = createUi(settings, readyData(settings, {previewVerified:false}));
+let rejectDelayedCopy;
+let fallbackCopyAttempts = 0;
+delayedCopyUi.context.navigator.clipboard = {writeText() { return {then() { return {catch(rejected) { rejectDelayedCopy = rejected; }}; }}; }};
+delayedCopyUi.context.document.execCommand = () => { fallbackCopyAttempts += 1; return false; };
+delayedCopyUi.click('copy-preview-url');
+delayedCopyUi.edit('join-code', '987654');
+rejectDelayedCopy(new Error('late clipboard rejection'));
+assert.equal(fallbackCopyAttempts, 0, 'A late clipboard failure does not copy an invalidated preview URL');
+assert.equal(delayedCopyUi.byId('preview-url-fallback').value, '');
 
 const onboardingUrl = 'https://script.google.com/macros/s/test-onboarding-deployment/exec';
 const scriptEditorUrl = 'https://script.google.com/home/projects/test-teacher-script/edit';

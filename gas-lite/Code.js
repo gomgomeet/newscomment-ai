@@ -62,15 +62,21 @@ function includeLite_(filename) {
 function getLiteTeacherSetupData(teacherAccessToken) {
   assertLiteTeacherAccess_(teacherAccessToken);
   const settings = readLiteTeacherSettings_();
+  const engineCheck = autoCheckLiteEngineForTeacher_();
   const studentUrl = getLiteStudentUrl_();
   const previewUrl = getLiteTeacherPreviewUrl_(settings);
   const readiness = buildLiteCurrentReadiness_(settings);
+  if (engineCheck.warning) {
+    const engineCheckRow = (readiness.checks || []).find(function (item) { return item.key === 'engineVerified'; });
+    if (engineCheckRow && engineCheckRow.state !== 'pass') engineCheckRow.detail = engineCheck.warning;
+  }
   updateLiteStartHereStatus_(getLiteSpreadsheet_(), readiness);
   return {
     appVersion: LITE_APP_VERSION_,
     settings: liteClientData_(settings),
     api: { configured: hasLiteApiKey_(), verified: isLiteApiVerified_() },
-    engine: { configured: hasLiteEngineEndpoint_(), verified: isLiteEngineVerified_() },
+    engine: { configured: hasLiteEngineEndpoint_(), verified: isLiteEngineVerified_(),
+      checkStatus:engineCheck.checkStatus,warning:engineCheck.warning },
     studentUrl: studentUrl,
     confirmedStudentUrl: getLiteConfirmedStudentUrl_(),
     onboarding: buildLiteTeacherOnboarding_(),
@@ -124,7 +130,9 @@ function saveLiteStudentUrlForTeacher(teacherAccessToken, studentUrl) {
   saveLiteVerifiedStudentUrl_(studentUrl);
   const data = getLiteTeacherSetupData(teacherAccessToken);
   data.ok = true;
-  data.message = '이 교사 사본의 최신 웹앱이 로그인 없이 열리는 것을 확인하고 주소를 저장했습니다. 수업 준비와 교사 미리보기는 별도로 점검합니다.';
+  data.message = '이 교사 사본의 최신 웹앱이 로그인 없이 열리는 것을 확인하고 주소를 저장했습니다. ' +
+    (data.engine.verified ? '공통 챗봇 연결도 확인되었습니다. ' : data.engine.warning + ' ') +
+    '수업 준비와 교사 미리보기는 별도로 점검합니다.';
   return data;
 }
 
@@ -165,8 +173,16 @@ function testLiteApiConnection(teacherAccessToken) {
 
 function testLiteEngineConnection(teacherAccessToken) {
   assertLiteTeacherAccess_(teacherAccessToken);
+  const snapshot = readLiteEngineVerificationSnapshot_();
   const result = checkLiteEngineConnection_();
-  markLiteEngineVerified_(result.endpoint, result.policyVersion);
+  const saved = markLiteEngineVerified_(result.endpoint, result.policyVersion,snapshot);
+  if (!saved) {
+    const current = readLiteEngineVerificationSnapshot_();
+    if (!current.endpoint || current.verifiedEndpoint !== current.endpoint || !current.policyVersion) {
+      throw new Error('공통 챗봇 연결을 검사하는 동안 연결 상태가 변경되었습니다. 다시 확인해 주세요.');
+    }
+    result.policyVersion = current.policyVersion;
+  }
   return {
     ok: true,
     configured: true,
