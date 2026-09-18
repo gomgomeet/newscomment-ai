@@ -3,7 +3,7 @@
  * API 키는 Script Properties에만 저장하며 Sheet 행으로 만들지 않습니다.
  */
 
-const LITE_APP_VERSION_ = '0.9.0';
+const LITE_APP_VERSION_ = '0.10.0';
 const LITE_API_KEY_PROPERTY_ = 'TEACHER_OPENAI_API_KEY';
 const LITE_SPREADSHEET_ID_PROPERTY_ = 'TEACHER_SPREADSHEET_ID';
 const LITE_ENGINE_ENDPOINT_PROPERTY_ = 'CENTRAL_ENGINE_ENDPOINT';
@@ -30,7 +30,8 @@ const LITE_SHEET_HEADERS_ = {
     'rubricHigh', 'rubricMeet', 'rubricDeveloping', 'evidenceDescription',
     'materialTitle', 'materialText', 'materialUrl', 'startQuestion',
     'activityMode', 'version', 'sourceHash', 'lessonRevision', 'updatedAt',
-    'rubricScheme', 'rubricGood', 'expectedAnswer', 'assessmentEvidence', 'rubricBeginning', 'answerExamples'
+    'rubricScheme', 'rubricGood', 'expectedAnswer', 'assessmentEvidence', 'rubricBeginning', 'answerExamples',
+    'requiredAssessmentMode', 'requiredAssessmentJson'
   ],
   '학생별 현황': [
     'studentCode', 'lessonId', 'lessonRevision', 'sessionId', 'questionCount', 'relatedQuestionCount', 'lastActiveAt',
@@ -49,7 +50,13 @@ const LITE_SHEET_HEADERS_ = {
     'evidenceRequestIds',
     'questioningBest', 'passageComprehensionBest', 'achievementStandardBest', 'reflectionOpinionBest',
     'teacherDecision', 'teacherFeedback', 'improvementSuggestion',
-    'nextLessonSuggestion', 'finalStatus', 'finalizedAt', 'rubricScheme'
+    'nextLessonSuggestion', 'finalStatus', 'finalizedAt', 'rubricScheme', 'questionId'
+  ],
+  '필수 평가 응답': [
+    'requestId', 'sessionId', 'studentCode', 'lessonId', 'lessonRevision', 'sourceHash',
+    'questionSetHash', 'rubricScheme', 'answersJson', 'analysisJson', 'analysisStatus',
+    'analysisFingerprint', 'analysisError', 'apiModel', 'apiInputTokens', 'apiOutputTokens',
+    'apiTotalTokens', 'submittedAt', 'analyzedAt', 'isPreview'
   ]
 };
 
@@ -395,6 +402,16 @@ function validateLiteTeacherSetup_(payload) {
   const lessonGoal = liteOptional_(payload.lessonGoal, '수업 목표', 500);
   const standard = normalizeLiteAchievementStandard_(payload.achievementStandard, payload.achievementStandardCode);
   const achievementStandard = standard.achievementStandard;
+  const requiredAssessment = payload.requiredAssessment || payload.requiredAssessmentJson
+    ? normalizeLiteRequiredAssessment_(payload.requiredAssessment || payload.requiredAssessmentJson, payload) : null;
+  const requiredAssessmentMode = payload.requiredAssessmentMode === 'required_two' || requiredAssessment
+    ? 'required_two' : 'legacy';
+  if (activityMode === 'evaluation' && requiredAssessmentMode === 'required_two' && !requiredAssessment) {
+    throw new Error('필수 평가 문항 2개를 확정하고 문항별 분석 기준표를 만든 뒤 저장해 주세요.');
+  }
+  // 공통 대화 엔진의 기존 필드는 첫 문항의 검토된 기준으로 채웁니다.
+  // 실제 수행평가는 별도 문항별 기준표와 명시적으로 제출된 답변만 사용합니다.
+  if (requiredAssessment) payload = Object.assign({}, payload, requiredAssessment.items[0]);
   if (activityMode === 'evaluation' && !lessonGoal && !liteAchievementStandardContent_(achievementStandard)) {
     throw new Error('평가모드에서는 수업 목표 또는 성취기준을 입력해 주세요.');
   }
@@ -426,6 +443,9 @@ function validateLiteTeacherSetup_(payload) {
     expectedAnswer: liteOptional_(payload.expectedAnswer, '예상 답변', 1500),
     assessmentEvidence: liteOptional_(payload.assessmentEvidence, '평가 문항 근거', 1000),
     answerExamples: liteOptional_(payload.answerExamples, '예상 답변 유형', 3500),
+    requiredAssessmentMode: requiredAssessmentMode,
+    requiredAssessment: requiredAssessment,
+    requiredAssessmentJson: requiredAssessment ? JSON.stringify(requiredAssessment) : '',
     activityMode: activityMode,
     version: liteText_(payload.version, 30) || 'v1'
   };
@@ -444,6 +464,8 @@ function sanitizeLiteSettingsForStudent_(settings) {
     materialText: liteText_(settings.materialText, 30000),
     materialUrl: liteText_(settings.materialUrl, 1000),
     startQuestion: liteText_(settings.startQuestion, 500),
+    requiredQuestions: settings.activityMode !== 'exploration' && settings.requiredAssessment
+      ? settings.requiredAssessment.items.map(function (item) { return { id:item.id, question:item.question }; }) : [],
     activityMode: settings.activityMode === 'exploration' ? 'exploration' : 'evaluation',
     version: liteText_(settings.version, 30) || 'v1',
     sourceHash: liteText_(settings.sourceHash, 24),
@@ -466,7 +488,8 @@ function buildLiteReadiness_(settings, context) {
   settings = settings || {};
   context = context || {};
   const backwardDesignEnabled = settings.activityMode !== 'exploration';
-  const backwardReady = !backwardDesignEnabled || Boolean(
+  const requiredReady = settings.requiredAssessmentMode !== 'required_two' || Boolean(settings.requiredAssessment && settings.requiredAssessment.items.length === 2);
+  const backwardReady = !backwardDesignEnabled || requiredReady && Boolean(
     (settings.lessonGoal || liteAchievementStandardContent_(settings.achievementStandard)) && settings.assessmentCriteria &&
     settings.rubricHigh && settings.rubricMeet && settings.rubricDeveloping &&
     (normalizeLiteRubricScheme_(settings.rubricScheme) === 'legacy_three' || settings.rubricGood) &&
@@ -710,6 +733,9 @@ function readLiteTeacherSettings_(spreadsheet, options) {
     settings.assessmentEvidence = liteText_(settings.assessmentEvidence, 1000);
     settings.answerExamples = liteText_(settings.answerExamples, 3500);
     Object.assign(settings, normalizeLiteAchievementStandard_(settings.achievementStandard, settings.achievementStandardCode));
+    settings.requiredAssessment = settings.requiredAssessmentJson
+      ? normalizeLiteRequiredAssessment_(settings.requiredAssessmentJson, settings) : null;
+    settings.requiredAssessmentMode = settings.requiredAssessment ? 'required_two' : settings.requiredAssessmentMode || 'legacy';
   }
   // 0.1.x 사본은 개정 열이 없으므로, 다시 저장하기 전에도 새 중앙 엔진을 사용할 수 있게
   // 같은 설정에서 항상 같은 해시와 첫 개정 번호를 계산해 돌려준다.
@@ -742,6 +768,10 @@ function saveLiteTeacherSettings_(settings, options) {
     assessmentEvidence: liteOptional_(settings.assessmentEvidence, '평가 문항 근거', 1000),
     answerExamples: liteOptional_(settings.answerExamples, '예상 답변 유형', 3500)
   }, normalizeLiteAchievementStandard_(settings.achievementStandard, settings.achievementStandardCode));
+  settings.requiredAssessment = settings.requiredAssessment || settings.requiredAssessmentJson
+    ? normalizeLiteRequiredAssessment_(settings.requiredAssessment || settings.requiredAssessmentJson, settings) : null;
+  settings.requiredAssessmentJson = settings.requiredAssessment ? JSON.stringify(settings.requiredAssessment) : '';
+  settings.requiredAssessmentMode = settings.requiredAssessment ? 'required_two' : settings.requiredAssessmentMode || 'legacy';
   const sourceHash = makeLiteSettingsHash_(settings);
   const newLesson = Boolean(options.newLesson);
   const changed = newLesson || String(previous.sourceHash || '') !== sourceHash;
@@ -788,6 +818,7 @@ function makeLiteSettingsHash_(settings) {
   });
   if (liteText_(settings && settings.rubricBeginning)) fields.push('rubricBeginning');
   if (liteText_(settings && settings.answerExamples)) fields.push('answerExamples');
+  if (liteText_(settings && settings.requiredAssessmentJson)) fields.push('requiredAssessmentMode', 'requiredAssessmentJson');
   const source = fields.map(function (field) {
     return field + '=' + liteText_(settings && settings[field]);
   }).join('\n');

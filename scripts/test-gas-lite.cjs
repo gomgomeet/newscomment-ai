@@ -491,7 +491,7 @@ assert.equal(toggleSpreadsheet.getSheetByName('시작하기').getCell(3, 2), '�
 const headers = vm.runInContext('LITE_SHEET_HEADERS_', context);
 assert.deepEqual(
   Array.from(Object.keys(headers)),
-  ['시작하기', '수업 자료', '학생별 현황', '질문과 답변', '교사 평가']
+  ['시작하기', '수업 자료', '학생별 현황', '질문과 답변', '교사 평가', '필수 평가 응답']
 );
 assert.equal(headers['수업 자료'].includes('assessmentCriteria'), true);
 assert.equal(headers['교사 평가'].includes('improvementSuggestion'), true);
@@ -627,7 +627,7 @@ assert.throws(
 );
 
 context.ensureLiteWorkbook_(spreadsheet);
-assert.deepEqual(Array.from(spreadsheet.sheets.keys()), ['시작하기', '수업 자료', '학생별 현황', '질문과 답변', '교사 평가']);
+assert.deepEqual(Array.from(spreadsheet.sheets.keys()), ['시작하기', '수업 자료', '학생별 현황', '질문과 답변', '교사 평가', '필수 평가 응답']);
 const savedSettings = context.saveLiteTeacherSettings_(normalized);
 const reopenedSettings = context.readLiteTeacherSettings_();
 assert.equal(reopenedSettings.lessonId, savedSettings.lessonId);
@@ -2078,7 +2078,7 @@ assert.match(studentClientHtml, /retry-turn-button/);
 assert.match(studentClientHtml, /window\.confirm/);
 assert.ok(
   studentClientHtml.indexOf('const resumed = resumeStoredPendingRequest') <
-    studentClientHtml.indexOf('if (state.closed && !resumed) clearStoredStudentSession'),
+    studentClientHtml.indexOf('if (state.closed && !resumed && !hasRequiredQuestions()) clearStoredStudentSession'),
   '닫힌 대화도 pending 기록 복구를 먼저 시도해야 한다'
 );
 const permanentErrorSource = studentClientHtml.slice(

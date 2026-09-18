@@ -235,6 +235,8 @@ function startLiteStudentSession(payload) {
     studentCode: code,
     isPreview: code === '99-999',
     lesson: sanitizeLiteSettingsForStudent_(settings),
+    requiredSubmission: settings.requiredAssessment
+      ? getLiteRequiredSubmissionForStudent_(settings, sessionId, spreadsheet) : null,
     history: history.map(function (row) {
       return {
         requestId: liteText_(row.requestId, 100),

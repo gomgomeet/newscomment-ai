@@ -4,7 +4,8 @@
     studentCode:'', sessionId:'', joinCode:'', materialFontStep:1,
     deviceToken:getOrCreateDeviceToken(), pendingRequest:null,
     previewAccessToken:document.body.dataset.previewToken || '', retryTimer:null,
-    bootstrapRecoveryChecked:false, bootstrapRecoveryPending:null, recoveryNotice:''
+    bootstrapRecoveryChecked:false, bootstrapRecoveryPending:null, recoveryNotice:'',
+    requiredSubmission:null, requiredSubmitting:false, requiredPending:null
   };
   const ACTIVE_PENDING_STORAGE_KEY = 'lite-pending-request:active';
   const ACTIVE_PENDING_MAX_AGE_MS = 25 * 60 * 60 * 1000;
@@ -17,7 +18,9 @@
       'lesson-goal','start-question','material-text','font-smaller','font-larger','messages',
       'onboarding','student-code-input','join-code-input','start-button','status','chat-form','message-input',
       'definition-button','research-button','hint-button','evidence-button','revise-button',
-      'close-button','quick-actions','exit-session-button','retry-bootstrap-button','retry-turn-button'
+      'close-button','quick-actions','exit-session-button','retry-bootstrap-button','retry-turn-button',
+      'open-required-assessment','required-assessment-panel','required-assessment-form','required-assessment-status',
+      'required-question-q1','required-question-q2','required-answer-q1','required-answer-q2','submit-required-assessment','return-to-chat','refresh-required-assessment'
     ].forEach(function (id) { elements[toCamel(id)] = document.getElementById(id); });
     elements.mobileTabs = Array.from(document.querySelectorAll('.mobile-tab'));
 
@@ -42,12 +45,24 @@
     elements.startButton.addEventListener('click', function () { beginConversation(elements.studentCodeInput.value); });
     elements.retryBootstrapButton.addEventListener('click', loadBootstrap);
     elements.retryTurnButton.addEventListener('click', retryPendingTurn);
+    elements.openRequiredAssessment.addEventListener('click', function () { showRequiredAssessment(true); });
+    elements.returnToChat.addEventListener('click', function () { showRequiredAssessment(false); });
+    elements.refreshRequiredAssessment.addEventListener('click', function () { window.location.reload(); });
+    elements.requiredAssessmentForm.addEventListener('submit', submitRequiredAssessment);
+    ['q1','q2'].forEach(function (id) {
+      elements[toCamel('required-answer-' + id)].addEventListener('input', updateRequiredProgress);
+    });
     elements.definitionButton.addEventListener('click', function () { preparePrompt('___이(가) 뭐예요?'); });
     elements.researchButton.addEventListener('click', function () { preparePrompt('___에 대해 더 알아보고 싶어요.'); });
     elements.hintButton.addEventListener('click', function () { sendTurn('hint', '힌트가 필요해요.'); });
     elements.evidenceButton.addEventListener('click', function () { preparePrompt('내 생각에는 ___'); });
     elements.reviseButton.addEventListener('click', function () { preparePrompt('다시 생각해 보니 ___'); });
     elements.closeButton.addEventListener('click', function () {
+      if (hasRequiredQuestions() && !(state.requiredSubmission && state.requiredSubmission.submitted)) {
+        showRequiredAssessment(true);
+        elements.requiredAssessmentStatus.textContent = '필수 두 문항에 답변을 제출한 뒤 활동을 마칠 수 있어요.';
+        return;
+      }
       if (state.busy || !window.confirm('대화를 마치고 최종 제출할까요? 제출 뒤에는 이 대화를 이어 쓸 수 없습니다.')) return;
       sendTurn('close', '이제 대화를 마칠게요.');
     });
@@ -214,6 +229,7 @@
           state.bootstrapData.lesson = result.lesson;
           renderLesson(result.lesson, true);
         }
+        renderRequiredAssessment(result.requiredSubmission);
         elements.studentCodeLabel.textContent = '반-번호 · ' + result.studentCode;
         elements.exitSessionButton.hidden = false;
         elements.onboarding.hidden = true;
@@ -229,7 +245,7 @@
         } catch (error) {}
         // 닫힘 행이 먼저 저장되고 요약·평가 보정만 남았을 수 있으므로 pending 복구를 먼저 시도한다.
         const resumed = resumeStoredPendingRequest(result.history || []);
-        if (state.closed && !resumed) clearStoredStudentSession();
+        if (state.closed && !resumed && !hasRequiredQuestions()) clearStoredStudentSession();
         setComposerEnabled(!state.closed && !resumed);
         if (!resumed) {
           setBusy(false, state.closed ? '이미 마친 대화입니다.' : '궁금한 점이나 생각을 이어 가 보세요.');
@@ -243,6 +259,7 @@
   }
 
   function sendTurn(action, message) {
+    if (state.requiredSubmitting) return;
     const recoveringClosedRequest = Boolean(
       state.closed && state.pendingRequest && state.pendingRequest.alreadyInHistory &&
       state.pendingRequest.action === action && state.pendingRequest.message === String(message || '').trim()
@@ -282,7 +299,7 @@
         if (!alreadyInHistory) addMessage('bot', result.reply || '잠시 뒤 다시 이야기해 주세요.');
         state.sessionId = result.sessionId || state.sessionId;
         state.closed = Boolean(result.isClosing);
-        if (state.closed) clearStoredStudentSession();
+        if (state.closed && !hasRequiredQuestions()) clearStoredStudentSession();
         if (result.retryable && !elements.messageInput.value) elements.messageInput.value = value;
         setComposerEnabled(!state.closed);
         setBusy(false, state.closed
@@ -568,6 +585,11 @@
   }
 
   function leaveDeviceSession() {
+    if (state.requiredSubmitting || state.requiredPending) {
+      elements.requiredAssessmentStatus.textContent = '필수 답변의 제출 결과를 확인한 뒤 이 기기에서 나갈 수 있어요.';
+      showRequiredAssessment(true);
+      return;
+    }
     if (state.busy || state.pendingRequest) {
       setStatus('전송 중인 질문의 기록을 확인한 뒤 이 기기에서 나갈 수 있어요.');
       return;
@@ -578,6 +600,120 @@
     state.busy = false;
     clearStoredStudentSession();
     window.location.reload();
+  }
+
+  function hasRequiredQuestions() {
+    const lesson = state.bootstrapData && state.bootstrapData.lesson || {};
+    return lesson.activityMode === 'evaluation' && Array.isArray(lesson.requiredQuestions) && lesson.requiredQuestions.length === 2;
+  }
+
+  function requiredPendingKey() {
+    return 'lite-required-answers:' + [lessonIdentity().lessonId, lessonIdentity().lessonRevision,
+      lessonIdentity().sourceHash, state.studentCode, state.deviceToken].join(':');
+  }
+
+  function renderRequiredAssessment(submission) {
+    elements.openRequiredAssessment.hidden = !hasRequiredQuestions();
+    if (!hasRequiredQuestions()) return;
+    const questions = state.bootstrapData.lesson.requiredQuestions;
+    questions.forEach(function (item) {
+      if (item.id === 'q1' || item.id === 'q2') elements[toCamel('required-question-' + item.id)].textContent = item.question;
+    });
+    state.requiredSubmission = submission || null;
+    state.requiredPending = null;
+    if (!(submission && submission.submitted)) {
+      try {
+        const pending = JSON.parse(sessionStorage.getItem(requiredPendingKey()) || 'null');
+        if (pending && pending.sessionId === state.sessionId && Array.isArray(pending.answers) &&
+            pending.answers.length === 2 && /^[A-Za-z0-9_-]{12,100}$/.test(pending.requestId || '') &&
+            ['q1','q2'].every(function (id) { return pending.answers.some(function (item) { return item.questionId === id && typeof item.text === 'string'; }); })) {
+          state.requiredPending = pending;
+        }
+      } catch (error) {}
+    }
+    const answers = submission && submission.answers || state.requiredPending && state.requiredPending.answers || [];
+    answers.forEach(function (item) {
+      if (item.questionId === 'q1' || item.questionId === 'q2') elements[toCamel('required-answer-' + item.questionId)].value = item.text || '';
+    });
+    updateRequiredProgress();
+    if (submission && submission.submitted) {
+      elements.requiredAssessmentStatus.textContent = '두 문항 답변이 제출되었습니다. 선생님이 답변을 확인합니다.';
+      try { sessionStorage.removeItem(requiredPendingKey()); } catch (error) {}
+    } else if (state.requiredPending) {
+      elements.requiredAssessmentStatus.textContent = '이전에 보낸 답변의 제출 결과를 확인해 주세요. 같은 전송 번호로 확인합니다.';
+    }
+    showRequiredAssessment(!(submission && submission.submitted));
+  }
+
+  function updateRequiredProgress() {
+    const submitted = Boolean(state.requiredSubmission && state.requiredSubmission.submitted);
+    const count = ['q1','q2'].filter(function (id) { return elements[toCamel('required-answer-' + id)].value.trim(); }).length;
+    elements.openRequiredAssessment.textContent = submitted ? '필수 평가 제출 완료' : '필수 평가 ' + count + '/2';
+    ['q1','q2'].forEach(function (id) {
+      elements[toCamel('required-answer-' + id)].readOnly = submitted || state.requiredSubmitting || Boolean(state.requiredPending);
+    });
+    elements.submitRequiredAssessment.disabled = submitted || state.requiredSubmitting || (!state.requiredPending && count !== 2);
+    elements.submitRequiredAssessment.textContent = submitted ? '제출 완료'
+      : state.requiredSubmitting ? '제출 결과 확인 중…' : state.requiredPending ? '제출 결과 다시 확인' : '두 문항 답변 제출';
+  }
+
+  function showRequiredAssessment(open) {
+    if (!hasRequiredQuestions()) return;
+    elements.requiredAssessmentPanel.hidden = !open;
+    document.querySelector('.conversation-area').hidden = open;
+    document.querySelector('.interaction-dock').hidden = open;
+    switchPanel('chat');
+  }
+
+  function submitRequiredAssessment(event) {
+    event.preventDefault();
+    if (!state.ready || state.requiredSubmitting || state.busy || state.pendingRequest || !hasRequiredQuestions() ||
+        state.requiredSubmission && state.requiredSubmission.submitted) return;
+    const answers = ['q1','q2'].map(function (id) {
+      return { questionId:id, text:elements[toCamel('required-answer-' + id)].value.trim() };
+    });
+    if (answers.some(function (item) { return !item.text || item.text.length > 800; })) {
+      elements.requiredAssessmentStatus.textContent = '두 문항의 답변을 각각 800자 이내로 적어 주세요.';
+      return;
+    }
+    if (!state.requiredPending) {
+      state.requiredPending = Object.assign({
+        requestId:newRequestId(), studentCode:state.studentCode, sessionId:state.sessionId,
+        joinCode:state.joinCode, deviceToken:state.deviceToken, answers:answers
+      }, lessonIdentity());
+      try { sessionStorage.setItem(requiredPendingKey(), JSON.stringify(state.requiredPending)); } catch (error) {}
+    }
+    state.requiredSubmitting = true;
+    updateRequiredProgress();
+    elements.requiredAssessmentStatus.textContent = '답변을 저장하고 문항별 기준으로 분석하고 있어요. 잠시 기다려 주세요.';
+    google.script.run.withSuccessHandler(function (result) {
+      state.requiredSubmitting = false;
+      if (result && result.ok && result.submitted) {
+        state.requiredSubmission = { submitted:true, analysisStatus:result.analysisStatus, answers:state.requiredPending.answers };
+        state.requiredPending = null;
+        try { sessionStorage.removeItem(requiredPendingKey()); } catch (error) {}
+        elements.requiredAssessmentStatus.textContent = result.message || '두 문항 답변이 제출되었습니다. 선생님이 확인합니다.';
+      } else {
+        elements.requiredAssessmentStatus.textContent = result && result.message || '제출 결과를 확인하지 못했어요. 같은 전송 번호로 다시 확인해 주세요.';
+      }
+      updateRequiredProgress();
+    }).withFailureHandler(function (error) {
+      state.requiredSubmitting = false;
+      const message = error && error.message || '제출 결과를 확인하지 못했어요.';
+      if (isPermanentTurnError(message) || /참여코드|이미 제출한 답변|필수 평가 문항이 없습니다/.test(message)) {
+        try { sessionStorage.removeItem(requiredPendingKey()); } catch (storageError) {}
+        state.requiredPending = null;
+        state.ready = false;
+        updateRequiredProgress();
+        elements.submitRequiredAssessment.disabled = true;
+        elements.refreshRequiredAssessment.hidden = false;
+        elements.requiredAssessmentStatus.textContent = message + ' 아래에서 수업을 새로고침해 주세요.';
+        return;
+      }
+      elements.requiredAssessmentStatus.textContent = message +
+        ' 제출 결과 다시 확인 버튼은 같은 전송 번호를 사용합니다.';
+      updateRequiredProgress();
+    }).submitLiteRequiredAnswers(state.requiredPending);
   }
 
   function lessonIdentity() {

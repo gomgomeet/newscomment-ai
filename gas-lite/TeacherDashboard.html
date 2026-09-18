@@ -59,7 +59,8 @@
       <p class="muted">전체 사용 토큰에는 교사 미리보기와 응답 형식 검증에 실패한 유료 응답도 포함합니다. 기록 누락 가능성이 있으므로 정확한 청구 금액과 전체 사용량은 교사의 API 제공자 화면에서 확인하세요.</p>
       <details class="card" open>
         <summary><strong>이 수업의 평가 질문과 기준</strong></summary>
-        <div class="criteria-grid">
+        <div id="required-lesson-criteria" class="hidden"></div>
+        <div id="legacy-lesson-criteria" class="criteria-grid">
           <div class="criterion wide"><strong>학생 시작 질문</strong><span id="assessment-question"></span></div>
           <div class="criterion"><strong>답변의 핵심 요소 · 교사용</strong><span id="expected-answer"></span></div>
           <div class="criterion"><strong>자료의 근거 문장 · 교사용</strong><span id="assessment-evidence"></span></div>
@@ -84,8 +85,9 @@
         <span id="status" class="status" role="status" aria-live="polite"></span>
       </div>
       <section>
-        <h2>공통 질문행동 관찰 → 교사 기준 검수 → 최종 평가</h2>
-        <p class="muted">자동 점수는 질문·지문 이해·성취기준 연결·의견 표현을 관찰한 초안입니다. 교사가 입력한 수준 기준으로 근거를 다시 판단하고 피드백·향상 방법을 저장한 뒤에만 최종 확정합니다.</p>
+        <h2 id="evaluation-section-title">공통 질문행동 관찰 → 교사 기준 검수 → 최종 평가</h2>
+        <p id="evaluation-section-help" class="muted">자동 점수는 질문·지문 이해·성취기준 연결·의견 표현을 관찰한 초안입니다. 교사가 입력한 수준 기준으로 근거를 다시 판단하고 피드백·향상 방법을 저장한 뒤에만 최종 확정합니다.</p>
+        <div id="required-submissions" class="evaluation-list"></div>
         <div id="evaluations" class="evaluation-list"></div>
       </section>
     </main>
@@ -112,6 +114,15 @@
         const apiUsage = data.apiUsage || {};
         const detailedLevels = lesson.rubricScheme === 'four_levels' || lesson.rubricScheme === 'five_levels';
         const fiveLevels = lesson.rubricScheme === 'five_levels';
+        const requiredMode = Boolean(lesson.requiredAssessment && Array.isArray(lesson.requiredAssessment.items));
+        byId('legacy-lesson-criteria').classList.toggle('hidden', requiredMode);
+        byId('required-lesson-criteria').classList.toggle('hidden', !requiredMode);
+        renderRequiredLesson(lesson);
+        renderRequiredSubmissions(data.requiredAssessmentSubmissions || []);
+        byId('evaluation-section-title').textContent = requiredMode ? '문항별 답변 분석 → 교사 검수 → 최종 평가' : '공통 질문행동 관찰 → 교사 기준 검수 → 최종 평가';
+        byId('evaluation-section-help').textContent = requiredMode
+          ? 'AI가 제출한 두 답변을 문항별 기준표로 분석합니다. 인용한 답변과 판단 이유를 확인하고 문항별 교사 판단·피드백을 저장해 최종 확정해 주세요.'
+          : '자동 점수는 질문·지문 이해·성취기준 연결·의견 표현을 관찰한 초안입니다. 교사가 입력한 수준 기준으로 근거를 다시 판단하고 피드백·향상 방법을 저장한 뒤에만 최종 확정합니다.';
         byId('lesson-title').textContent = lesson.lessonTitle || '아직 설정한 수업이 없습니다.';
         byId('assessment-question').textContent = lesson.startQuestion || '입력된 시작 질문이 없습니다.';
         byId('expected-answer').textContent = lesson.expectedAnswer || '입력된 답변 핵심 요소가 없습니다.';
@@ -155,6 +166,62 @@
         });
       }
 
+      function appendEvidenceBlock(container, label, text) {
+        const heading = document.createElement('strong'); heading.textContent = label;
+        const content = document.createElement('p'); content.className = 'evidence'; content.textContent = text || '기록 없음';
+        container.appendChild(heading); container.appendChild(content);
+      }
+
+      function requiredLevelFields(scheme) {
+        return scheme === 'five_levels' ? [['rubricHigh','A'],['rubricGood','B'],['rubricMeet','C'],['rubricDeveloping','D'],['rubricBeginning','E']]
+          : scheme === 'four_levels' ? [['rubricHigh','매우잘함'],['rubricGood','잘함'],['rubricMeet','보통'],['rubricDeveloping','노력요함']]
+          : [['rubricHigh','도달'],['rubricMeet','성장 중'],['rubricDeveloping','도움 필요']];
+      }
+
+      function renderRequiredLesson(lesson) {
+        const root = byId('required-lesson-criteria'); root.textContent = '';
+        if (!lesson.requiredAssessment || !Array.isArray(lesson.requiredAssessment.items)) return;
+        lesson.requiredAssessment.items.forEach(function (item, index) {
+          const section = document.createElement('details');
+          const summary = document.createElement('summary'); summary.textContent = '문항 ' + (index + 1) + ' · ' + item.question;
+          section.appendChild(summary);
+          [['expectedAnswer','답변의 핵심 요소'],['assessmentEvidence','자료의 근거'],['assessmentCriteria','분석 기준']]
+            .concat(requiredLevelFields(lesson.rubricScheme), [['answerExamples','수준별 예상 답변'],['evidenceDescription','확인할 평가 근거']])
+            .forEach(function (field) { appendEvidenceBlock(section, field[1], item[field[0]]); });
+          root.appendChild(section);
+        });
+      }
+
+      function renderRequiredSubmissions(rows) {
+        const root = byId('required-submissions'); root.textContent = '';
+        rows.forEach(function (row) {
+          const card = document.createElement('article'); card.className = 'evaluation';
+          const title = document.createElement('h3'); title.textContent = row.studentCode + ' · 필수 평가 답변 제출';
+          card.appendChild(title);
+          const status = document.createElement('p'); status.className = 'muted';
+          status.textContent = '제출 ' + formatTime(row.submittedAt) + ' · ' + (row.analysisStatus === 'completed' ? 'AI 분석 완료 · 교사 검수 필요'
+            : row.analysisStatus === 'processing' ? 'AI가 답변을 분석하고 있습니다.'
+            : row.analysisError ? 'AI 분석을 마치지 못했습니다. 아래 문항별 답변을 직접 검수해 주세요.' : 'AI 분석 대기 · 교사 직접 검수 가능');
+          card.appendChild(status);
+          if (row.analysisError) { const error = document.createElement('p'); error.className = 'warning'; error.textContent = row.analysisError; card.appendChild(error); }
+          (row.answers || []).forEach(function (answer, index) {
+            const item = (row.items || []).find(function (question) { return question.id === answer.questionId; });
+            const analysis = (row.analysis || []).find(function (value) { return value.questionId === answer.questionId; });
+            const details = document.createElement('details');
+            const summary = document.createElement('summary'); summary.textContent = '문항 ' + (index + 1) + (item ? ' · ' + item.question : ''); details.appendChild(summary);
+            appendEvidenceBlock(details, '제출한 답변', answer.text);
+            if (analysis) {
+              appendEvidenceBlock(details, 'AI 분석 수준 · 교사 검수 전', analysis.level);
+              appendEvidenceBlock(details, '학생 답변에서 확인한 근거', analysis.answerQuote);
+              appendEvidenceBlock(details, '기준에 따른 판단 이유', analysis.rationale);
+              appendEvidenceBlock(details, '피드백 초안', analysis.feedback);
+            }
+            card.appendChild(details);
+          });
+          root.appendChild(card);
+        });
+      }
+
       function renderEvaluations(rows) {
         const root = byId('evaluations'); root.textContent = '';
         if (!rows.length) {
@@ -169,7 +236,7 @@
         const card = document.createElement('article'); card.className = 'evaluation';
         const head = document.createElement('div'); head.className = 'evaluation-head';
         const title = document.createElement('h3');
-        title.textContent = row.studentCode + ' 학생' + (row.sessionConflict ? ' · 접속 ' + row.sessionLabel : '');
+        title.textContent = row.studentCode + ' 학생' + (row.questionId ? ' · 문항 ' + (row.questionId === 'q1' ? '1' : '2') : '') + (row.sessionConflict ? ' · 접속 ' + row.sessionLabel : '');
         const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = row.finalStatus || '검수 필요';
         head.appendChild(title); head.appendChild(badge); card.appendChild(head);
         if (row.sessionConflict) {
@@ -178,15 +245,15 @@
           card.appendChild(warning);
         }
         const auto = document.createElement('p');
-        const autoStrong = document.createElement('strong'); autoStrong.textContent = '공통 질문행동 관찰: ';
+        const autoStrong = document.createElement('strong'); autoStrong.textContent = row.questionId ? '문항별 AI 분석 초안: ' : '공통 질문행동 관찰: ';
         auto.appendChild(autoStrong); auto.appendChild(document.createTextNode(row.automaticJudgment || '판단 보류'));
         card.appendChild(auto);
         if (row.assessmentResponse !== undefined) {
-          const answerTitle = document.createElement('strong'); answerTitle.textContent = '시작 질문 뒤 첫 응답';
+          const answerTitle = document.createElement('strong'); answerTitle.textContent = row.questionId ? row.assessmentQuestion || '필수 평가 문항의 답변' : '시작 질문 뒤 첫 응답';
           const answer = document.createElement('p'); answer.className = 'evidence';
           answer.textContent = row.assessmentResponse || '아직 확인할 첫 답변이 없습니다.';
           const note = document.createElement('p'); note.className = 'muted';
-          note.textContent = '추가 질문일 수도 있으므로 전체 대화와 위 기준을 함께 확인해 주세요. 공통 관찰 점수는 이 문항의 성적이 아닙니다.';
+          note.textContent = row.questionId ? '학생이 이 문항에 제출한 답변입니다. 문항별 분석 기준표와 답변 근거를 확인해 최종 판단해 주세요.' : '추가 질문일 수도 있으므로 전체 대화와 위 기준을 함께 확인해 주세요. 공통 관찰 점수는 이 문항의 성적이 아닙니다.';
           card.appendChild(answerTitle); card.appendChild(answer); card.appendChild(note);
         }
         const details = document.createElement('details');
@@ -234,7 +301,7 @@
           .withSuccessHandler(function (result) { button.disabled = false; setStatus(result.message); loadDashboard(); })
           .withFailureHandler(function (error) { button.disabled = false; showError(error); })
           .saveLiteTeacherEvaluation(teacherAccessToken, {
-            studentCode:row.studentCode, sessionId:row.sessionId,
+            studentCode:row.studentCode, sessionId:row.sessionId, questionId:row.questionId || '',
             lessonId:row.lessonId, lessonRevision:row.lessonRevision || 1,
             expectedReviewVersion:row.reviewVersion,
             teacherDecision:value('teacherDecision'), teacherFeedback:value('teacherFeedback'),

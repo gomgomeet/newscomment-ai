@@ -172,13 +172,13 @@ assert.equal(oldSaved.rubricScheme, 'legacy_three');
 assert.equal(oldSaved.lessonRevision, 7);
 
 // Appending teacher-only assessment guidance also preserves the existing 25-column workbook.
-const previousHeaders = lessonSheet.rows[0].filter((name) => !['expectedAnswer', 'assessmentEvidence', 'rubricBeginning', 'answerExamples'].includes(name));
+const previousHeaders = lessonSheet.rows[0].filter((name) => !['expectedAnswer', 'assessmentEvidence', 'rubricBeginning', 'answerExamples', 'requiredAssessmentMode', 'requiredAssessmentJson'].includes(name));
 assert.equal(previousHeaders.length, 25);
 lessonSheet.rows = [previousHeaders.slice(), previousHeaders.map((header) => editedFour[header] ?? '')];
 const previousCells = structuredClone(lessonSheet.rows[1]);
 const priorFour = context.readLiteTeacherSettings_();
 assert.deepEqual(lessonSheet.rows[0].slice(0, 25), previousHeaders);
-assert.deepEqual(lessonSheet.rows[0].slice(25), ['expectedAnswer', 'assessmentEvidence', 'rubricBeginning', 'answerExamples']);
+assert.deepEqual(lessonSheet.rows[0].slice(25), ['expectedAnswer', 'assessmentEvidence', 'rubricBeginning', 'answerExamples', 'requiredAssessmentMode', 'requiredAssessmentJson']);
 assert.deepEqual(plain(lessonSheet.rows[1]), plain(previousCells));
 assert.equal(priorFour.expectedAnswer, '');
 assert.equal(priorFour.assessmentEvidence, '');
@@ -351,13 +351,13 @@ assert.equal(context.buildLiteReadiness_({ ...four, lessonGoal:'', achievementSt
 assert.equal(context.liteAchievementStandardContent_(fullStandard), '글에 드러난 사실을 찾아 자신의 생각을 설명한다.');
 
 // A fifth level appends one column and never reinterprets saved three/four-level rows.
-const old27Headers = lessonSheet.rows[0].filter((name) => !['rubricBeginning', 'answerExamples'].includes(name));
+const old27Headers = lessonSheet.rows[0].filter((name) => !['rubricBeginning', 'answerExamples', 'requiredAssessmentMode', 'requiredAssessmentJson'].includes(name));
 assert.equal(old27Headers.length, 27);
 lessonSheet.rows = [old27Headers.slice(), old27Headers.map((header) => copiedGuidance[header] ?? '')];
 const old27Cells = plain(lessonSheet.rows[1]);
 const reloaded27 = context.readLiteTeacherSettings_();
 assert.deepEqual(lessonSheet.rows[0].slice(0, 27), old27Headers);
-assert.deepEqual(lessonSheet.rows[0].slice(27), ['rubricBeginning', 'answerExamples']);
+assert.deepEqual(lessonSheet.rows[0].slice(27), ['rubricBeginning', 'answerExamples', 'requiredAssessmentMode', 'requiredAssessmentJson']);
 assert.deepEqual(plain(lessonSheet.rows[1]), old27Cells);
 assert.equal(reloaded27.rubricBeginning, '');
 assert.equal(reloaded27.sourceHash, copiedGuidance.sourceHash);
@@ -426,14 +426,14 @@ context.saveLiteTeacherEvaluation(token, { ...fiveReview, expectedReviewVersion:
 assert.equal(context.liteRowsAsObjects_(sheets.get('교사 평가')).find((entry) => entry.sessionId === fiveTurn.sessionId).teacherDecision, 'E');
 
 // Optional teacher answer patterns append after all 28 existing columns and preserve older hashes.
-const old28Headers = lessonSheet.rows[0].filter((name) => name !== 'answerExamples');
+const old28Headers = lessonSheet.rows[0].filter((name) => !['answerExamples', 'requiredAssessmentMode', 'requiredAssessmentJson'].includes(name));
 assert.equal(old28Headers.length, 28);
 lessonSheet.rows = [old28Headers.slice(), old28Headers.map((header) => switchedFour[header] ?? '')];
 const old28Cells = plain(lessonSheet.rows[1]);
 const previousStudentRecords = JSON.stringify([sheets.get('학생별 현황').rows, sheets.get('질문과 답변').rows, sheets.get('교사 평가').rows]);
 const reloaded28 = context.readLiteTeacherSettings_();
 assert.deepEqual(lessonSheet.rows[0].slice(0, 28), old28Headers);
-assert.deepEqual(lessonSheet.rows[0].slice(28), ['answerExamples']);
+assert.deepEqual(lessonSheet.rows[0].slice(28), ['answerExamples', 'requiredAssessmentMode', 'requiredAssessmentJson']);
 assert.deepEqual(plain(lessonSheet.rows[1]), old28Cells);
 assert.equal(reloaded28.answerExamples, '');
 assert.equal(reloaded28.sourceHash, switchedFour.sourceHash);

@@ -53,6 +53,14 @@
 
   .chat-panel { display:flex; min-height:0; height:100%; flex-direction:column; }
   .chat-header { align-items:center; }
+  .required-assessment-panel { min-height:0; flex:1; overflow-y:auto; padding:20px 22px; }
+  .required-assessment-panel form { display:grid; gap:12px; }
+  .required-assessment-panel label { display:grid; gap:5px; margin-top:8px; }
+  .required-assessment-panel label span { white-space:pre-wrap; }
+  .required-assessment-panel textarea { resize:vertical; min-height:125px; }
+  .required-assessment-panel small { color:var(--muted); font-size:.8rem; }
+  .required-assessment-panel p { white-space:pre-wrap; }
+  #open-required-assessment { flex-shrink:0; font-size:.85rem; }
   .conversation-area { display:flex; min-height:0; flex:1; flex-direction:column; overflow:hidden; }
   .messages { display:flex; min-height:0; flex:1; flex-direction:column; gap:14px; overflow-y:auto; padding:20px 22px; scroll-behavior:smooth; }
   .message { width:fit-content; max-width:86%; }

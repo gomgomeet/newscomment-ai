@@ -37,7 +37,7 @@ function setupLiteProject() {
   getOrCreateLiteDeploymentId_();
   ensureLiteWorkbook_(spreadsheet);
   spreadsheet.toast(
-    '교사용 시트 다섯 장을 준비했습니다. 이제 교사 설정을 열어 주세요.',
+    '교사용 수업·대화·평가 시트를 준비했습니다. 이제 교사 설정을 열어 주세요.',
     'simbot',
     7
   );
@@ -104,6 +104,16 @@ function generateLiteAssessmentDraft(teacherAccessToken, payload) {
 function generateLiteMaterialAssessmentDraft(teacherAccessToken, payload) {
   assertLiteTeacherAccess_(teacherAccessToken);
   return generateLiteMaterialAssessmentDraft_(payload);
+}
+
+function generateLiteRequiredQuestionDraft(teacherAccessToken, payload) {
+  assertLiteTeacherAccess_(teacherAccessToken);
+  return generateLiteRequiredQuestionDraft_(payload);
+}
+
+function generateLiteRequiredRubricDraft(teacherAccessToken, payload) {
+  assertLiteTeacherAccess_(teacherAccessToken);
+  return generateLiteRequiredRubricDraft_(payload);
 }
 
 function saveLiteStudentUrlForTeacher(teacherAccessToken, studentUrl) {
