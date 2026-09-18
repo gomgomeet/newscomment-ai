@@ -269,7 +269,7 @@ function liteTurnFingerprint_(turn) {
   return liteFingerprint_([
     turn.requestId, turn.sessionId, turn.studentCode, turn.lessonId,
     turn.lessonRevision, turn.sourceHash, turn.message
-  ].join('|'), 32);
+  ].join('|') + (turn.action ? '|' + turn.action : ''), 32);
 }
 
 function saveLitePendingState_(turn, state, output) {
@@ -279,6 +279,10 @@ function saveLitePendingState_(turn, state, output) {
     turnFingerprint:liteTurnFingerprint_(turn),
     turnSnapshot:{
       activityMode:turn.activityMode === 'exploration' ? 'exploration' : 'evaluation',
+      understanding:Boolean(turn.understanding),
+      learningStage:liteText_(turn.learningStage, 20),
+      action:liteText_(turn.action, 40),
+      lessonActivityMode:liteText_(turn.lessonActivityMode, 20),
       startQuestion:liteText_(turn.startQuestion, 500),
       isPreview:Boolean(turn.isPreview),
       previewVerificationKey:liteText_(turn.previewVerificationKey, 80),
@@ -483,6 +487,10 @@ function hydrateLiteRecoveryTurn_(turn, pendingState) {
   if (snapshot.activityMode === 'evaluation' || snapshot.activityMode === 'exploration') {
     turn.activityMode = snapshot.activityMode;
   }
+  turn.understanding = snapshot.understanding === true;
+  turn.learningStage = liteText_(snapshot.learningStage, 20);
+  turn.action = liteText_(snapshot.action || turn.action, 40);
+  turn.lessonActivityMode = liteText_(snapshot.lessonActivityMode, 20);
   turn.startQuestion = liteText_(snapshot.startQuestion || turn.startQuestion, 500);
   turn.previewVerificationKey = liteText_(snapshot.previewVerificationKey, 80);
   turn.previewExpectedMarker = liteText_(snapshot.previewExpectedMarker, 80);
@@ -497,7 +505,8 @@ function liteRecoverySettings_(currentSettings, turn) {
     lessonId:turn.lessonId,
     lessonRevision:turn.lessonRevision,
     sourceHash:turn.sourceHash,
-    activityMode:turn.activityMode === 'exploration' ? 'exploration' : 'evaluation'
+    _liteRecoveryIdentityOnly:!liteTurnMatchesSettingsIdentity_(turn,currentSettings),
+    activityMode:turn.lessonActivityMode || (turn.activityMode === 'exploration' ? 'exploration' : 'evaluation')
   });
 }
 
@@ -723,12 +732,13 @@ function buildLiteEnginePayload_(turn, settings, history) {
       evidenceDescription: settings.evidenceDescription,
       materialTitle: settings.materialTitle,
       materialText: settings.materialText,
-      startQuestion: liteAssessmentStartQuestion_(settings),
+      startQuestion: turn.understanding ? liteUnderstandingStartQuestion_(settings) : liteAssessmentStartQuestion_(settings),
       version: settings.version,
       sourceHash: settings.sourceHash,
       lessonRevision: settings.lessonRevision || 1
     }
   };
+  if (turn.understanding === true && turn.activityMode === 'exploration') payload.understanding = true;
   if (turn.activityMode === 'evaluation') {
     const plan = liteAssessmentPlan_(settings);
     if (!plan.approved || !plan.criteria.length) {
@@ -757,6 +767,13 @@ function compactLiteEngineHistory_(history) {
 }
 
 function assertLiteAssessmentEngineResponse_(payload, body) {
+  if (payload && payload.understanding === true) {
+    const observed = body && body.observation;
+    if (!observed || observed.understanding !== true || observed.assessmentProgress ||
+        (observed.rubricScores || []).length || (observed.responseScore != null && observed.responseScore !== '')) {
+      throw new Error('공통 대화 엔진을 업데이트한 뒤 연결 확인을 다시 실행해 주세요. 글 이해 단계의 응답을 확인하지 못했습니다.');
+    }
+  }
   const lesson = payload && payload.lesson || {};
   const plan = lesson.assessmentPlan;
   if (!payload || payload.activityMode !== 'evaluation' || !plan || !plan.approved || !plan.criteria.length) return;
@@ -1008,7 +1025,9 @@ function findLiteDuplicateRequest_(requestId, expectedTurn, rowsOverride, spread
       return liteTurnRowMatches_(row, expectedTurn);
     });
     const messageMatches = student && unescapeLiteSheetText_(student.text) === String(expectedTurn.message);
-    if (!contextMatches || !messageMatches) {
+    const actionMatches = Boolean(expectedTurn.action === 'start_assessment') ===
+      Boolean(student && student.managedKind === 'assessment_start');
+    if (!contextMatches || !messageMatches || !actionMatches) {
       throw new Error('같은 전송 번호가 다른 수업 또는 학생 정보와 함께 사용되었습니다. 화면을 새로고침해 주세요.');
     }
   }
@@ -1115,6 +1134,13 @@ function isLiteVerifiedPreviewResult_(settings, turn, observation, engineStatus,
 function commitLitePreparedResult_(settings, turn, prepared, runtimeContext) {
   runtimeContext = runtimeContext || {};
   const observation = compactLitePreparedObservation_(prepared.observation);
+  // Preparation can never contribute scores, criterion progress or assessment evidence.
+  if (turn.understanding) {
+    observation.assessmentProgress = null;
+    observation.rubricScores = [];
+    observation.responseScore = '';
+    observation.evidenceIds = [];
+  }
   const reply = liteText_(prepared.reply, 1600);
   const saved = appendLiteTurnPair_(turn, {
     text:reply,
@@ -1141,7 +1167,7 @@ function commitLitePreparedResult_(settings, turn, prepared, runtimeContext) {
     engineStatus:liteText_(prepared.engineStatus, 240),
     aiStatus:liteText_(prepared.aiStatus, 240)
   }, {
-    updateEvaluation:true,
+    updateEvaluation:!turn.understanding && turn.action !== 'start_assessment',
     settings:settings,
     observation:observation,
     spreadsheet:runtimeContext.spreadsheet,
@@ -1164,13 +1190,22 @@ function commitLitePreparedResult_(settings, turn, prepared, runtimeContext) {
   const repairRequired = Boolean(evaluationWarning);
   if (!repairRequired) clearLitePendingState_(turn.requestId);
   const requiredState = typeof liteRequiredChatState_ === 'function'
-    ? liteRequiredChatState_(settings,observation.assessmentProgress)
+    ? liteRequiredChatState_(settings,observation.assessmentProgress ||
+      latestLiteAssessmentProgress_(runtimeContext.sessionRows || []))
     : {requiredAssessmentReady:false,requiredAssessmentProgress:null};
+  const learningState = liteLearningState_(settings, (runtimeContext.sessionRows || []).concat([
+    {speaker:'student',requestId:turn.requestId,text:turn.message}, {
+    speaker:'bot', requestId:turn.requestId, activityMode:turn.activityMode, engineStatus:prepared.engineStatus,
+    relatedQuestion:observation.relatedQuestion, questionType:observation.questionType,
+    sourceStatus:observation.sourceStatus, safetyFlag:observation.safetyFlag, isClosing:observation.isClosing
+  }]), observation.assessmentProgress);
   return {
     ok:!repairRequired,
     duplicate:Boolean(saved.duplicate),
     sessionId:turn.sessionId,
     reply:saved.assistantText || reply,
+    learningStage:learningState.learningStage,
+    canStartAssessment:learningState.canStartAssessment,
     requiredAssessmentReady:requiredState.requiredAssessmentReady,
     requiredAssessmentProgress:requiredState.requiredAssessmentProgress,
     expectsStudentReply:!observation.isClosing && /[?？]/.test(reply),
@@ -1219,7 +1254,7 @@ function handleLiteDuplicateRequest_(
     } else {
       try { repairLiteStudentSummary_(spreadsheet, turn, duplicate.observation, sessionRows); }
       catch (error) { repairFailed = true; }
-      if (turn.activityMode === 'evaluation') {
+      if (turn.activityMode === 'evaluation' && turn.action !== 'start_assessment') {
         try {
           upsertLiteEvaluationDraft_(settings, turn, duplicate.observation, {
             spreadsheet:spreadsheet,
@@ -1241,11 +1276,14 @@ function handleLiteDuplicateRequest_(
   const requiredState = typeof liteRequiredChatState_ === 'function'
     ? liteRequiredChatState_(settings,latestLiteAssessmentProgress_(sessionRows) || duplicate.observation.assessmentProgress)
     : {requiredAssessmentReady:false,requiredAssessmentProgress:null};
+  const learningState = liteLearningState_(settings, sessionRows);
   return {
     ok:!duplicate.retryable,
     duplicate:true,
     sessionId:duplicate.sessionId,
     reply:duplicate.text,
+    learningStage:learningState.learningStage,
+    canStartAssessment:learningState.canStartAssessment,
     requiredAssessmentReady:requiredState.requiredAssessmentReady,
     requiredAssessmentProgress:requiredState.requiredAssessmentProgress,
     expectsStudentReply:!duplicate.isClosing && /[?？]/.test(duplicate.text),
@@ -1341,6 +1379,16 @@ function submitLiteTurn(payload) {
   });
   // 저장이 끝난 bot 행만 신뢰하며 학생 payload의 진행 지정은 받아들이지 않는다.
   turn.assessmentProgress = latestLiteAssessmentProgress_(sessionRows);
+  const learningState = liteLearningState_(liteRecoverySettings_(currentSettings,turn), sessionRows);
+  if (!pendingState) {
+    turn.lessonActivityMode = currentSettings.activityMode;
+    turn.learningStage = learningState.learningStage;
+    turn.understanding = currentSettings.activityMode === 'evaluation' &&
+      learningState.learningStage === 'understanding';
+    turn.activityMode = turn.understanding ? 'exploration' : currentSettings.activityMode;
+    turn.startQuestion = turn.understanding
+      ? liteUnderstandingStartQuestion_(currentSettings) : liteAssessmentStartQuestion_(currentSettings);
+  }
   const runtimeContext = {
     spreadsheet:spreadsheet,
     workbookReady:true,
@@ -1354,6 +1402,7 @@ function submitLiteTurn(payload) {
     if (duplicate.activityMode === 'evaluation' || duplicate.activityMode === 'exploration') {
       turn.activityMode = duplicate.activityMode;
     }
+    turn.understanding = turn.activityMode === 'exploration' && currentSettings.activityMode === 'evaluation';
     const duplicateSettings = liteRecoverySettings_(currentSettings, turn);
     return handleLiteDuplicateRequest_(
       duplicate, duplicateSettings, turn, spreadsheet, sessionRows, pendingState, currentSettings
@@ -1362,9 +1411,7 @@ function submitLiteTurn(payload) {
 
   const recoverySettings = liteRecoverySettings_(currentSettings, turn);
   if (pendingState && pendingState.state === 'candidate_ready' && pendingState.output) {
-    const candidateHistory = withLiteVirtualStartQuestion_(
-      getLiteSessionHistory_(turn.sessionId, spreadsheet, qaRows), turn.startQuestion
-    );
+    const candidateHistory = liteHistoryForTurn_(turn, spreadsheet, qaRows);
     const currentEngineRuntime = readLiteEngineRuntimeSnapshot_();
     const canReuseCurrentEngine = liteTurnMatchesSettingsIdentity_(turn, currentSettings) &&
       Boolean(turn.engineEndpoint) &&
@@ -1394,14 +1441,39 @@ function submitLiteTurn(payload) {
     };
   }
 
+  if (turn.action === 'start_assessment') {
+    if (currentSettings.activityMode !== 'evaluation') throw new Error('평가 수업에서만 평가를 시작할 수 있습니다.');
+    if (learningState.learningStage !== 'understanding') throw new Error('이미 평가를 시작했습니다. 현재 질문에 답해 주세요.');
+    if (!learningState.canStartAssessment) throw new Error('먼저 글에서 궁금한 낱말이나 내용을 질문하며 이해해 보세요.');
+    turn.activityMode = 'evaluation';
+    turn.understanding = false;
+    turn.learningStage = 'assessment';
+    turn.startQuestion = liteAssessmentStartQuestion_(currentSettings);
+    return commitLitePreparedResult_(currentSettings, turn, {
+      reply:turn.startQuestion,
+      observation:{conversationPhase:2,managedKind:'assessment_start',primaryMove:'assessment',
+        assessmentProgress:liteInitialAssessmentProgress_(currentSettings,turn.requestId)},
+      engineStatus:'assessment_started',aiStatus:'not_called'
+    }, runtimeContext);
+  }
+
   if (!hasLiteEngineEndpoint_()) throw new Error('중앙 정책 엔진 연결을 준비하고 있습니다. 잠시 뒤 다시 시도해 주세요.');
   if (!hasLiteApiKey_()) throw new Error('교사가 개인 API 연결을 완료하지 않았습니다.');
 
-  const history = withLiteVirtualStartQuestion_(
-    getLiteSessionHistory_(turn.sessionId, spreadsheet, qaRows), turn.startQuestion
-  );
+  const history = liteHistoryForTurn_(turn, spreadsheet, qaRows);
   if (history.length && history[history.length - 1].isClosing) {
     throw new Error('이미 마친 대화입니다. 새 수업 설정에서 다시 시작해 주세요.');
+  }
+  // Reserve room for the transition and both formal questions, including evidence replies.
+  const understandingLimit = Math.max(1, Math.min(
+    LITE_ENGINE_REQUESTS_PER_SESSION_, LITE_ENGINE_REQUESTS_PER_STUDENT_LESSON_
+  ) - 8);
+  if (turn.understanding && learningState.canStartAssessment && (
+      countLiteSessionRequests_(turn.sessionId, spreadsheet, qaRows) >= understandingLimit ||
+      countLiteStudentLessonRequests_(turn, spreadsheet, qaRows) >= understandingLimit)) {
+    return {ok:true,sessionId:turn.sessionId,learningStage:'understanding',canStartAssessment:true,
+      isClosing:false,reply:'글에 대해 충분히 대화했어요. 이제 ‘평가 시작하기’를 눌러 두 질문에 답해 보세요.',
+      requiredAssessmentReady:false,requiredAssessmentProgress:null};
   }
   const sessionAtLimit = countLiteSessionRequests_(turn.sessionId, spreadsheet, qaRows) >=
     LITE_ENGINE_REQUESTS_PER_SESSION_;

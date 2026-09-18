@@ -3,7 +3,7 @@
  * API 키는 Script Properties에만 저장하며 Sheet 행으로 만들지 않습니다.
  */
 
-const LITE_APP_VERSION_ = '0.10.0';
+const LITE_APP_VERSION_ = '0.12.0';
 const LITE_API_KEY_PROPERTY_ = 'TEACHER_OPENAI_API_KEY';
 const LITE_SPREADSHEET_ID_PROPERTY_ = 'TEACHER_SPREADSHEET_ID';
 const LITE_ENGINE_ENDPOINT_PROPERTY_ = 'CENTRAL_ENGINE_ENDPOINT';
@@ -20,6 +20,9 @@ const LITE_PREVIEW_ACCESS_LESSON_PROPERTY_ = 'LITE_PREVIEW_ACCESS_LESSON';
 const LITE_PREVIEW_ACCESS_EXPIRES_PROPERTY_ = 'LITE_PREVIEW_ACCESS_EXPIRES';
 const LITE_DEPLOYMENT_ID_PROPERTY_ = 'LITE_DEPLOYMENT_ID';
 const LITE_CONFIRMED_STUDENT_URL_PROPERTY_ = 'LITE_CONFIRMED_STUDENT_URL';
+const LITE_DEPLOYMENT_VERIFIED_PROPERTY_ = 'LITE_DEPLOYMENT_VERIFIED';
+const LITE_DEPLOYMENT_HEALTH_SECRET_PROPERTY_ = 'LITE_DEPLOYMENT_HEALTH_SECRET';
+const LITE_DEPLOYMENT_HEALTH_PROTOCOL_ = 'simbot-deployment-v1';
 const LITE_PREVIEW_ACCESS_TTL_MS_ = 8 * 60 * 60 * 1000;
 
 const LITE_SHEET_HEADERS_ = {
@@ -468,11 +471,15 @@ function deriveLiteRequiredAssessmentPlan_(raw, context, approved) {
 
 function liteAssessmentStartQuestion_(settings) {
   settings = settings || {};
-  if (settings.activityMode === 'exploration') return liteText_(settings.startQuestion, 500);
+  if (settings.activityMode === 'exploration') return liteUnderstandingStartQuestion_();
   let plan;
   try { plan = liteAssessmentPlan_(settings); }
   catch (error) { return ''; }
   return plan.approved && plan.criteria.length ? plan.criteria[0].mainQuestion : '';
+}
+
+function liteUnderstandingStartQuestion_() {
+  return '글을 읽고 궁금한 것을 질문해 주세요! 제목을 보고 어떤 내용인지 생각해 볼까요?';
 }
 
 function validateLiteTeacherSetup_(payload) {
@@ -543,7 +550,7 @@ function validateLiteTeacherSetup_(payload) {
     materialTitle: liteRequired_(payload.materialTitle, '수업자료 제목', 120),
     materialText: materialText,
     materialUrl: materialUrl,
-    startQuestion: (activityMode === 'exploration' ? liteRequired_ : liteOptional_)(payload.startQuestion, '시작 질문', 500),
+    startQuestion: liteOptional_(payload.startQuestion, '시작 질문', 500),
     expectedAnswer: liteOptional_(payload.expectedAnswer, '예상 답변', 1500),
     assessmentEvidence: liteOptional_(payload.assessmentEvidence, '평가 문항 근거', 1000),
     answerExamples: liteOptional_(payload.answerExamples, '예상 답변 유형', 3500),
@@ -569,7 +576,8 @@ function sanitizeLiteSettingsForStudent_(settings) {
     materialTitle: liteText_(settings.materialTitle, 120),
     materialText: liteText_(settings.materialText, 30000),
     materialUrl: liteText_(settings.materialUrl, 1000),
-    startQuestion: liteAssessmentStartQuestion_(settings),
+    startQuestion: liteUnderstandingStartQuestion_(settings),
+    understandingEnabled: settings.activityMode === 'evaluation',
     requiredQuestions: settings.activityMode !== 'exploration' && settings.requiredAssessment
       ? settings.requiredAssessment.items.map(function (item) { return { id:item.id, question:item.question }; }) : [],
     activityMode: settings.activityMode === 'exploration' ? 'exploration' : 'evaluation',
@@ -610,7 +618,7 @@ function buildLiteReadiness_(settings, context) {
     (assessmentPlanValid && assessmentPlan.criteria.length > 0 && assessmentPlan.approved);
   const materialReady = Boolean(
     settings.lessonTitle && settings.materialTitle && String(settings.materialText || '').trim().length >= 30 &&
-    (backwardDesignEnabled ? assessmentPlanReady && liteAssessmentStartQuestion_(settings) : settings.startQuestion)
+    (backwardDesignEnabled ? assessmentPlanReady && liteAssessmentStartQuestion_(settings) : liteUnderstandingStartQuestion_())
   );
   const apiConfigured = Boolean(context.apiConfigured);
   const apiVerified = apiConfigured && Boolean(context.apiVerified);
@@ -656,7 +664,7 @@ function buildLiteReadiness_(settings, context) {
       state: materialReady ? 'pass' : 'block',
       detail: materialReady ? '학생 질문의 근거 자료와 실제 시작 질문이 준비되었습니다.'
         : backwardDesignEnabled ? '30자 이상의 수업자료와 승인된 질문계획의 첫 질문을 준비해 주세요.'
-        : '30자 이상의 수업자료와 시작 질문을 입력해 주세요.'
+        : '30자 이상의 수업자료를 입력해 주세요. 시작 안내는 자동으로 표시됩니다.'
     },
     {
       key: 'lessonAccess',
@@ -792,36 +800,35 @@ function ensureLiteSheet_(spreadsheet, name, headers) {
 
 function writeLiteStartHere_(spreadsheet) {
   const sheet = spreadsheet.getSheetByName('시작하기');
+  if (!sheet) return;
   const rows = [
     ['항목', '상태', '안내'],
-    ['1. API 연결', '', 'simbot → 교사 설정 열기에서 개인 API를 저장합니다.'],
-    ['2. 평가 설계', '', '평가모드는 목표·평가기준과 기준별 질문계획을 만들고 승인합니다. 자료 탐색모드에서는 입력한 설계를 보관만 합니다.'],
-    ['3. 수업자료', '', '학생이 질문할 본문과 시작 질문, 운영 모드를 입력합니다.'],
-    ['4. 미리보기', '', '학생용 주소에서 99-999로 전체 과정을 점검합니다.'],
-    ['5. 학생 배포', '', '점검이 모두 통과한 뒤 학생용 /exec 주소만 공유합니다.']
+    ['시작 전', '안내', '내 Google 계정으로 사본을 만든 뒤 시작합니다. simbot 메뉴가 보이지 않으면 시트를 새로고침해 주세요.'],
+    ['1. 최초 준비·권한 승인', '교사가 진행', 'simbot → 최초 준비를 실행하고 Google 권한 안내를 확인해 승인합니다. 내 시트에 수업·대화 기록을 저장하고 외부 AI에 연결하는 데 필요합니다. 학교 계정에서 승인이 차단되면 관리자에게 문의합니다.'],
+    ['2. 웹앱 배포', '교사가 진행', '교사 설정의 “Apps Script 열기” 또는 확장 프로그램 → Apps Script에서 배포 → 새 배포 → 웹 앱을 선택합니다. 학생이 로그인 없이 접속하고 학교 정책에서 허용한다면 실행 사용자 “나”, 액세스 권한 “모든 사용자”로 배포하고 /exec 주소를 복사합니다.'],
+    ['3. 주소 확인·미리보기', '교사가 진행', '교사 설정으로 돌아와 복사한 웹앱 주소를 확인·저장합니다. 개인 API·챗봇 연결 확인과 수업자료 준비를 마친 뒤 99-999 교사 미리보기에서 대화를 점검합니다.'],
+    ['수업 운영', '교사 설정에서 확인', '현재 준비 상태는 simbot → 교사 설정 열기에서 확인합니다. 준비 완료 후 학생용 주소와 참여코드를 학생에게 안내합니다.'],
+    ['사본 안내', '사본마다 별도 설정', '이 시트는 사용 순서 안내입니다. 원본에 표시되던 완료 상태가 사본의 권한·API 연결·웹앱 배포 완료를 뜻하지 않습니다. 사본마다 위 3단계를 진행해 주세요.']
   ];
-  if (sheet.getLastRow() <= 1) {
-    sheet.clearContents();
+  const current = sheet.getRange(1, 1, rows.length, rows[0].length).getDisplayValues();
+  if (JSON.stringify(current) !== JSON.stringify(rows)) {
     sheet.getRange(1, 1, rows.length, rows[0].length).setValues(rows);
     sheet.setFrozenRows(1);
-    sheet.autoResizeColumns(1, rows[0].length);
+    if (typeof sheet.setColumnWidth === 'function') {
+      sheet.setColumnWidth(1,175);
+      sheet.setColumnWidth(2,115);
+      sheet.setColumnWidth(3,370);
+    }
+    const guideRange = sheet.getRange(1,1,rows.length,rows[0].length);
+    if (typeof guideRange.setWrap === 'function') guideRange.setWrap(true);
+    if (typeof sheet.autoResizeRows === 'function') sheet.autoResizeRows(1,rows.length);
   }
 }
 
 function updateLiteStartHereStatus_(spreadsheet, readiness) {
-  const sheet = spreadsheet.getSheetByName('시작하기');
-  if (!sheet || sheet.getLastRow() < 6) return;
-  const checks = {};
-  (readiness && readiness.checks || []).forEach(function (item) { checks[item.key] = item.state === 'pass'; });
-  const statuses = [
-    checks.apiSaved && checks.apiVerified ? '완료' : checks.apiSaved ? '연결 확인 필요' : '입력 필요',
-    readiness && readiness.backwardDesignEnabled === false ? '사용 안 함'
-      : checks.backwardDesign && checks.assessmentPlan ? '완료' : '입력 필요',
-    checks.material && checks.mode ? '완료' : '입력 필요',
-    checks.preview ? '완료' : readiness && readiness.runtimeReady ? '99-999 점검 필요' : '연결 준비 필요',
-    readiness && readiness.distributionReady ? '배포 가능' : readiness && readiness.lessonOpen === false ? '수업 종료' : '점검 필요'
-  ];
-  sheet.getRange(2, 2, statuses.length, 1).setValues(statuses.map(function (value) { return [value]; }));
+  // A copied spreadsheet carries cell values but not the new owner's authorization/deployment.
+  // Keep this pre-authorization guide static; current readiness belongs in the teacher dialog.
+  writeLiteStartHere_(spreadsheet);
 }
 
 function liteRowsAsObjects_(sheet) {
@@ -984,6 +991,109 @@ function saveLiteStudentUrl_(value) {
   if (url) properties.setProperty(LITE_CONFIRMED_STUDENT_URL_PROPERTY_, url);
   else properties.deleteProperty(LITE_CONFIRMED_STUDENT_URL_PROPERTY_);
   return url;
+}
+
+function liteScriptProjectId_() {
+  const id = liteText_(ScriptApp.getScriptId(), 160);
+  if (!/^[A-Za-z0-9_-]{10,160}$/.test(id)) throw new Error('현재 Apps Script 프로젝트를 확인하지 못했습니다. 교사 시트에서 다시 열어 주세요.');
+  return id;
+}
+
+function getOrCreateLiteDeploymentHealthSecret_() {
+  const properties = PropertiesService.getScriptProperties();
+  let secret = properties.getProperty(LITE_DEPLOYMENT_HEALTH_SECRET_PROPERTY_);
+  if (secret) return secret;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    secret = properties.getProperty(LITE_DEPLOYMENT_HEALTH_SECRET_PROPERTY_);
+    if (!secret) {
+      secret = Utilities.getUuid() + Utilities.getUuid();
+      properties.setProperty(LITE_DEPLOYMENT_HEALTH_SECRET_PROPERTY_, secret);
+    }
+    return secret;
+  } finally { lock.releaseLock(); }
+}
+
+function liteDeploymentHealthProof_(nonce) {
+  const message = JSON.stringify([LITE_DEPLOYMENT_HEALTH_PROTOCOL_, liteScriptProjectId_(), LITE_APP_VERSION_, nonce]);
+  return Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(
+    message, getOrCreateLiteDeploymentHealthSecret_(), Utilities.Charset.UTF_8
+  )).replace(/=+$/g, '');
+}
+
+function liteDeploymentHealthResponse_(nonce) {
+  if (typeof nonce !== 'string' || !/^[A-Za-z0-9_-]{16,80}$/.test(nonce)) {
+    return {ok:false,protocol:LITE_DEPLOYMENT_HEALTH_PROTOCOL_,code:'invalid_challenge'};
+  }
+  // This public response deliberately contains no project ID, Sheet data or access credentials.
+  return {ok:true,protocol:LITE_DEPLOYMENT_HEALTH_PROTOCOL_,nonce:nonce,
+    appVersion:LITE_APP_VERSION_,proof:liteDeploymentHealthProof_(nonce)};
+}
+
+function verifyLiteStudentDeployment_(url) {
+  url = validateLiteStudentUrl_(url);
+  if (!url) throw new Error('새로 배포한 웹앱의 /exec 주소를 입력해 주세요.');
+  const nonce = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+  const expectedProof = liteDeploymentHealthProof_(nonce);
+  let response;
+  try {
+    response = UrlFetchApp.fetch(url + '?simbotHealth=deployment-v1&nonce=' + encodeURIComponent(nonce), {
+      method:'get',muteHttpExceptions:true,followRedirects:true
+    });
+  } catch (error) {
+    throw new Error('웹앱에 접속하지 못했습니다. 잠시 뒤 다시 확인해 주세요. 이전에 확인한 주소는 유지됩니다.');
+  }
+  const status = response.getResponseCode();
+  const raw = response.getContentText();
+  if (status === 404 || status === 410) throw new Error('웹앱 주소를 찾을 수 없습니다. 배포 관리에서 현재 웹 앱의 /exec 주소를 다시 복사해 주세요.');
+  if (status === 401 || status === 403 || /accounts\.google\.com|ServiceLogin|identifierId|signin\/|로그인/.test(raw)) {
+    throw new Error('자동 주소 검사는 로그인 없이 접속하는 웹앱을 대상으로 합니다. 학생 로그인을 요구하지 않을 계획이라면 실행 사용자 “나”·접근 “모든 사용자”를 확인해 주세요. 학교 정책에서 제한하면 관리자에게 문의해 주세요.');
+  }
+  if (status < 200 || status >= 300) throw new Error('웹앱이 정상 응답하지 않았습니다. 배포 상태를 확인한 뒤 다시 시도해 주세요.');
+  let body;
+  try { body = raw.length <= 4096 ? JSON.parse(raw) : null; }
+  catch (error) { body = null; }
+  if (!body || body.ok !== true || body.protocol !== LITE_DEPLOYMENT_HEALTH_PROTOCOL_ ||
+      body.appVersion !== LITE_APP_VERSION_) {
+    throw new Error('현재 버전의 웹앱인지 확인하지 못했습니다. Apps Script에서 배포 관리 → 수정 → 새 버전으로 배포한 뒤 주소를 다시 확인해 주세요.');
+  }
+  if (body.nonce !== nonce || body.proof !== expectedProof) {
+    throw new Error('이 교사 사본에서 배포한 웹앱 주소가 아닙니다. 현재 사본의 Apps Script에서 배포한 주소를 복사해 주세요.');
+  }
+  return {url:url,appVersion:LITE_APP_VERSION_,
+    projectFingerprint:liteFingerprint_(liteScriptProjectId_(),48),checkedAt:new Date().toISOString()};
+}
+
+function saveLiteVerifiedStudentUrl_(value) {
+  const url = validateLiteStudentUrl_(value);
+  if (!url) throw new Error('새로 배포한 웹앱의 /exec 주소를 입력해 주세요.');
+  const previousUrl = getLiteConfirmedStudentUrl_();
+  const verified = verifyLiteStudentDeployment_(url);
+  const properties = PropertiesService.getScriptProperties();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    if (getLiteConfirmedStudentUrl_() !== previousUrl) {
+      throw new Error('주소를 확인하는 동안 다른 주소가 저장되었습니다. 현재 주소를 확인한 뒤 다시 시도해 주세요.');
+    }
+    properties.setProperty(LITE_DEPLOYMENT_VERIFIED_PROPERTY_, JSON.stringify(verified));
+    saveLiteStudentUrl_(url);
+  } finally { lock.releaseLock(); }
+  return url;
+}
+
+function buildLiteTeacherOnboarding_() {
+  const scriptId = liteScriptProjectId_();
+  const confirmedUrl = getLiteConfirmedStudentUrl_();
+  let verified;
+  try { verified = JSON.parse(PropertiesService.getScriptProperties().getProperty(LITE_DEPLOYMENT_VERIFIED_PROPERTY_) || 'null'); }
+  catch (error) { verified = null; }
+  const current = Boolean(verified && confirmedUrl && verified.url === confirmedUrl &&
+    verified.appVersion === LITE_APP_VERSION_ && verified.projectFingerprint === liteFingerprint_(scriptId,48));
+  return {scriptEditorUrl:'https://script.google.com/home/projects/' + scriptId + '/edit',
+    authorizationReady:true,deploymentVerified:current,confirmedStudentUrl:confirmedUrl,
+    deploymentCheckedAt:current ? liteText_(verified.checkedAt,40) : ''};
 }
 
 function getLiteStudentUrl_() {

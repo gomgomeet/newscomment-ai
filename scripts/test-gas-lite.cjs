@@ -149,6 +149,9 @@ const engineSource = rawEngineSource.replace(
 vm.runInContext(engineSource, context, { filename: 'gas-lite/EngineClient.js' });
 const evaluationSource = fs.readFileSync(path.join(root, 'gas-lite', 'EvaluationService.js'), 'utf8');
 vm.runInContext(evaluationSource, context, { filename: 'gas-lite/EvaluationService.js' });
+// These recovery/security fixtures model a formal assessment already in progress.
+// Understanding-stage entry and transition use the real state machine in test-gas-lite-understanding.cjs.
+context.liteLearningState_ = () => ({ learningStage:'assessment', canStartAssessment:false });
 
 const validAssessmentCriterion = {
   id: 'main-evidence',
@@ -513,11 +516,12 @@ const savedEmptyExploration = toggleContext.saveLiteTeacherSettings_(exploration
 assert.equal(toggleContext.readLiteTeacherSettings_().activityMode, 'exploration');
 Object.keys(backwardDesignLimits).forEach((field) => assert.equal(savedEmptyExploration[field], ''));
 toggleContext.updateLiteStartHereStatus_(toggleSpreadsheet, explorationReadiness);
-assert.equal(toggleSpreadsheet.getSheetByName('시작하기').getCell(3, 2), '사용 안 함');
+assert.equal(toggleSpreadsheet.getSheetByName('시작하기').getCell(3, 2), '교사가 진행');
 toggleContext.updateLiteStartHereStatus_(toggleSpreadsheet, distributionReady);
-assert.equal(toggleSpreadsheet.getSheetByName('시작하기').getCell(3, 2), '완료');
+assert.equal(toggleSpreadsheet.getSheetByName('시작하기').getCell(3, 2), '교사가 진행');
 toggleContext.updateLiteStartHereStatus_(toggleSpreadsheet, incompleteEvaluationReadiness);
-assert.equal(toggleSpreadsheet.getSheetByName('시작하기').getCell(3, 2), '입력 필요');
+assert.equal(toggleSpreadsheet.getSheetByName('시작하기').getCell(3, 2), '교사가 진행');
+assert.match(toggleSpreadsheet.getSheetByName('시작하기').getCell(7, 3), /사본마다/);
 
 const headers = vm.runInContext('LITE_SHEET_HEADERS_', context);
 assert.deepEqual(
@@ -1999,11 +2003,18 @@ vm.runInContext(codeSource, context, { filename:'gas-lite/Code.js' });
 const confirmedUrlProperty = 'LITE_CONFIRMED_STUDENT_URL';
 const confirmedUrl = 'https://script.google.com/macros/s/actual_deployment-123/exec';
 const automaticUrl = context.getLiteStudentUrl_();
+context.ScriptApp.getScriptId = () => 'current-test-project';
+const originalDeploymentVerifier = context.verifyLiteStudentDeployment_;
+context.verifyLiteStudentDeployment_ = (url) => ({
+  url, appVersion:vm.runInContext('LITE_APP_VERSION_', context),
+  projectFingerprint:context.liteFingerprint_('current-test-project',48),
+  checkedAt:'2026-09-18T00:00:00.000Z'
+});
 context.markLiteApiVerified_('sk-zxywvutsrqponmlk');
 context.markLitePreviewVerified_(copiedSettings);
 const beforeUrlData = context.getLiteTeacherSetupData(teacherToken);
 const propertiesExceptUrl = () => Object.fromEntries(
-  Array.from(properties.entries()).filter(([key]) => key !== confirmedUrlProperty)
+  Array.from(properties.entries()).filter(([key]) => ![confirmedUrlProperty,'LITE_DEPLOYMENT_VERIFIED'].includes(key))
 );
 const lessonSheets = () => JSON.stringify(Array.from(spreadsheet.sheets.entries())
   .filter(([name]) => name !== '시작하기').map(([name, sheet]) => [name, sheet.rows]));
@@ -2018,6 +2029,7 @@ assert.equal(properties.has(confirmedUrlProperty), false);
 const savedUrlData = context.saveLiteStudentUrlForTeacher(teacherToken, '  ' + confirmedUrl + '  ');
 assert.equal(savedUrlData.studentUrl, confirmedUrl);
 assert.equal(savedUrlData.confirmedStudentUrl, confirmedUrl);
+assert.equal(savedUrlData.onboarding.deploymentVerified, true);
 assert.equal(savedUrlData.previewUrl, confirmedUrl + beforeUrlData.previewUrl.slice(beforeUrlData.previewUrl.indexOf('?')));
 assert.equal(context.isLitePreviewVerified_(copiedSettings), true);
 assert.equal(JSON.stringify(savedUrlData.settings), beforeUrlLesson);
@@ -2048,9 +2060,10 @@ context.ScriptApp.getService = originalService;
 properties.set(confirmedUrlProperty, 'https://example.com/unsafe');
 assert.throws(() => context.getLiteStudentUrl_(), /주소만/, 'Invalid stored overrides cannot become clickable links');
 properties.set(confirmedUrlProperty, confirmedUrl);
-const clearedUrlData = context.saveLiteStudentUrlForTeacher(teacherToken, '');
-assert.equal(clearedUrlData.studentUrl, automaticUrl);
-assert.equal(clearedUrlData.confirmedStudentUrl, '');
+assert.throws(() => context.saveLiteStudentUrlForTeacher(teacherToken, ''), /주소를 입력/);
+assert.equal(context.getLiteStudentUrl_(), confirmedUrl, 'Empty input preserves the verified deployment');
+context.saveLiteStudentUrl_('');
+assert.equal(context.getLiteStudentUrl_(), automaticUrl);
 assert.equal(properties.has(confirmedUrlProperty), false);
 assert.deepEqual(propertiesExceptUrl(), beforeUrlProperties);
 assert.equal(lessonSheets(), beforeUrlSheets);
@@ -2059,6 +2072,7 @@ assert.equal(context.getLiteStudentUrl_(), '');
 context.ScriptApp.getService = () => { throw new Error('not deployed'); };
 assert.equal(context.getLiteStudentUrl_(), '');
 context.ScriptApp.getService = originalService;
+context.verifyLiteStudentDeployment_ = originalDeploymentVerifier;
 [teacherHtml, teacherDashboardHtml, studentClientHtml].forEach((source, index) => {
   const scripts = Array.from(source.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi));
   scripts.forEach((match, scriptIndex) => {
@@ -2094,8 +2108,8 @@ assert.match(teacherHtml, /id="evidence-description"/);
 assert.match(teacherHtml, /latestDistributionReady/);
 assert.ok(/const dirty = hasUnsavedSetupChanges\(\)/.test(teacherHtml),
   'Readiness must gate links on the whole unsaved form, not only the activity mode');
-assert.ok(/copy-student-url'\)\.disabled = controlsBusy \|\| dirty \|\| !planReady \|\| !\(studentUrl && report\.distributionReady\)/.test(teacherHtml),
-  'Student link copying requires saved settings, no active operation, and server distribution readiness');
+assert.ok(/copy-student-url'\)\.disabled = controlsBusy \|\| dirty \|\| !planReady \|\| !deploymentIsVerified\(\) \|\| !\(studentUrl && report\.distributionReady\)/.test(teacherHtml),
+  'Student link copying requires saved settings, a verified deployment, no active operation, and server distribution readiness');
 assert.match(teacherHtml, /id="test-engine"/);
 assert.match(teacherHtml, /id="copy-student-url"/);
 assert.match(teacherHtml, /id="toggle-lesson"/);
@@ -2114,7 +2128,7 @@ assert.match(studentHtml, /id="join-code-input"/);
 assert.match(studentClientHtml, /getLiteStudentBootstrap/);
 assert.match(studentClientHtml, /startLiteStudentSession/);
 assert.match(studentClientHtml, /submitLiteTurn/);
-assert.match(studentClientHtml, /elements\.quickActions\.hidden = lesson\.activityMode !== 'exploration'/);
+// Visibility across exploration/understanding/formal stages is exercised by the student UI behavior tests.
 assert.doesNotMatch(studentClientHtml, /elements\.hintButton|sendTurn\('hint'/);
 assert.match(studentClientHtml, /lessonIdentity\(\)/);
 assert.match(studentClientHtml, /sessionStorage\.getItem\(key\)/);
@@ -2173,6 +2187,7 @@ const planContext = vm.createContext({
   LockService:{ getScriptLock:() => ({ waitLock() {}, tryLock() { return true; }, releaseLock() {} }) }
 });
 [setupSource, conversationSource, engineSource, evaluationSource, codeSource].forEach((source) => vm.runInContext(source, planContext));
+planContext.liteLearningState_ = () => ({ learningStage:'assessment', canStartAssessment:false });
 const planCriterion = {
   id:'reason', criterion:'자료에서 이유 찾기', responseKind:'explanation',
   mainQuestion:'학교에서 개인 물병을 사용하는 이유는 무엇인가요?',
@@ -2235,8 +2250,9 @@ assert.match(planContext.buildLiteReadiness_({ ...valid, assessmentPlanJson:'' }
 assert.match(planContext.buildLiteReadiness_(draftSettings, readinessContext)
   .checks.find((item) => item.key === 'assessmentPlan').detail, /보관됨·비활성/);
 assert.equal(planContext.liteAssessmentStartQuestion_(planSettings), planCriterion.mainQuestion);
-assert.equal(planContext.sanitizeLiteSettingsForStudent_(planSettings).startQuestion, planCriterion.mainQuestion);
-assert.equal(planContext.liteAssessmentStartQuestion_({ ...planSettings, activityMode:'exploration' }), valid.startQuestion);
+assert.equal(planContext.sanitizeLiteSettingsForStudent_(planSettings).startQuestion, planContext.liteUnderstandingStartQuestion_(planSettings));
+assert.equal(planContext.sanitizeLiteSettingsForStudent_(planSettings).understandingEnabled, true);
+assert.equal(planContext.liteAssessmentStartQuestion_({ ...planSettings, activityMode:'exploration' }), planContext.liteUnderstandingStartQuestion_());
 assert.doesNotMatch(JSON.stringify(planContext.sanitizeLiteSettingsForStudent_(planSettings)), /assessmentPlan|sourceQuote|evidenceDescription/);
 assert.doesNotMatch(JSON.stringify(planContext.sanitizeLiteBootstrapForStudent_(planSettings)), /assessmentPlan|sourceQuote|evidenceDescription/);
 

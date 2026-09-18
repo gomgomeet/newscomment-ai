@@ -98,6 +98,14 @@
       .compact-settings > summary { padding:10px 13px; cursor:pointer; font-weight:700; }
       .settings-body { padding:0 13px 13px; }
       .settings-body .button-row { margin-top:10px; }
+      .onboarding-step { margin:7px 0; border:1px solid var(--line); border-radius:9px; background:#f8fafc; }
+      .onboarding-step > summary { padding:9px 11px; cursor:pointer; font-weight:700; }
+      .onboarding-step[data-current="true"] { border-color:#60a5fa; background:var(--blue-soft); }
+      .onboarding-step[data-state="done"] > summary { color:var(--green); }
+      .onboarding-body { padding:0 11px 11px; }
+      .onboarding-body ol { margin:7px 0 10px; padding-left:21px; }
+      .onboarding-body .button-link { max-width:100%; }
+      #onboarding-status:empty { display:none; }
       .mode-choice { margin-top:16px; }
       .sharing-box { margin-top:18px; padding-top:16px; border-top:1px solid var(--line); }
       .sharing-box input { max-width:180px; }
@@ -114,6 +122,45 @@
   <body data-teacher-access-token="<?= teacherAccessToken ?>">
     <main>
       <h1>simbot 수업 설정</h1>
+      <details id="onboarding-settings" class="compact-settings" open>
+        <summary>처음 설정 3단계 <span id="onboarding-badge" class="badge">확인 중</span></summary>
+        <div class="settings-body">
+          <p class="help">교사당 처음 한 번 준비합니다. 다음 수업도 이 사본을 그대로 사용하세요.</p>
+          <details id="onboarding-authorization" class="onboarding-step">
+            <summary>① 권한 승인 <span id="onboarding-authorization-state" class="help">확인 중</span></summary>
+            <div class="onboarding-body"><p id="onboarding-authorization-detail" class="help">Google 권한 승인 상태를 확인하고 있습니다.</p></div>
+          </details>
+          <details id="onboarding-deployment" class="onboarding-step">
+            <summary>② 웹앱 배포 <span id="onboarding-deployment-state" class="help">준비 필요</span></summary>
+            <div class="onboarding-body">
+              <a id="open-script-editor" class="button-link" target="_blank" rel="noopener noreferrer" aria-disabled="true">Apps Script 열기</a>
+              <p id="script-editor-help" class="help">시트의 확장 프로그램 → Apps Script에서도 열 수 있습니다.</p>
+              <ol>
+                <li>배포 → 새 배포 → 웹 앱을 선택합니다.</li>
+                <li>실행 사용자는 ‘나’, 접근 범위는 학교 정책에 맞게 선택합니다. 로그인 없이 학생이 참여하려면 ‘모든 사용자’가 필요합니다.</li>
+                <li>배포된 /exec 주소를 복사합니다.</li>
+              </ol>
+              <button id="deployment-address-ready" type="button" class="secondary">배포 주소를 복사했어요</button>
+            </div>
+          </details>
+          <details id="onboarding-connection" class="onboarding-step">
+            <summary>③ 연결 검사·미리보기 <span id="onboarding-connection-state" class="help">확인 필요</span></summary>
+            <div class="onboarding-body">
+              <label>배포 관리에서 복사한 웹앱 주소
+                <input id="confirmed-student-url" type="text" inputmode="url" maxlength="500" autocomplete="off" spellcheck="false" placeholder="https://script.google.com/macros/s/배포ID/exec">
+              </label>
+              <p class="help">이 사본의 웹앱인지 실제로 연결해 확인한 뒤 저장합니다.</p>
+              <div class="button-row">
+                <button id="save-student-url" type="button" class="primary">연결 검사·주소 저장</button>
+                <button id="test-engine" type="button" class="secondary">챗봇 연결 확인</button>
+                <a id="onboarding-open-preview" class="button-link" target="_blank" rel="noopener noreferrer" aria-disabled="true">교사 미리보기</a>
+              </div>
+              <p id="onboarding-preview-help" class="help">AI 연결과 수업 설정을 저장하면 미리보기를 열 수 있습니다.</p>
+              <p id="onboarding-status" class="status" role="status" aria-live="polite"></p>
+            </div>
+          </details>
+        </div>
+      </details>
       <details id="api-settings" class="compact-settings">
         <summary>AI 연결 <span id="api-badge" class="badge">확인 중</span> <span class="help">관리</span></summary>
         <div class="settings-body">
@@ -229,7 +276,7 @@
             </div>
           <section id="required-assessment-editor" class="hidden" aria-label="필수 평가 문항과 분석 기준표">
             <h3>① 필수 평가 문항 2개</h3>
-            <p class="help">자료와 목표로 문항 생성 → 교사 수정·확정 → 분석 기준표 생성 → 검토 후 저장</p>
+            <p class="help">자료와 목표로 문항 생성 → 교사 수정·확정 → 분석 기준표 생성 → 검토 후 저장. 학생은 글에 대해 먼저 질문하고, 준비되면 ‘평가 시작하기’를 눌러 두 문항에 답합니다.</p>
             <button id="generate-required-questions" type="button" class="secondary" disabled>AI로 필수 문항 2개 생성</button>
             <p id="required-assessment-hint" class="help"></p>
             <label class="required-question">문항 1<textarea id="required-question-1" maxlength="250" placeholder="한 문장으로 묻고 물음표로 끝내 주세요."></textarea></label>
@@ -252,6 +299,10 @@
             <textarea id="start-question" maxlength="500" placeholder="예: 자료를 근거로 자신의 생각을 설명해 볼까요?"></textarea>
             <span id="start-question-help" class="help">학생 화면의 첫 질문입니다.</span>
           </label>
+          <section id="exploration-start-notice" class="notice hidden" aria-label="학생 대화 시작 안내">
+            <strong>학생 대화 시작 안내</strong>
+            <p>글을 읽고 궁금한 것을 질문해 주세요! 제목을 보고 어떤 내용인지 생각해 볼까요?</p>
+          </section>
           <fieldset id="backward-design-fields" class="grid" aria-label="질문과 평가기준 입력">
             <label class="wide">답변의 핵심 요소 (교사용)
               <textarea id="expected-answer" maxlength="1500" placeholder="AI 초안을 적용하면 답변에서 확인할 핵심 요소가 채워집니다. 필요하면 수정하세요."></textarea>
@@ -321,26 +372,7 @@
             <button id="copy-student-url" type="button" class="secondary" disabled>학생 링크 복사</button>
             <details class="help"><summary>학생 주소 보기</summary><code id="student-url">아직 학생용 주소가 없습니다.</code></details>
           </div>
-          <details class="compact-settings"><summary>연결·배포 관리</summary>
-            <div class="settings-body">
-              <label>배포 관리에서 확인한 웹앱 주소
-                <input id="confirmed-student-url" type="text" inputmode="url" maxlength="500" autocomplete="off" spellcheck="false" placeholder="https://script.google.com/macros/s/배포ID/exec">
-                <span class="help">배포 관리의 /exec 주소를 입력합니다. 비우면 자동으로 찾은 주소를 사용합니다.</span>
-              </label>
-              <div class="button-row">
-                <button id="save-student-url" type="button" class="secondary">웹앱 주소 저장</button>
-                <button id="test-engine" type="button" class="secondary">챗봇 연결 확인</button>
-              </div>
-              <details class="deployment-guide"><summary>처음 한 번: 웹앱 배포 방법</summary>
-                <ol>
-                  <li>Google Sheet에서 확장 프로그램 → Apps Script를 엽니다.</li>
-                  <li>배포 → 새 배포 → 웹 앱을 선택합니다.</li>
-                  <li>실행 사용자는 ‘나’, 접근 범위는 학교 정책에 맞게 선택합니다.</li>
-                  <li>배포 주소를 위에 붙여 넣고 ‘웹앱 주소 저장’을 누릅니다.</li>
-                </ol>
-              </details>
-            </div>
-          </details>
+          <button id="manage-onboarding" type="button" class="secondary">연결·배포 관리</button>
           <details class="compact-settings"><summary>수업 관리</summary><div class="settings-body button-row">
             <button id="duplicate-lesson" type="button" class="secondary">이 설정으로 새 수업 만들기</button>
             <button id="toggle-lesson" type="button" class="danger">현재 수업 배포 종료</button>
@@ -366,6 +398,9 @@
       let savedActivityMode = 'evaluation';
       let savedSetupSnapshot = null;
       let latestReadinessData = null;
+      let latestOnboardingData = null;
+      let onboardingGuideAcknowledged = false;
+      let onboardingDisplayKey = '';
       let readinessVersion = 0;
       let apiVerified = false;
       let controlsBusy = false;
@@ -409,6 +444,17 @@
         byId('clear-api').addEventListener('click', clearApi);
         byId('test-engine').addEventListener('click', testEngine);
         byId('save-student-url').addEventListener('click', saveStudentUrl);
+        byId('confirmed-student-url').addEventListener('input', updateReadinessDisplay);
+        byId('deployment-address-ready').addEventListener('click', function () {
+          onboardingGuideAcknowledged = true;
+          renderOnboarding();
+          byId('confirmed-student-url').focus();
+        });
+        byId('manage-onboarding').addEventListener('click', function () {
+          byId('onboarding-settings').open = true;
+          byId('onboarding-connection').open = true;
+          byId('confirmed-student-url').focus();
+        });
         byId('refresh-readiness').addEventListener('click', function () { refreshData('준비 상태를 새로고침했습니다.'); });
         byId('copy-student-url').addEventListener('click', copyStudentUrl);
         byId('toggle-lesson').addEventListener('click', toggleLesson);
@@ -642,18 +688,19 @@
         fields.disabled = !enabled || requiredMode;
         fields.classList.toggle('hidden', !enabled || requiredMode);
         byId('required-assessment-editor').classList.toggle('hidden', !requiredMode);
-        byId('start-question-field').classList.toggle('hidden', requiredMode);
+        byId('start-question-field').classList.toggle('hidden', !enabled || requiredMode);
+        byId('exploration-start-notice').classList.toggle('hidden', enabled);
         byId('legacy-assessment-generator').classList.toggle('hidden', requiredMode);
         byId('evaluation-goal-fields').disabled = !enabled;
         byId('evaluation-goal-fields').classList.toggle('hidden', !enabled);
         byId('assessment-ai-section').classList.toggle('hidden', !enabled);
-        byId('assessment-step-label').textContent = enabled ? '질문·평가기준' : '시작 질문';
-        byId('title-assessment').textContent = enabled ? '3. 질문·평가기준' : '3. 시작 질문';
-        byId('start-question').required = !enabled;
+        byId('assessment-step-label').textContent = enabled ? '질문·평가기준' : '대화 시작';
+        byId('title-assessment').textContent = enabled ? '3. 질문·평가기준' : '3. 대화 시작';
+        byId('start-question').required = false;
         byId('start-question-label').textContent = enabled ? '평가 질문 초안 (선택)' : '학생 시작 질문';
         byId('start-question-help').textContent = enabled
-          ? '평가모드의 실제 첫 질문은 아래에서 승인한 질문계획의 첫 질문입니다. 이 칸은 AI 초안 생성용으로 보존됩니다.'
-          : '자료 탐색모드에서 학생 화면에 처음 보여줄 질문입니다.';
+          ? '공통 시작 안내로 글을 이해한 뒤, 학생이 ‘평가 시작하기’를 누르면 승인한 질문계획의 첫 질문을 묻습니다. 이 칸은 AI 초안 생성용으로 보존됩니다.'
+          : '자료 탐색모드는 공통 시작 안내로 대화를 시작합니다. 이전 질문 초안은 보관됩니다.';
         ['assessment-criteria', 'rubric-high',
           'rubric-meet', 'rubric-developing', 'evidence-description'].forEach(function (id) {
           byId(id).required = enabled && !requiredMode;
@@ -1148,10 +1195,10 @@
         syncBackwardDesign(false);
         if (!byId('app-name').value) byId('app-name').value = 'simbot';
         if (!byId('join-code').value) byId('join-code').value = String(Math.floor(100000 + Math.random() * 900000));
-        byId('confirmed-student-url').value = data.confirmedStudentUrl || '';
+        byId('confirmed-student-url').value = data.confirmedStudentUrl || (data.onboarding && data.onboarding.confirmedStudentUrl) || '';
         updateApi(data.api || {});
         updateAssessmentPlanDisplay();
-        renderReadiness(data.readiness || {}, data.studentUrl || '', data.previewUrl || '');
+        renderReadiness(data.readiness || {}, data.studentUrl || '', data.previewUrl || '', data.onboarding);
         setStatus('설정을 확인하고 순서대로 입력해 주세요.');
       }
 
@@ -1259,7 +1306,7 @@
             savedSetupSnapshot = JSON.stringify(savedPayload);
             syncBackwardDesign(false);
             updateAssessmentPlanDisplay();
-            renderReadiness(result.readiness || {}, result.studentUrl || '', result.previewUrl || '');
+            renderReadiness(result.readiness || {}, result.studentUrl || '', result.previewUrl || '', result.onboarding);
             setStatus(result.message || '저장했습니다.');
             setButtonsDisabled(false);
           })
@@ -1269,20 +1316,24 @@
 
       function saveStudentUrl() {
         const url = byId('confirmed-student-url').value.trim();
-        if (url && (url.length > 500 || !/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(url))) {
-          setStatus('배포 관리에서 복사한 /exec 주소만 입력해 주세요. 미리보기 값이나 다른 주소는 저장할 수 없습니다.', true);
+        if (!url || url.length > 500 || !/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(url)) {
+          setOnboardingStatus('배포 관리에서 복사한 /exec 주소를 입력해 주세요. 미리보기 값이나 다른 주소는 저장할 수 없습니다.', true);
           return;
         }
-        setStatus('웹앱 주소를 저장하는 중입니다.');
+        setOnboardingStatus('웹앱에 실제로 연결해 이 사본의 배포인지 확인하고 있습니다.');
         setButtonsDisabled(true);
         google.script.run
           .withSuccessHandler(function (data) {
-            byId('confirmed-student-url').value = data.confirmedStudentUrl || '';
-            renderReadiness(data.readiness || {}, data.studentUrl || '', data.previewUrl || '');
-            setStatus(data.message || '웹앱 주소를 저장했습니다.');
+            byId('confirmed-student-url').value = data.confirmedStudentUrl || (data.onboarding && data.onboarding.confirmedStudentUrl) || '';
+            renderReadiness(data.readiness || {}, data.studentUrl || '', data.previewUrl || '', data.onboarding);
+            setOnboardingStatus(data.message || '연결을 확인하고 웹앱 주소를 저장했습니다.');
             setButtonsDisabled(false);
+            if (data.readiness && data.readiness.runtimeReady) showStep(steps.indexOf('check'));
           })
-          .withFailureHandler(function (error) { setButtonsDisabled(false); showError(error); })
+          .withFailureHandler(function (error) {
+            setButtonsDisabled(false);
+            setOnboardingStatus(error && error.message ? error.message : String(error), true);
+          })
           .saveLiteStudentUrlForTeacher(teacherAccessToken, url);
       }
 
@@ -1336,7 +1387,7 @@
           .withSuccessHandler(function (data) {
             if (requestVersion !== readinessVersion) return;
             updateApi(data.api || {});
-            renderReadiness(data.readiness || {}, data.studentUrl || '', data.previewUrl || '');
+            renderReadiness(data.readiness || {}, data.studentUrl || '', data.previewUrl || '', data.onboarding);
             setStatus(message || '준비 상태를 갱신했습니다.');
           })
           .withFailureHandler(function (error) {
@@ -1355,12 +1406,77 @@
         updateAssessmentControls();
       }
 
-      function renderReadiness(report, studentUrl, previewUrl) {
+      function renderReadiness(report, studentUrl, previewUrl, onboarding) {
         readinessVersion += 1;
+        if (onboarding) latestOnboardingData = onboarding;
         latestReadinessData = { report:report, studentUrl:studentUrl, previewUrl:previewUrl };
         latestDistributionReady = Boolean(report.distributionReady);
         latestStudentUrl = studentUrl || '';
         updateReadinessDisplay();
+      }
+
+      function deploymentIsVerified() {
+        // Preserve older server responses; current servers always send explicit verification state.
+        if (!latestOnboardingData) return true;
+        return latestOnboardingData.deploymentVerified === true &&
+          byId('confirmed-student-url').value.trim() === String(latestOnboardingData.confirmedStudentUrl || '');
+      }
+
+      function renderOnboarding() {
+        const data = latestOnboardingData || {};
+        const report = latestReadinessData && latestReadinessData.report || {};
+        const authorizationReady = data.authorizationReady === true;
+        const verified = data.deploymentVerified === true && deploymentIsVerified();
+        const engineVerified = (report.checks || []).some(function (check) { return check.key === 'engineVerified' && check.state === 'pass'; });
+        const hasAddress = Boolean(byId('confirmed-student-url').value.trim());
+        const done = [authorizationReady, verified, verified && engineVerified];
+        const complete = done.every(Boolean);
+        const current = !authorizationReady ? 0 : !verified && !onboardingGuideAcknowledged && !hasAddress ? 1 : 2;
+        const ids = ['authorization', 'deployment', 'connection'];
+        const labels = [authorizationReady ? '완료' : '확인 중', verified ? '확인 완료' : hasAddress || onboardingGuideAcknowledged ? '주소 준비·검사 대기' : '준비 필요',
+          done[2] ? '연결 완료' : verified ? '챗봇 연결 확인 필요' : '확인 필요'];
+        const key = JSON.stringify([done, current]);
+        ids.forEach(function (id, index) {
+          const panel = byId('onboarding-' + id);
+          panel.dataset.state = done[index] ? 'done' : 'pending';
+          panel.dataset.current = !complete && index === current ? 'true' : 'false';
+          byId('onboarding-' + id + '-state').textContent = labels[index];
+          if (key !== onboardingDisplayKey) panel.open = !complete && index === current;
+        });
+        if (key !== onboardingDisplayKey) byId('onboarding-settings').open = !complete;
+        onboardingDisplayKey = key;
+        const badge = byId('onboarding-badge');
+        badge.className = 'badge' + (complete ? ' pass' : '');
+        badge.textContent = complete ? '완료' : done.filter(Boolean).length + '/3';
+        byId('onboarding-authorization-detail').textContent = authorizationReady
+          ? '교사 설정을 열어 Google 권한 승인을 확인했습니다. 다음 수업에는 다시 승인할 필요가 없습니다.'
+          : 'Google 권한 승인 상태를 확인하고 있습니다.';
+        const editor = byId('open-script-editor');
+        const editorUrl = String(data.scriptEditorUrl || '');
+        if (/^https:\/\/script\.google\.com\/(?:u\/\d+\/)?home\/projects\/[A-Za-z0-9_-]+\/edit$/.test(editorUrl)) {
+          editor.href = editorUrl;
+          editor.setAttribute('aria-disabled', 'false');
+        } else {
+          editor.removeAttribute('href');
+          editor.setAttribute('aria-disabled', 'true');
+        }
+        byId('test-engine').classList.toggle('hidden', engineVerified);
+        const previewEnabled = byId('onboarding-open-preview').getAttribute('aria-disabled') === 'false';
+        byId('onboarding-preview-help').textContent = !verified
+          ? '주소 검사를 통과해야 교사 미리보기와 학생 링크를 사용할 수 있습니다.'
+          : !engineVerified ? '웹앱 주소는 확인했습니다. ‘챗봇 연결 확인’을 누른 뒤 미리보기를 진행하세요.'
+            : previewEnabled ? '연결 준비가 끝났습니다. 교사 미리보기에서 현재 수업을 점검하세요.'
+              : '연결 준비가 끝났습니다. AI 연결과 수업 설정을 저장한 뒤 4단계에서 미리보기를 여세요.';
+      }
+
+      function setOnboardingStatus(message, isError) {
+        byId('onboarding-status').textContent = message || '';
+        byId('onboarding-status').style.color = isError ? '#991b1b' : '#64748b';
+        if (isError) {
+          byId('onboarding-settings').open = true;
+          byId('onboarding-connection').open = true;
+        }
+        setStatus(message, isError);
       }
 
       function updateReadinessDisplay() {
@@ -1386,7 +1502,7 @@
           assessmentPlan.criteria.length > 0 && assessmentPlan.approved && !assessmentPlanError());
         const planSaved = !enabled || (requiredAssessmentEnabled() ? !dirty : assessmentPlanMatchesSavedSetup());
         const materialReady = hasText(payload.lessonTitle) && hasText(payload.materialTitle) &&
-          payload.materialText.trim().length >= 30 && (enabled ? planReady : hasText(payload.startQuestion));
+          payload.materialText.trim().length >= 30 && (!enabled || planReady);
         const inputChecks = {
           assessmentPlan: {
             label:requiredAssessmentEnabled() ? '필수 2문항 대화·분석 계획' : '평가기준별 질문·근거 계획',
@@ -1414,7 +1530,7 @@
             state: materialReady ? 'pass' : 'block',
             detail: materialReady ? '학생 질문의 근거 자료와 실제 시작 질문이 준비되었습니다.'
               : enabled ? '30자 이상의 수업자료와 승인된 질문계획의 첫 질문을 준비해 주세요.'
-              : '30자 이상의 수업자료와 시작 질문을 입력해 주세요.'
+              : '수업 제목과 자료 제목, 30자 이상의 수업자료를 입력해 주세요.'
           },
           lessonAccess: {
             state: codeReady ? 'pass' : 'block',
@@ -1459,18 +1575,22 @@
           : dirty ? '변경한 수업 설정을 저장해야 운영에 반영됩니다. 저장 후 현재 수업 미리보기를 확인해 주세요.'
             : report.summary || '준비 상태를 확인해 주세요.';
         byId('student-url').textContent = studentUrl || '아직 학생용 주소가 없습니다.';
-        const link = byId('open-student');
-        if (previewUrl && report.runtimeReady && planReady && !dirty && !controlsBusy) { link.href = previewUrl; link.setAttribute('aria-disabled', 'false'); }
-        else { link.removeAttribute('href'); link.setAttribute('aria-disabled', 'true'); }
-        byId('copy-student-url').disabled = controlsBusy || dirty || !planReady || !(studentUrl && report.distributionReady);
+        const previewEnabled = Boolean(previewUrl && deploymentIsVerified() && report.runtimeReady && planReady && !dirty && !controlsBusy);
+        ['open-student', 'onboarding-open-preview'].forEach(function (id) {
+          const link = byId(id);
+          if (previewEnabled) { link.href = previewUrl; link.setAttribute('aria-disabled', 'false'); }
+          else { link.removeAttribute('href'); link.setAttribute('aria-disabled', 'true'); }
+        });
+        byId('copy-student-url').disabled = controlsBusy || dirty || !planReady || !deploymentIsVerified() || !(studentUrl && report.distributionReady);
         const toggle = byId('toggle-lesson');
         toggle.dataset.open = report.lessonOpen === false ? 'false' : 'true';
         toggle.textContent = report.lessonOpen === false ? '현재 수업 다시 열기' : '현재 수업 배포 종료';
+        renderOnboarding();
       }
 
       function copyStudentUrl() {
         const value = byId('student-url').textContent.trim();
-        if (!value || byId('copy-student-url').disabled || hasUnsavedSetupChanges() || controlsBusy) return;
+        if (!value || !deploymentIsVerified() || byId('copy-student-url').disabled || hasUnsavedSetupChanges() || controlsBusy) return;
         const copied = function () { setStatus('학생용 주소를 복사했습니다. 학생에게는 이 주소만 공유하세요.'); };
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(value).then(copied).catch(function () { fallbackCopy(value, copied); });
@@ -1495,7 +1615,7 @@
         setButtonsDisabled(true);
         google.script.run
           .withSuccessHandler(function (result) {
-            renderReadiness(result.readiness || {}, result.studentUrl || '', result.previewUrl || '');
+            renderReadiness(result.readiness || {}, result.studentUrl || '', result.previewUrl || '', result.onboarding);
             setStatus(result.message || '수업 상태를 변경했습니다.');
             setButtonsDisabled(false);
           })
@@ -1524,7 +1644,7 @@
         byId('activity-mode').disabled = disabled;
         byId('rubric-scheme').disabled = disabled;
         byId('confirmed-student-url').disabled = disabled;
-        if (!disabled) byId('copy-student-url').disabled = hasUnsavedSetupChanges() || !(latestStudentUrl && latestDistributionReady);
+        if (!disabled) byId('copy-student-url').disabled = hasUnsavedSetupChanges() || !deploymentIsVerified() || !(latestStudentUrl && latestDistributionReady);
         updateAssessmentPlanDisplay();
         updateAssessmentControls();
         updateReadinessDisplay();

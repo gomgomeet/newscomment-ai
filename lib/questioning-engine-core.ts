@@ -77,7 +77,7 @@ function isClearlyOffTopic(question: string, config: QuestioningChatbotConfig) {
   return !hasMaterialContext;
 }
 
-function enforceQuestioningTopicBoundary(
+export function enforceQuestioningTopicBoundary(
   result: ChatResult,
   question: string,
   config: QuestioningChatbotConfig,

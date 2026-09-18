@@ -16,6 +16,7 @@ import {
 import {
   QUESTIONING_ENGINE_FAMILY,
   createQuestioningLocalBaseResult,
+  enforceQuestioningTopicBoundary,
   runQuestioningLocalEngine,
 } from "@/lib/questioning-engine-core";
 import {
@@ -31,7 +32,7 @@ import {
 } from "@/lib/questioning-conversation-phase";
 
 export const LITE_ENGINE_SCHEMA_VERSION = 1;
-export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v13";
+export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v14";
 
 type LiteOutputContract = "lead_evidence_quote_v1" | "grounded_answer_v2";
 
@@ -67,6 +68,7 @@ export type LiteEnginePlanInput = {
   requestId: string;
   sessionKey: string;
   activityMode: LiteMode;
+  understanding?: boolean;
   supportedOutputContracts?: LiteOutputContract[];
   studentMessage: string;
   history: Array<{ speaker: "student" | "bot"; text: string }>;
@@ -86,6 +88,7 @@ type LiteEngineDescriptor = {
 };
 
 export type LiteEngineObservation = {
+  understanding?: true;
   conversationPhase: 1 | 2;
   primaryMove: ChatResult["primaryMove"];
   engagementState: ChatResult["engagementState"];
@@ -227,6 +230,13 @@ export function normalizeLiteEngineInput(value: unknown): NormalizedLiteEnginePl
   const lesson = lessonRaw as Record<string, unknown>;
   const activityMode = raw.activityMode === "exploration" ? "exploration" : raw.activityMode === "evaluation" ? "evaluation" : null;
   if (!activityMode) throw new Error("운영 모드를 확인해 주세요.");
+  if (raw.understanding !== undefined && typeof raw.understanding !== "boolean") {
+    throw new Error("글 이해 단계 설정을 확인해 주세요.");
+  }
+  const understanding = raw.understanding === true;
+  if (understanding && activityMode !== "exploration") {
+    throw new Error("글 이해 단계는 자료 탐색모드로 진행해 주세요.");
+  }
   const materialText = requiredText(lesson.materialText, "수업자료", 30_000);
   if (materialText.length < 30) throw new Error("수업자료는 30자 이상이어야 합니다.");
   const rubricScheme = normalizeLiteRubricScheme(lesson.rubricScheme);
@@ -247,6 +257,7 @@ export function normalizeLiteEngineInput(value: unknown): NormalizedLiteEnginePl
     requestId: requiredText(raw.requestId, "요청 ID", 100),
     sessionKey: requiredText(raw.sessionKey, "세션 키", 100),
     activityMode,
+    understanding,
     supportedOutputContracts: Array.isArray(raw.supportedOutputContracts) &&
       raw.supportedOutputContracts.includes("grounded_answer_v2")
       ? ["grounded_answer_v2", "lead_evidence_quote_v1"]
@@ -516,7 +527,13 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
     question: input.studentMessage,
     conversation: input.history,
   };
-  let { result: planned } = runQuestioningLocalEngine(turnInput);
+  // Keep the shared grounded dialogue and topic/safety checks, while leaving
+  // assessment progression exclusively to the student's explicit start action.
+  // The generic phase engine would otherwise ask evaluation questions after
+  // four passage questions, even when the lesson's mode is exploration.
+  let planned = input.understanding
+    ? enforceQuestioningTopicBoundary(createQuestioningLocalBaseResult(turnInput), input.studentMessage, config, false)
+    : runQuestioningLocalEngine(turnInput).result;
   const assessment = input.activityMode === "evaluation" && lesson.assessmentPlan?.approved && lesson.assessmentPlan.criteria.length
     ? runLiteAssessmentTurn({
         plan: lesson.assessmentPlan,
@@ -548,6 +565,14 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
     };
   }
   const rawObservation = buildLiteObservation(planned, input, config);
+  if (input.understanding) {
+    rawObservation.understanding = true;
+    rawObservation.conversationPhase = 1;
+    rawObservation.responseScore = null;
+    rawObservation.rubricScores = [];
+    rawObservation.managedKind = "";
+    rawObservation.evidenceIds = [];
+  }
   if (assessment) {
     rawObservation.assessmentProgress = assessment.progress;
     rawObservation.responseScore = null;
@@ -600,7 +625,9 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
   const quantityFallback = finalQuantity
     ? `자료에 따르면 최종 수량은 ${/하루/.test(input.studentMessage) && /하루/.test(finalQuantity.sentence) ? "하루 " : ""}${finalQuantity.raw}입니다.`
     : "";
-  const modeRule = input.activityMode === "evaluation"
+  const modeRule = input.understanding
+    ? "평가 전 글 이해 단계입니다. 학생이 글의 낱말과 사실, 이유를 이해하도록 질문에 답합니다. 평가 문항이나 답안을 제시하거나 평가를 시작하지 마세요. 제공된 자료 밖 사실과 수치를 만들지 마세요."
+    : input.activityMode === "evaluation"
     ? "평가모드입니다. 교사가 제공한 자료의 범위에서만 답하고, 내부 평가기준과 점수는 말하지 마세요."
     : "자료 탐색모드입니다. 제공된 자료로 질문을 설명하고, 자료 밖 사실과 수치를 만들지 마세요.";
   const questionRule = managedQuestion
@@ -864,7 +891,7 @@ export function finalizeLiteEngineReply(value: unknown): LiteEngineFinalizedResp
     ...plan.observation,
     sourceStatus: plan.observation.sourceStatus,
     sourceCue: evidenceQuote,
-    evidenceIds: plan.observation.sourceStatus === "supported" ? [
+    evidenceIds: !input.understanding && plan.observation.sourceStatus === "supported" ? [
       `lesson-material:${input.lesson.lessonId}:r${input.lesson.lessonRevision}:${input.lesson.sourceHash}`,
     ] : [],
   };
