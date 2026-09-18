@@ -239,6 +239,12 @@ const engineHealth = policyVersion => ({status:200,body:JSON.stringify({ok:true,
   assert.equal(partial.confirmedStudentUrl,goodUrl);assert.equal(partial.engine.verified,false);
   assert.match(partial.message,/주소를 저장했습니다/);assert.match(partial.message,/공통 챗봇 연결 확인에 실패/);
   assert.match(partial.readiness.checks.find(item => item.key==='engineVerified').detail,/HTTP 401/);
+  const settings={activityMode:'exploration',lessonTitle:'테스트 수업',materialTitle:'테스트 글',
+    materialText:'주민들은 글을 읽고 다양한 질문을 나누면서 마을 문제를 이해하고 해결 방법을 생각했다.',joinCode:'123456'};
+  const missingEngine=c.buildLiteReadiness_(settings,{apiConfigured:true,apiVerified:true,engineConfigured:true,
+    engineVerified:false,studentUrl:goodUrl,previewVerified:false,lessonOpen:true});
+  assert.equal(missingEngine.setupReady,true);assert.match(missingEngine.summary,/개인 API 연결은 완료/);
+  assert.match(missingEngine.summary,/공통 챗봇 연결 확인이 남았습니다/);
 }
 
 {
