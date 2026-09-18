@@ -1090,6 +1090,28 @@ function compactLitePreparedObservation_(observation) {
   };
 }
 
+function isLiteVerifiedPreviewResult_(settings, turn, observation, engineStatus, aiStatus) {
+  if (/^ok:/.test(String(aiStatus || '')) && /^finalized:/.test(String(engineStatus || ''))) return true;
+  // Approved assessment turns normally collect answers without a paid reply. A valid recorded
+  // answer still verifies the common-engine path; API connectivity was checked before entry.
+  if (!turn || turn.activityMode !== 'evaluation' || settings.activityMode !== 'evaluation' ||
+      aiStatus !== 'skipped_by_policy' || !turn.enginePolicyVersion ||
+      engineStatus !== 'ok:' + turn.enginePolicyVersion || !observation || observation.safetyFlag) return false;
+  try {
+    const plan = liteAssessmentPlan_(settings);
+    if (!plan.approved || !plan.criteria.length) return false;
+    const progress = normalizeLiteAssessmentProgress_(observation.assessmentProgress);
+    assertLiteAssessmentEngineResponse_({activityMode:'evaluation',lesson:{
+      lessonId:settings.lessonId,lessonRevision:settings.lessonRevision,sourceHash:settings.sourceHash,
+      assessmentPlan:plan
+    }},{observation:{assessmentProgress:progress}});
+    const event = progress.lastEvent;
+    const item = progress.items.find(function (entry) { return entry.id === event.criterionId; });
+    return event.kind === 'answer' && event.requestId === turn.requestId && Boolean(item) &&
+      item.answerRequestId === turn.requestId && item.status !== 'pending';
+  } catch (error) { return false; }
+}
+
 function commitLitePreparedResult_(settings, turn, prepared, runtimeContext) {
   runtimeContext = runtimeContext || {};
   const observation = compactLitePreparedObservation_(prepared.observation);
@@ -1136,8 +1158,7 @@ function commitLitePreparedResult_(settings, turn, prepared, runtimeContext) {
     : '';
   if (turn.isPreview && capturedPreviewKey &&
       capturedPreviewKey === liteFingerprint_(currentPreviewVerificationKey, 48) &&
-      /^ok:/.test(String(prepared.aiStatus || '')) &&
-      /^finalized:/.test(String(prepared.engineStatus || ''))) {
+      isLiteVerifiedPreviewResult_(settings,turn,observation,prepared.engineStatus,prepared.aiStatus)) {
     markLitePreviewVerifiedKey_(currentPreviewVerificationKey, turn.previewExpectedMarker);
   }
   const repairRequired = Boolean(evaluationWarning);
@@ -1191,7 +1212,7 @@ function handleLiteDuplicateRequest_(
       if (capturedPreviewKey && currentSettings &&
           capturedExpectedMarker &&
           capturedPreviewKey === liteFingerprint_(currentPreviewVerificationKey, 48) &&
-          /^ok:/.test(duplicate.aiStatus) && /^finalized:/.test(duplicate.engineStatus)) {
+          isLiteVerifiedPreviewResult_(settings,turn,duplicate.observation,duplicate.engineStatus,duplicate.aiStatus)) {
         try { markLitePreviewVerifiedKey_(currentPreviewVerificationKey, capturedExpectedMarker); }
         catch (error) { repairFailed = true; }
       }
