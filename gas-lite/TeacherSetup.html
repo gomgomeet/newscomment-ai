@@ -84,7 +84,8 @@
       .deployment-guide summary { cursor:pointer; font-weight:800; }
       .deployment-guide ol { margin-bottom:0; padding-left:22px; }
       .button-link { display:inline-flex; align-items:center; justify-content:center; width:max-content; color:white; background:var(--blue); text-decoration:none; }
-      .button-link[aria-disabled="true"] { pointer-events:none; color:#64748b; background:#e2e8f0; }
+      button:disabled,.button-link[aria-disabled="true"] { color:#64748b; border-color:#cbd5e1; background:#e2e8f0; cursor:not-allowed; }
+      .button-link[aria-disabled="true"] { pointer-events:none; }
       .hidden { display:none !important; }
       @media (max-width:720px) {
         .flow,.grid,.readiness,.training-path { grid-template-columns:1fr; }
@@ -364,6 +365,7 @@
           <ul id="readiness-list" class="readiness"></ul>
           <p id="readiness-summary" class="help">준비 상태를 불러오는 중입니다.</p>
           <div class="button-row">
+            <button id="check-deployment-url" type="button" class="secondary hidden">배포 주소 확인</button>
             <a id="open-student" class="button-link" target="_blank" rel="noopener noreferrer" aria-disabled="true">교사 미리보기</a>
             <button id="copy-preview-url" type="button" class="secondary" disabled>미리보기 주소 복사</button>
             <button id="refresh-readiness" type="button" class="secondary">상태 새로고침</button>
@@ -458,11 +460,8 @@
           renderOnboarding();
           byId('confirmed-student-url').focus();
         });
-        byId('manage-onboarding').addEventListener('click', function () {
-          byId('onboarding-settings').open = true;
-          byId('onboarding-connection').open = true;
-          byId('confirmed-student-url').focus();
-        });
+        byId('manage-onboarding').addEventListener('click', openOnboardingConnection);
+        byId('check-deployment-url').addEventListener('click', openOnboardingConnection);
         byId('refresh-readiness').addEventListener('click', function () { refreshData('준비 상태를 새로고침했습니다.'); });
         byId('copy-student-url').addEventListener('click', copyStudentUrl);
         byId('copy-preview-url').addEventListener('click', copyPreviewUrl);
@@ -1433,6 +1432,13 @@
           byId('confirmed-student-url').value.trim() === String(latestOnboardingData.confirmedStudentUrl || '');
       }
 
+      function openOnboardingConnection() {
+        if (controlsBusy) return;
+        byId('onboarding-settings').open = true;
+        byId('onboarding-connection').open = true;
+        byId('confirmed-student-url').focus();
+      }
+
       function renderOnboarding() {
         const data = latestOnboardingData || {};
         const report = latestReadinessData && latestReadinessData.report || {};
@@ -1498,6 +1504,10 @@
         const studentUrl = latestReadinessData.studentUrl;
         const previewUrl = latestReadinessData.previewUrl;
         const dirty = hasUnsavedSetupChanges();
+        const deploymentReady = deploymentIsVerified();
+        const deploymentDetail = latestOnboardingData && latestOnboardingData.deploymentVerified === true && !deploymentReady
+          ? '입력한 웹앱 주소가 확인된 주소와 다릅니다. ‘배포 주소 확인’에서 주소를 검사·저장해 주세요.'
+          : '이 교사 사본의 웹앱 주소가 아직 확인되지 않았습니다. ‘배포 주소 확인’에서 /exec 주소를 검사·저장해 주세요.';
         byId('save-state').textContent = dirty ? '미저장 변경 있음' : '저장된 설정';
         const payload = collectPayload();
         const hasText = function (value) { return Boolean(String(value || '').trim()); };
@@ -1550,20 +1560,30 @@
           }
         };
         const note = byId('readiness-draft-note');
+        if (latestOnboardingData) {
+          inputChecks.deployment = {
+            label:'이 사본의 배포 주소 확인',
+            state:deploymentReady ? 'pass' : 'block',
+            detail:deploymentReady ? '이 교사 사본의 웹앱 주소와 배포 버전을 확인했습니다.' : deploymentDetail
+          };
+        }
         note.classList.toggle('hidden', !dirty);
         note.textContent = dirty
           ? '현재 입력 기준: 평가 설계 ' + (enabled ? '켬 · 평가모드' : '끔 · 자료 탐색모드') +
             '. 아직 저장 전입니다. 아래 저장 버튼을 눌러 운영 설정에 반영해 주세요. 준비 상태 새로고침은 설정을 저장하지 않습니다.'
           : '';
         const badge = byId('readiness-badge');
-        badge.className = 'badge ' + (!planReady ? 'block' : dirty ? '' : report.distributionReady ? 'pass' : report.setupReady ? '' : 'block');
+        badge.className = 'badge ' + (!planReady ? 'block' : dirty || controlsBusy ? '' : !deploymentReady ? 'block' : report.distributionReady ? 'pass' : report.setupReady ? '' : 'block');
         badge.textContent = !planReady
           ? (requiredAssessmentEnabled() ? '필수 문항·기준표 확인 필요' : !assessmentPlan.criteria.length ? '질문계획 작성 필요' : '질문계획 승인 필요')
           : dirty && enabled && !planSaved ? '승인됨·저장 필요'
           : dirty ? '변경 사항 저장 필요'
+          : controlsBusy ? '처리 중'
+          : !deploymentReady ? '배포 주소 확인 필요'
           : report.distributionReady ? '학생 배포 준비 완료' : report.setupReady ? '교사 입력 완료' : '필수 설정 필요';
         const list = byId('readiness-list'); list.textContent = '';
         const checks = (report.checks || []).slice();
+        if (latestOnboardingData && !checks.some(function (check) { return check.key === 'deployment'; })) checks.push({ key:'deployment' });
         if (!checks.some(function (check) { return check.key === 'assessmentPlan'; })) checks.push({ key:'assessmentPlan' });
         checks.forEach(function (savedCheck) {
           // The local projection never changes the saved server report or its runtime gates.
@@ -1584,9 +1604,13 @@
             ? '평가모드에는 승인된 질문계획이 필요합니다. 3단계에서 계획을 만들고 승인해 주세요.'
             : '질문계획은 아직 실행할 수 없는 초안입니다. 3단계에서 검토·승인한 뒤 저장해 주세요.')
           : dirty ? '변경한 수업 설정을 저장해야 운영에 반영됩니다. 저장 후 현재 수업 미리보기를 확인해 주세요.'
-            : report.summary || '준비 상태를 확인해 주세요.';
+            : controlsBusy ? '요청을 처리하고 있습니다. 완료되면 미리보기 상태를 다시 확인합니다.'
+              : !deploymentReady ? deploymentDetail
+                : report.summary || '준비 상태를 확인해 주세요.';
+        byId('check-deployment-url').classList.toggle('hidden', deploymentReady);
+        byId('check-deployment-url').disabled = controlsBusy;
         byId('student-url').textContent = studentUrl || '아직 학생용 주소가 없습니다.';
-        const previewEnabled = Boolean(previewUrl && deploymentIsVerified() && report.runtimeReady && planReady && !dirty && !controlsBusy);
+        const previewEnabled = Boolean(previewUrl && deploymentReady && report.runtimeReady && planReady && !dirty && !controlsBusy);
         ['open-student', 'onboarding-open-preview'].forEach(function (id) {
           const link = byId(id);
           if (previewEnabled) { link.href = previewUrl; link.setAttribute('aria-disabled', 'false'); }
