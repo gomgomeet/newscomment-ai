@@ -1131,6 +1131,38 @@ assert.equal(delayedCopyUi.byId('preview-url-fallback').value, '');
 const onboardingUrl = 'https://script.google.com/macros/s/test-onboarding-deployment/exec';
 const scriptEditorUrl = 'https://script.google.com/home/projects/test-teacher-script/edit';
 const initialOnboarding = {scriptEditorUrl, authorizationReady:true, deploymentVerified:false, confirmedStudentUrl:''};
+const unverifiedCopyData = { ...readyData(settings, {previewVerified:false}), onboarding:initialOnboarding };
+const unverifiedCopyUi = createUi(settings, unverifiedCopyData);
+assert.equal(unverifiedCopyData.readiness.runtimeReady, true, 'The copied sheet can have valid lesson and engine settings');
+assert.equal(unverifiedCopyData.readiness.checks.find((check) => check.key === 'deployment').state, 'pass',
+  'An automatically supplied student URL passes the legacy server address check');
+assertLinksDisabled(unverifiedCopyUi);
+assert.equal(readinessItem(unverifiedCopyUi, '이 사본의 배포 주소 확인').dataset.state, 'block',
+  'Step 4 must show the same current-copy deployment gate that disables preview');
+assert.equal(unverifiedCopyUi.byId('readiness-list').children.filter((item) => item.dataset.key === 'deployment').length, 1,
+  'The local verification check replaces the legacy deployment row without duplicating it');
+assert.match(unverifiedCopyUi.byId('readiness-summary').textContent, /이 교사 사본의 웹앱 주소가 아직 확인되지/);
+assert.equal(unverifiedCopyUi.byId('readiness-badge').textContent, '배포 주소 확인 필요');
+assert.equal(unverifiedCopyUi.byId('check-deployment-url').classList.contains('hidden'), false);
+unverifiedCopyUi.byId('onboarding-settings').open = false;
+unverifiedCopyUi.byId('onboarding-connection').open = false;
+unverifiedCopyUi.click('check-deployment-url');
+assert.equal(unverifiedCopyUi.byId('onboarding-settings').open, true);
+assert.equal(unverifiedCopyUi.byId('onboarding-connection').open, true);
+assert.equal(unverifiedCopyUi.byId('confirmed-student-url').focused, true, 'The next action opens the existing address-check form');
+assert.equal(unverifiedCopyUi.requests.length, 0, 'Opening the address form does not bypass verification');
+unverifiedCopyUi.context.setButtonsDisabled(true);
+assert.match(unverifiedCopyUi.byId('readiness-summary').textContent, /요청을 처리/);
+assert.equal(unverifiedCopyUi.byId('check-deployment-url').disabled, true);
+assertLinksDisabled(unverifiedCopyUi);
+unverifiedCopyUi.context.setButtonsDisabled(false);
+assert.equal(unverifiedCopyUi.byId('check-deployment-url').disabled, false);
+assert.match(unverifiedCopyUi.byId('readiness-summary').textContent, /배포 주소 확인/);
+unverifiedCopyUi.edit('join-code', '123456');
+assertDraft(unverifiedCopyUi);
+assert.equal(readinessItem(unverifiedCopyUi, '이 사본의 배포 주소 확인').dataset.state, 'block');
+assert.match(html, /button:disabled,\.button-link\[aria-disabled="true"\]\s*\{[^}]*color:#64748b;[^}]*background:#e2e8f0;/,
+  'Disabled copy buttons use the same muted style as disabled preview links');
 const onboardingUi = createUi(settings, {
   ...readyData(settings, {engineVerified:false, previewVerified:false}), onboarding:initialOnboarding,
 });
@@ -1181,6 +1213,8 @@ assert.equal(onboardingUi.byId('onboarding-settings').open, false, 'Completed on
 assert.equal(onboardingUi.byId('onboarding-badge').textContent, '완료');
 assert.equal(onboardingUi.byId('onboarding-open-preview').href, onboardingUrl+'?preview=fixture');
 assert.equal(onboardingUi.byId('open-student').href, onboardingUrl+'?preview=fixture');
+assert.equal(readinessItem(onboardingUi, '이 사본의 배포 주소 확인').dataset.state, 'pass');
+assert.equal(onboardingUi.byId('check-deployment-url').classList.contains('hidden'), true, 'The extra next action disappears after verification');
 assert.equal(onboardingUi.byId('copy-student-url').disabled, true, 'A verified deployment does not skip the lesson preview');
 onboardingUi.click('manage-onboarding');
 assert.equal(onboardingUi.byId('onboarding-settings').open, true);
@@ -1188,6 +1222,8 @@ onboardingUi.byId('confirmed-student-url').value = 'https://script.google.com/ma
 onboardingUi.byId('confirmed-student-url').dispatch('input');
 assertLinksDisabled(onboardingUi);
 assert.equal(onboardingUi.byId('onboarding-open-preview').getAttribute('href'), null, 'An edited URL must pass its own verification');
+assert.match(onboardingUi.byId('readiness-summary').textContent, /입력한 웹앱 주소가 확인된 주소와 다릅니다/);
+assert.equal(readinessItem(onboardingUi, '이 사본의 배포 주소 확인').dataset.state, 'block');
 const staleAddressUi = createUi(settings, {
   ...readyData(settings), confirmedStudentUrl:onboardingUrl,
   onboarding:{...initialOnboarding, confirmedStudentUrl:onboardingUrl, scriptEditorUrl:'javascript:alert(1)'},
