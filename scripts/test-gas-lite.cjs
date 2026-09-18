@@ -2392,6 +2392,67 @@ planContext.submitLiteTurn({ ...freshPlanPayload, requestId:'req_plan_forged_006
 assert.deepEqual(JSON.parse(JSON.stringify(capturedPlanPayload.assessmentProgress)), progress,
   '두 번째 요청은 학생이 보낸 진행이 아닌 마지막 bot 행의 진행을 쓴다');
 
+// An approved assessment answer uses skipModel by design, so preview must not require a paid reply.
+{
+  planProperties.set('TEACHER_OPENAI_API_KEY','sk-preview-assessment-test');
+  planContext.markLiteApiVerified_('sk-preview-assessment-test');
+  planContext.markLiteEngineVerified_(planContext.getLiteEngineEndpoint_(),'test-plan-policy');
+  const previewToken=planContext.getOrCreateLitePreviewAccessToken_(revisedPlanSettings);
+  let paidCalls=0;
+  planContext.callLiteOpenAI_=()=>{paidCalls++; throw new Error('Assessment policy must not call the reply model');};
+  let previewCase='answer';
+  let number=0;
+  planContext.requestLiteEnginePlan_=(turn,settings)=>{
+    const plan=planContext.liteAssessmentPlan_(settings);
+    const identity=JSON.stringify([settings.lessonId,settings.lessonRevision,settings.sourceHash]);
+    const planId=createHash('sha256').update(JSON.stringify([identity,JSON.parse(JSON.stringify(plan))])).digest('base64url');
+    const state={schemaVersion:1,planId,activeIndex:1,stage:'complete',items:[{
+      id:plan.criteria[0].id,label:plan.criteria[0].criterion.slice(0,80),status:'collected',attempts:1,
+      hintCount:0,assisted:false,answerRequestId:turn.requestId,evidenceRequestId:turn.requestId
+    }],lastEvent:{requestId:turn.requestId,criterionId:plan.criteria[0].id,kind:'answer',evidenceVerified:true}};
+    if(previewCase==='hint' || previewCase==='skip' || previewCase==='safety') state.lastEvent.kind=previewCase;
+    if(previewCase==='other_plan') state.planId='a-different-plan';
+    if(previewCase==='other_answer') state.items[0].answerRequestId='a-different-answer';
+    if(previewCase==='rotated_api') {
+      planProperties.set('TEACHER_OPENAI_API_KEY','sk-preview-rotated-test');
+      planContext.markLiteApiVerified_('sk-preview-rotated-test');
+    }
+    return {skipModel:true,policyVersion:'test-plan-policy',fallbackReply:'평가 답변과 근거를 기록했어요.',
+      enforcement:{managedQuestion:'',maximumQuestionCount:0},observation:{...observation,isClosing:false,
+        safetyFlag:previewCase==='safety',assessmentProgress:state}};
+  };
+  const nextPreview=()=>({...freshPlanPayload,requestId:'req_policy_preview_'+String(++number).padStart(3,'0'),
+    studentCode:'99-999',deviceToken:'device_policy_preview_'+number,previewAccessToken:previewToken,
+    message:'자료에 나온 이유와 근거를 설명합니다.'});
+  planProperties.delete('LITE_PREVIEW_VERIFIED_LESSON');
+  const validPreview=nextPreview();
+  assert.equal(planContext.submitLiteTurn(validPreview).ok,true);
+  assert.equal(planContext.isLitePreviewVerified_(revisedPlanSettings),true,
+    'A saved answer from the verified approved assessment policy must pass preview without a reply-model call');
+  assert.equal(paidCalls,0);
+  const policyRow=planContext.liteRowsAsObjects_(planSpreadsheet.getSheetByName('질문과 답변'))
+    .find(row=>row.requestId===validPreview.requestId && row.speaker==='bot');
+  assert.equal(policyRow.aiStatus,'skipped_by_policy'); assert.equal(policyRow.engineStatus,'ok:test-plan-policy');
+  planProperties.delete('LITE_PREVIEW_VERIFIED_LESSON');
+  assert.equal(planContext.submitLiteTurn(validPreview).duplicate,true);
+  assert.equal(planContext.isLitePreviewVerified_(revisedPlanSettings),false,
+    'Historical duplicate rows alone cannot stamp a freshly unverified preview');
+  for(previewCase of ['hint','skip','safety','other_plan','other_answer','rotated_api']) {
+    planProperties.delete('LITE_PREVIEW_VERIFIED_LESSON');
+    assert.equal(planContext.submitLiteTurn(nextPreview()).ok,true);
+    assert.equal(planContext.isLitePreviewVerified_(revisedPlanSettings),false,previewCase+' must not verify preview');
+  }
+  assert.equal(paidCalls,0);
+  const recordedProgress=JSON.parse(policyRow.assessmentProgressJson);
+  const capturedTurn={activityMode:'evaluation',requestId:validPreview.requestId,enginePolicyVersion:'test-plan-policy'};
+  for(const aiStatus of ['skipped_by_budget:daily_limit','provider_failed_fallback:timeout','skipped_by_journal_failure']) {
+    assert.equal(planContext.isLiteVerifiedPreviewResult_(revisedPlanSettings,capturedTurn,
+      {assessmentProgress:recordedProgress},'ok:test-plan-policy',aiStatus),false);
+  }
+  assert.equal(planContext.isLiteVerifiedPreviewResult_(revisedPlanSettings,capturedTurn,
+    {assessmentProgress:recordedProgress},'ok:a-different-policy','skipped_by_policy'),false);
+}
+
 const maxProgress = { ...progress, planId:'p'.repeat(100), activeIndex:5, items:Array.from({ length:5 }, (_, index) => ({
   ...progress.items[0], id:'criterion_' + index, label:'가'.repeat(80), hintCount:99, attempts:2,
   answerRequestId:'a'.repeat(100), evidenceRequestId:'e'.repeat(100)
