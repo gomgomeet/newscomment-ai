@@ -815,9 +815,9 @@ function writeLiteStartHere_(spreadsheet) {
     sheet.getRange(1, 1, rows.length, rows[0].length).setValues(rows);
     sheet.setFrozenRows(1);
     if (typeof sheet.setColumnWidth === 'function') {
-      sheet.setColumnWidth(1,220);
-      sheet.setColumnWidth(2,160);
-      sheet.setColumnWidth(3,650);
+      sheet.setColumnWidth(1,175);
+      sheet.setColumnWidth(2,115);
+      sheet.setColumnWidth(3,370);
     }
     const guideRange = sheet.getRange(1,1,rows.length,rows[0].length);
     if (typeof guideRange.setWrap === 'function') guideRange.setWrap(true);
