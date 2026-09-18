@@ -4,7 +4,8 @@
     studentCode:'', sessionId:'', joinCode:'', materialFontStep:1,
     deviceToken:getOrCreateDeviceToken(), pendingRequest:null,
     previewAccessToken:document.body.dataset.previewToken || '', retryTimer:null,
-    bootstrapRecoveryChecked:false, bootstrapRecoveryPending:null, recoveryNotice:''
+    bootstrapRecoveryChecked:false, bootstrapRecoveryPending:null, recoveryNotice:'',
+    requiredSubmission:null, requiredSubmitting:false, requiredAssessmentReady:false
   };
   const ACTIVE_PENDING_STORAGE_KEY = 'lite-pending-request:active';
   const ACTIVE_PENDING_MAX_AGE_MS = 25 * 60 * 60 * 1000;
@@ -17,7 +18,8 @@
       'lesson-goal','start-question','material-text','font-smaller','font-larger','messages',
       'onboarding','student-code-input','join-code-input','start-button','status','chat-form','message-input',
       'definition-button','research-button','evidence-button','revise-button',
-      'close-button','quick-actions','exit-session-button','retry-bootstrap-button','retry-turn-button'
+      'close-button','quick-actions','exit-session-button','retry-bootstrap-button','retry-turn-button',
+      'required-assessment-notice','required-assessment-status','retry-required-assessment'
     ].forEach(function (id) { elements[toCamel(id)] = document.getElementById(id); });
     elements.mobileTabs = Array.from(document.querySelectorAll('.mobile-tab'));
 
@@ -42,6 +44,7 @@
     elements.startButton.addEventListener('click', function () { beginConversation(elements.studentCodeInput.value); });
     elements.retryBootstrapButton.addEventListener('click', loadBootstrap);
     elements.retryTurnButton.addEventListener('click', retryPendingTurn);
+    elements.retryRequiredAssessment.addEventListener('click', finalizeRequiredAssessment);
     elements.definitionButton.addEventListener('click', function () { preparePrompt('___이(가) 뭐예요?'); });
     elements.researchButton.addEventListener('click', function () { preparePrompt('___에 대해 더 알아보고 싶어요.'); });
     elements.evidenceButton.addEventListener('click', function () { preparePrompt('내 생각에는 ___'); });
@@ -229,12 +232,13 @@
         } catch (error) {}
         // 닫힘 행이 먼저 저장되고 요약·평가 보정만 남았을 수 있으므로 pending 복구를 먼저 시도한다.
         const resumed = resumeStoredPendingRequest(result.history || []);
-        if (state.closed && !resumed) clearStoredStudentSession();
+        if (state.closed && !resumed && !hasRequiredQuestions()) clearStoredStudentSession();
         setComposerEnabled(!state.closed && !resumed);
         if (!resumed) {
           setBusy(false, state.closed ? '이미 마친 대화입니다.' : '궁금한 점이나 생각을 이어 가 보세요.');
           if (!state.closed) elements.messageInput.focus();
         }
+        updateRequiredAssessment(result);
       })
       .withFailureHandler(showError)
       .startLiteStudentSession(Object.assign({
@@ -282,13 +286,14 @@
         if (!alreadyInHistory) addMessage('bot', result.reply || '잠시 뒤 다시 이야기해 주세요.');
         state.sessionId = result.sessionId || state.sessionId;
         state.closed = Boolean(result.isClosing);
-        if (state.closed) clearStoredStudentSession();
+        if (state.closed && !hasRequiredQuestions()) clearStoredStudentSession();
         if (result.retryable && !elements.messageInput.value) elements.messageInput.value = value;
         setComposerEnabled(!state.closed);
         setBusy(false, state.closed
           ? '오늘 생각 나누기를 마쳤어요.'
           : result.warning || (result.retryable ? '잠시 뒤 같은 질문을 다시 보내 주세요.' : '계속 생각을 이어 가 보세요.'));
         if (!state.closed) elements.messageInput.focus();
+        updateRequiredAssessment(result);
       })
       .withFailureHandler(function (error) {
         const message = error && error.message ? error.message : '연결을 다시 확인하고 있어요.';
@@ -568,6 +573,10 @@
   }
 
   function leaveDeviceSession() {
+    if (state.requiredSubmitting) {
+      setStatus('답변의 저장 결과를 확인하고 있어요. 잠시 뒤 나갈 수 있어요.');
+      return;
+    }
     if (state.busy || state.pendingRequest) {
       setStatus('전송 중인 질문의 기록을 확인한 뒤 이 기기에서 나갈 수 있어요.');
       return;
@@ -578,6 +587,55 @@
     state.busy = false;
     clearStoredStudentSession();
     window.location.reload();
+  }
+
+  function hasRequiredQuestions() {
+    const lesson = state.bootstrapData && state.bootstrapData.lesson || {};
+    return lesson.activityMode === 'evaluation' && Array.isArray(lesson.requiredQuestions) && lesson.requiredQuestions.length === 2;
+  }
+
+  function updateRequiredAssessment(result) {
+    elements.requiredAssessmentNotice.hidden = !hasRequiredQuestions();
+    if (!hasRequiredQuestions()) return;
+    result = result || {};
+    state.requiredAssessmentReady = Boolean(result.requiredAssessmentReady);
+    if (result.requiredSubmission) state.requiredSubmission = result.requiredSubmission;
+    const submission = state.requiredSubmission;
+    const finished = submission && submission.submitted && submission.analysisStatus !== 'ready';
+    const progress = result.requiredAssessmentProgress;
+    const count = progress ? Math.max(0, Math.min(2, Number(progress.completed) || 0)) : 0;
+    elements.requiredAssessmentStatus.textContent = finished
+      ? '두 문항의 답변을 기록했어요. 선생님이 확인합니다.'
+      : state.requiredAssessmentReady ? '두 문항의 답변을 기록하고 있어요.'
+        : '필수 평가 ' + count + '/2 · 대화하며 내 생각과 근거를 말해 주세요.';
+    if (state.requiredAssessmentReady && !finished) finalizeRequiredAssessment();
+  }
+
+  function finalizeRequiredAssessment() {
+    if (!state.ready || !hasRequiredQuestions() || !state.requiredAssessmentReady || state.requiredSubmitting) return;
+    if (state.requiredSubmission && state.requiredSubmission.submitted && state.requiredSubmission.analysisStatus !== 'ready') return;
+    state.requiredSubmitting = true;
+    elements.retryRequiredAssessment.hidden = true;
+    elements.requiredAssessmentStatus.textContent = '두 문항의 답변을 확인하고 있어요. 잠시 기다려 주세요.';
+    google.script.run.withSuccessHandler(function (result) {
+      state.requiredSubmitting = false;
+      if (result && result.submitted) {
+        state.requiredSubmission = result;
+        elements.requiredAssessmentStatus.textContent = '두 문항의 답변을 기록했어요. 선생님이 확인합니다.';
+      } else {
+        elements.requiredAssessmentStatus.textContent = '필수 두 문항에 대한 대화를 이어 가 주세요.';
+      }
+    }).withFailureHandler(function (error) {
+      state.requiredSubmitting = false;
+      const message = error && error.message || '';
+      const refresh = isPermanentTurnError(message) || /수업.*종료|수업 참여코드|입장이 제한/.test(message);
+      elements.requiredAssessmentStatus.textContent = refresh
+        ? message + ' 수업을 새로고침해 주세요.'
+        : '대화는 저장되어 있어요. 버튼을 눌러 답변 기록을 다시 확인해 주세요.';
+      elements.retryRequiredAssessment.hidden = refresh;
+    }).finalizeLiteRequiredAssessment(Object.assign({
+      studentCode:state.studentCode, joinCode:state.joinCode, deviceToken:state.deviceToken
+    }, lessonIdentity()));
   }
 
   function lessonIdentity() {

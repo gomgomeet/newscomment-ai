@@ -1142,11 +1142,16 @@ function commitLitePreparedResult_(settings, turn, prepared, runtimeContext) {
   }
   const repairRequired = Boolean(evaluationWarning);
   if (!repairRequired) clearLitePendingState_(turn.requestId);
+  const requiredState = typeof liteRequiredChatState_ === 'function'
+    ? liteRequiredChatState_(settings,observation.assessmentProgress)
+    : {requiredAssessmentReady:false,requiredAssessmentProgress:null};
   return {
     ok:!repairRequired,
     duplicate:Boolean(saved.duplicate),
     sessionId:turn.sessionId,
     reply:saved.assistantText || reply,
+    requiredAssessmentReady:requiredState.requiredAssessmentReady,
+    requiredAssessmentProgress:requiredState.requiredAssessmentProgress,
     expectsStudentReply:!observation.isClosing && /[?？]/.test(reply),
     isClosing:Boolean(observation.isClosing),
     preview:turn.isPreview,
@@ -1212,11 +1217,16 @@ function handleLiteDuplicateRequest_(
     };
   }
   if (!duplicate.retryable) clearLitePendingState_(turn.requestId);
+  const requiredState = typeof liteRequiredChatState_ === 'function'
+    ? liteRequiredChatState_(settings,latestLiteAssessmentProgress_(sessionRows) || duplicate.observation.assessmentProgress)
+    : {requiredAssessmentReady:false,requiredAssessmentProgress:null};
   return {
     ok:!duplicate.retryable,
     duplicate:true,
     sessionId:duplicate.sessionId,
     reply:duplicate.text,
+    requiredAssessmentReady:requiredState.requiredAssessmentReady,
+    requiredAssessmentProgress:requiredState.requiredAssessmentProgress,
     expectsStudentReply:!duplicate.isClosing && /[?？]/.test(duplicate.text),
     isClosing:duplicate.isClosing,
     retryable:duplicate.retryable,

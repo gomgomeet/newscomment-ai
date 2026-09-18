@@ -533,7 +533,7 @@ assertLinksReady(raceUi);
 
 // First-save lesson IDs come from the server and are part of the new baseline,
 // not a spurious dirty change made after the request.
-const firstSaveUi = createUi({ ...settings, lessonId:'' });
+const firstSaveUi = createUi({ ...settings, lessonId:'', requiredAssessmentMode:'legacy' });
 firstSaveUi.submit();
 const firstSave = firstSaveUi.takeRequest('saveLiteTeacherSetup');
 firstSave.success({ ...readyData(settings), lessonId:settings.lessonId, message:'새 수업을 저장했습니다.' });

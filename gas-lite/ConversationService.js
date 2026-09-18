@@ -297,11 +297,18 @@ function startLiteStudentSession(payload) {
   const history = withLiteVirtualStartQuestion_(
     getLiteSessionHistory_(sessionId, spreadsheet, sessionRows), liteAssessmentStartQuestion_(settings)
   );
+  const requiredState = typeof liteRequiredChatState_ === 'function'
+    ? liteRequiredChatState_(settings,latestLiteAssessmentProgress_(sessionRows))
+    : {requiredAssessmentReady:false,requiredAssessmentProgress:null};
   return {
     sessionId: sessionId,
     studentCode: code,
     isPreview: code === '99-999',
     lesson: sanitizeLiteSettingsForStudent_(settings),
+    requiredSubmission: settings.requiredAssessment
+      ? getLiteRequiredSubmissionForStudent_(settings, sessionId, spreadsheet) : null,
+    requiredAssessmentReady:requiredState.requiredAssessmentReady,
+    requiredAssessmentProgress:requiredState.requiredAssessmentProgress,
     history: history.map(function (row) {
       return {
         requestId: liteText_(row.requestId, 100),
