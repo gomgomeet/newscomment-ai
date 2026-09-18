@@ -172,7 +172,7 @@ const plain = value => JSON.parse(JSON.stringify(value));
   s.activityMode='exploration';s.startQuestion='글에서 무엇이 궁금한가요?';
   const session=c.startLiteStudentSession(p);
   assert.equal(session.learningStage,'');assert.equal(session.canStartAssessment,false);
-  assert.equal(session.lesson.understandingEnabled,false);assert.equal(session.history[0].text,s.startQuestion);
+  assert.equal(session.lesson.understandingEnabled,false);assert.equal(session.history[0].text,c.liteUnderstandingStartQuestion_());
   assert.throws(() => c.submitLiteTurn({...p,action:'start_assessment'}),/평가 수업/);
   assert.equal(c.submitLiteTurn(p).learningStage,'');
   assert.equal(x.observations[0].understanding,undefined);

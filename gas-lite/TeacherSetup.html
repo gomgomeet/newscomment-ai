@@ -252,6 +252,10 @@
             <textarea id="start-question" maxlength="500" placeholder="예: 자료를 근거로 자신의 생각을 설명해 볼까요?"></textarea>
             <span id="start-question-help" class="help">학생 화면의 첫 질문입니다.</span>
           </label>
+          <section id="exploration-start-notice" class="notice hidden" aria-label="학생 대화 시작 안내">
+            <strong>학생 대화 시작 안내</strong>
+            <p>글을 읽고 궁금한 것을 질문해 주세요! 제목을 보고 어떤 내용인지 생각해 볼까요?</p>
+          </section>
           <fieldset id="backward-design-fields" class="grid" aria-label="질문과 평가기준 입력">
             <label class="wide">답변의 핵심 요소 (교사용)
               <textarea id="expected-answer" maxlength="1500" placeholder="AI 초안을 적용하면 답변에서 확인할 핵심 요소가 채워집니다. 필요하면 수정하세요."></textarea>
@@ -642,18 +646,19 @@
         fields.disabled = !enabled || requiredMode;
         fields.classList.toggle('hidden', !enabled || requiredMode);
         byId('required-assessment-editor').classList.toggle('hidden', !requiredMode);
-        byId('start-question-field').classList.toggle('hidden', requiredMode);
+        byId('start-question-field').classList.toggle('hidden', !enabled || requiredMode);
+        byId('exploration-start-notice').classList.toggle('hidden', enabled);
         byId('legacy-assessment-generator').classList.toggle('hidden', requiredMode);
         byId('evaluation-goal-fields').disabled = !enabled;
         byId('evaluation-goal-fields').classList.toggle('hidden', !enabled);
         byId('assessment-ai-section').classList.toggle('hidden', !enabled);
-        byId('assessment-step-label').textContent = enabled ? '질문·평가기준' : '시작 질문';
-        byId('title-assessment').textContent = enabled ? '3. 질문·평가기준' : '3. 시작 질문';
-        byId('start-question').required = !enabled;
+        byId('assessment-step-label').textContent = enabled ? '질문·평가기준' : '대화 시작';
+        byId('title-assessment').textContent = enabled ? '3. 질문·평가기준' : '3. 대화 시작';
+        byId('start-question').required = false;
         byId('start-question-label').textContent = enabled ? '평가 질문 초안 (선택)' : '학생 시작 질문';
         byId('start-question-help').textContent = enabled
-          ? '평가모드의 실제 첫 질문은 아래에서 승인한 질문계획의 첫 질문입니다. 이 칸은 AI 초안 생성용으로 보존됩니다.'
-          : '자료 탐색모드에서 학생 화면에 처음 보여줄 질문입니다.';
+          ? '공통 시작 안내로 글을 이해한 뒤, 학생이 ‘평가 시작하기’를 누르면 승인한 질문계획의 첫 질문을 묻습니다. 이 칸은 AI 초안 생성용으로 보존됩니다.'
+          : '자료 탐색모드는 공통 시작 안내로 대화를 시작합니다. 이전 질문 초안은 보관됩니다.';
         ['assessment-criteria', 'rubric-high',
           'rubric-meet', 'rubric-developing', 'evidence-description'].forEach(function (id) {
           byId(id).required = enabled && !requiredMode;
@@ -1386,7 +1391,7 @@
           assessmentPlan.criteria.length > 0 && assessmentPlan.approved && !assessmentPlanError());
         const planSaved = !enabled || (requiredAssessmentEnabled() ? !dirty : assessmentPlanMatchesSavedSetup());
         const materialReady = hasText(payload.lessonTitle) && hasText(payload.materialTitle) &&
-          payload.materialText.trim().length >= 30 && (enabled ? planReady : hasText(payload.startQuestion));
+          payload.materialText.trim().length >= 30 && (!enabled || planReady);
         const inputChecks = {
           assessmentPlan: {
             label:requiredAssessmentEnabled() ? '필수 2문항 대화·분석 계획' : '평가기준별 질문·근거 계획',
@@ -1414,7 +1419,7 @@
             state: materialReady ? 'pass' : 'block',
             detail: materialReady ? '학생 질문의 근거 자료와 실제 시작 질문이 준비되었습니다.'
               : enabled ? '30자 이상의 수업자료와 승인된 질문계획의 첫 질문을 준비해 주세요.'
-              : '30자 이상의 수업자료와 시작 질문을 입력해 주세요.'
+              : '수업 제목과 자료 제목, 30자 이상의 수업자료를 입력해 주세요.'
           },
           lessonAccess: {
             state: codeReady ? 'pass' : 'block',

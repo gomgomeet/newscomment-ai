@@ -468,15 +468,14 @@ function deriveLiteRequiredAssessmentPlan_(raw, context, approved) {
 
 function liteAssessmentStartQuestion_(settings) {
   settings = settings || {};
-  if (settings.activityMode === 'exploration') return liteText_(settings.startQuestion, 500);
+  if (settings.activityMode === 'exploration') return liteUnderstandingStartQuestion_();
   let plan;
   try { plan = liteAssessmentPlan_(settings); }
   catch (error) { return ''; }
   return plan.approved && plan.criteria.length ? plan.criteria[0].mainQuestion : '';
 }
 
-function liteUnderstandingStartQuestion_(settings) {
-  if (!settings || settings.activityMode !== 'evaluation') return liteAssessmentStartQuestion_(settings);
+function liteUnderstandingStartQuestion_() {
   return '글을 읽고 궁금한 것을 질문해 주세요! 제목을 보고 어떤 내용인지 생각해 볼까요?';
 }
 
@@ -548,7 +547,7 @@ function validateLiteTeacherSetup_(payload) {
     materialTitle: liteRequired_(payload.materialTitle, '수업자료 제목', 120),
     materialText: materialText,
     materialUrl: materialUrl,
-    startQuestion: (activityMode === 'exploration' ? liteRequired_ : liteOptional_)(payload.startQuestion, '시작 질문', 500),
+    startQuestion: liteOptional_(payload.startQuestion, '시작 질문', 500),
     expectedAnswer: liteOptional_(payload.expectedAnswer, '예상 답변', 1500),
     assessmentEvidence: liteOptional_(payload.assessmentEvidence, '평가 문항 근거', 1000),
     answerExamples: liteOptional_(payload.answerExamples, '예상 답변 유형', 3500),
@@ -616,7 +615,7 @@ function buildLiteReadiness_(settings, context) {
     (assessmentPlanValid && assessmentPlan.criteria.length > 0 && assessmentPlan.approved);
   const materialReady = Boolean(
     settings.lessonTitle && settings.materialTitle && String(settings.materialText || '').trim().length >= 30 &&
-    (backwardDesignEnabled ? assessmentPlanReady && liteAssessmentStartQuestion_(settings) : settings.startQuestion)
+    (backwardDesignEnabled ? assessmentPlanReady && liteAssessmentStartQuestion_(settings) : liteUnderstandingStartQuestion_())
   );
   const apiConfigured = Boolean(context.apiConfigured);
   const apiVerified = apiConfigured && Boolean(context.apiVerified);
@@ -662,7 +661,7 @@ function buildLiteReadiness_(settings, context) {
       state: materialReady ? 'pass' : 'block',
       detail: materialReady ? '학생 질문의 근거 자료와 실제 시작 질문이 준비되었습니다.'
         : backwardDesignEnabled ? '30자 이상의 수업자료와 승인된 질문계획의 첫 질문을 준비해 주세요.'
-        : '30자 이상의 수업자료와 시작 질문을 입력해 주세요.'
+        : '30자 이상의 수업자료를 입력해 주세요. 시작 안내는 자동으로 표시됩니다.'
     },
     {
       key: 'lessonAccess',
@@ -802,7 +801,7 @@ function writeLiteStartHere_(spreadsheet) {
     ['항목', '상태', '안내'],
     ['1. API 연결', '', 'simbot → 교사 설정 열기에서 개인 API를 저장합니다.'],
     ['2. 평가 설계', '', '평가모드는 목표·평가기준과 기준별 질문계획을 만들고 승인합니다. 자료 탐색모드에서는 입력한 설계를 보관만 합니다.'],
-    ['3. 수업자료', '', '학생이 질문할 본문과 시작 질문, 운영 모드를 입력합니다.'],
+    ['3. 수업자료', '', '학생이 질문할 수업자료 본문과 운영 모드를 입력합니다.'],
     ['4. 미리보기', '', '학생용 주소에서 99-999로 전체 과정을 점검합니다.'],
     ['5. 학생 배포', '', '점검이 모두 통과한 뒤 학생용 /exec 주소만 공유합니다.']
   ];

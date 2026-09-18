@@ -2241,7 +2241,7 @@ assert.match(planContext.buildLiteReadiness_(draftSettings, readinessContext)
 assert.equal(planContext.liteAssessmentStartQuestion_(planSettings), planCriterion.mainQuestion);
 assert.equal(planContext.sanitizeLiteSettingsForStudent_(planSettings).startQuestion, planContext.liteUnderstandingStartQuestion_(planSettings));
 assert.equal(planContext.sanitizeLiteSettingsForStudent_(planSettings).understandingEnabled, true);
-assert.equal(planContext.liteAssessmentStartQuestion_({ ...planSettings, activityMode:'exploration' }), valid.startQuestion);
+assert.equal(planContext.liteAssessmentStartQuestion_({ ...planSettings, activityMode:'exploration' }), planContext.liteUnderstandingStartQuestion_());
 assert.doesNotMatch(JSON.stringify(planContext.sanitizeLiteSettingsForStudent_(planSettings)), /assessmentPlan|sourceQuote|evidenceDescription/);
 assert.doesNotMatch(JSON.stringify(planContext.sanitizeLiteBootstrapForStudent_(planSettings)), /assessmentPlan|sourceQuote|evidenceDescription/);
 
