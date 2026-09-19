@@ -132,6 +132,62 @@ test('a real answer without a matching source passage gets exactly one teacher f
   assert.doesNotMatch(result.reply, /따옴표|구절을.*묶|질문해 주세요/);
 });
 
+test('a generated source-copy follow-up asks for the student proposal rationale without changing the approved plan', () => {
+  const mainQuestion = '우리 지역의 문제를 해결하기 위해 어떤 해결방안을 제시할 수 있나요?';
+  const rationaleQuestion = '제안한 방법이 문제 해결에 어떤 도움이 될지 말해 줄래요?';
+  for (const stockFollowUp of [
+    '글에서 답을 뒷받침하는 부분을 찾아 적어 줄래요?',
+    '답변을 뒷받침하는 수업자료의 정확한 구절은 무엇인가요?',
+  ]) {
+    const p = plan([criterion('proposal', { mainQuestion, followUpQuestion: stockFollowUp })]);
+    const originalPlan = structuredClone(p);
+    const originalId = createAssessmentPlanId(p, lessonIdentity);
+    const first = run('주민과 정부가 서로의 상황을 이해하도록 대화를 나누어야 합니다.', { plan: p });
+    assert.equal(first.progress.stage, 'followup');
+    assert.equal(first.managedQuestion, rationaleQuestion);
+    assert.equal(first.reply, `네 답변을 남겼어요. ${rationaleQuestion}`);
+    assert.equal((first.reply.match(/[?？]/g) || []).length, 1);
+    assert.doesNotMatch(first.reply, /글에서|구절|자료의/);
+    assert.equal(first.progress.planId, originalId);
+    assert.deepEqual(p, originalPlan);
+    assert.deepEqual(normalizeAssessmentProgress(first.progress, p, lessonIdentity), first.progress);
+
+    const hint = run('힌트 주세요.', { plan: p, requestId: 'proposal_hint', progress: first.progress });
+    assert.equal(hint.managedQuestion, rationaleQuestion);
+    assert.doesNotMatch(hint.reply, /자료|구절|글에서/);
+    assert.equal(hint.progress.items[0].attempts, 1);
+    assert.equal(hint.progress.items[0].hintCount, 1);
+    const retry = run('힌트 주세요.', { plan: p, requestId: 'proposal_hint', progress: hint.progress });
+    assert.deepEqual(retry.progress, hint.progress);
+    assert.equal(retry.managedQuestion, rationaleQuestion);
+
+    const second = run('서로 말을 들으면 소음과 안전에 관한 걱정을 함께 줄일 수 있습니다.', {
+      plan: p, requestId: 'proposal_reason', progress: hint.progress,
+    });
+    assert.equal(second.progress.stage, 'complete');
+    assert.equal(second.progress.items[0].status, 'needs_review');
+    assert.equal(second.progress.items[0].attempts, 2);
+    assert.equal(second.progress.items[0].evidenceRequestId, '');
+    assert.equal(second.progress.lastEvent.evidenceVerified, false);
+    assert.match(second.reply, /선생님/);
+  }
+});
+
+test('factual, source-located, student-question, and teacher-customized follow-ups are not overridden', () => {
+  const proposal = '우리 지역의 문제를 해결하기 위해 어떤 해결방안을 제시할 수 있나요?';
+  for (const overrides of [
+    { mainQuestion: '자료에서 정부가 제시한 해결 방안은 무엇인가요?' },
+    { mainQuestion: '우리 지역의 문제는 무엇인가요?' },
+    { mainQuestion: proposal, followUpQuestion: '네가 생각한 방법을 더 구체적으로 설명해 줄래요?' },
+    { mainQuestion: proposal, responseKind: 'student_question' },
+  ]) {
+    const p = plan([criterion('guarded', overrides)]);
+    const first = run('서로의 말을 들으며 문제를 함께 해결하면 좋겠습니다.', { plan: p });
+    assert.equal(first.managedQuestion, p.criteria[0].followUpQuestion);
+    assert.equal((first.reply.match(/[?？]/g) || []).length, 1);
+  }
+});
+
 test('two actual answers lacking a verified quote close as teacher review, not failure or mastery', () => {
   const first = run('정부와 주민의 입장이 서로 다릅니다.');
   const second = run('주민들이 싫다고 말했습니다.', { requestId: 'request_2', progress: first.progress, history: [] });

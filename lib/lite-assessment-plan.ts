@@ -64,9 +64,27 @@ const ID = /^[A-Za-z0-9_-]{1,40}$/;
 const PRIVATE_DATA = /(?:[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|(?:01[016789]|0\d{1,2})[-.\s]?\d{3,4}[-.\s]?\d{4}|\b\d{6}[-\s]?\d{7}\b|\bsk-[A-Za-z0-9_-]{16,})/i;
 const HELP_REQUEST = /(?:질문|답|답안|정답|문장|숙제|수행평가).{0,25}(?:대신|만들어\s*(?:줘|주|주세요)|써\s*(?:줘|주|주세요)|작성해\s*(?:줘|주|주세요))|(?:정답|답안)\s*(?:을\s*)?알려|질문.{0,20}(?:어떻게|뭘).{0,15}(?:만들|쓰|적)/;
 const SKIP = /^(?:이\s*(?:질문|문제|내용)(?:은|는)?\s*)?(?:그냥\s*)?(?:넘어갈래요?|넘어가(?:요|주세요)|건너뛸래요?|건너뛰(?:기|고\s*싶어요|어\s*주세요)|다음으로\s*(?:갈래요|가요|넘어가요))[.!\s]*$/;
+const STOCK_SOURCE_FOLLOW_UPS = new Set([
+  "글에서 답을 뒷받침하는 부분을 찾아 적어 줄래요?",
+  "답변을 뒷받침하는 수업자료의 정확한 구절은 무엇인가요?",
+]);
 
 function compactWhitespace(value: string) {
   return value.replace(/\s+/g, " ").trim();
+}
+
+/** Only adapt generated source-copy prompts for unmistakably student-authored opinions. */
+function managedFollowUpQuestion(criterion: AssessmentPlan["criteria"][number]) {
+  if (criterion.responseKind !== "explanation" || !criterion.requireSourceEvidence ||
+    !STOCK_SOURCE_FOLLOW_UPS.has(compactWhitespace(criterion.followUpQuestion))) return criterion.followUpQuestion;
+  const question = compactWhitespace(criterion.mainQuestion);
+  if (/(?:글|자료|기사|본문|교과서)\s*(?:에서|에\s*(?:따르면|나온|제시된))/.test(question) ||
+    /(?:제시했|제안했|말했|밝혔|설명했|나와)/.test(question)) return criterion.followUpQuestion;
+  const asksOwnView = /(?:너라면|네가|네\s*생각|너의\s*생각|자신의\s*(?:생각|의견)|여러분(?:이라면|의\s*생각)|우리(?:가|는|\s*지역)|내가|내\s*생각)/.test(question);
+  const asksProposal = /(?:어떤\s*(?:해결\s*방안|방법|대안)|어떻게\s*(?:해결|바꿀|실천)|(?:해결\s*방안|대안|방법)(?:을|를)?\s*(?:제시|제안|생각|마련))/.test(question);
+  const asksOpinion = /(?:어떻게\s*생각|(?:생각|의견)(?:을|은))/.test(question);
+  if (!asksOwnView || (!asksProposal && !asksOpinion)) return criterion.followUpQuestion;
+  return asksProposal ? "제안한 방법이 문제 해결에 어떤 도움이 될지 말해 줄래요?" : "그렇게 생각한 이유를 말해 줄래요?";
 }
 
 function object(value: unknown, label: string): Record<string, unknown> {
@@ -272,7 +290,7 @@ export function runLiteAssessmentTurn({ plan: rawPlan, lessonIdentity, materialT
     reply: [lead, question].filter(Boolean).join(" "), progress,
     allowQuestion: Boolean(question), managedQuestion: question, isClosing, primaryMove, sourceCue, sourceStatus,
   });
-  const currentQuestion = () => progress.stage === "followup" ? active.followUpQuestion : active.mainQuestion;
+  const currentQuestion = () => progress.stage === "followup" ? managedFollowUpQuestion(active) : active.mainQuestion;
   const preserveBase = () => result(baseResult.studentReply, "", baseResult.sourceCue, baseResult.sourceStatus, baseResult.primaryMove, baseResult.isClosing);
   // Safety and student-controlled stopping must never become evaluation attempts.
   if (baseResult.safetyFlag || baseResult.primaryMove === "safety_redirect" || PRIVATE_DATA.test(turn)) {
@@ -298,6 +316,9 @@ export function runLiteAssessmentTurn({ plan: rawPlan, lessonIdentity, materialT
   }
   if (isQuestioningHintRequest(turn) || /^(?:잘\s*)?(?:모르겠어요|모르겠어|몰라요|모르겠습니다)[.!\s]*$/.test(turn)) {
     if (!isDuplicate) { item.hintCount = Math.min(99, item.hintCount + 1); item.assisted = true; event("hint"); }
+    if (managedFollowUpQuestion(active) !== active.followUpQuestion) {
+      return result("네 생각이 어떤 문제를 줄일 수 있을지 떠올려 봐요.", currentQuestion(), "", "reasonable_inference", "offer_clue");
+    }
     const quote = PRIVATE_DATA.test(active.sourceQuote) ? "" : active.sourceQuote.split(/[?？]/).sort((a, b) => b.length - a.length)[0].trim();
     return result(quote ? `자료의 “${quote}” 부분이 단서예요.` : "자료의 관련 부분이 단서예요.", currentQuestion(), quote, quote ? "supported" : "source_insufficient", "offer_clue");
   }
@@ -342,5 +363,5 @@ export function runLiteAssessmentTurn({ plan: rawPlan, lessonIdentity, materialT
   item.status = "awaiting_evidence";
   progress.stage = "followup";
   return result(active.responseKind === "student_question" ? "네 질문을 남겼어요." : "네 답변을 남겼어요.",
-    active.followUpQuestion, "", "reasonable_inference", "check_evidence");
+    currentQuestion(), "", "reasonable_inference", "check_evidence");
 }

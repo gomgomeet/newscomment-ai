@@ -2075,7 +2075,13 @@ function normalizeRequestedVocabularyTerm(value: string, material: MaterialAnaly
  * **지문에 실제로 있는 표현**을 고른다. 지문에서 못 찾으면 한 토큰짜리로 돌아간다.
  */
 function resolveTermFromPhrase(phrase: string, material: MaterialAnalysis) {
-  const tokens = phrase.trim().split(/\s+/).filter(Boolean);
+  // `변전소는 그럼 뭐야?`의 `그럼`은 질문 대상을 바꾸지 않는 담화 연결어다.
+  // 앞뒤 어느 곳에 끼어도 명시한 낱말을 우선하고, 자료에 없는 낱말은
+  // 아래의 원래 경로로 넘겨 뜻을 지어내지 않도록 한다.
+  const discourseConnectives = new Set(["그럼", "그러면", "그런데", "근데", "그렇다면", "그리고"]);
+  const tokens = phrase.trim().split(/\s+/).filter((token) =>
+    token && !discourseConnectives.has(token.replace(/[,，.!?。？！]+$/, "")),
+  );
   if (tokens.length === 0) return "";
 
   const source = `${material.materialTitle}\n${material.visibleText}\n${material.summary}`.replace(/\s+/g, "");
