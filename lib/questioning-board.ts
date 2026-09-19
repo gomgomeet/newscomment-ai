@@ -1783,6 +1783,20 @@ function createTitlePredictionAnswer(question: string, material: MaterialAnalysi
   return "제목이나 첫 부분을 보면 자료가 무엇을 다룰지 먼저 예상해 볼 수 있어요. 그 예상이 맞는지는 자료 속 표현과 근거를 보며 차분히 확인해 보면 좋아요.";
 }
 
+const fixedTitleGuessGreeting = "글을 읽고 궁금한 것을 질문해 주세요! 제목을 보고 어떤 내용인지 생각해 볼까요?";
+
+function isFirstTitleGuessStatement(turn: string, conversation: QuestioningConversationEntry[]) {
+  if (conversation.length !== 1 || conversation[0].role !== "assistant" ||
+      conversation[0].content.replace(/\s+/g, " ").trim() !== fixedTitleGuessGreeting) return false;
+  const statement = turn.trim();
+  // The first short answer to the fixed title prompt is a prediction, not a
+  // request for a source quotation. Actual questions and later answers keep
+  // the ordinary source-grounded path.
+  return statement.length <= 70 && !/[?？\n]/.test(statement) &&
+    !asksRatherThanStates(statement) &&
+    /(?:이야기|내용|주제|글).{0,12}(?:네요|같아요|같아|예요|이에요|입니다|같습니다)[.!~]*$/.test(statement);
+}
+
 const localVocabularyMeanings: Record<string, string> = {
   // 기간을 세는 우리말 표현. 학생이 자주 걸리는데 사전을 찾기도 어렵다.
   "폭염": "매우 심한 더위를 뜻해요. 여러 날 이어지는 아주 뜨거운 날씨를 말할 때 써요.",
@@ -1837,6 +1851,7 @@ const localVocabularyMeanings: Record<string, string> = {
   의견: "어떤 일에 대하여 가지는 생각",
   주장: "자기의 생각을 굳게 내세움",
   근거: "어떤 주장이나 판단의 바탕이 되는 까닭",
+  죄책감: "자신이 잘못했다고 느껴 미안하고 마음이 무거운 감정",
   까닭: "일이 그렇게 된 이유",
   이유: "어떤 결과가 생긴 까닭",
   요약: "말이나 글의 중요한 내용만 골라 간추림",
@@ -1920,6 +1935,18 @@ function findBuiltInVocabularyMeaning(term: string) {
     return compact.length - entryCompact.length <= 2;
   });
   return matched ? localVocabularyMeanings[matched] : "";
+}
+
+function uniqueKnownVocabularyCorrection(term: string, material: MaterialAnalysis) {
+  if (!/^[가-힣]{3,12}$/.test(term)) return "";
+  const source = `${material.materialTitle}\n${material.visibleText}\n${material.summary}`.replace(/\s+/g, "");
+  if (source.includes(term)) return "";
+  const closeTerms = Object.keys(localVocabularyMeanings).filter((candidate) =>
+    /^[가-힣]{3,12}$/.test(candidate) && candidate.length === term.length &&
+    source.includes(candidate) &&
+    [...candidate].filter((character, index) => character !== term[index]).length === 1,
+  );
+  return closeTerms.length === 1 ? closeTerms[0] : "";
 }
 
 const vocabularyTermStopwords = new Set([
@@ -2115,6 +2142,15 @@ function extractVocabularyTermCandidate(studentTurn: string, material: MaterialA
 
   const quoted = /["'“‘]([^"'”’]{1,30})["'”’]/.exec(studentTurn)?.[1];
   if (quoted) return normalizeRequestedVocabularyTerm(quoted, material);
+
+  // `죄책감?`처럼 자료에 실제로 나온 낱말 하나만 물어도 어휘 질문이다.
+  // 자료에 없는 임의의 짧은 반응까지 낱말로 취급하지 않는다.
+  const bareTerm = /^([가-힣A-Za-z]{2,12})\s*[?？]$/.exec(studentTurn.trim())?.[1];
+  if (bareTerm) {
+    const normalized = normalizeRequestedVocabularyTerm(bareTerm, material);
+    const source = `${material.materialTitle}\n${material.visibleText}\n${material.summary}`.replace(/\s+/g, "");
+    if (normalized && source.includes(normalized.replace(/\s+/g, ""))) return normalized;
+  }
 
   // `제트기라는 말은`처럼 인용 어미가 붙어도 낱말만 남긴다.
   const beforeMeaning = /([가-힣A-Za-z][가-힣A-Za-z0-9·\- ]{0,24}?)(?:이라|라)?(?:이|가|은|는|의)?\s*(?:무슨\s*)?(?:뜻|의미|말)(?:이|인|이에|인가|일)?/.exec(
@@ -3854,6 +3890,7 @@ export function createLocalQuestionResult({
     /잔반게시판/.test(compactTurn) &&
     /(조심|주의|문제|부담|비교|순위|창피)/.test(compactTurn);
   const asksTitlePrediction = isTitlePredictionQuestion(turn);
+  const firstTitleGuess = isFirstTitleGuessStatement(turn, conversation);
   // 직전에 사전 뜻을 안내했고 학생이 `이 글에서는 무슨 뜻이에요?`처럼 되물으면 어휘 경로로 이어 간다.
   const lastAssistantContent = [...conversation].reverse().find((entry) => entry.role === "assistant")?.content || "";
   const isVocabularyContextFollowUp =
@@ -3867,6 +3904,13 @@ export function createLocalQuestionResult({
     legacy.questionType === "vocabulary" || isVocabularyContextFollowUp || isBareTermQuestion
       ? createVocabularyLocalTurn(turn, material, conversation)
       : null;
+  // A one-word question absent from the source is uncertain, not permission to
+  // quote an unrelated sentence or silently correct a possible typo.
+  const unknownBareTerm = !vocabularyTurn && legacy.questionType !== "off_topic"
+    ? /^([가-힣A-Za-z]{3,12})\s*[?？]$/.exec(turn)?.[1] || ""
+    : "";
+  const suggestedBareTerm = unknownBareTerm
+    ? uniqueKnownVocabularyCorrection(unknownBareTerm, material) : "";
   const replySourceCue = vocabularyTurn?.sourceStatus === "supported" && vocabularyTurn.sourceCue
     ? vocabularyTurn.sourceCue : sourceCue;
   const naturalTurn = createNaturalLocalTurn(turn, material);
@@ -3955,6 +3999,15 @@ export function createLocalQuestionResult({
     studentReply = allowQuestion
       ? `${behavior.offTopicResponse} 지금 자료에서 가장 눈에 띄는 말은 무엇인가요?`
       : `${behavior.offTopicResponse} 지금은 자료에서 눈에 띄는 말 하나만 찾아도 충분해요.`;
+  } else if (unknownBareTerm) {
+    primaryMove = "clarify";
+    engagementState = "curious";
+    curriculumRelation = "direct";
+    sourceStatus = "source_insufficient";
+    supportLevel = 1;
+    studentReply = suggestedBareTerm
+      ? `혹시 글에 나온 ‘${suggestedBareTerm}’${hasKoreanFinalConsonant(suggestedBareTerm) ? "을" : "를"} 물은 건가요?`
+      : "글에서 물어본 낱말을 찾지 못했어요. 물어보려는 낱말을 다시 적어 줄래요?";
   } else if (vocabularyTurn) {
     primaryMove = vocabularyTurn.primaryMove;
     engagementState = vocabularyTurn.engagementState;
@@ -3986,6 +4039,13 @@ export function createLocalQuestionResult({
       : allowQuestion
         ? `바로 답을 정하지 않아도 돼요. ${quoteSourceSentence(shortSourceCue)} 여기서는 변화한 결과와 그 까닭 중 어느 쪽이 먼저 보여요?`
         : `바로 답을 정하지 않아도 돼요. ${quoteSourceSentence(shortSourceCue)} 이 한 가지 단서만 보면 충분해요.`;
+  } else if (firstTitleGuess) {
+    primaryMove = "receive";
+    engagementState = "exploring_possibilities";
+    curriculumRelation = "direct";
+    sourceStatus = "reasonable_inference";
+    supportLevel = 0;
+    studentReply = "제목을 보고 그렇게 예상했군요. 글을 읽으면서 정말 그런 내용인지 살펴볼까요?";
   } else if (naturalTurn) {
     primaryMove = naturalTurn.primaryMove;
     engagementState = naturalTurn.engagementState;
@@ -4051,14 +4111,15 @@ export function createLocalQuestionResult({
     curriculumRelation,
     supportLevel,
     sourceStatus,
-    sourceCue: replySourceCue,
+    sourceCue: firstTitleGuess || unknownBareTerm ? "" : replySourceCue,
     promptVersion: "questioning-dialogue-v2",
     provider: "local",
     answer: normalizedReply,
     followUpQuestion: "",
-    questionType: legacy.questionType,
-    typeLabel: legacy.typeLabel,
-    typeReason: legacy.typeReason,
+    questionType: vocabularyTurn ? "vocabulary" : legacy.questionType,
+    typeLabel: vocabularyTurn ? questionTypeLabels.vocabulary : legacy.typeLabel,
+    typeReason: vocabularyTurn && isBareTermQuestion
+      ? "자료에 나온 낱말 하나의 뜻을 묻는 질문입니다." : legacy.typeReason,
     evidencePrompt: legacy.evidencePrompt,
     revisionSuggestion: legacy.revisionSuggestion,
     evaluationSignals: [...legacy.evaluationSignals, `대화 동작: ${primaryMove}`, `교육과정 나침반: ${compassSignal}`],
