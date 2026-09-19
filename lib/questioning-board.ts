@@ -1837,6 +1837,10 @@ const localVocabularyMeanings: Record<string, string> = {
   인과관계: "어떤 일이 원인이 되어 다른 결과가 생기는 관계",
   지속가능성: "현재의 필요를 채우면서도 미래 세대가 살아갈 조건을 해치지 않고 이어 갈 수 있는 성질",
   토종: "어떤 지역에서 본래부터 자라거나 살아온 종류",
+  // 동물원 기사에서 자주 묻는 낱말. 확인된 일반 뜻만 담고 글 밖의 사실은 덧붙이지 않는다.
+  맹수: "사자나 호랑이처럼 주로 고기를 먹는 사나운 짐승",
+  외래종: "원래 그 지역에 살지 않았지만 다른 지역에서 들어온 생물의 종류",
+  전시: "여러 사람이 볼 수 있도록 내놓거나 보여 줌",
   관찰: "사물이나 현상을 주의 깊게 살펴봄",
   실험: "조건을 정해 놓고 결과를 알아보는 일",
   가설: "어떤 사실을 설명하기 위해 미리 세운 생각",
@@ -1937,15 +1941,34 @@ function findBuiltInVocabularyMeaning(term: string) {
 }
 
 function uniqueKnownVocabularyCorrection(term: string, material: MaterialAnalysis) {
-  if (!/^[가-힣]{3,12}$/.test(term)) return "";
+  if (!/^[가-힣]{2,12}$/.test(term) || localVocabularyMeanings[term]) return "";
   const source = `${material.materialTitle}\n${material.visibleText}\n${material.summary}`.replace(/\s+/g, "");
   if (source.includes(term)) return "";
   const closeTerms = Object.keys(localVocabularyMeanings).filter((candidate) =>
-    /^[가-힣]{3,12}$/.test(candidate) && candidate.length === term.length &&
+    /^[가-힣]{2,12}$/.test(candidate) && candidate.length === term.length &&
     source.includes(candidate) &&
     [...candidate].filter((character, index) => character !== term[index]).length === 1,
   );
   return closeTerms.length === 1 ? closeTerms[0] : "";
+}
+
+function knownStandaloneVocabularyTerm(
+  studentTurn: string,
+  material: MaterialAnalysis,
+  conversation: QuestioningConversationEntry[],
+) {
+  const term = /^([가-힣A-Za-z]{2,12})$/.exec(studentTurn.trim())?.[1] || "";
+  if (!term || vocabularyTermStopwords.has(term)) return "";
+  const configured = normalizeMaterialVocabulary(material.vocabulary).some((entry) => entry.term === term);
+  if (!configured && !localVocabularyMeanings[term]) return "";
+  const source = `${material.materialTitle}\n${material.visibleText}\n${material.summary}`.replace(/\s+/g, "");
+  if (!source.includes(term)) return "";
+
+  // 교사의 구체적인 질문에 대한 한 단어짜리 답을 뜻 질문으로 바꾸지 않는다.
+  const lastAssistant = [...conversation].reverse().find((entry) => entry.role === "assistant")?.content || "";
+  if (lastAssistant !== fixedTitleGuessGreeting && /[?？]/.test(lastAssistant) &&
+      !/(궁금|질문|물어|묻|낱말|단어|뜻)/.test(lastAssistant)) return "";
+  return term;
 }
 
 const vocabularyTermStopwords = new Set([
@@ -3987,19 +4010,22 @@ export function createLocalQuestionResult({
   // `석달?`처럼 낱말만 던지는 물음. 아이들이 자주 이렇게 묻는데, 아는 낱말일 때만
   // 어휘로 본다. 아무 짧은 말이나 어휘로 보면 되물음·맞장구까지 뜻풀이가 나간다.
   const isBareTermQuestion =
-    /^[^\s?？]{1,12}\s*[?？]$/.test(turn.trim()) &&
-    Boolean(extractRequestedVocabularyTerm(turn, material));
+    (/^[^\s?？]{1,12}\s*[?？]$/.test(turn.trim()) &&
+      Boolean(extractRequestedVocabularyTerm(turn, material))) ||
+    Boolean(knownStandaloneVocabularyTerm(turn, material, conversation));
   const vocabularyTurn =
     legacy.questionType === "vocabulary" || isVocabularyContextFollowUp || isBareTermQuestion
       ? createVocabularyLocalTurn(turn, material, conversation)
       : null;
   // A one-word question absent from the source is uncertain, not permission to
   // quote an unrelated sentence or silently correct a possible typo.
-  const unknownBareTerm = !vocabularyTurn && legacy.questionType !== "off_topic"
-    ? /^([가-힣A-Za-z]{3,12})\s*[?？]$/.exec(turn)?.[1] || ""
+  const possibleBareTerm = !vocabularyTurn && legacy.questionType !== "off_topic"
+    ? /^([가-힣A-Za-z]{2,12})\s*[?？]?$/.exec(turn)?.[1] || ""
     : "";
-  const suggestedBareTerm = unknownBareTerm
-    ? uniqueKnownVocabularyCorrection(unknownBareTerm, material) : "";
+  const suggestedBareTerm = possibleBareTerm
+    ? uniqueKnownVocabularyCorrection(possibleBareTerm, material) : "";
+  const unknownBareTerm = possibleBareTerm && (/[?？]\s*$/.test(turn) || suggestedBareTerm)
+    ? possibleBareTerm : "";
   const whatToInspectSourceCue = asksWhatToInspect ? sourceLimitationSentence(material, turn) : "";
   const replySourceCue = vocabularyTurn?.sourceStatus === "supported" && vocabularyTurn.sourceCue
     ? vocabularyTurn.sourceCue : sourceCue || whatToInspectSourceCue;
