@@ -36,7 +36,7 @@ export default async function AssessmentPrepDetailPage({
 
   if (projectError || !project) notFound();
 
-  const [rubricResult, criteriaResult, versionsResult, commentsResult, evaluationsResult, notionConnection] = await Promise.all([
+  const [rubricResult, criteriaResult, versionsResult, commentsResult, notionConnection] = await Promise.all([
     project.rubric_id
       ? supabase.from("rubrics").select("*").eq("id", project.rubric_id).eq("owner_id", user.id).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
@@ -45,11 +45,10 @@ export default async function AssessmentPrepDetailPage({
       : Promise.resolve({ data: [], error: null }),
     supabase.from("assessment_prep_versions").select("*").eq("prep_id", prep.id).order("version_number", { ascending: false }),
     supabase.from("comments").select("metadata").eq("project_id", project.id),
-    supabase.from("evaluations").select("id").eq("project_id", project.id).eq("evaluator_id", user.id).eq("source", "teacher-manual"),
     getEvaluationNotionConnectionStatus({ supabase, userId: user.id }),
   ]);
 
-  const queryError = rubricResult.error ?? criteriaResult.error ?? versionsResult.error ?? commentsResult.error ?? evaluationsResult.error;
+  const queryError = rubricResult.error ?? criteriaResult.error ?? versionsResult.error ?? commentsResult.error;
   if (queryError) throw new Error(queryError.message);
 
   const readiness = buildAssessmentPrepReadiness({
@@ -58,7 +57,6 @@ export default async function AssessmentPrepDetailPage({
     criterionCount: criteriaResult.data?.length ?? 0,
     notionConnectionConfigured: notionConnection.configured,
     notionResultCount: (commentsResult.data ?? []).filter((comment) => isNotionResultMetadata(comment.metadata)).length,
-    teacherEvaluationCount: evaluationsResult.data?.length ?? 0,
     assessmentPrep: prep,
   });
 

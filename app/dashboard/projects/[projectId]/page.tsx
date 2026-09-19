@@ -125,7 +125,6 @@ export default async function ProjectDetailPage({
     criterionCount: (criteria ?? []).length,
     notionConnectionConfigured: notionConnection.configured,
     notionResultCount: (comments ?? []).filter((comment) => isNotionResultMetadata(comment.metadata)).length,
-    teacherEvaluationCount: teacherEvaluations.length,
     assessmentPrep: savedPrep,
   });
 
