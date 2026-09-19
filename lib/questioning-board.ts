@@ -1698,10 +1698,9 @@ function findRelevantSourceExcerpt(question: string, material: MaterialAnalysis,
     index, score: scoreSourceSentence(segment.text, question, prioritizeQuestionIntent),
   }));
   const best = scored.reduce((current, candidate) => (candidate.score > current.score ? candidate : current));
-  if (best.score === 0 && material.summary.trim()) {
-    const summary = material.summary.trim();
-    return summary.length > 220 ? `${summary.slice(0, 217)}...` : summary;
-  }
+  // A zero-match summary or opening sentence is not evidence for this question.
+  // Returning no cue lets the answer state the knowledge boundary honestly.
+  if (best.score <= 0) return "";
   const bestSegment = segments[best.index];
   const nextSegment = segments[best.index + 1];
   let combined =
@@ -2846,7 +2845,6 @@ function avoidRepeatedStudentReply(
   reply: string,
   conversation: QuestioningConversationEntry[],
   sourceCue: string,
-  studentTurn = "",
 ) {
   const recentAssistantTurns = conversation
     .filter((entry) => entry.role === "assistant")
@@ -2862,33 +2860,15 @@ function avoidRepeatedStudentReply(
   }
 
   const conciseCue = firstSourceSentence(sourceCue, 120);
-  // 학생 말을 옳다고 인정하지는 않는다. 잘못된 단정까지 승인하게 된다.
-  // 말한 내용만 되받아 두고 다음 대목으로 넘긴다.
-  const studentIdea = studentTurn.trim().replace(/[?？]$/, "");
-  // 부탁·명령은 받아 주면 안 된다. "전체 문단 주세요"에 "맞아요"라고 답하면
-  // 대필을 승낙한 것이 된다.
-  const asksForSomething =
-    /(주세요|줘요|줘|해\s*줘|해\s*주|만들어|써\s*줘|써\s*주|알려\s*줘|알려\s*주|보여\s*줘|시켜|해\s*봐|하지\s*마)/.test(
-      studentTurn,
-    );
-  const receivesStudent =
-    studentIdea &&
-    studentIdea.length <= 40 &&
-    !/[?？]/.test(studentTurn) &&
-    !asksForSomething
-      ? [
-          `${studentIdea} 그렇게 말해 줬네요. 같은 문장을 또 읽기보다 다음 대목을 볼게요.`,
-        ]
-      : [];
+  // Repetition repair must not echo a student's whole turn or borrow an
+  // unrelated article sentence just to vary the wording.
   const alternatives = conciseCue
     ? [
-        ...receivesStudent,
         `앞에서 한 말을 반복하지 않을게요. 핵심은 ${conciseCue}`,
         `이번에는 한 가지만 짚을게요. ${conciseCue}`,
         `네가 방금 말한 내용을 이어 보면 ${conciseCue}`,
       ]
     : [
-        ...receivesStudent,
         "앞에서 한 말을 반복하지 않을게요. 방금 떠올린 생각을 그대로 두어도 괜찮아요.",
         "이번에는 설명을 더 붙이지 않을게요. 네 생각을 잠시 그대로 두어도 돼요.",
       ];
@@ -2936,11 +2916,9 @@ function createGeneralNaturalTurn({
   // 근거 문장을 못 찾았을 때 빈칸이 템플릿에 그대로 들어가면 "  이 근거로 한 가지
   // 가능성은…"처럼 주어 없는 문장이 나간다. 요약으로 물러서고, 그것도 없으면
   // 못 찾았다고 정직하게 말한다.
-  const pickedCue = quoteSourceSentence(bestSourceSentence(sourceCue || material.summary, studentTurn, 165));
-  const cue =
-    pickedCue ||
-    quoteSourceSentence(firstSourceSentence(stripMarkdownNoise(material.summary), 165)) ||
-    "자료에서 이 질문과 바로 이어지는 문장은 찾지 못했어요.";
+  const hasSourceCue = Boolean(sourceCue.trim());
+  const pickedCue = hasSourceCue ? quoteSourceSentence(bestSourceSentence(sourceCue, studentTurn, 165)) : "";
+  const cue = pickedCue || "자료에서 이 질문과 바로 이어지는 문장은 찾지 못했어요.";
 
   // 인사는 인사로 받는다. "안녕하세요"를 "라고 짚었군요"로 받으면 첫마디부터 이상하다.
   if (/^(안녕하세요|안녕하십니까|안녕|하이|헬로|방가|반가워요?|반갑습니다)[!~.?\s]*$/.test(studentTurn.trim())) {
@@ -3117,6 +3095,51 @@ function createGeneralNaturalTurn({
     /(사전적으로|사전적 뜻|이 글의 .+에서는|이 자료에서는)/.test(recentAssistantText) &&
     !/(뜻|무슨\s*말|의미|낱말|단어|용어)/.test(studentTurn);
 
+  // An absolute yes/no question often needs the source's counter-condition,
+  // not another sentence repeating its apparent benefit.
+  if (studentAsks && /(무조건|반드시|항상|전부)/.test(compactTurn) &&
+      /(좋|안전|맞|옳|효과)/.test(compactTurn)) {
+    return {
+      reply: `그렇게 단정하기는 어려워요. ${limitation}`,
+      primaryMove: "compare_possibilities",
+      engagementState: "exploring_possibilities",
+      curriculumRelation: "direct",
+      sourceStatus: "reasonable_inference",
+      supportLevel: 1,
+    };
+  }
+
+  if (studentAsks && /(뭘|무엇을|어디를|어느.{0,8})(?:보라는|봐야|보면|살펴)/.test(compactTurn)) {
+    return {
+      reply: limitation !== "자료가 모든 조건을 다 보여 주지는 않아요."
+        ? `자료에서 확인이 더 필요한 조건을 먼저 살펴봐요. ${limitation}`
+        : "어떤 부분을 보아야 할지 함께 좁혀 볼게요. 방금 이야기한 내용을 다시 알려 주세요.",
+      primaryMove: "offer_clue",
+      engagementState: "seeking_evidence",
+      curriculumRelation: "direct",
+      sourceStatus: limitation !== "자료가 모든 조건을 다 보여 주지는 않아요." ? "supported" : "source_insufficient",
+      supportLevel: 2,
+    };
+  }
+
+  const quotedDifficultSentence = !studentAsks && /(문장|부분).*(어렵|어려|이해.*안|모르)/.test(studentTurn)
+    ? studentTurn.match(/[“"]([^”"]+)[”"]/)?.[1] || "" : "";
+  if (quotedDifficultSentence && compactSource.includes(quotedDifficultSentence.replace(/\s+/g, "").toLowerCase())) {
+    const quantities = [...quotedDifficultSentence.matchAll(sourceQuantityPattern)].map((match) => match[0]);
+    const change = /(늘|증가)/.test(quotedDifficultSentence) ? "늘었다" :
+      /(줄|감소)/.test(quotedDifficultSentence) ? "줄었다" : "달라졌다";
+    return {
+      reply: quantities.length >= 2
+        ? `그 문장은 ${quantities[0]}에서 ${quantities[1]}으로 ${change}는 뜻이에요.`
+        : "그 문장은 앞뒤의 변화를 설명해요. 어느 낱말이 가장 어려운지 말해 주면 그 부분부터 풀어 볼게요.",
+      primaryMove: "clarify",
+      engagementState: "seeking_evidence",
+      curriculumRelation: "direct",
+      sourceStatus: "supported",
+      supportLevel: 1,
+    };
+  }
+
   if (givesOwnStartingIdea) {
     return {
       reply: `“${studentIdea}”라는 네 생각이 이미 글의 시작점이에요. 먼저 그 뜻을 네가 아는 말로 짧게 적고, 막히는 낱말만 도구로 확인하면 네 글을 지킬 수 있어요.`,
@@ -3291,10 +3314,69 @@ function createGeneralNaturalTurn({
 
   if (emotionalOrPosition) {
     return {
-      reply: `“${studentIdea}”라는 생각을 말해 줬네요. 그렇게 생각한 이유를 자료의 어느 부분과 연결할 수 있는지 살펴봐도 좋아요.`,
+      reply: "그렇게 느꼈군요. 지금은 그 생각을 편하게 이야기해도 좋아요.",
       primaryMove: "follow_student_lead",
       engagementState: "personally_connecting",
       curriculumRelation: "productive_extension",
+      sourceStatus: "reasonable_inference",
+      supportLevel: 0,
+    };
+  }
+
+  // A student's calculated difference may be valid even when that exact
+  // number is absent from the article. Let causal-overclaim correction above
+  // take precedence; otherwise an unsupported measurement needs a boundary.
+  const unverifiedQuantity = !studentAsks && [...studentTurn.matchAll(sourceQuantityPattern)]
+    .map((match) => match[0].toLowerCase().replace(/\s+/g, ""))
+    .find((quantity) => !compactSource.includes(quantity));
+  if (unverifiedQuantity) {
+    return {
+      reply: "그 숫자는 자료에 나오지 않아요. 자료에서 확인되는 수치와 네 생각을 구분해 볼게요.",
+      primaryMove: "check_evidence",
+      engagementState: "seeking_evidence",
+      curriculumRelation: "direct",
+      sourceStatus: "source_insufficient",
+      supportLevel: 1,
+    };
+  }
+
+  // A student's observation, prediction or opinion is not automatically a
+  // request for a quotation. Keep the topic, not the whole sentence, and let
+  // the model-first path continue the conversation when available.
+  if (!studentAsks) {
+    const recordedQuantities = [
+      ...[...studentTurn.matchAll(sourceQuantityPattern)].map((match) => match[0]),
+      ...[...studentTurn.matchAll(/\d+\s*번/g)].map((match) => match[0]),
+    ].filter((quantity) => compactSource.includes(quantity.toLowerCase().replace(/\s+/g, "")));
+    if (recordedQuantities.length >= 2) {
+      return {
+        reply: `${recordedQuantities[0]}에서 ${recordedQuantities[1]}으로 달라진 점을 확인했군요.`,
+        primaryMove: "receive",
+        engagementState: "noticing",
+        curriculumRelation: "direct",
+        sourceStatus: "supported",
+        supportLevel: 0,
+      };
+    }
+    if (/(기록|조사|비교|관찰).*(좋겠|해보|해야|할래|하겠)/.test(compactTurn)) {
+      return {
+        reply: "같은 조건에서 기록해 보면 관계를 더 분명히 확인할 수 있겠네요.",
+        primaryMove: "receive",
+        engagementState: "seeking_evidence",
+        curriculumRelation: "productive_extension",
+        sourceStatus: "reasonable_inference",
+        supportLevel: 0,
+      };
+    }
+    const topic = studentStatementTopic(studentTurn, material);
+    const predicts = /(같아|같아요|것\s*같|듯해|예상|짐작)/.test(studentTurn);
+    return {
+      reply: predicts
+        ? topic ? `${topic}에 관한 예상이군요. 글을 읽으며 확인해 봐요.` : "그렇게 예상했군요. 글을 읽으며 확인해 봐요."
+        : topic ? `${topic}에 주목했군요. 그 부분을 이어서 살펴봐요.` : "그렇게 읽었군요. 이어서 이야기해 봐요.",
+      primaryMove: "receive",
+      engagementState: predicts ? "exploring_possibilities" : "noticing",
+      curriculumRelation: "direct",
       sourceStatus: "reasonable_inference",
       supportLevel: 0,
     };
@@ -3374,18 +3456,18 @@ function createGeneralNaturalTurn({
       primaryMove: "clarify",
       engagementState: "curious",
       curriculumRelation: "direct",
-      sourceStatus: cue ? "supported" : "source_insufficient",
+      sourceStatus: hasSourceCue ? "supported" : "source_insufficient",
       supportLevel: 1,
     };
   }
 
   return {
-    reply: `${ideaWasTruncated ? "답을 확인했어요." : receiveStudentIdea(studentIdea)} ${cue}`,
-    primaryMove: "receive",
-    engagementState: "noticing",
+    reply: cue,
+    primaryMove: "clarify",
+    engagementState: "curious",
     curriculumRelation: "direct",
-    sourceStatus: "supported",
-    supportLevel: 0,
+    sourceStatus: hasSourceCue ? "supported" : "source_insufficient",
+    supportLevel: 1,
   };
 }
 
@@ -3403,20 +3485,16 @@ function isUsableVocabularyTerm(term: string) {
   return trimmed.length >= 2 && /[가-힣A-Za-z]{2,}/.test(trimmed);
 }
 
-/* 학생 말을 받는 첫마디. 늘 "…라고 짚었군요"면 몇 턴만 지나도 녹음기처럼 들린다.
-   내용에 따라 돌려 쓰고, 절반은 학생 말을 되뇌지 않는 쪽으로 둔다. */
-function receiveStudentIdea(studentIdea: string) {
-  // 학생이 한 말은 남겨 둔다. 없애면 무엇을 받은 것인지 아이가 알 수 없다.
-  // 바꾸는 것은 감싸는 말이다. "짚었군요"만 늘 붙는 것이 문제였다.
-  const forms = [
-    (idea: string) => `“${idea}”라고 봤군요.`,
-    (idea: string) => `“${idea}”라는 점을 말해 줬네요.`,
-    (idea: string) => `“${idea}” — 그렇게 읽었군요.`,
-    (idea: string) => `“${idea}”라고 생각했군요.`,
-  ];
-  let hash = 0;
-  for (const ch of studentIdea) hash = (hash * 31 + ch.charCodeAt(0)) % 997;
-  return forms[hash % forms.length](studentIdea);
+function studentStatementTopic(turn: string, material: MaterialAnalysis) {
+  const title = material.materialTitle.toLowerCase().replace(/\s+/g, "");
+  const source = `${material.materialTitle}\n${material.summary}\n${material.visibleText}`
+    .toLowerCase().replace(/\s+/g, "");
+  const terms = Array.from(new Set((turn.match(/[가-힣A-Za-z0-9]+/g) || [])
+    .map(normalizeSearchToken)
+    .filter((term) => term.length >= 2 && !questionSearchStopwords.has(term) &&
+      !questionIntentTerms.has(term) && !/(?:았|었|했|겠)$/.test(term) &&
+      !/^[가-힣][은는이가을를에도만]$/.test(term) && source.includes(term))));
+  return terms.find((term) => title.includes(term)) || terms[0] || "";
 }
 
 function asksRatherThanStates(value: string) {
@@ -3856,7 +3934,12 @@ export function createLocalQuestionResult({
   const compactTurn = turn.replace(/\s+/g, "");
   const requestsHint = isQuestioningHintRequest(turn);
   const sourceSearch = requestsHint ? hintContext(conversation) || turn : turn;
-  const sourceCue = findRelevantSourceExcerpt(sourceSearch, material, /[?？]/.test(sourceSearch));
+  // A plain student statement is conversation, not a fact-retrieval request.
+  // Searching it often selected the first unrelated sentence as "evidence".
+  const shouldRetrieveSource = requestsHint || asksRatherThanStates(turn);
+  const sourceCue = shouldRetrieveSource
+    ? findRelevantSourceExcerpt(sourceSearch.replace(/\bblue\s*light\b/gi, "파란빛"), material, /[?？]/.test(sourceSearch))
+    : "";
   const shortSourceCue = requestsHint
     ? bestSourceSentence(sourceCue, sourceSearch, 115)
     : firstSourceSentence(sourceCue, 115);
@@ -3867,7 +3950,13 @@ export function createLocalQuestionResult({
     .some((entry) => isRepairStudentTurn(entry.content));
   const needsRepair =
     isRepairStudentTurn(turn) || (recentStudentNeedsRepair && /(설명|제가\s*다|내가\s*다)/.test(turn));
-  const isUncertain = isUncertainStudentTurn(turn) || compactTurn.length <= 3;
+  const quotedMaterial = turn.match(/[“"]([^”"]+)[”"]/)?.[1] || "";
+  const asksAboutQuotedMaterial = /(문장|부분).*(어렵|어려|이해.*안|모르)/.test(turn) &&
+    quotedMaterial.length >= 10 &&
+    `${material.visibleText}\n${material.summary}`.replace(/\s+/g, "").includes(quotedMaterial.replace(/\s+/g, ""));
+  const asksWhatToInspect = /(뭘|무엇을|어디를|어느.{0,8})(?:보라는|봐야|보면|살펴)/.test(compactTurn);
+  const isUncertain = (isUncertainStudentTurn(turn) || compactTurn.length <= 3) &&
+    !asksAboutQuotedMaterial;
   const repeatedUncertainty =
     isUncertain &&
     conversation
@@ -3911,8 +4000,9 @@ export function createLocalQuestionResult({
     : "";
   const suggestedBareTerm = unknownBareTerm
     ? uniqueKnownVocabularyCorrection(unknownBareTerm, material) : "";
+  const whatToInspectSourceCue = asksWhatToInspect ? sourceLimitationSentence(material, turn) : "";
   const replySourceCue = vocabularyTurn?.sourceStatus === "supported" && vocabularyTurn.sourceCue
-    ? vocabularyTurn.sourceCue : sourceCue;
+    ? vocabularyTurn.sourceCue : sourceCue || whatToInspectSourceCue;
   const naturalTurn = createNaturalLocalTurn(turn, material);
   const generalTurn = createGeneralNaturalTurn({
     studentTurn: turn,
@@ -4032,13 +4122,21 @@ export function createLocalQuestionResult({
     primaryMove = repeatedUncertainty ? "repair" : "offer_clue";
     engagementState = "disengaged";
     curriculumRelation = "adjacent";
-    sourceStatus = sourceCue ? "supported" : "source_insufficient";
+    sourceStatus = replySourceCue ? "supported" : "source_insufficient";
     supportLevel = repeatedUncertainty ? 3 : 2;
-    studentReply = repeatedUncertainty
-      ? `질문을 더 보태지 않을게요. 이번에는 ${shortSourceCue} 이 한 가지 단서만 보면 돼요.`
-      : allowQuestion
-        ? `바로 답을 정하지 않아도 돼요. ${quoteSourceSentence(shortSourceCue)} 여기서는 변화한 결과와 그 까닭 중 어느 쪽이 먼저 보여요?`
-        : `바로 답을 정하지 않아도 돼요. ${quoteSourceSentence(shortSourceCue)} 이 한 가지 단서만 보면 충분해요.`;
+    const whatToInspectCue = whatToInspectSourceCue
+      ? quoteSourceSentence(firstSourceSentence(whatToInspectSourceCue, 170)) : "";
+    studentReply = asksWhatToInspect && whatToInspectCue
+      ? `질문을 더 보태지 않을게요. ${whatToInspectCue} 이 조건부터 살펴봐요.`
+      : !shortSourceCue
+      ? repeatedUncertainty
+        ? "질문을 더 보태지 않을게요. 잠시 생각을 정리해도 괜찮아요."
+        : "바로 답을 정하지 않아도 돼요. 궁금한 부분이 생기면 짧게 말해 주세요."
+      : repeatedUncertainty
+        ? `질문을 더 보태지 않을게요. 이번에는 ${shortSourceCue} 이 한 가지 단서만 보면 돼요.`
+        : allowQuestion
+          ? `바로 답을 정하지 않아도 돼요. ${quoteSourceSentence(shortSourceCue)} 여기서는 변화한 결과와 그 까닭 중 어느 쪽이 먼저 보여요?`
+          : `바로 답을 정하지 않아도 돼요. ${quoteSourceSentence(shortSourceCue)} 이 한 가지 단서만 보면 충분해요.`;
   } else if (firstTitleGuess) {
     primaryMove = "receive";
     engagementState = "exploring_possibilities";
@@ -4095,7 +4193,7 @@ export function createLocalQuestionResult({
     // 덮어써지면 되돌리기 자체가 사라진다.
     asksSameQuestionAgain || requestsHint || vocabularyTurn
       ? studentReply
-      : avoidRepeatedStudentReply(studentReply, conversation, replySourceCue, turn),
+      : avoidRepeatedStudentReply(studentReply, conversation, replySourceCue),
   ).trim();
   const finalIsClosing = isClosing || primaryMove === "close";
   const expectsStudentReply = !finalIsClosing && hasQuestionEnding(normalizedReply);

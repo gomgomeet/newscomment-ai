@@ -709,7 +709,7 @@ function checkLiteEngineConnection_() {
 function buildLiteEnginePayload_(turn, settings, history) {
   const payload = {
     schemaVersion: 1,
-    supportedOutputContracts: ['grounded_answer_v2', 'lead_evidence_quote_v1'],
+    supportedOutputContracts: ['conversational_reply_v1', 'grounded_answer_v2', 'lead_evidence_quote_v1'],
     requestId: turn.requestId,
     sessionKey: turn.sessionId,
     activityMode: turn.activityMode,
@@ -844,7 +844,10 @@ function requestLiteEngineFinalize_(
   }
   const payload = buildLiteEnginePayload_(turn, settings, history);
   payload.candidateReply = liteRequired_(candidateReply, '개인 API 답변', 3000);
-  payload.candidateEvidenceQuote = liteRequired_(candidateEvidenceQuote, '개인 API 근거 문장', 500);
+  payload.candidateEvidenceQuote = plan.modelRequest &&
+    plan.modelRequest.outputContract === 'conversational_reply_v1'
+    ? liteText_(candidateEvidenceQuote, 500)
+    : liteRequired_(candidateEvidenceQuote, '개인 API 근거 문장', 500);
   payload.policyVersion = liteRequired_(plan && plan.policyVersion, '계획 정책 버전', 120);
   payload.planDigest = liteRequired_(plan && plan.planDigest, '계획 식별값', 100);
   const response = UrlFetchApp.fetch(endpoint, {
@@ -898,7 +901,7 @@ function validateLiteEnginePlan_(plan, requestId, expectedPolicyVersion) {
   if (!['low'].includes(String(plan.modelRequest.reasoningEffort))) {
     throw new Error('배포본에서 허용하지 않은 추론 설정이 지정되었습니다.');
   }
-  if (['grounded_answer_v2', 'lead_evidence_quote_v1'].indexOf(
+  if (['conversational_reply_v1', 'grounded_answer_v2', 'lead_evidence_quote_v1'].indexOf(
       String(plan.modelRequest.outputContract || '')
     ) < 0) {
     throw new Error('개인 API 출력 계약이 배포본과 맞지 않습니다.');
@@ -925,9 +928,10 @@ function callLiteOpenAI_(plan, requestId) {
   if (!key) throw new Error('교사 개인 API 키가 없습니다. 교사 설정에서 연결해 주세요.');
   const request = plan.modelRequest;
   const groundedAnswer = request.outputContract === 'grounded_answer_v2';
-  const replyField = groundedAnswer ? 'answer' : 'lead';
+  const conversationalReply = request.outputContract === 'conversational_reply_v1';
+  const replyField = conversationalReply ? 'reply' : groundedAnswer ? 'answer' : 'lead';
   const replyProperties = { evidenceQuote: { type: 'string' } };
-  replyProperties[replyField] = groundedAnswer ? { type: 'string' } : {
+  replyProperties[replyField] = conversationalReply || groundedAnswer ? { type: 'string' } : {
     type: 'string',
     enum: ['좋은 질문이에요.', '궁금한 점을 잘 짚었어요.', '자료에서 함께 확인해 볼게요.', '차근차근 살펴볼게요.']
   };
@@ -973,7 +977,7 @@ function callLiteOpenAI_(plan, requestId) {
   try { value = JSON.parse(output); }
   catch (error) { throw liteOpenAIContractError_('개인 API의 답변 형식을 확인하지 못했습니다.', data, request); }
   if (!value || typeof value[replyField] !== 'string' || !value[replyField].trim() ||
-      typeof value.evidenceQuote !== 'string' || !value.evidenceQuote.trim()) {
+      typeof value.evidenceQuote !== 'string' || (!conversationalReply && !value.evidenceQuote.trim())) {
     throw liteOpenAIContractError_('개인 API의 답변과 근거 문장을 확인하지 못했습니다.', data, request);
   }
   return {
