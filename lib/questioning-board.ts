@@ -1389,11 +1389,18 @@ export function isVocabularyQuestion(value: string, vocabularySignals: string[] 
       !/(자료|기사|글|본문|내용|이야기|전체)$/.test(shortMeaningTerm),
   );
 
+  // `맹수가 뭘까?`는 뜻 질문이지만 `맹수가 하는 일은 뭘까?`는 내용 질문이다.
+  // 구어형 물음말은 단일 낱말(+조사)로 닫힌 질문일 때만 어휘로 본다.
+  const shortColloquialDefinitionQuestion =
+    /^(?:그럼|그러면)\s*([가-힣a-z][가-힣a-z0-9·\-]{1,24})(?:이|가|은|는)?\s*(?:뭘까|뭘까요|무엇일까|무엇일까요)\s*[?？]?$/.test(normalized) ||
+    /^([가-힣a-z][가-힣a-z0-9·\-]{1,24})(?:이|가|은|는)?\s*(?:뭘까|뭘까요|무엇일까|무엇일까요)\s*[?？]?$/.test(normalized);
+
   return (
     quotedVocabularyQuestion ||
     configuredVocabularyQuestion ||
     shortVocabularyFollowUp ||
     shortMeaningQuestion ||
+    shortColloquialDefinitionQuestion ||
     /(낱말|단어|용어|표현).{0,16}(뜻|의미).{0,12}(뭐|무엇|알려|모르|궁금)/.test(normalized) ||
     /(뜻|의미).{0,12}(뭐|무엇|알려|모르|궁금)/.test(normalized) ||
     /(?:^|\s)[가-힣a-z][가-힣a-z0-9·\-]{1,24}(?:이|가|은|는)?\s*(무슨\s*뜻|무슨\s*말|뭐예요|뭔가요|무엇인가요|뭐야|뭐지|뭐니|뭐냐)/.test(
@@ -2183,7 +2190,7 @@ function extractVocabularyTermCandidate(studentTurn: string, material: MaterialA
   }
 
   // 물음말 앞을 통째로 받아 토큰을 붙여 가며 고른다. `석 달이 뭐야?` → `석 달`
-  const beforeDefinition = /^(.{1,40}?)\s*(?:뭐예요|뭔가요|무엇인가요|뭐야|뭐지|뭐니|뭐냐|무슨\s*말)/.exec(
+  const beforeDefinition = /^(.{1,40}?)\s*(?:뭐예요|뭔가요|무엇인가요|뭐야|뭐지|뭐니|뭐냐|뭘까|뭘까요|무엇일까|무엇일까요|무슨\s*말)/.exec(
     studentTurn.trim(),
   )?.[1];
   if (beforeDefinition) {
