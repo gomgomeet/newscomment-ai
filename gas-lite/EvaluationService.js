@@ -289,6 +289,59 @@ function buildLiteCriterionReviewRows_(evaluation, questionRows) {
   });
 }
 
+/** Read-only, current-source candidates for a teacher to consider adding evidence. */
+function buildLiteSourceReviewQuestions_(questionRows, lesson) {
+  if (!lesson.lessonId || !lesson.sourceHash) return [];
+  const current = function (row) {
+    return String(row.lessonId || '') === String(lesson.lessonId) &&
+      Number(row.lessonRevision || 1) === Number(lesson.lessonRevision || 1) &&
+      String(row.sourceHash || '') === String(lesson.sourceHash) &&
+      String(row.isPreview).toLowerCase() !== 'true' &&
+      String(row.safetyFlag).toLowerCase() !== 'true' &&
+      String(row.engineStatus || '').indexOf('engine_failed:') !== 0;
+  };
+  const identity = function (row) {
+    return JSON.stringify([String(row.sessionId || ''), String(row.studentCode || ''), String(row.requestId || '')]);
+  };
+  const students = Object.create(null);
+  (questionRows || []).forEach(function (row) {
+    if (String(row.speaker) !== 'student' || !current(row) || !row.requestId || !row.sessionId || !row.studentCode) return;
+    const key = identity(row);
+    if (!students[key]) students[key] = row;
+  });
+  const groups = Object.create(null);
+  const countedRequests = Object.create(null);
+  (questionRows || []).forEach(function (row) {
+    if (String(row.speaker) !== 'bot' || !current(row) ||
+        String(row.sourceStatus) !== 'source_insufficient' ||
+        String(row.relatedQuestion).toLowerCase() !== 'true' ||
+        String(row.curriculumRelation) === 'out_of_scope' ||
+        String(row.primaryMove) === 'repair' || !row.requestId) return;
+    const requestKey = identity(row);
+    const student = students[requestKey];
+    if (!student || !current(student) || countedRequests[requestKey] ||
+        Number(student.turnNo || 0) + 1 !== Number(row.turnNo || 0)) return;
+    const fullText = String(student.text || '').normalize('NFKC').replace(/[\s\u200B-\u200D]+/g, ' ').trim();
+    // A review queue is not a place to display personal details from student messages.
+    if (!fullText || fullText.length > 1000 ||
+        /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(fullText) ||
+        /(?:\+?82[-.\s]?)?0(?:1[016789]|2|[3-6][1-5])[-.\s]?\d{3,4}[-.\s]?\d{4}/.test(fullText) ||
+        /\d{6}[-\s]?[1-4]\d{6}/.test(fullText) ||
+        /(?:제|내|저의)\s*(?:이름|전화번호|휴대폰|핸드폰|집\s*주소)\s*(?:은|는|이|가|:)/.test(fullText)) return;
+    countedRequests[requestKey] = true;
+    const normalized = fullText.toLocaleLowerCase();
+    const at = new Date(row.timestamp || student.timestamp);
+    const lastAskedAt = Number.isNaN(at.getTime()) ? '' : at.toISOString();
+    if (!groups[normalized]) groups[normalized] = { questionText:fullText.slice(0, 200), count:0, lastAskedAt:'' };
+    groups[normalized].count += 1;
+    if (lastAskedAt > groups[normalized].lastAskedAt) groups[normalized].lastAskedAt = lastAskedAt;
+  });
+  return Object.keys(groups).map(function (key) { return groups[key]; })
+    .sort(function (left, right) {
+      return right.count - left.count || right.lastAskedAt.localeCompare(left.lastAskedAt);
+    }).slice(0, 30);
+}
+
 function getLiteTeacherDashboardData(teacherAccessToken) {
   assertLiteTeacherAccess_(teacherAccessToken);
   const spreadsheet = getLiteSpreadsheet_();
@@ -399,6 +452,7 @@ function getLiteTeacherDashboardData(teacherAccessToken) {
     teacherDecisionOptions: liteTeacherDecisionOptions_(lesson.rubricScheme),
     uniqueStudentCount: Object.keys(sessionCounts).length,
     apiUsage: apiUsage,
+    sourceReviewQuestions:liteClientData_(buildLiteSourceReviewQuestions_(conversationRows, lesson)),
     students: liteClientData_(students.map(decorate)),
     requiredAssessmentSubmissions:liteClientData_(requiredRows.filter(function (row) {
       return String(row.isPreview).toLowerCase() !== 'true';
