@@ -1585,6 +1585,103 @@ assert.equal(properties.has(context.litePendingResultKey_(candidatePayload.reque
   }
 }
 
+// 자연스러운 대화는 근거 인용이 빈 문자열이어도 모델 계약을 보존하여 최종 확인까지 전달한다.
+{
+  const conversationReply = '개인 물병이 편리해 보였군요.';
+  const conversationPlan = {
+    ...context.requestLiteEnginePlan_(),
+    modelRequest:{
+      model:'gpt-5.6-terra', reasoningEffort:'low', outputContract:'conversational_reply_v1',
+      instructions:'학생의 관찰에 짧고 자연스럽게 응답한다.',
+      input:'학생: 개인 물병이 괜찮아 보여요.', maxOutputTokens:300
+    }
+  };
+  const freshPayload = {
+    ...candidatePayload, requestId:'req_conversation_fresh_001', studentCode:'7-12',
+    deviceToken:'device_conversation_fresh_12', message:'개인 물병이 괜찮아 보여요.'
+  };
+  const resumePayload = {
+    ...freshPayload, requestId:'req_conversation_resume_01', studentCode:'7-13',
+    deviceToken:'device_conversation_resume12'
+  };
+  const previousPlan = context.requestLiteEnginePlan_;
+  const previousModelCall = context.callLiteOpenAI_;
+  const previousFinalize = context.requestLiteEngineFinalize_;
+  const previousFetch = context.UrlFetchApp;
+  let providerCalls = 0;
+  let finalizeCalls = 0;
+  context.requestLiteEnginePlan_ = () => conversationPlan;
+  context.callLiteOpenAI_ = originalModelCall;
+  context.requestLiteEngineFinalize_ = originalFinalizeRequest;
+  context.UrlFetchApp = {
+    fetch(url, options) {
+      if (url === 'https://api.openai.com/v1/responses') {
+        providerCalls += 1;
+        const modelPayload = JSON.parse(options.payload);
+        assert.deepEqual(modelPayload.text.format.schema.required, ['reply', 'evidenceQuote']);
+        return {
+          getResponseCode:() => 200,
+          getContentText:() => JSON.stringify({
+            id:'resp_conversation_test', model:'gpt-5.6-terra',
+            output:[{ content:[{ type:'output_text', text:JSON.stringify({
+              reply:conversationReply, evidenceQuote:''
+            }) }] }],
+            usage:{ input_tokens:70, output_tokens:20, total_tokens:90 }
+          })
+        };
+      }
+      assert.equal(url, 'https://engine.example.com/api/lite-engine/finalize');
+      finalizeCalls += 1;
+      const transported = JSON.parse(options.payload);
+      assert.equal(transported.candidateReply, conversationReply);
+      assert.equal(transported.candidateEvidenceQuote, '');
+      return {
+        getResponseCode:() => 200,
+        getContentText:() => JSON.stringify({
+          schemaVersion:2, requestId:transported.requestId,
+          policyVersion:conversationPlan.policyVersion, planDigest:conversationPlan.planDigest,
+          engine:{ family:'questioning-dialogue-v2' }, observation:conversationPlan.observation,
+          studentReply:conversationReply, localFallback:false
+        })
+      };
+    }
+  };
+  try {
+    const freshResult = context.submitLiteTurn(freshPayload);
+    assert.equal(freshResult.ok, true);
+    assert.equal(freshResult.reply, conversationReply);
+    assert.equal(providerCalls, 1);
+    assert.equal(finalizeCalls, 1);
+    const resumeTurn = context.prepareLiteStudentTurn_(resumePayload, savedSettings);
+    const resumeCandidate = context.buildLiteCandidateState_(conversationPlan, {
+      text:conversationReply, evidenceQuote:'', model:'gpt-5.6-terra',
+      usage:{ input_tokens:70, output_tokens:20, total_tokens:90 }
+    });
+    assert.deepEqual(Object.keys(resumeCandidate.plan.modelRequest), ['outputContract']);
+    assert.equal(resumeCandidate.plan.modelRequest.outputContract, 'conversational_reply_v1');
+    assert.equal(resumeCandidate.plan.modelRequest.instructions, undefined,
+      '복구 기록에 교사 자료나 모델 입력을 남기지 않는다');
+    assert.ok(context.trySaveLiteCandidateState_(resumeTurn, resumeCandidate));
+    const persisted = context.readLitePendingState_(resumeTurn);
+    assert.equal(persisted.output.plan.modelRequest.outputContract, 'conversational_reply_v1');
+    const resumedResult = context.submitLiteTurn(resumePayload);
+    assert.equal(resumedResult.ok, true);
+    assert.equal(resumedResult.reply, conversationReply);
+    assert.equal(providerCalls, 1, '저장된 후보를 복구할 때 개인 API를 다시 호출하지 않는다');
+    assert.equal(finalizeCalls, 2);
+    const unsupported = context.buildLiteCandidateState_({
+      ...conversationPlan, modelRequest:{ outputContract:'unknown_contract' }
+    }, { text:conversationReply, evidenceQuote:'' });
+    assert.equal(unsupported.plan.modelRequest.outputContract, '');
+  } finally {
+    context.requestLiteEnginePlan_ = previousPlan;
+    context.callLiteOpenAI_ = previousModelCall;
+    context.requestLiteEngineFinalize_ = previousFinalize;
+    if (previousFetch === undefined) delete context.UrlFetchApp;
+    else context.UrlFetchApp = previousFetch;
+  }
+}
+
 // 유료 후보가 만들어지는 사이 중앙 엔진 검증 세대가 바뀌면 fresh 요청도 새 엔진으로 finalize하지 않는다.
 const runtimeChangedPayload = {
   requestId:'req_runtime_changed_001', studentCode:'7-8', joinCode:valid.joinCode,
@@ -2124,6 +2221,9 @@ assert.ok(/const dirty = hasUnsavedSetupChanges\(\)/.test(teacherHtml),
 assert.ok(/copy-student-url'\)\.disabled = controlsBusy \|\| dirty \|\| !planReady \|\| !deploymentIsVerified\(\) \|\| !\(studentUrl && report\.distributionReady\)/.test(teacherHtml),
   'Student link copying requires saved settings, a verified deployment, no active operation, and server distribution readiness');
 assert.match(teacherHtml, /id="test-engine"/);
+assert.match(teacherHtml, /engineCheckButton\.classList\.remove\('hidden'\)/);
+assert.match(teacherHtml, /engineCheckButton\.textContent = engineVerified \? '챗봇 다시 연결 확인' : '챗봇 연결 확인'/);
+assert.doesNotMatch(teacherHtml, /byId\('test-engine'\)\.classList\.toggle\('hidden', engineVerified\)/);
 assert.match(teacherHtml, /id="copy-student-url"/);
 assert.match(teacherHtml, /id="toggle-lesson"/);
 assert.match(teacherHtml, /id="duplicate-lesson"/);

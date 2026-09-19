@@ -1240,6 +1240,7 @@ onboardingUi.takeRequest('saveLiteStudentUrlForTeacher').success({
 assert.equal(onboardingUi.byId('onboarding-deployment').dataset.state, 'done');
 assert.equal(onboardingUi.byId('onboarding-connection').open, true, 'The central engine still needs a connection check');
 assert.equal(onboardingUi.byId('test-engine').classList.contains('hidden'), false);
+assert.equal(onboardingUi.byId('test-engine').textContent, '챗봇 연결 확인');
 assertLinksDisabled(onboardingUi);
 onboardingUi.click('test-engine');
 onboardingUi.takeRequest('testLiteEngineConnection').success({message:'챗봇 연결 확인 완료'});
@@ -1250,6 +1251,8 @@ onboardingUi.takeRequest('getLiteTeacherSetupData').success({
 });
 assert.equal(onboardingUi.byId('onboarding-settings').open, false, 'Completed one-time setup is collapsed');
 assert.equal(onboardingUi.byId('onboarding-badge').textContent, '완료');
+assert.equal(onboardingUi.byId('test-engine').classList.contains('hidden'), false, 'The teacher can rerun a successful engine check');
+assert.equal(onboardingUi.byId('test-engine').textContent, '챗봇 다시 연결 확인');
 assert.equal(onboardingUi.byId('onboarding-open-preview').href, onboardingUrl+'?preview=fixture');
 assert.equal(onboardingUi.byId('open-student').href, onboardingUrl+'?preview=fixture');
 assert.equal(readinessItem(onboardingUi, '이 사본의 배포 주소 확인').dataset.state, 'pass');

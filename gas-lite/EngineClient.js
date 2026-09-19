@@ -348,6 +348,7 @@ function trySaveLitePreparedResult_(turn, output) {
 
 function buildLiteCandidateState_(plan, modelResult) {
   const usage = modelResult && modelResult.usage || {};
+  const outputContract = liteText_(plan && plan.modelRequest && plan.modelRequest.outputContract, 40);
   return {
     candidateReply:liteText_(modelResult && modelResult.text, 3000),
     candidateEvidenceQuote:liteText_(modelResult && modelResult.evidenceQuote, 500),
@@ -355,6 +356,11 @@ function buildLiteCandidateState_(plan, modelResult) {
       policyVersion:liteText_(plan && plan.policyVersion, 120),
       planDigest:liteText_(plan && plan.planDigest, 100),
       fallbackReply:liteText_(plan && plan.fallbackReply, 3000),
+      // 복구 기록에는 전체 모델 입력을 남기지 않고 근거 문장 요구 여부만 보존한다.
+      modelRequest:{
+        outputContract:['conversational_reply_v1', 'grounded_answer_v2', 'lead_evidence_quote_v1']
+          .indexOf(outputContract) >= 0 ? outputContract : ''
+      },
       enforcement:{
         managedQuestion:liteText_(plan && plan.enforcement && plan.enforcement.managedQuestion, 500),
         maximumQuestionCount:Number(plan && plan.enforcement && plan.enforcement.maximumQuestionCount || 0)
