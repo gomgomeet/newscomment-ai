@@ -25,6 +25,10 @@
       button.primary { color:white; background:var(--blue); }
       .students { display:flex; flex-wrap:wrap; gap:7px; }
       .student { padding:5px 9px; border:0; border-radius:999px; color:var(--ink); background:#e2e8f0; font-weight:700; }
+      .source-review-list { display:grid; gap:9px; margin:0; padding:0; list-style:none; }
+      .source-review-item { padding:11px 13px; border:1px solid var(--line); border-radius:9px; background:#f8fafc; }
+      .source-review-item p { margin:0 0 5px; white-space:pre-wrap; overflow-wrap:anywhere; }
+      .source-review-item small { color:var(--muted); }
       .evaluation-list { display:grid; gap:12px; }
       .evaluation { padding:17px; border:1px solid var(--line); border-radius:13px; background:white; }
       .evaluation-head { display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between; }
@@ -84,6 +88,11 @@
         <h2>참여 현황</h2>
         <p class="muted">참여 현황에는 질문 전문을 표시하지 않습니다. 아래 검수 카드에서 시작 질문의 첫 응답 또는 기준별 실제 질문과 답변을 확인하고, 전체 대화는 ‘질문과 답변’ 시트에서 교사만 확인합니다.</p>
         <div id="students" class="students"></div>
+      </section>
+      <section class="card" aria-labelledby="source-review-title">
+        <h2 id="source-review-title">근거 보충이 필요한 질문 <span id="source-review-count" class="badge">0개</span></h2>
+        <p class="muted">자료 근거가 부족했던 응답에 연결된 질문입니다. 교사가 수업 자료와 답변 기록을 확인하고 보충할 내용을 검토해 주세요. 이 목록은 정답·성취도 판정이 아닙니다.</p>
+        <ul id="source-review-questions" class="source-review-list"></ul>
       </section>
       <div class="toolbar">
         <button id="refresh" type="button">새로고침</button>
@@ -154,6 +163,7 @@
         byId('api-preview-count').textContent = Number(apiUsage.previewRequests || 0).toLocaleString('ko-KR');
         byId('api-token-count').textContent = Number(apiUsage.totalTokens || 0).toLocaleString('ko-KR');
         renderStudents(students);
+        renderSourceReviewQuestions(data.sourceReviewQuestions);
         renderEvaluations(evaluations);
         setStatus('최근 저장 내용을 표시했습니다.');
       }
@@ -168,6 +178,28 @@
             (row.progressStatus ? ' · ' + row.progressStatus : '') +
             (row.lastActiveAt ? ' · ' + formatTime(row.lastActiveAt) : '');
           root.appendChild(item);
+        });
+      }
+
+      function renderSourceReviewQuestions(rows) {
+        const root = byId('source-review-questions'); root.textContent = '';
+        const questions = Array.isArray(rows) ? rows.filter(function (row) {
+          return row && typeof row.questionText === 'string' && row.questionText.trim();
+        }) : [];
+        byId('source-review-count').textContent = questions.length + '개';
+        if (!questions.length) {
+          const empty = document.createElement('li'); empty.className = 'muted';
+          empty.textContent = '현재 근거 보충을 검토할 질문이 없습니다.';
+          root.appendChild(empty); return;
+        }
+        questions.forEach(function (row) {
+          const item = document.createElement('li'); item.className = 'source-review-item';
+          const question = document.createElement('p'); question.textContent = row.questionText;
+          const details = document.createElement('small');
+          const count = Math.max(0, Number(row.count) || 0);
+          const lastAskedAt = row.lastAskedAt ? formatTime(row.lastAskedAt) : '';
+          details.textContent = '질문 기록 ' + count + '회' + (lastAskedAt ? ' · 최근 ' + lastAskedAt : '');
+          item.appendChild(question); item.appendChild(details); root.appendChild(item);
         });
       }
 
