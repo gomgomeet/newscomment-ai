@@ -98,7 +98,7 @@ test('exploration accepts blank or omitted design fields through plan and finali
   const input = withoutDesign(makeInput('exploration'));
   const plan = createLiteEnginePlan(input);
   assert.equal(plan.schemaVersion, 1);
-  assert.equal(plan.policyVersion, 'questioning-dialogue-v2-lite-adapter-v14');
+  assert.equal(plan.policyVersion, 'questioning-dialogue-v2-lite-adapter-v15');
   assert.equal(plan.skipModel, false);
   assert.equal(plan.observation.sourceStatus, 'supported');
   const finalized = finalizeLiteEngineReply(finalizeInput(input, plan));
@@ -245,6 +245,28 @@ test('approved plan collects actual evidence without generic phase scoring or pr
   const finalized = finalizeLiteEngineReply(finalizeInput(followup, collected));
   assert.deepEqual(finalized.observation.assessmentProgress, collected.observation.assessmentProgress);
   assert.doesNotMatch(finalized.studentReply, /교사용_|[?？]/);
+});
+
+test('approved opening question shared with startQuestion asks only its managed evidence follow-up', () => {
+  const input = assessmentInput();
+  input.lesson.startQuestion = input.lesson.assessmentPlan.criteria[0].mainQuestion;
+  input.studentMessage = '학교가 일회용 컵을 줄이려고 했기 때문이에요.';
+  const plan = createLiteEnginePlan(input);
+  const evidenceQuestion = input.lesson.assessmentPlan.criteria[0].followUpQuestion;
+  assert.equal(plan.skipModel, true);
+  assert.equal(plan.enforcement.managedQuestion, evidenceQuestion);
+  assert.equal(plan.observation.assessmentProgress.items[0].status, 'awaiting_evidence');
+  for (const candidateReply of [
+    '좋은 질문이에요.',
+    '자료에서 더 궁금한 낱말이나 내용을 질문해 주세요. 다른 질문은 무엇인가요?',
+  ]) {
+    const final = finalizeLiteEngineReply({ ...finalizeInput(input, plan), candidateReply });
+    assert.equal(final.localFallback, true, 'The approved question uses the managed local route');
+    assert.ok(final.studentReply.endsWith(evidenceQuestion));
+    assert.doesNotMatch(final.studentReply, /더\s*궁금한[^.!?？]*질문해\s*주세요/);
+    assert.equal((final.studentReply.match(/[?？]/g) || []).length, 1,
+      'The student should see one evidence question, not two competing prompts');
+  }
 });
 
 test('hint preserves active criterion and every progress field is digest-bound', () => {

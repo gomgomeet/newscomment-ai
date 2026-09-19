@@ -31,7 +31,7 @@ function criterion(id = 'criterion_1', overrides = {}) {
   return {
     id, criterion: '자료에서 입장과 그 이유를 구분하여 설명한다.', responseKind: 'explanation',
     mainQuestion: '정부와 주민의 입장은 어떻게 다른가요?',
-    followUpQuestion: '자료의 구절을 따옴표로 인용하여 주민이 반대하는 이유를 설명해 줄래요?',
+    followUpQuestion: '글에서 답을 뒷받침하는 부분을 찾아 적어 줄래요?',
     evidenceDescription: '서로 다른 입장과 그 이유를 학생 스스로 구분한 실제 발화',
     sourceQuote: '주민들은 소음과 안전을 걱정하며 반대합니다.', requireSourceEvidence: true,
     ...overrides,
@@ -121,13 +121,15 @@ test('no prior task means show first teacher question, not score greeting or arb
   assert.equal(result.allowQuestion, true);
 });
 
-test('a real answer with no source quote gets exactly one teacher follow-up', () => {
+test('a real answer without a matching source passage gets exactly one teacher follow-up', () => {
   const result = run('정부에서는 변전소를 크게 지으려고 하고 주민들은 반대하고 있습니다.');
   assert.equal(result.progress.stage, 'followup');
   assert.equal(result.progress.items[0].status, 'awaiting_evidence');
   assert.equal(result.progress.items[0].attempts, 1);
   assert.equal(result.managedQuestion, plan().criteria[0].followUpQuestion);
   assert.equal((result.reply.match(/[?？]/g) || []).length, 1);
+  assert.equal(result.reply, '네 답변을 남겼어요. ' + result.managedQuestion);
+  assert.doesNotMatch(result.reply, /따옴표|구절을.*묶|질문해 주세요/);
 });
 
 test('two actual answers lacking a verified quote close as teacher review, not failure or mastery', () => {
@@ -141,11 +143,11 @@ test('two actual answers lacking a verified quote close as teacher review, not f
   assert.doesNotMatch(second.reply, /통과|미달|성취했|점수|정답/);
 });
 
-test('only a 6+ character explicitly quoted literal passage is verified', () => {
-  for (const answer of ['주민들은 소음과 안전을 걱정하며 반대합니다.', '“주민들은”이란 말이 나와 있습니다.', '“주민들은 변전소를 좋아하고 모두 찬성합니다.”라고 나옵니다.', '“주민들은 소음과 안전을 걱정하며 반대합니다.\'라는 구절입니다.']) {
+test('an exact passage is verified without quotation marks, but a short overlap or paraphrase is not', () => {
+  for (const answer of ['주민들은', '주민들은 소음과 안전을', '주민들은 변전소를 좋아하고 모두 찬성합니다.', '“주민들은”이란 말이 나와 있습니다.', '“주민들은 변전소를 좋아하고 모두 찬성합니다.”라고 나옵니다.']) {
     assert.equal(run(answer).progress.lastEvent.evidenceVerified, false, answer);
   }
-  for (const answer of [evidenceAnswer, '"주민들은  소음과\t안전을 걱정하며 반대합니다."라고 나옵니다.', "'주민들은 소음과 안전을 걱정하며 반대합니다.'라는 문장입니다."]) {
+  for (const answer of [evidenceAnswer, '주민들은 소음과 안전을 걱정하며 반대합니다.', '주민들은 소음과 안전을 걱정하며 반대합니다. 그래서 안전이 중요해요.', '"주민들은  소음과\t안전을 걱정하며 반대합니다."라고 나옵니다.', "'주민들은 소음과 안전을 걱정하며 반대합니다.'라는 문장입니다."]) {
     const result = run(answer);
     assert.equal(result.progress.lastEvent.evidenceVerified, true);
     assert.equal(result.progress.items[0].evidenceRequestId, 'request_1');
@@ -208,13 +210,14 @@ test('student-question task records original student questions, not an ordinary 
   assert.equal(second.progress.items[0].answerRequestId, 'own_question');
 });
 
-test('student-question criteria with required evidence need both the own question and verified source quote', () => {
+test('student-question criteria with required evidence need both the own question and a matching passage', () => {
   const p = plan([criterion('ask_with_quote', { responseKind: 'student_question', mainQuestion: '자료를 읽고 더 알아보고 싶은 질문 하나를 만들어 줄래요?' })]);
   const first = run('주민들의 소음 걱정을 줄이려면 어떤 방법을 쓸 수 있나요?', { plan: p });
   assert.equal(first.progress.items[0].status, 'awaiting_evidence');
   assert.equal(first.progress.items[0].evidenceRequestId, '');
-  assert.match(first.reply, /따옴표/);
-  const second = run('“주민들은 소음과 안전을 걱정하며 반대합니다.”라고 하는데 소음 걱정을 줄일 방법은 무엇인가요?', {
+  assert.doesNotMatch(first.reply, /따옴표/);
+  assert.equal((first.reply.match(/[?？]/g) || []).length, 1);
+  const second = run('주민들은 소음과 안전을 걱정하며 반대합니다. 소음 걱정을 줄일 방법은 무엇인가요?', {
     plan: p, progress: first.progress, requestId: 'own_question_with_quote',
   });
   assert.equal(second.progress.items[0].status, 'collected');
@@ -225,7 +228,7 @@ test('student-question criteria with required evidence need both the own questio
   assert.throws(() => normalizeAssessmentProgress(corrupted, p, lessonIdentity), /수집한 응답의 근거/);
   const wrong = run('“주민들은 변전소 건설에 모두 찬성합니다.”라는 말의 이유는 무엇인가요?', { plan: p });
   assert.equal(wrong.progress.items[0].status, 'awaiting_evidence');
-  const justQuote = run('“주민들은 소음과 안전을 걱정하며 반대합니다.”라고 나옵니다.', { plan: p });
+  const justQuote = run('주민들은 소음과 안전을 걱정하며 반대합니다.', { plan: p });
   assert.equal(justQuote.progress.items[0].status, 'awaiting_evidence');
 });
 
