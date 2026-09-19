@@ -339,6 +339,39 @@ test('an inverted appositive defines a substation without copying the entire inc
   }
 });
 
+for (const activityMode of ['exploration', 'evaluation']) {
+  for (const studentMessage of ['변전소는 그럼 뭐야?', '그럼 변전소는 뭐야?', '변전소는 뭐야?']) {
+    test(`a connective does not replace the requested substation term: ${studentMessage} (${activityMode})`, () => {
+      const input = residentLessonInput(studentMessage, activityMode);
+      input.lesson.materialText = '경기도 하남시 감일동에서는 발전소에서 만들어진 전기를 필요한 곳에 보내는 시설인 동서울변전소를 더 크게 만드는 사업이 진행되고 있습니다. 주민들은 이 사업에 반대했습니다.';
+      input.history.push(
+        { speaker: 'student', text: '발전소는 전기를 만드는 곳이야?' },
+        { speaker: 'bot', text: '발전소는 전기를 만드는 곳으로 나와 있어.' },
+      );
+      const { result: core } = coreTurn(input);
+      const plan = createLiteEnginePlan(input);
+      const final = finalizeFallback(input, plan);
+      for (const reply of [core.studentReply, plan.fallbackReply, final.studentReply]) {
+        assert.match(reply, /변전소/);
+        assert.match(reply, /전기를.*보내는 시설/);
+        assert.doesNotMatch(reply, /‘그럼’|그럼.*사전|뜻을 지어내지|자료에서.*찾지 못/);
+      }
+      assert.equal(plan.observation.sourceStatus, 'supported');
+      assert.equal(final.observation.sourceStatus, 'supported');
+    });
+  }
+
+  test(`an unsupported similar-looking word still gets no invented definition (${activityMode})`, () => {
+    const input = residentLessonInput('그럼 변전서는 뭐야?', activityMode);
+    input.lesson.materialText = '경기도 하남시 감일동에서는 발전소에서 만들어진 전기를 필요한 곳에 보내는 시설인 동서울변전소를 더 크게 만드는 사업이 진행되고 있습니다.';
+    const plan = createLiteEnginePlan(input);
+    const final = finalizeFallback(input, plan);
+    assert.equal(plan.observation.sourceStatus, 'source_insufficient');
+    assert.equal(final.observation.sourceStatus, 'source_insufficient');
+    assert.doesNotMatch(final.studentReply, /전기를.*보내는 시설/);
+  });
+}
+
 test('a mere mention of a term does not authorize an invented definition', () => {
   const input = residentLessonInput('주민 공청회의 뜻?', 'exploration');
   input.lesson.materialText = '정부와 국회의원은 동서울변전소 증설과 관련해 주민 공청회를 열었습니다.';
