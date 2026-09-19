@@ -490,13 +490,24 @@ function liteMaterialDefinesVocabulary(reply: string, materialText: string) {
   const term = /‘([^’]{1,40})’/.exec(reply)?.[1]?.trim();
   if (!term) return false;
   const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const sentencePart = "[^.!?。？！\\n]";
   const definition = new RegExp(
-    `["'“”‘’]?${escapedTerm}["'“”‘’]?(?:은|는|이란|란)?[^.!?。？！\\n]{0,200}` +
+    `["'“”‘’]?${escapedTerm}["'“”‘’]?(?:은|는|이란|란)?${sentencePart}{0,200}` +
     `(?:뜻(?:한다|합니다|하는|이다|입니다|이에요)|의미(?:한다|합니다|하는|이다|입니다|예요)|` +
     `말(?:한다|합니다|해요)|가리(?:킨다|킵니다|켜요))`,
   );
   const glossary = new RegExp(`["'“”‘’]?${escapedTerm}["'“”‘’]?\\s*[:：]\\s*[^\\n]{3,200}`);
-  return definition.test(materialText) || glossary.test(materialText);
+  // 본문에 직접 풀어 쓴 `공청회는 … 자리입니다`도 승인된 자료의 정의다.
+  // 같은 문장 안의 표제어와 서술어만 연결해, 다른 문장의 설명을 오인하지 않는다.
+  const subjectDefinition = new RegExp(
+    `["'“”‘’]?${escapedTerm}["'“”‘’]?(?:은|는|이란|란)\\s*${sentencePart}{3,160}?(?:자리|시설)(?:입니다|이에요|예요|이다)(?=[.!?。？！\\n]|$)`,
+  );
+  // `… 전기를 보내는 시설인 동서울변전소`처럼 풀이가 표제어 앞에 오는 경우.
+  const precedingDefinition = new RegExp(
+    `(?:시설|자리)인\\s*[가-힣A-Za-z0-9·-]{0,16}${escapedTerm}(?=[은는이가을를에]|[.!?。？！\\s]|$)`,
+  );
+  return definition.test(materialText) || glossary.test(materialText) ||
+    subjectDefinition.test(materialText) || precedingDefinition.test(materialText);
 }
 
 function firstEvaluationAnswerReply(

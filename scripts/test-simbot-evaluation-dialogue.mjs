@@ -322,6 +322,107 @@ for (const activityMode of ['evaluation', 'exploration']) {
   });
 }
 
+test('an inverted appositive defines a substation without copying the entire incident', () => {
+  const input = residentLessonInput('변전소의 뜻?', 'exploration');
+  input.lesson.materialText = '경기도 하남시 감일동에서는 발전소에서 만들어진 전기를 필요한 곳에 보내는 시설인 동서울변전소를 더 크게 만드는 사업이 진행되고 있습니다. 정부와 국회의원은 주민 공청회를 열었습니다.';
+  const { result: core } = coreTurn(input);
+  const plan = createLiteEnginePlan(input);
+  const final = finalizeFallback(input, plan);
+  assert.equal(core.sourceStatus, 'supported');
+  assert.equal(plan.observation.sourceStatus, 'supported');
+  assert.equal(final.observation.sourceStatus, 'supported');
+  for (const reply of [core.studentReply, plan.fallbackReply, final.studentReply]) {
+    assert.match(reply, /변전소/);
+    assert.match(reply, /전기를.*보내는 시설/);
+    assert.doesNotMatch(reply, /정부와 국회의원|주민 공청회|사전.*없어서/);
+    assert.ok(reply.length <= 150, `definition should be brief: ${reply}`);
+  }
+});
+
+test('a mere mention of a term does not authorize an invented definition', () => {
+  const input = residentLessonInput('주민 공청회의 뜻?', 'exploration');
+  input.lesson.materialText = '정부와 국회의원은 동서울변전소 증설과 관련해 주민 공청회를 열었습니다.';
+  input.history.push(
+    { speaker: 'student', text: '변전소의 뜻?' },
+    { speaker: 'bot', text: '‘변전소’는 전기를 필요한 곳에 보내는 시설이에요.' },
+  );
+  const { result: core } = coreTurn(input);
+  const plan = createLiteEnginePlan(input);
+  const final = finalizeFallback(input, plan);
+  assert.equal(core.sourceStatus, 'source_insufficient');
+  assert.equal(plan.observation.sourceStatus, 'source_insufficient');
+  assert.equal(final.observation.sourceStatus, 'source_insufficient');
+  for (const reply of [core.studentReply, plan.fallbackReply, final.studentReply]) {
+    assert.match(reply, /뜻.*확인|뜻.*자료에 없|뜻.*지어내지|자료.*뜻.*알 수 없/);
+    assert.doesNotMatch(reply, /주민들이.*의견을|앞에서 한 말을 반복하지 않을게요|변전소.*시설/);
+  }
+});
+
+// A fresh definition request must not inherit the previous term's answer or
+// turn into a generic repetition repair. Keep the source sentences distinct
+// so an irrelevant but true government fact cannot masquerade as a definition.
+const sequentialVocabularyText = [
+  '변전소는 전기의 전압을 바꾸어 필요한 곳으로 보내는 시설을 뜻한다.',
+  '정부와 국회의원은 변전소 증설 문제를 해결하기 위해 주민 공청회를 열었다.',
+  '주민 공청회는 주민들이 계획에 관한 설명을 듣고 의견을 나누는 자리를 뜻한다.',
+].join(' ');
+
+for (const activityMode of ['evaluation', 'exploration']) {
+  test(`a new definition after another term answers the current term in ${activityMode}`, () => {
+    const firstInput = residentLessonInput('변전소의 뜻?', activityMode);
+    firstInput.lesson.materialText = sequentialVocabularyText;
+    const firstPlan = createLiteEnginePlan(firstInput);
+    const firstFinal = finalizeFallback(firstInput, firstPlan);
+    assert.equal(firstPlan.observation.sourceStatus, 'supported');
+    assert.equal(firstFinal.observation.sourceStatus, 'supported');
+    assert.match(firstFinal.studentReply, /전압을 바꾸어|전기의 전압/);
+
+    const nextInput = residentLessonInput('주민 공청회의 뜻?', activityMode);
+    nextInput.lesson.materialText = sequentialVocabularyText;
+    nextInput.history = [
+      ...firstInput.history,
+      { speaker: 'student', text: firstInput.studentMessage },
+      { speaker: 'bot', text: firstFinal.studentReply },
+    ];
+    const { result: core } = coreTurn(nextInput);
+    const plan = createLiteEnginePlan(nextInput);
+    const final = finalizeFallback(nextInput, plan);
+    assert.match(plan.observation.sourceCue, /주민 공청회는 주민들이.*자리를 뜻한다/,
+      'the current term definition, not only the earlier hearing event, must be selected as evidence');
+    assert.equal(core.sourceStatus, 'supported');
+    assert.equal(plan.observation.sourceStatus, 'supported');
+    assert.equal(final.observation.sourceStatus, 'supported');
+    for (const reply of [core.studentReply, plan.fallbackReply, final.studentReply]) {
+      assert.match(reply, /주민 공청회/);
+      assert.match(reply, /주민들이.*의견을 나누는 자리/);
+      assert.doesNotMatch(reply, /앞에서 한 말을 반복하지 않을게요|이번에는 한 가지만 짚을게요/);
+      assert.doesNotMatch(reply, /변전소|정부와 국회의원|증설 문제/);
+      assert.ok(reply.length <= 150, `definition should be brief, not a source dump: ${reply}`);
+    }
+  });
+
+  test(`a shortened public-hearing term uses the actual lesson definition in ${activityMode}`, () => {
+    const input = residentLessonInput('주민 공청회의 뜻?', activityMode);
+    input.history.push(
+      { speaker: 'student', text: '변전소의 뜻?' },
+      { speaker: 'bot', text: '‘변전소’는 전기를 필요한 곳에 보내는 시설이에요.' },
+    );
+    const { result: core } = coreTurn(input);
+    const plan = createLiteEnginePlan(input);
+    const final = finalizeFallback(input, plan);
+    assert.match(plan.observation.sourceCue, /주민 참여 공청회는 주민들이.*자리입니다/,
+      'the actual lesson definition must be present in the selected evidence');
+    assert.equal(core.sourceStatus, 'supported');
+    assert.equal(plan.observation.sourceStatus, 'supported');
+    assert.equal(final.observation.sourceStatus, 'supported');
+    for (const reply of [core.studentReply, plan.fallbackReply, final.studentReply]) {
+      assert.match(reply, /주민.*공청회/);
+      assert.match(reply, /주민들이.*의견을 이야기|주민들이.*의견을 나누/);
+      assert.doesNotMatch(reply, /앞에서 한 말을 반복하지 않을게요|정부와 국회의원은|변전소 증설/);
+    }
+  });
+}
+
 test('an older saved resident safety keyword is migrated without losing personal-ID or custom protection', () => {
   const input = residentLessonInput('동서울 변전소 사업이 진행되고 있는데 주민들이 반대하고 있어요');
   const config = createLiteQuestioningConfig(input.lesson, input.activityMode);
