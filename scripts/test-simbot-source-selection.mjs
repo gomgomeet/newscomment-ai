@@ -142,8 +142,18 @@ test('a party opposition reason retrieves its stated safeguards rather than the 
 
 test('opposing parties retain their own attributed position in the same material', () => {
   const result = ask(substationMaterial, '정부의 입장은 무엇인가요?');
+  assert.notEqual(result.questionType, 'vocabulary', 'whose position is a source question, not a word-meaning question');
   assert.match(result.sourceCue, /동해안에서 만든 전기를 수도권으로 보내기 위해/);
   assert.doesNotMatch(result.sourceCue, /안전과 생활을 먼저|편의시설을 마련해야/);
+  assert.match(result.studentReply, /정부.*동해안.*전기.*수도권.*변전소.*필요/);
+  assert.doesNotMatch(result.studentReply, /사전적으로|입장.*뜻|주민들은.*안전과 생활/);
+});
+
+test('the meaning of 입장 remains a vocabulary request, not the government position', () => {
+  const result = ask(substationMaterial, '입장의 뜻?');
+  assert.equal(result.questionType, 'vocabulary');
+  assert.match(result.studentReply, /입장/);
+  assert.doesNotMatch(result.studentReply, /정부.*동해안.*수도권|변전소.*필요/);
 });
 
 test('an event reason question differs from the definition of the word reason', () => {

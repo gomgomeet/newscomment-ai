@@ -1332,6 +1332,11 @@ export function isVocabularyQuestion(value: string, vocabularySignals: string[] 
   // "반대하는 이유는 무엇인가요?" asks about an event, whereas
   // "이유라는 낱말은 무슨 뜻인가요?" still asks for a definition.
   if (asksForContextualReason(value)) return false;
+  // `정부의 입장은 무엇인가요?`는 입장이라는 낱말의 뜻이 아니라 정부의 주장이다.
+  // 내장 어휘표의 '입장'과 `무엇인가요`만으로 뜻 질문이 되지 않게 한다.
+  if (positionQuestionActor(value) && !/(뜻|의미|낱말|단어|용어|표현|무슨말)/.test(semanticCompact)) {
+    return false;
+  }
 
   // '주민들이 반대하는 이유는 뭐야?'는 '이유'의 사전 뜻을 묻는 말이 아니다.
   if (
@@ -1375,10 +1380,20 @@ export function isVocabularyQuestion(value: string, vocabularySignals: string[] 
       normalized,
     );
 
+  // `주민 공청회의 뜻?`처럼 의문사를 생략한 짧은 뜻 질문도 낱말 질문이다.
+  // 글 전체의 뜻을 묻는 말은 이 경로에서 제외한다.
+  const shortMeaningTerm = /^([가-힣a-z][가-힣a-z0-9·\- ]{1,30}?)(?:의)?\s*(?:뜻|의미)(?:은|이)?\s*[?？]$/.exec(normalized)?.[1]?.trim();
+  const shortMeaningQuestion = Boolean(
+    shortMeaningTerm &&
+      shortMeaningTerm.split(/\s+/).length <= 3 &&
+      !/(자료|기사|글|본문|내용|이야기|전체)$/.test(shortMeaningTerm),
+  );
+
   return (
     quotedVocabularyQuestion ||
     configuredVocabularyQuestion ||
     shortVocabularyFollowUp ||
+    shortMeaningQuestion ||
     /(낱말|단어|용어|표현).{0,16}(뜻|의미).{0,12}(뭐|무엇|알려|모르|궁금)/.test(normalized) ||
     /(뜻|의미).{0,12}(뭐|무엇|알려|모르|궁금)/.test(normalized) ||
     /(?:^|\s)[가-힣a-z][가-힣a-z0-9·\-]{1,24}(?:이|가|은|는)?\s*(무슨\s*뜻|무슨\s*말|뭐예요|뭔가요|무엇인가요|뭐야|뭐지|뭐니|뭐냐)/.test(
@@ -1948,9 +1963,11 @@ function sourceSentences(material: MaterialAnalysis) {
 
 function findVocabularyContextSentence(term: string, material: MaterialAnalysis) {
   const normalizedTerm = term.replace(/\s+/g, "");
-  const sentence = sourceSentences(material).find((candidate) =>
+  const candidates = sourceSentences(material).filter((candidate) =>
     candidate.replace(/\s+/g, "").includes(normalizedTerm),
   );
+  // 사건을 소개하는 첫 문장보다 같은 낱말을 직접 풀이한 문장을 우선한다.
+  const sentence = candidates.find((candidate) => extractInlineVocabularyMeaning(term, candidate)) || candidates[0];
   return sentence ? firstSourceSentence(sentence, 105) : "";
 }
 
@@ -1960,7 +1977,21 @@ function extractInlineVocabularyMeaning(term: string, contextSentence: string) {
   const definitionPattern = new RegExp(
     `["'“”‘’]?${escapedTerm}["'“”‘’]?(?:은|는|이란|란)\\s*(.+?)(?:을|를)?\\s*(?:말한다|뜻한다|가리킨다)(?:[.!?。？！]|$)`,
   );
-  return definitionPattern.exec(contextSentence)?.[1]?.trim().replace(/(?:을|를)$/, "") ?? "";
+  const explicitMeaning = definitionPattern.exec(contextSentence)?.[1]?.trim().replace(/(?:을|를)$/, "");
+  if (explicitMeaning) return explicitMeaning;
+
+  // 교사가 넣은 자료에서 `공청회는 … 자리입니다`처럼 명시적으로 설명한 경우.
+  const nominalDefinition = new RegExp(
+    `["'“”‘’]?${escapedTerm}["'“”‘’]?(?:은|는|이란|란)\\s*(.{2,120}?(?:자리|시설|모임|제도|방법|과정|장치|기관|사람|것))\\s*(?:입니다|이에요|예요|이다|이야)(?:[.!?。？！]|$)`,
+  ).exec(contextSentence)?.[1]?.trim();
+  if (nominalDefinition) return nominalDefinition;
+
+  // `… 전기를 보내는 시설인 동서울변전소`의 역방향 설명. `시설인`을
+  // 실제로 붙인 같은 문장 안에서만 추출하며 앞선 위치 설명은 뜻에서 뺀다.
+  const reverseDefinition = new RegExp(
+    `([^.!?。？！]{3,120}?(?:시설|장치|자리|모임))인\\s*[가-힣A-Za-z0-9·\\-]{0,20}${escapedTerm}(?:[을를은는이가]|\\s|[.!?。？！]|$)`,
+  ).exec(contextSentence)?.[1]?.trim();
+  return reverseDefinition?.replace(/^[^.!?。？！]{0,50}?에서는\s*/, "") || "";
 }
 
 function hasKoreanFinalConsonant(value: string) {
@@ -2080,7 +2111,7 @@ function extractVocabularyTermCandidate(studentTurn: string, material: MaterialA
   if (quoted) return normalizeRequestedVocabularyTerm(quoted, material);
 
   // `제트기라는 말은`처럼 인용 어미가 붙어도 낱말만 남긴다.
-  const beforeMeaning = /([가-힣A-Za-z][가-힣A-Za-z0-9·\- ]{0,24}?)(?:이라|라)?(?:이|가|은|는)?\s*(?:무슨\s*)?(?:뜻|의미|말)(?:이|인|이에|인가|일)?/.exec(
+  const beforeMeaning = /([가-힣A-Za-z][가-힣A-Za-z0-9·\- ]{0,24}?)(?:이라|라)?(?:이|가|은|는|의)?\s*(?:무슨\s*)?(?:뜻|의미|말)(?:이|인|이에|인가|일)?/.exec(
     studentTurn,
   )?.[1];
   if (beforeMeaning) {
@@ -2178,6 +2209,24 @@ function createVocabularyLocalTurn(
     };
   }
 
+  // 본문이 직접 설명한 뜻은 사전 뜻이라고 꾸미지 않고 그 설명부터 답한다.
+  if (inlineMeaning && !configured?.dictionaryMeaning && !configured?.contextualMeaning) {
+    const definedSubject = /^["'“”‘’]?([가-힣A-Za-z0-9·\-]+(?:\s+[가-힣A-Za-z0-9·\-]+){0,3})["'“”‘’]?(?:은|는|이란|란)\s/.exec(
+      contextSentence,
+    )?.[1];
+    const displayedTerm = definedSubject?.replace(/\s+/g, "").endsWith(term.replace(/\s+/g, ""))
+      ? definedSubject : term;
+    return {
+      reply: `이 글에서 ‘${displayedTerm}’${topicParticle(displayedTerm)} ${ensureSentenceEnding(inlineMeaning)}`,
+      primaryMove: "clarify",
+      engagementState: "curious",
+      curriculumRelation: "direct",
+      sourceStatus: "supported",
+      sourceCue: contextSentence,
+      supportLevel: 1,
+    };
+  }
+
   const contextExplanation = (contextualMeaning || dictionaryMeaning).slice(0, 110);
   const dictionaryClause = formatDictionaryMeaningClause(term, dictionaryMeaning);
   // 문맥 뜻이 사전 뜻과 같으면 같은 문장을 두 번 말하지 않는다.
@@ -2205,6 +2254,7 @@ function createVocabularyLocalTurn(
       engagementState: "curious",
       curriculumRelation: "direct",
       sourceStatus: "supported",
+      sourceCue: contextSentence,
       supportLevel: 1,
     };
   }
@@ -2215,6 +2265,7 @@ function createVocabularyLocalTurn(
     engagementState: "seeking_evidence",
     curriculumRelation: "direct",
     sourceStatus: contextSentence ? "supported" : "reasonable_inference",
+    sourceCue: contextSentence,
     supportLevel: 1,
   };
 }
@@ -2816,6 +2867,7 @@ type NaturalLocalTurn = {
   engagementState: EngagementState;
   curriculumRelation: CurriculumRelation;
   sourceStatus: SourceStatus;
+  sourceCue?: string;
   supportLevel: 0 | 1 | 2 | 3 | 4;
 };
 
@@ -3809,6 +3861,8 @@ export function createLocalQuestionResult({
     legacy.questionType === "vocabulary" || isVocabularyContextFollowUp || isBareTermQuestion
       ? createVocabularyLocalTurn(turn, material, conversation)
       : null;
+  const replySourceCue = vocabularyTurn?.sourceStatus === "supported" && vocabularyTurn.sourceCue
+    ? vocabularyTurn.sourceCue : sourceCue;
   const naturalTurn = createNaturalLocalTurn(turn, material);
   const generalTurn = createGeneralNaturalTurn({
     studentTurn: turn,
@@ -3973,9 +4027,9 @@ export function createLocalQuestionResult({
   const normalizedReply = keepAtMostOneQuestion(
     // 지문으로 돌려보내는 말은 같은 대목을 일부러 다시 짚는다. 반복 검사에 걸려
     // 덮어써지면 되돌리기 자체가 사라진다.
-    asksSameQuestionAgain || requestsHint
+    asksSameQuestionAgain || requestsHint || vocabularyTurn
       ? studentReply
-      : avoidRepeatedStudentReply(studentReply, conversation, sourceCue, turn),
+      : avoidRepeatedStudentReply(studentReply, conversation, replySourceCue, turn),
   ).trim();
   const finalIsClosing = isClosing || primaryMove === "close";
   const expectsStudentReply = !finalIsClosing && hasQuestionEnding(normalizedReply);
@@ -3991,7 +4045,7 @@ export function createLocalQuestionResult({
     curriculumRelation,
     supportLevel,
     sourceStatus,
-    sourceCue,
+    sourceCue: replySourceCue,
     promptVersion: "questioning-dialogue-v2",
     provider: "local",
     answer: normalizedReply,
