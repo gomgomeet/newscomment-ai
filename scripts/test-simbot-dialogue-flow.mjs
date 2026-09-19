@@ -195,6 +195,111 @@ for (const [engineName, run] of Object.entries(animalPaths)) {
   });
 }
 
+// A tiny invented passage exercises the vocabulary route without copying a real article.
+// The meanings themselves are intentionally absent: the bot must use its verified glossary,
+// not invent a definition from a nearby sentence or ask a child to quote the passage.
+const zooVocabularyLesson = {
+  ...animalLesson,
+  lessonId: 'LESSON-SYNTHETIC-ZOO-VOCABULARY',
+  materialTitle: '가상 동물 보호소',
+  materialText: '사자는 맹수입니다. 이 보호소는 다른 나라에서 온 외래종을 새로 들이지 않습니다. 동물을 전시하는 것보다 돌보는 일을 중요하게 여깁니다.',
+  sourceHash: 'synthetic-zoo-vocabulary-0001',
+};
+const zooVocabularyConfig = createLiteQuestioningConfig(zooVocabularyLesson, 'exploration');
+const zooVocabularyPaths = {
+  base(studentTurn, conversation = greetingHistory) {
+    return createLocalQuestionResult({
+      studentTurn,
+      conversation,
+      material: zooVocabularyConfig.material,
+      rubric: zooVocabularyConfig.rubric,
+      behavior: zooVocabularyConfig.behavior,
+      curriculumCompass: zooVocabularyConfig.curriculumCompass,
+      targetGrade: zooVocabularyConfig.targetGrade,
+    });
+  },
+  shared(studentTurn, conversation = greetingHistory) {
+    return runQuestioningLocalEngine({ config: zooVocabularyConfig, question: studentTurn, conversation }).result;
+  },
+  lite(studentTurn, conversation = greetingHistory) {
+    const plan = createLiteEnginePlan({
+      ...liteInput(studentTurn, conversation),
+      lesson: zooVocabularyLesson,
+      supportedOutputContracts: ['conversational_reply_v1', 'grounded_answer_v2', 'lead_evidence_quote_v1'],
+    });
+    return { ...plan.observation, studentReply: plan.fallbackReply, skipModel: plan.skipModel };
+  },
+};
+
+for (const [engineName, run] of Object.entries(zooVocabularyPaths)) {
+  test(`${engineName}: 맹수는? gets a brief definition rather than a dictionary assignment`, () => {
+    const result = run('맹수는?');
+    assert.equal(result.questionType, 'vocabulary');
+    assert.equal(result.sourceStatus, engineName === 'lite' ? 'reasonable_inference' : 'supported');
+    assert.match(result.studentReply, /맹수.*사나운.*짐승/);
+    assert.doesNotMatch(result.studentReply, /사전에서|국어사전에서|지어내지|따옴표|이 문장 앞뒤/);
+    assert.equal((result.studentReply.match(/[?？]/g) || []).length, 0);
+    if (engineName === 'lite') {
+      assert.equal(result.skipModel, true);
+      assert.equal(result.sourceCue, '', 'a glossary definition must not masquerade as a passage quotation');
+    }
+  });
+
+  test(`${engineName}: standalone 외래종 without a question mark gets a definition`, () => {
+    const result = run('외래종');
+    assert.equal(result.questionType, 'vocabulary');
+    assert.equal(result.sourceStatus, engineName === 'lite' ? 'reasonable_inference' : 'supported');
+    assert.match(result.studentReply, /외래종.*다른.*들어온/);
+    assert.doesNotMatch(result.studentReply, /사전에서|국어사전에서|지어내지|따옴표|이 문장 앞뒤/);
+    if (engineName === 'lite') {
+      assert.equal(result.skipModel, true);
+      assert.equal(result.sourceCue, '', 'a glossary definition must not masquerade as a passage quotation');
+    }
+  });
+
+  test(`${engineName}: standalone 전시 gets its own meaning, not a typo clarification`, () => {
+    const result = run('전시');
+    assert.equal(result.questionType, 'vocabulary');
+    assert.match(result.studentReply, /전시.*여러 사람.*볼 수/);
+    assert.doesNotMatch(result.studentReply, /혹시|천시|사전에서/);
+  });
+
+  test(`${engineName}: standalone 천시 confirms possible 전시 typo without silently redefining it`, () => {
+    const result = run('천시');
+    assert.equal(result.studentReply, '혹시 글에 나온 ‘전시’를 물은 건가요?');
+    assert.equal(result.sourceCue, '');
+    assert.doesNotMatch(result.studentReply, /사전적으로|다른 나라|맹수/);
+    if (engineName === 'lite') assert.equal(result.skipModel, true);
+  });
+
+  test(`${engineName}: ordinary short conversation is not treated as a dictionary request`, () => {
+    const result = run('동물을 돌보는 이야기네요');
+    assert.notEqual(result.questionType, 'vocabulary');
+    assert.doesNotMatch(result.studentReply, /사전적으로|뜻을 알고 싶은 낱말|국어사전에서/);
+  });
+
+  test(`${engineName}: a one-word answer to a specific bot question remains an answer`, () => {
+    const result = run('외래종', [
+      ...greetingHistory,
+      { role: 'assistant', content: '이 보호소가 새로 들이지 않는 것은 무엇인가요?' },
+    ]);
+    assert.notEqual(result.questionType, 'vocabulary');
+    assert.doesNotMatch(result.studentReply, /사전적으로|무슨 뜻|혹시 글에 나온/);
+  });
+
+  test(`${engineName}: an unknown question does not manufacture a meaning`, () => {
+    const result = run('우주선?');
+    assert.notEqual(result.sourceStatus, 'supported');
+    assert.doesNotMatch(result.studentReply, /우주를 다니는|하늘을 나는|사전적으로/);
+  });
+
+  test(`${engineName}: vocabulary routing never echoes a student's private name`, () => {
+    const result = run('제 이름은 김철수예요');
+    assert.equal(result.primaryMove, 'safety_redirect');
+    assert.doesNotMatch(result.studentReply, /김철수/);
+  });
+}
+
 test('lite: a safe title guess accepts a concise model reply without a fabricated source quote', () => {
   const input = {
     ...liteInput('야생 동물에 대한 이야기네요', greetingHistory),
