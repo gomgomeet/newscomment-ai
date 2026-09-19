@@ -117,7 +117,7 @@ export function normalizeAssessmentPlan(raw: unknown, materialText: string, vali
       followUpQuestion: text(item.followUpQuestion, "보충 질문", 250),
       evidenceDescription: text(item.evidenceDescription, "확인할 학생 수행", 300),
       sourceQuote: text(item.sourceQuote, "자료 단서", 240),
-      requireSourceEvidence: boolean(item.requireSourceEvidence, "자료 인용 필요"),
+      requireSourceEvidence: boolean(item.requireSourceEvidence, "자료 근거 필요"),
     };
     if (approved && validateApproval) {
       if (!criterion.criterion || !criterion.mainQuestion || !criterion.followUpQuestion || !criterion.evidenceDescription || !criterion.sourceQuote) {
@@ -176,7 +176,7 @@ export function normalizeAssessmentProgress(raw: unknown, plan: AssessmentPlan, 
     const hintCount = integer(item.hintCount, "힌트 횟수", 99);
     const assisted = boolean(item.assisted, "도움 사용");
     const answerRequestId = text(item.answerRequestId, "답변 요청 ID", 100);
-    const evidenceRequestId = text(item.evidenceRequestId, "인용 요청 ID", 100);
+    const evidenceRequestId = text(item.evidenceRequestId, "근거 요청 ID", 100);
     if ((attempts > 0) !== Boolean(answerRequestId) || (hintCount > 0 && !assisted) || (evidenceRequestId && !answerRequestId)) throw new Error("질문 수집 근거를 확인해 주세요.");
     if (index < activeIndex && status !== "collected" && status !== "needs_review") throw new Error("이전 질문 진행 상태를 확인해 주세요.");
     if (index > activeIndex && (status !== "pending" || attempts || hintCount || assisted || answerRequestId || evidenceRequestId)) throw new Error("아직 시작하지 않은 질문 상태를 확인해 주세요.");
@@ -190,8 +190,8 @@ export function normalizeAssessmentProgress(raw: unknown, plan: AssessmentPlan, 
   const kinds = ["answer", "hint", "question", "skip", "safety", "closing", "prompt"] as const;
   const kind = rawEvent.kind as AssessmentProgress["lastEvent"]["kind"];
   if (!kinds.includes(kind) || (criterionId && !plan.criteria.some((item) => item.id === criterionId)) || (requestId && !criterionId)) throw new Error("마지막 진행 사건을 확인해 주세요.");
-  const evidenceVerified = boolean(rawEvent.evidenceVerified, "마지막 인용 확인");
-  if (evidenceVerified && kind !== "answer") throw new Error("인용 확인 사건을 확인해 주세요.");
+  const evidenceVerified = boolean(rawEvent.evidenceVerified, "마지막 자료 근거 확인");
+  if (evidenceVerified && kind !== "answer") throw new Error("자료 근거 확인 사건을 확인해 주세요.");
   return { schemaVersion: 1, planId, activeIndex, stage, items, lastEvent: { requestId, criterionId, kind, evidenceVerified } };
 }
 
@@ -199,13 +199,31 @@ function withoutQuestions(value: string) {
   return value.replace(/[^.!?。！？]*[?？]/g, " ").replace(/\s+/g, " ").trim();
 }
 
-function verifiedStudentQuote(turn: string, materialText: string) {
+function verifiedStudentEvidence(turn: string, materialText: string) {
   const quotes = [...turn.matchAll(/“([^“”\n]{6,500})”|"([^"\n]{6,500})"|‘([^‘’\n]{6,500})’|'([^'\n]{6,500})'/g)];
   const source = compactWhitespace(materialText);
-  return quotes.some((match) => {
+  if (quotes.some((match) => {
     const quote = compactWhitespace(match[1] || match[2] || match[3] || match[4]);
     return quote.length >= 6 && source.includes(quote);
-  });
+  })) return true;
+
+  // Elementary students can copy an exact passage without typing quotation
+  // marks. Require a substantial continuous span, not a short common phrase
+  // or an unsupported paraphrase. This records source evidence, not mastery.
+  const unquotedSource = source.replace(/[“”"‘’']/g, "");
+  const words = compactWhitespace(turn.replace(/[“”"‘’']/g, "")).split(/\s+/);
+  for (let start = 0; start < words.length; start += 1) {
+    let passage = "";
+    for (let end = start; end < words.length; end += 1) {
+      passage += (passage ? " " : "") + words[end];
+      if (passage.replace(/\s/g, "").length < 16) continue;
+      // If the first substantial span is absent, extending the same prefix
+      // cannot create a match; advance to the next word instead.
+      if (unquotedSource.includes(passage)) return true;
+      break;
+    }
+  }
+  return false;
 }
 
 function isQuestion(turn: string) {
@@ -281,7 +299,7 @@ export function runLiteAssessmentTurn({ plan: rawPlan, lessonIdentity, materialT
   if (isQuestioningHintRequest(turn) || /^(?:잘\s*)?(?:모르겠어요|모르겠어|몰라요|모르겠습니다)[.!\s]*$/.test(turn)) {
     if (!isDuplicate) { item.hintCount = Math.min(99, item.hintCount + 1); item.assisted = true; event("hint"); }
     const quote = PRIVATE_DATA.test(active.sourceQuote) ? "" : active.sourceQuote.split(/[?？]/).sort((a, b) => b.length - a.length)[0].trim();
-    return result(quote ? `자료의 “${quote}” 부분을 단서로 살펴보세요.` : "개인정보가 없는 자료 부분에서 단서를 찾아보세요.", currentQuestion(), quote, quote ? "supported" : "source_insufficient", "offer_clue");
+    return result(quote ? `자료의 “${quote}” 부분이 단서예요.` : "자료의 관련 부분이 단서예요.", currentQuestion(), quote, quote ? "supported" : "source_insufficient", "offer_clue");
   }
   const asksHelp = HELP_REQUEST.test(turn);
   const copied = active.responseKind === "student_question" && copiedAssistantQuestion(turn, [
@@ -293,7 +311,7 @@ export function runLiteAssessmentTurn({ plan: rawPlan, lessonIdentity, materialT
   ]);
   if (asksHelp || copied) {
     if (!isDuplicate) { item.assisted = true; event("question"); }
-    return result(copied ? "챗봇이 한 질문을 그대로 옮기기보다는 네가 궁금한 점을 담아 질문을 만들어 보세요." : "완성된 답이나 질문을 대신 만들지는 않을게요. 자료에서 네가 궁금하거나 말하고 싶은 부분부터 골라 보세요.", currentQuestion(), "", "reasonable_inference", "offer_clue");
+    return result(copied ? "챗봇이 한 질문을 그대로 옮긴 것 같아요." : "완성된 답이나 질문을 대신 만들지는 않을게요.", currentQuestion(), "", "reasonable_inference", "offer_clue");
   }
   if (active.responseKind === "explanation" && isQuestion(turn)) {
     if (!isDuplicate) item.assisted = true;
@@ -308,7 +326,7 @@ export function runLiteAssessmentTurn({ plan: rawPlan, lessonIdentity, materialT
   }
   // A retry cannot increment attempts or evidence. GAS also deduplicates row writes.
   if (isDuplicate) return result("", currentQuestion());
-  const evidenceVerified = verifiedStudentQuote(turn, materialText);
+  const evidenceVerified = verifiedStudentEvidence(turn, materialText);
   const enoughResponse = turn.replace(/\s|[.!?？“”"‘']/g, "").length >= 6;
   const collected = enoughResponse && (!active.requireSourceEvidence || evidenceVerified) &&
     (active.responseKind !== "student_question" || isQuestion(turn));
@@ -323,7 +341,6 @@ export function runLiteAssessmentTurn({ plan: rawPlan, lessonIdentity, materialT
   }
   item.status = "awaiting_evidence";
   progress.stage = "followup";
-  return result(active.responseKind === "student_question"
-    ? active.requireSourceEvidence ? "자료에서 찾은 구절을 따옴표로 묶고, 그 구절과 연결되는 네 질문을 남겨 주세요." : "네가 만든 질문 한 가지를 남겨 주세요."
-    : active.requireSourceEvidence ? "자료에서 찾은 구절을 따옴표로 묶고 네 설명과 연결해 주세요." : "네가 생각한 내용을 조금 더 풀어서 남겨 주세요.", active.followUpQuestion, "", "reasonable_inference", "check_evidence");
+  return result(active.responseKind === "student_question" ? "네 질문을 남겼어요." : "네 답변을 남겼어요.",
+    active.followUpQuestion, "", "reasonable_inference", "check_evidence");
 }

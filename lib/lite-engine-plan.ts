@@ -32,7 +32,7 @@ import {
 } from "@/lib/questioning-conversation-phase";
 
 export const LITE_ENGINE_SCHEMA_VERSION = 1;
-export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v14";
+export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v15";
 
 type LiteOutputContract = "lead_evidence_quote_v1" | "grounded_answer_v2";
 
@@ -592,7 +592,9 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
     rawObservation.evidenceIds = assessment.progress.lastEvent.evidenceVerified
       ? [`lesson-material:${lesson.lessonId}:r${lesson.lessonRevision}:${lesson.sourceHash}`] : [];
   }
-  const initialAnswerReply = firstEvaluationAnswerReply(input, planned, rawObservation);
+  // An approved assessment already owns the next student prompt. The legacy
+  // first-answer invitation would compete with its evidence follow-up.
+  const initialAnswerReply = assessment ? "" : firstEvaluationAnswerReply(input, planned, rawObservation);
   const quantityReply = missingQuantityReply(input.studentMessage, lesson.materialText);
   const replyAdmitsMissingSource =
     Boolean(quantityReply) ||
