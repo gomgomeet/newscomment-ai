@@ -5,11 +5,28 @@
 작업 브랜치: `feat/evaluation-dashboard-demo-flow`  
 배포 대상: Vercel 프로젝트 `newscomment-ai`
 
+## Production 배포 완료 업데이트
+
+- PR #47은 2026-08-28 19:55 KST에 `main`으로 병합되었다.
+- 병합 커밋: `8cec53b02967c5af7b396d8ae316d75a24409dde`
+- Vercel Production 배포는 2026-08-28 19:56 KST에 `SUCCESS`가 되었다.
+- Production URL: <https://newscomment-ai.vercel.app>
+- 브라우저에서 첫 화면 제목과 본문을 확인했다.
+- 비로그인 상태의 `/dashboard`가 `/login`으로 이동하는 것을 확인했다.
+- 학교 양식 샘플 PDF URL이 브라우저 PDF 화면으로 열리는 것을 확인했다.
+- 첫 화면의 브라우저 콘솔 오류는 0건이었다.
+
+남은 검증 공백:
+
+- 현재 작업 PC의 HTTPS 클라이언트가 `vercel.app` TLS 연결에서 시간 초과되어 `/api/health` 응답을 직접 확인하지 못했다.
+- Vercel 연결 권한이 `403 Forbidden`이고 별도 CLI 토큰이 없어 Production 환경변수와 서버 런타임 오류 로그를 직접 조회하지 못했다.
+- 로그인 후 Notion 실데이터 읽기와 OpenAI 평가 초안 생성은 Vercel 환경변수 확인 및 교사 테스트 계정으로 최종 확인해야 한다.
+
 ## 1. 현재 상태
 
 - 평가 준비 프렙 → Notion 결과 읽기 → AI 평가 초안 → 교사 검토·확정 → 평가 결과 → 성장 기록 보드(생기부) → PDF/Notion 선택 내보내기 흐름을 구현했다.
 - Supabase 마이그레이션 `008`~`014`, 시연 실행서, 개발 계획서, 학교 양식 샘플 PDF를 PR에 포함했다.
-- GitHub PR은 `OPEN`, `MERGEABLE`, `CLEAN` 상태다.
+- GitHub PR #47은 `MERGED` 상태다.
 - Vercel Preview와 Preview Comments 검사는 모두 통과했다.
 - 현재 Preview는 Vercel Deployment Protection이 적용되어 있으므로 프로젝트 접근 권한이 있는 Vercel 계정으로 확인한다.
 
@@ -19,21 +36,16 @@
 - Vercel 상태: `READY`
 - 최초 기능 커밋: `8903276`
 - 대상 브랜치: `main`
-- Production 상태: 병합 전, 미배포
+- Production 상태: `READY`
+- 병합 커밋: `8cec53b02967c5af7b396d8ae316d75a24409dde`
 
-Production 배포는 PR을 `main`에 병합하면 기존 GitHub–Vercel 연동이 자동으로 시작한다. 이 문서를 추가하는 커밋까지 Preview 검사가 다시 통과한 뒤 병합한다.
+Production 배포는 기존 GitHub–Vercel 연동으로 완료되었다. 이후 코드 변경은 새 PR의 Preview 검사를 통과한 뒤 병합한다.
 
-## 3. 현재 정지된 이유
+## 3. 해결된 정지 지점과 남은 제한
 
-### 3.1 Production 병합 승인
+### 3.1 Production 병합 승인 — 해결됨
 
-`main` 병합은 실제 서비스 트래픽에 반영되는 변경이다. 따라서 PR #47의 Preview를 확인한 뒤 명시적으로 Production 병합을 승인해야 한다.
-
-승인 문구 예시:
-
-```text
-PR #47을 main에 병합하고 프로덕션 배포를 진행해줘.
-```
+사용자의 명시적 승인 후 PR #47을 `main`에 병합했고 Production 자동 배포가 완료되었다.
 
 ### 3.2 Vercel 원격 인증
 
@@ -59,7 +71,7 @@ GitHub–Vercel 자동 Preview 배포는 정상 작동하지만, 이 PC에서 Ve
 
 로컬 상태와 Vercel 상태는 서로 다를 수 있다. Vercel Dashboard의 **Settings → Environment Variables**에서 Preview와 Production 범위를 각각 확인한다.
 
-## 4. 사용자가 원격에서 먼저 확인할 항목
+## 4. 남은 사용자 확인 항목
 
 1. Vercel 프로젝트 `newscomment-ai`의 Environment Variables를 연다.
 2. 아래 공개 변수가 Preview와 Production에 설정되어 있는지 확인한다.
@@ -70,7 +82,7 @@ GitHub–Vercel 자동 Preview 배포는 정상 작동하지만, 이 PC에서 Ve
    - `NOTION_API_KEY`
    - 필요한 경우 `SUPABASE_SECRET_KEY` 또는 `SUPABASE_SERVICE_ROLE_KEY`
 4. 서버 전용 키에는 `NEXT_PUBLIC_` 접두사를 붙이지 않는다.
-5. Preview를 Redeploy한 뒤 `/dashboard/settings`에서 연결 상태를 확인한다.
+5. Production의 `/dashboard/settings`에서 연결 상태를 확인한다.
 6. Notion Integration을 학생 결과 데이터베이스와 선택 저장용 상위 페이지에 연결한다.
 
 ## 5. Supabase 운영 확인
@@ -86,11 +98,11 @@ Production 전 최소 확인 항목:
 - 두 개의 테스트 계정으로 서로의 프로젝트·학생 결과를 읽을 수 없는지 확인한다.
 - 마이그레이션 `008`~`014`가 원격 DB에 적용되어 있다.
 
-## 6. 재개 절차
+## 6. 남은 검증 절차
 
-1. 이 문서 커밋의 Vercel Preview 검사가 `SUCCESS`가 될 때까지 기다린다.
-2. Vercel 환경변수와 Notion 공유 설정을 확인한다.
-3. Preview에서 다음 핵심 동선을 실행한다.
+1. Vercel 환경변수와 Notion 공유 설정을 확인한다.
+2. 교사 테스트 계정으로 Production에 로그인한다.
+3. Production에서 다음 핵심 동선을 실행한다.
    - 로그인
    - 평가 준비 프렙 확정
    - Notion 결과 3건 미리보기·가져오기
@@ -98,9 +110,8 @@ Production 전 최소 확인 항목:
    - 교사 수정·최종 확정
    - 성장 기록 보드(생기부) 생성
    - 샘플 PDF 다운로드
-4. PR #47을 `main`에 병합한다.
-5. Vercel Production 배포가 `READY`가 될 때까지 확인한다.
-6. Production에서 `/api/health`와 핵심 화면을 확인하고 최근 오류 로그를 점검한다.
+4. Vercel 권한이 있는 환경에서 `/api/health`와 최근 Production 런타임 오류 로그를 확인한다.
+5. 확인 결과를 이 문서와 배포 PR 댓글에 추가한다.
 
 ## 7. 원격 메시지 원칙
 
@@ -119,11 +130,10 @@ Production 전 최소 확인 항목:
 
 ## 8. 완료 판정
 
-- [ ] PR #47의 최신 커밋 검사가 모두 통과함
+- [x] PR #47의 최신 커밋 검사가 모두 통과함
 - [ ] Preview 핵심 동선 확인 완료
 - [ ] Vercel Preview/Production 환경변수 확인 완료
-- [ ] Production 병합 명시적 승인
-- [ ] PR #47 `main` 병합 완료
-- [ ] Production 배포 `READY`
+- [x] Production 병합 명시적 승인
+- [x] PR #47 `main` 병합 완료
+- [x] Production 배포 `READY`
 - [ ] Production 상태 확인 및 오류 로그 점검 완료
-
