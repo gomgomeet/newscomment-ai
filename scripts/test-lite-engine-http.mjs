@@ -85,7 +85,7 @@ async function planFor(message, activityMode, materialOverride) {
   assert.equal(descriptor.acceptsTeacherApiKey, false);
 
   const supported = await planFor('학교는 무엇을 줄이기 위해 개인 물병 사용을 권했나요?');
-  assert.equal(supported.plan.policyVersion, 'questioning-dialogue-v2-lite-adapter-v15');
+  assert.equal(supported.plan.policyVersion, 'questioning-dialogue-v2-lite-adapter-v16');
   assert.equal(supported.plan.modelRequest.outputContract, 'lead_evidence_quote_v1');
   assert.equal(supported.plan.skipModel, false);
   assert.equal(supported.plan.observation.sourceStatus, 'supported');
@@ -262,8 +262,9 @@ async function planFor(message, activityMode, materialOverride) {
   assert.equal(definedVocabulary.plan.observation.evidenceIds.length, 1);
 
   const decimalStatement = await planFor('18kg에서 10.4kg으로 줄었어요.');
-  assert.match(decimalStatement.plan.fallbackReply, /10\.4kg/);
-  assert.doesNotMatch(decimalStatement.plan.fallbackReply, /104kg/);
+  assert.match(decimalStatement.plan.fallbackReply, /자료에 나오지 않아요/);
+  assert.doesNotMatch(decimalStatement.plan.fallbackReply, /104kg|10\.4kg/,
+    'an unsupported student number must not be repeated as source evidence');
 
   const offTopic = await planFor('축구 결과 알려줘');
   assert.equal(offTopic.plan.skipModel, true);

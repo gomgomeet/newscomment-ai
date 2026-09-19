@@ -94,6 +94,7 @@
       }
       /* Compact teacher settings: keep unresolved checks and draft state visible. */
       .flow { grid-template-columns:repeat(4,minmax(0,1fr)); margin:14px 0; }
+      .flow[data-mode="exploration"] { grid-template-columns:repeat(3,minmax(0,1fr)); }
       .flow button { min-height:50px; padding:8px 12px; }
       .compact-settings { margin:12px 0; border:1px solid var(--line); border-radius:10px; background:white; }
       .compact-settings > summary { padding:10px 13px; cursor:pointer; font-weight:700; }
@@ -118,6 +119,7 @@
       .readiness [data-state="inactive"] { color:#64748b; background:#f8fafc; }
       .readiness li { padding:8px 11px; }
       #save-state { font-weight:700; }
+      @media (max-width:720px) { .flow,.flow[data-mode="exploration"] { grid-template-columns:1fr; } }
       @media (max-width:480px) { main { padding:14px; } .flow button { padding:8px; } }
     </style>
   </head>
@@ -179,11 +181,11 @@
           </details>
         </div>
       </details>
-      <nav class="flow" aria-label="설정 순서">
+      <nav id="setup-flow" class="flow" aria-label="설정 순서">
         <button type="button" data-step="design" aria-current="step"><span class="step-no">1단계</span>수업 설정</button>
         <button type="button" data-step="material"><span class="step-no">2단계</span>자료 넣기</button>
-        <button type="button" data-step="assessment"><span class="step-no">3단계</span><span id="assessment-step-label">질문·평가기준</span></button>
-        <button type="button" data-step="check"><span class="step-no">4단계</span>저장·미리보기</button>
+        <button type="button" data-step="assessment"><span class="step-no">3단계</span>질문·평가기준</button>
+        <button type="button" data-step="check"><span id="check-step-number" class="step-no">4단계</span>저장·미리보기</button>
       </nav>
 
       <form id="setup-form" novalidate>
@@ -302,10 +304,6 @@
             <textarea id="start-question" maxlength="500" placeholder="예: 자료를 근거로 자신의 생각을 설명해 볼까요?"></textarea>
             <span id="start-question-help" class="help">학생 화면의 첫 질문입니다.</span>
           </label>
-          <section id="exploration-start-notice" class="notice hidden" aria-label="학생 대화 시작 안내">
-            <strong>학생 대화 시작 안내</strong>
-            <p>글을 읽고 궁금한 것을 질문해 주세요! 제목을 보고 어떤 내용인지 생각해 볼까요?</p>
-          </section>
           <fieldset id="backward-design-fields" class="grid" aria-label="질문과 평가기준 입력">
             <label class="wide">답변의 핵심 요소 (교사용)
               <textarea id="expected-answer" maxlength="1500" placeholder="AI 초안을 적용하면 답변에서 확인할 핵심 요소가 채워집니다. 필요하면 수정하세요."></textarea>
@@ -403,6 +401,7 @@
     <script>
       const steps = ['design', 'material', 'assessment', 'check'];
       let currentStep = 0;
+      let currentStepName = 'design';
       let latestDistributionReady = false;
       let latestStudentUrl = '';
       let savedActivityMode = 'evaluation';
@@ -440,7 +439,7 @@
 
       window.addEventListener('load', function () {
         document.querySelectorAll('[data-step]').forEach(function (button) {
-          button.addEventListener('click', function () { showStep(steps.indexOf(button.dataset.step)); });
+          button.addEventListener('click', function () { showStepByName(button.dataset.step); });
         });
         byId('prev-step').addEventListener('click', function () { showStep(currentStep - 1); });
         byId('next-step').addEventListener('click', function () { showStep(currentStep + 1); });
@@ -572,7 +571,7 @@
             }
           }
           const quote = item.sourceQuote.replace(/\s+/g, ' ').trim();
-          if (!normalizedSource.includes(quote)) return prefix + '힌트 구절을 3단계 수업자료 본문에서 그대로 가져와 주세요.';
+          if (!normalizedSource.includes(quote)) return prefix + '힌트 구절을 2단계 수업자료 본문에서 그대로 가져와 주세요.';
         }
         return '';
       }
@@ -699,13 +698,14 @@
         fields.classList.toggle('hidden', !enabled || requiredMode);
         byId('required-assessment-editor').classList.toggle('hidden', !requiredMode);
         byId('start-question-field').classList.toggle('hidden', !enabled || requiredMode);
-        byId('exploration-start-notice').classList.toggle('hidden', enabled);
         byId('legacy-assessment-generator').classList.toggle('hidden', requiredMode);
         byId('evaluation-goal-fields').disabled = !enabled;
         byId('evaluation-goal-fields').classList.toggle('hidden', !enabled);
         byId('assessment-ai-section').classList.toggle('hidden', !enabled);
-        byId('assessment-step-label').textContent = enabled ? '질문·평가기준' : '대화 시작';
-        byId('title-assessment').textContent = enabled ? '3. 질문·평가기준' : '3. 대화 시작';
+        byId('setup-flow').dataset.mode = enabled ? 'evaluation' : 'exploration';
+        byId('check-step-number').textContent = enabled ? '4단계' : '3단계';
+        byId('title-check').textContent = enabled ? '4. 저장·미리보기' : '3. 저장·미리보기';
+        showStepByName(!enabled && currentStepName === 'assessment' ? 'check' : currentStepName);
         byId('start-question').required = false;
         byId('start-question-label').textContent = enabled ? '평가 질문 초안 (선택)' : '학생 시작 질문';
         byId('start-question-help').textContent = enabled
@@ -720,7 +720,8 @@
           ? '평가에 사용할 목표와 기준을 입력해 주세요.'
           : '평가 항목 없이 자료로 대화합니다. 기존 평가 내용은 보관됩니다.';
         if (changed) {
-          setStatus('백워드 평가 설계를 ' + (enabled ? '켰습니다.' : '껐습니다.') + ' 4단계에서 저장한 뒤 준비 상태와 미리보기를 다시 확인해 주세요.');
+          setStatus('백워드 평가 설계를 ' + (enabled ? '켰습니다.' : '껐습니다.') +
+            ' ' + (enabled ? '4단계' : '3단계') + '에서 저장한 뒤 준비 상태와 미리보기를 다시 확인해 주세요.');
         }
         updateReadinessDisplay();
       }
@@ -1143,18 +1144,32 @@
           : '기존 질문계획은 덮어쓰지 않았습니다. 새 평가기준에 맞게 검토한 뒤 다시 승인해 주세요.');
       }
 
+      function visibleSteps() {
+        return byId('activity-mode').value === 'exploration'
+          ? ['design', 'material', 'check'] : steps;
+      }
+
+      function showStepByName(name) {
+        const activeSteps = visibleSteps();
+        const index = activeSteps.indexOf(name);
+        showStep(index >= 0 ? index : activeSteps.indexOf('check'));
+      }
+
       function showStep(index) {
-        currentStep = Math.max(0, Math.min(steps.length - 1, index));
-        steps.forEach(function (step, stepIndex) {
-          byId('panel-' + step).classList.toggle('active', stepIndex === currentStep);
-          document.querySelector('[data-step="' + step + '"]').setAttribute(
-            'aria-current', stepIndex === currentStep ? 'step' : 'false'
-          );
+        const activeSteps = visibleSteps();
+        currentStep = Math.max(0, Math.min(activeSteps.length - 1, index));
+        currentStepName = activeSteps[currentStep];
+        steps.forEach(function (step) {
+          const visible = activeSteps.includes(step);
+          byId('panel-' + step).classList.toggle('active', step === currentStepName);
+          const button = document.querySelector('[data-step="' + step + '"]');
+          button.classList.toggle('hidden', !visible);
+          button.setAttribute('aria-current', step === currentStepName ? 'step' : 'false');
         });
         byId('prev-step').classList.toggle('hidden', currentStep === 0);
-        byId('next-step').classList.toggle('hidden', currentStep === steps.length - 1);
+        byId('next-step').classList.toggle('hidden', currentStep === activeSteps.length - 1);
         byId('save-setup').classList.remove('hidden');
-        if (steps[currentStep] === 'check') updateReadinessDisplay();
+        if (currentStepName === 'check') updateReadinessDisplay();
         document.querySelector('main').scrollTo({ top:0, behavior:'smooth' });
       }
 
@@ -1241,7 +1256,7 @@
         event.preventDefault();
         if (controlsBusy || assessmentGenerating || requiredGenerating) return;
         if (byId('achievement-standard').value.trim().length > 1000) {
-          showStep(steps.indexOf('design'));
+          showStepByName('design');
           byId('evaluation-goal-fields').disabled = false;
           byId('evaluation-goal-fields').classList.toggle('hidden', false);
           setStatus('성취기준 내용을 줄이지 않고 보존했습니다. 코드와 내용 합계 1,000자 이내로 정리한 뒤 저장해 주세요.', true);
@@ -1250,31 +1265,30 @@
         if (!byId('setup-form').checkValidity()) {
           const invalid = byId('setup-form').querySelector(':invalid');
           const panel = invalid && invalid.closest('.panel');
-          const invalidStep = panel ? steps.indexOf(panel.id.replace('panel-', '')) : -1;
-          if (invalidStep >= 0) showStep(invalidStep);
+          if (panel) showStepByName(panel.id.replace('panel-', ''));
           window.setTimeout(function () { byId('setup-form').reportValidity(); }, 0);
           setStatus('입력하지 않은 필수 항목을 확인해 주세요.', true);
           return;
         }
         if (byId('activity-mode').value === 'evaluation' &&
             !byId('lesson-goal').value.trim() && !achievementStandardContent()) {
-          showStep(steps.indexOf('design'));
+          showStepByName('design');
           setStatus('수업 목표 또는 성취기준 중 하나 이상 입력해 주세요.', true);
           return;
         }
         if (requiredAssessmentEnabled() && !requiredAssessmentReady()) {
-          showStep(steps.indexOf('assessment'));
+          showStepByName('assessment');
           setStatus('필수 문항 2개를 확정하고 분석 기준표·대화 진행을 검토·승인한 뒤 저장해 주세요.', true);
           return;
         }
         if (byId('activity-mode').value === 'evaluation' && !requiredAssessmentEnabled() && !assessmentPlan.criteria.length) {
-          showStep(steps.indexOf('assessment'));
+          showStepByName('assessment');
           setStatus('평가모드에서는 평가기준별 질문계획을 하나 이상 추가해 주세요.', true);
           return;
         }
         if (byId('activity-mode').value === 'evaluation' && !requiredAssessmentEnabled() &&
             (!assessmentPlan.approved || assessmentPlanError())) {
-          showStep(steps.indexOf('assessment'));
+          showStepByName('assessment');
           setStatus(assessmentPlanError() || '평가 질문계획을 검토하고 승인해 주세요.', true);
           return;
         }
@@ -1338,7 +1352,7 @@
             renderReadiness(data.readiness || {}, data.studentUrl || '', data.previewUrl || '', data.onboarding);
             setOnboardingStatus(data.message || '연결을 확인하고 웹앱 주소를 저장했습니다.');
             setButtonsDisabled(false);
-            if (data.readiness && data.readiness.runtimeReady) showStep(steps.indexOf('check'));
+            if (data.readiness && data.readiness.runtimeReady) showStepByName('check');
           })
           .withFailureHandler(function (error) {
             setButtonsDisabled(false);
@@ -1483,7 +1497,8 @@
           ? '주소 검사를 통과해야 교사 미리보기와 학생 링크를 사용할 수 있습니다.'
           : !engineVerified ? '웹앱 주소는 확인했습니다. ‘챗봇 연결 확인’을 누른 뒤 미리보기를 진행하세요.'
             : previewEnabled ? '연결 준비가 끝났습니다. 교사 미리보기에서 현재 수업을 점검하세요.'
-              : '연결 준비가 끝났습니다. AI 연결과 수업 설정을 저장한 뒤 4단계에서 미리보기를 여세요.';
+              : '연결 준비가 끝났습니다. AI 연결과 수업 설정을 저장한 뒤 ' +
+                (byId('activity-mode').value === 'exploration' ? '3단계' : '4단계') + '에서 미리보기를 여세요.';
       }
 
       function setOnboardingStatus(message, isError) {
@@ -1647,7 +1662,7 @@
 
       function showPreviewCopyFallback(value) {
         if (!value || value !== previewUrlForCopy()) return;
-        showStep(steps.indexOf('check'));
+        showStepByName('check');
         byId('preview-copy-fallback').classList.toggle('hidden', false);
         byId('preview-copy-fallback').open = true;
         const field = byId('preview-url-fallback');
@@ -1713,7 +1728,7 @@
         google.script.run
           .withSuccessHandler(function (result) {
             fillData(result);
-            showStep(steps.indexOf('design'));
+            showStepByName('design');
             setStatus(result.message || '새 수업으로 복제했습니다.');
             setButtonsDisabled(false);
           })

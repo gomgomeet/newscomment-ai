@@ -31,7 +31,7 @@ registerHooks({
 
 const { createLocalQuestionResult } = await import('../lib/questioning-board.ts');
 const { runQuestioningLocalEngine } = await import('../lib/questioning-engine-core.ts');
-const { createLiteEnginePlan, createLiteQuestioningConfig } = await import('../lib/lite-engine-plan.ts');
+const { createLiteEnginePlan, createLiteQuestioningConfig, finalizeLiteEngineReply } = await import('../lib/lite-engine-plan.ts');
 const { getQuestioningTurnMetadata } = await import('../lib/questioning-conversation-phase.ts');
 const { buildStandardTargets } = await import('../lib/questioning-target-signals.ts');
 
@@ -94,6 +94,159 @@ const paths = {
     return { ...plan.observation, studentReply: plan.fallbackReply };
   },
 };
+
+const titleGreeting = '글을 읽고 궁금한 것을 질문해 주세요! 제목을 보고 어떤 내용인지 생각해 볼까요?';
+const animalLesson = {
+  ...lesson,
+  lessonId: 'LESSON-SYNTHETIC-ANIMAL-OPENING',
+  materialTitle: '야생 동물이 모인 보호소',
+  materialText: '사자가 아침에 물을 마셨습니다. 보호소는 다친 야생 동물을 돌보는 곳입니다. 관람객은 동물을 괴롭히지 않도록 멀리서 지켜봅니다. 관계자는 관람객이 죄책감을 느끼지 않길 바란다고 했습니다. 식당은 다회용 그릇과 일회용 그릇을 구분해 사용합니다.',
+  startQuestion: titleGreeting,
+  sourceHash: 'synthetic-animal-opening-0001',
+};
+const animalConfig = createLiteQuestioningConfig(animalLesson, 'exploration');
+const greetingHistory = [{ role: 'assistant', content: titleGreeting }];
+const animalPaths = {
+  base(studentTurn, conversation = greetingHistory) {
+    return createLocalQuestionResult({
+      studentTurn,
+      conversation,
+      material: animalConfig.material,
+      rubric: animalConfig.rubric,
+      behavior: animalConfig.behavior,
+      curriculumCompass: animalConfig.curriculumCompass,
+      targetGrade: animalConfig.targetGrade,
+    });
+  },
+  shared(studentTurn, conversation = greetingHistory) {
+    return runQuestioningLocalEngine({ config: animalConfig, question: studentTurn, conversation }).result;
+  },
+  lite(studentTurn, conversation = greetingHistory) {
+    const plan = createLiteEnginePlan({
+      ...liteInput(studentTurn, conversation),
+      lesson: animalLesson,
+      supportedOutputContracts: ['conversational_reply_v1', 'grounded_answer_v2', 'lead_evidence_quote_v1'],
+    });
+    return { ...plan.observation, studentReply: plan.fallbackReply, skipModel: plan.skipModel,
+      outputContract: plan.modelRequest.outputContract };
+  },
+};
+
+for (const [engineName, run] of Object.entries(animalPaths)) {
+  test(`${engineName}: first short title guess receives a brief invitation without unrelated source quote`, () => {
+    const result = run('야생 동물에 대한 이야기네요');
+    assert.match(result.studentReply, /예상/);
+    assert.match(result.studentReply, /살펴볼까요\?/);
+    assert.doesNotMatch(result.studentReply, /“야생 동물에 대한 이야기네요”|자료에는|사자가 아침에/);
+    assert.equal((result.studentReply.match(/[?？]/g) || []).length, 1);
+    assert.equal(result.sourceCue, '');
+    if (engineName === 'lite') {
+      assert.equal(result.skipModel, false, 'the personal model can answer this safe conversational turn');
+      assert.equal(result.outputContract, 'conversational_reply_v1');
+    }
+  });
+
+  test(`${engineName}: factual first question still answers from the source`, () => {
+    const result = run('보호소는 무엇을 하는 곳이에요?');
+    assert.match(result.studentReply, /다친 야생 동물/);
+    assert.doesNotMatch(result.studentReply, /제목을 보고 그렇게 예상했군요/);
+  });
+
+  test(`${engineName}: a later topic statement does not re-enter the first-guess path`, () => {
+    const result = run('야생 동물에 대한 이야기네요', [
+      ...greetingHistory,
+      { role: 'student', content: '보호소는 무엇을 하는 곳이에요?' },
+      { role: 'assistant', content: '보호소는 다친 야생 동물을 돌보는 곳입니다.' },
+    ]);
+    assert.doesNotMatch(result.studentReply, /제목을 보고 그렇게 예상했군요/);
+    assert.doesNotMatch(result.studentReply, /사자가 아침에|“야생 동물에 대한 이야기네요”/,
+      'a later statement must not echo the student or quote an unrelated opening sentence');
+  });
+
+  test(`${engineName}: exact bare vocabulary asks about the word, not the first sentence`, () => {
+    const result = run('죄책감?');
+    assert.equal(result.questionType, 'vocabulary');
+    assert.match(result.studentReply, /죄책감/);
+    assert.match(result.studentReply, /잘못/);
+    assert.doesNotMatch(result.studentReply, /사자가 아침에/);
+    if (engineName === 'lite') assert.equal(result.skipModel, true);
+  });
+
+  test(`${engineName}: possible typo asks to clarify without an unrelated quote`, () => {
+    const result = run('최책감?');
+    assert.equal(result.studentReply, '혹시 글에 나온 ‘죄책감’을 물은 건가요?');
+    assert.equal(result.sourceCue, '');
+    assert.doesNotMatch(result.studentReply, /사자가 아침에/);
+    if (engineName === 'lite') assert.equal(result.skipModel, true);
+  });
+
+  test(`${engineName}: ambiguous one-syllable corrections are not guessed`, () => {
+    const result = run('가회용?');
+    assert.match(result.studentReply, /낱말을 찾지 못했어요.*다시 적어 줄래요\?/);
+    assert.doesNotMatch(result.studentReply, /혹시|사자가 아침에/);
+    assert.equal(result.sourceCue, '');
+  });
+
+  test(`${engineName}: any unknown bare word avoids the unrelated first sentence`, () => {
+    const result = run('우주선?');
+    assert.match(result.studentReply, /낱말을 찾지 못했어요/);
+    assert.doesNotMatch(result.studentReply, /우주선/);
+    assert.doesNotMatch(result.studentReply, /사자가 아침에/);
+  });
+}
+
+test('lite: a safe title guess accepts a concise model reply without a fabricated source quote', () => {
+  const input = {
+    ...liteInput('야생 동물에 대한 이야기네요', greetingHistory),
+    lesson: animalLesson,
+    supportedOutputContracts: ['conversational_reply_v1', 'grounded_answer_v2', 'lead_evidence_quote_v1'],
+  };
+  const plan = createLiteEnginePlan(input);
+  assert.equal(plan.modelRequest.outputContract, 'conversational_reply_v1');
+  assert.equal(plan.skipModel, false);
+  const final = finalizeLiteEngineReply({
+    ...input,
+    policyVersion: plan.policyVersion,
+    planDigest: plan.planDigest,
+    candidateReply: '그렇게 예상했군요. 글을 읽으며 확인해 봐요.',
+    candidateEvidenceQuote: '',
+  });
+  assert.equal(final.localFallback, false);
+  assert.equal(final.studentReply, '그렇게 예상했군요. 글을 읽으며 확인해 봐요.');
+  assert.equal(final.observation.sourceCue, '');
+});
+
+test('lite: source-free conversation rejects invented quantities and falls back safely', () => {
+  const input = {
+    ...liteInput('야생 동물에 대한 이야기네요', greetingHistory),
+    lesson: animalLesson,
+    supportedOutputContracts: ['conversational_reply_v1', 'grounded_answer_v2', 'lead_evidence_quote_v1'],
+  };
+  const plan = createLiteEnginePlan(input);
+  const final = finalizeLiteEngineReply({
+    ...input,
+    policyVersion: plan.policyVersion,
+    planDigest: plan.planDigest,
+    candidateReply: '이 보호소에는 코끼리 47마리가 살고 있어요.',
+    candidateEvidenceQuote: '',
+  });
+  assert.equal(final.localFallback, true);
+  assert.doesNotMatch(final.studentReply, /47마리|사자가 아침에/);
+});
+
+test('lite: evaluation preflight understanding uses the same natural conversation path before assessment starts', () => {
+  const input = {
+    ...liteInput('야생 동물에 대한 이야기네요', greetingHistory),
+    understanding: true,
+    lesson: animalLesson,
+    supportedOutputContracts: ['conversational_reply_v1', 'grounded_answer_v2', 'lead_evidence_quote_v1'],
+  };
+  const plan = createLiteEnginePlan(input);
+  assert.equal(plan.modelRequest.outputContract, 'conversational_reply_v1');
+  assert.equal(plan.skipModel, false);
+  assert.equal(plan.observation.understanding, true);
+  assert.equal(plan.observation.responseScore, null);
+});
 
 const inventedStudentFeelings = /네 생각이나 느낌|네 걱정|라고 느끼는|중요하게 본 기준/;
 const summaryPrompt = [{ role: 'assistant', content: '글에서 가장 중요한 사실 한 가지를 찾아 자기 말로 말해 줄래요?' }];

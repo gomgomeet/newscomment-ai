@@ -380,10 +380,48 @@ assert.equal(readinessItem(newLessonUi, '개인 API 연결 확인').dataset.stat
 assert.equal(readinessItem(newLessonUi, '기존 챗봇 연결 확인').dataset.state, 'pass');
 
 const ui = createUi(settings);
+const flowButton = (testUi, step) => testUi.byId('setup-flow').children.find((child) => child.dataset.step === step);
 assert.equal(ui.byId('backward-design-enabled').classList.contains('hidden'), true);
 assert.equal(ui.byId('api-settings').open, false, 'Verified AI settings stay collapsed');
 assert.equal(ui.byId('panel-design').classList.contains('active'), true, 'Compact setup opens on lesson settings');
 assert.equal((html.match(/<button[^>]+data-step="/g) || []).length, 4, 'Keep the goal → material → assessment → save sequence');
+assert.equal(flowButton(ui, 'assessment').classList.contains('hidden'), false, 'Evaluation keeps assessment design visible');
+assert.equal(ui.byId('check-step-number').textContent, '4단계');
+assert.equal(ui.byId('title-check').textContent, '4. 저장·미리보기');
+const explorationWizard = createUi({ ...settings, activityMode:'exploration' });
+assert.equal(explorationWizard.byId('setup-flow').dataset.mode, 'exploration');
+assert.equal(flowButton(explorationWizard, 'assessment').classList.contains('hidden'), true,
+  'A fixed opening must not occupy a separate exploration step');
+assert.equal(flowButton(explorationWizard, 'assessment').getAttribute('aria-current'), 'false');
+assert.equal(explorationWizard.byId('check-step-number').textContent, '3단계');
+assert.equal(explorationWizard.byId('title-check').textContent, '3. 저장·미리보기');
+explorationWizard.click('next-step');
+assert.equal(explorationWizard.byId('panel-material').classList.contains('active'), true);
+explorationWizard.click('next-step');
+assert.equal(explorationWizard.byId('panel-check').classList.contains('active'), true,
+  'Exploration advances directly from material to save and preview');
+assert.equal(explorationWizard.byId('panel-assessment').classList.contains('active'), false);
+assert.equal(explorationWizard.byId('next-step').classList.contains('hidden'), true);
+explorationWizard.click('prev-step');
+assert.equal(explorationWizard.byId('panel-material').classList.contains('active'), true);
+explorationWizard.click('next-step');
+explorationWizard.switchTo(true);
+assert.equal(explorationWizard.byId('panel-check').classList.contains('active'), true,
+  'Switching back to evaluation preserves the current save panel');
+assert.equal(flowButton(explorationWizard, 'assessment').classList.contains('hidden'), false);
+assert.equal(explorationWizard.byId('check-step-number').textContent, '4단계');
+explorationWizard.click('prev-step');
+assert.equal(explorationWizard.byId('panel-assessment').classList.contains('active'), true);
+explorationWizard.switchTo(false);
+assert.equal(explorationWizard.byId('panel-check').classList.contains('active'), true,
+  'Turning evaluation off while on assessment lands on the visible save panel');
+assert.equal(explorationWizard.byId('panel-assessment').classList.contains('active'), false);
+assert.equal(explorationWizard.byId('next-step').classList.contains('hidden'), true);
+explorationWizard.edit('material-text', '');
+explorationWizard.submit();
+assert.equal(explorationWizard.byId('panel-material').classList.contains('active'), true,
+  'Exploration validation still navigates to the first invalid visible panel');
+assert.equal(explorationWizard.requests.length, 0);
 assert.equal(html.includes('1차시에서 학생으로 체험한'), false, 'Do not restore the removed training banner');
 assert.equal(ui.byId('setup-form').noValidate, true, 'Custom validation must be able to reveal hidden wizard panels');
 assert.equal(ui.byId('lesson-goal').closest('.panel').id, 'panel-design');
@@ -939,8 +977,9 @@ combinedReopened.selectMode('exploration');
 assert.equal(combinedReopened.byId('assessment-ai-section').classList.contains('hidden'), true);
 assert.equal(combinedReopened.byId('start-question-field').classList.contains('hidden'), true, 'Exploration does not offer an unused opening editor');
 assert.equal(combinedReopened.byId('start-question').required, false, 'A fixed opening needs no teacher input');
-assert.equal(combinedReopened.byId('exploration-start-notice').classList.contains('hidden'), false);
-assert.match(combinedReopened.byId('exploration-start-notice').textContent, /글을 읽고 궁금한 것을 질문해 주세요! 제목을 보고 어떤 내용인지 생각해 볼까요\?/);
+assert.equal(flowButton(combinedReopened, 'assessment').classList.contains('hidden'), true,
+  'Exploration has no separate read-only opening panel');
+assert.equal(combinedReopened.byId('title-check').textContent, '3. 저장·미리보기');
 assert.equal(combinedReopened.byId('expected-answer').effectivelyDisabled(), true, 'Teacher assessment helpers do not apply in exploration');
 assert.equal(combinedReopened.byId('answer-examples').effectivelyDisabled(), true, 'Teacher-only examples do not apply in exploration');
 combinedReopened.submit();

@@ -311,6 +311,12 @@ const groundedPlan = {
   modelRequest:{ ...safePlan.modelRequest, outputContract:'grounded_answer_v2', maxOutputTokens:700 }
 };
 assert.equal(context.validateLiteEnginePlan_(groundedPlan, groundedPlan.requestId), groundedPlan);
+const conversationalPlan = {
+  ...safePlan,
+  enforcement:{ managedQuestion:'', maximumQuestionCount:0 },
+  modelRequest:{ ...safePlan.modelRequest, outputContract:'conversational_reply_v1', maxOutputTokens:300 }
+};
+assert.equal(context.validateLiteEnginePlan_(conversationalPlan, conversationalPlan.requestId), conversationalPlan);
 assert.throws(
   () => context.validateLiteEnginePlan_({
     ...safePlan, modelRequest:{ ...safePlan.modelRequest, outputContract:'unrecognized_contract' }
@@ -320,7 +326,7 @@ assert.throws(
 assert.deepEqual(
   Array.from(context.buildLiteEnginePayload_({ requestId:'req_contracts', message:'질문' }, valid, [])
     .supportedOutputContracts),
-  ['grounded_answer_v2', 'lead_evidence_quote_v1']
+  ['conversational_reply_v1', 'grounded_answer_v2', 'lead_evidence_quote_v1']
 );
 {
   const previousFetch = context.UrlFetchApp;
@@ -363,6 +369,12 @@ assert.deepEqual(
     assert.equal(modelPayload.text.format.schema.additionalProperties, false);
     assert.equal(modelPayload.max_output_tokens, 700);
     assert.equal(modelPayload.store, false);
+    modelOutput = { reply:'그렇게 예상했군요. 글을 읽으며 확인해 봐요.', evidenceQuote:'' };
+    const conversationalResult = context.callLiteOpenAI_(conversationalPlan, conversationalPlan.requestId);
+    assert.equal(conversationalResult.text, modelOutput.reply);
+    assert.equal(conversationalResult.evidenceQuote, '');
+    assert.deepEqual(modelPayload.text.format.schema.required, ['reply', 'evidenceQuote']);
+    modelOutput = { answer:directAnswer, evidenceQuote };
     for (const [limit, expected] of [[1, 200], [5000, 1000]]) {
       context.callLiteOpenAI_({
         ...groundedPlan, modelRequest:{ ...groundedPlan.modelRequest, maxOutputTokens:limit }
@@ -1540,7 +1552,8 @@ assert.equal(properties.has(context.litePendingResultKey_(candidatePayload.reque
       const transported = JSON.parse(options.payload);
       assert.equal(transported.candidateReply, answer, '복구된 답변 전체가 최종 확인으로 전달되어야 한다');
       assert.equal(transported.candidateEvidenceQuote, quote);
-      assert.deepEqual(transported.supportedOutputContracts, ['grounded_answer_v2', 'lead_evidence_quote_v1']);
+      assert.deepEqual(transported.supportedOutputContracts,
+        ['conversational_reply_v1', 'grounded_answer_v2', 'lead_evidence_quote_v1']);
       return {
         getResponseCode:() => 200,
         getContentText:() => JSON.stringify({
