@@ -2124,6 +2124,9 @@ assert.ok(/const dirty = hasUnsavedSetupChanges\(\)/.test(teacherHtml),
 assert.ok(/copy-student-url'\)\.disabled = controlsBusy \|\| dirty \|\| !planReady \|\| !deploymentIsVerified\(\) \|\| !\(studentUrl && report\.distributionReady\)/.test(teacherHtml),
   'Student link copying requires saved settings, a verified deployment, no active operation, and server distribution readiness');
 assert.match(teacherHtml, /id="test-engine"/);
+assert.match(teacherHtml, /engineCheckButton\.classList\.remove\('hidden'\)/);
+assert.match(teacherHtml, /engineCheckButton\.textContent = engineVerified \? '챗봇 다시 연결 확인' : '챗봇 연결 확인'/);
+assert.doesNotMatch(teacherHtml, /byId\('test-engine'\)\.classList\.toggle\('hidden', engineVerified\)/);
 assert.match(teacherHtml, /id="copy-student-url"/);
 assert.match(teacherHtml, /id="toggle-lesson"/);
 assert.match(teacherHtml, /id="duplicate-lesson"/);

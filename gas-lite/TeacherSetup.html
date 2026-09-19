@@ -1491,7 +1491,9 @@
           editor.removeAttribute('href');
           editor.setAttribute('aria-disabled', 'true');
         }
-        byId('test-engine').classList.toggle('hidden', engineVerified);
+        const engineCheckButton = byId('test-engine');
+        engineCheckButton.classList.remove('hidden');
+        engineCheckButton.textContent = engineVerified ? '챗봇 다시 연결 확인' : '챗봇 연결 확인';
         const previewEnabled = byId('onboarding-open-preview').getAttribute('aria-disabled') === 'false';
         byId('onboarding-preview-help').textContent = !verified
           ? '주소 검사를 통과해야 교사 미리보기와 학생 링크를 사용할 수 있습니다.'
