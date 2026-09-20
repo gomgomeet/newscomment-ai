@@ -2226,18 +2226,25 @@ function asksContextualMeaning(studentTurn: string, conversation: QuestioningCon
   return gaveDictionaryOnly && mentionsMaterial;
 }
 
+export function resolveLessonVocabularyTerm(
+  studentTurn: string,
+  material: MaterialAnalysis,
+  conversation: QuestioningConversationEntry[] = [],
+) {
+  if (asksContextualMeaning(studentTurn, conversation)) {
+    const lastAssistant = [...conversation].reverse().find((entry) => entry.role === "assistant")?.content || "";
+    const previousTerm = /‘([^’]{1,20})’/.exec(lastAssistant)?.[1] || "";
+    if (previousTerm) return previousTerm;
+  }
+  return extractRequestedVocabularyTerm(studentTurn, material);
+}
+
 function createVocabularyLocalTurn(
   studentTurn: string,
   material: MaterialAnalysis,
   conversation: QuestioningConversationEntry[] = [],
 ): NaturalLocalTurn {
-  const wantsContextFollowUp = asksContextualMeaning(studentTurn, conversation);
-  let term = "";
-  if (wantsContextFollowUp) {
-    const lastAssistant = [...conversation].reverse().find((entry) => entry.role === "assistant")?.content || "";
-    term = /‘([^’]{1,20})’/.exec(lastAssistant)?.[1] || "";
-  }
-  if (!term) term = extractRequestedVocabularyTerm(studentTurn, material);
+  const term = resolveLessonVocabularyTerm(studentTurn, material, conversation);
   if (!term) {
     return {
       reply: "뜻을 알고 싶은 낱말을 따옴표로 표시해 주세요. 예를 들면 ‘공회전’이 무슨 뜻이에요처럼 쓰면 그 문장에 맞춰 설명할게요.",
