@@ -808,7 +808,9 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
           ? [`[자료 제목] ${lesson.materialTitle}`]
           : [`[관련 자료 근거] ${source.slice(0, 2_500)}`]),
         `[최근 대화]\n${historyForPrompt(input.history, generalKnowledgeExtension ? lesson.materialText : "")}`,
-        `[학생 말] ${input.studentMessage}`,
+        `[학생 말] ${generalKnowledgeExtension
+          ? questionAfterPastedSourcePrefix(input.studentMessage, lesson.materialText)
+          : input.studentMessage}`,
       ].join("\n\n"),
     },
     enforcement: {

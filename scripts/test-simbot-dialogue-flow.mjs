@@ -340,6 +340,15 @@ test('a passage-related wider-world question uses the existing model without web
     'a wider-world request sends no lesson body to the conversational model');
   assert.doesNotMatch(plan.modelRequest.input, /보호소는 다친 야생 동물을 돌보는 곳입니다/,
     'copied lesson text in recent student turns is redacted from wider-world model input');
+  const pastedQuestionPlan = createLiteEnginePlan({
+    ...liteInput(`${excerpt} ${question}`, greetingHistory),
+    activityMode: 'questioning',
+    lesson: animalLesson,
+    supportedOutputContracts: ['conversational_reply_v1', 'grounded_answer_v2', 'lead_evidence_quote_v1'],
+  });
+  assert.equal(pastedQuestionPlan.modelRequest.outputContract, 'conversational_reply_v1');
+  assert.doesNotMatch(pastedQuestionPlan.modelRequest.input, /보호소는 다친 야생 동물을 돌보는 곳입니다/,
+    'copied lesson text in the current question is redacted from wider-world model input');
   const finalized = finalizeLiteEngineReply({
     ...liteInput(question, priorTurns),
     activityMode: 'questioning',
