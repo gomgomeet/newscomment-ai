@@ -112,6 +112,22 @@ test('exploration accepts blank or omitted design fields through plan and finali
   assert.equal(createLiteEnginePlan(omitted).planDigest, plan.planDigest);
 });
 
+test('lite-engine sends the named lion rescue context to the model for a why question', () => {
+  const input = withoutDesign(makeInput('exploration'));
+  input.studentMessage = '바람이는 왜 청주동물원으로 옮겨 왔나요?';
+  input.supportedOutputContracts = ['grounded_answer_v2'];
+  input.lesson.materialText = [
+    '바람이는 좁은 실내동물원에서 살았다. 어느새 바람이는 갈비뼈가 드러날 정도로 비쩍 말랐고 시민들이 그 모습을 알렸다. 청주동물원은 바람이를 데려오겠다고 먼저 제안했다.',
+    '청주동물원은 코끼리나 기린을 들여오지 않는다. 이 때문에 청주동물원엔 저마다 아픔을 지닌 동물이 모여든다.',
+  ].join('\n\n');
+  const plan = createLiteEnginePlan(input);
+  assert.match(plan.observation.sourceCue, /비쩍 말랐/);
+  assert.match(plan.observation.sourceCue, /청주동물원은 바람이를 데려오겠다고 먼저 제안/);
+  assert.match(plan.modelRequest.input, /비쩍 말랐/);
+  assert.match(plan.modelRequest.input, /청주동물원은 바람이를 데려오겠다고 먼저 제안/);
+  assert.doesNotMatch(plan.modelRequest.input, /\[관련 자료 근거\] 이 때문에 청주동물원엔/);
+});
+
 test('evaluation requires either goal or standard and each remaining design field', () => {
   for (const [field, label] of designFields.slice(2)) {
     const input = makeInput();

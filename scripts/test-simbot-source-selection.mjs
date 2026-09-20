@@ -48,6 +48,27 @@ function ask(text, question) {
 
 const food = '이 자료는 기존 웹 챗봇의 동작 점검용 예시입니다.\n\n푸른초등학교는 급식 잔반을 줄이기 위해 학생들이 반찬 양을 스스로 고르는 선택제와 잔반 게시판을 운영했다. 예전에는 하루에 큰 통 세 통이 넘는 잔반이 나왔고, 처리 비용도 적지 않았다. 학교는 반찬을 받을 때 조금, 보통, 많이 가운데 먹을 양을 고르게 하고, 학급별 잔반 무게를 게시판에 붙였다. 그 결과 하루 세 통이 넘던 잔반이 한 통 반으로 줄었고, 학생들은 먹을 만큼만 받으면 다 먹기 쉽다는 점을 알게 되었다. 학교는 음식 낭비가 줄어든 만큼 아낀 돈으로 과일 후식을 늘릴 계획이며, 전문가는 잔반 줄이기가 학교와 지구를 함께 지키는 실천이라고 설명했다.';
 
+test('a named animal transfer question retrieves the rescue context instead of a generic zoo sentence', () => {
+  const text = [
+    '‘바람이’는 지난 7월 5일 충북 청주시 청주랜드동물원으로 보금자리를 옮겼다. 이전까지는 경남 김해의 한 실내동물원에서 7년을 살았다. ‘바람이’에게 주어진 건 가로 14m, 세로 6m의 바람 한 점 통하지 않는 좁은 방뿐이었다. 유리창 너머 관람객에게 그 모습을 보여주는 것이 이 늙은 사자의 존재 이유였다. 어느새 ‘바람이’는 갈비뼈가 다 드러날 정도로 비쩍 말랐고 그 모습은 몇몇 시민에 의해 세간에 알려지기 시작했다. 청주동물원은 ‘바람이’를 데려오겠다고 먼저 제안했다.',
+    '청주동물원에서는 여러 사유로 갈 곳을 잃은 야생동물을 보호한다.',
+    '청주동물원은 코끼리나 기린 같은 대형 외래종을 들여오지 않는다. 이 때문에 청주동물원엔 저마다 아픔을 지닌 동물이 모여든다.',
+  ].join('\n\n');
+  const result = ask(text, '바람이는 왜 청주동물원으로 옮겨 왔나요?');
+  assert.match(result.sourceCue, /좁은 방|비쩍 말랐/);
+  assert.match(result.sourceCue, /비쩍 말랐/);
+  assert.match(result.sourceCue, /청주동물원은 ‘바람이’를 데려오겠다고 먼저 제안/);
+  assert.doesNotMatch(result.sourceCue, /^이 때문에 청주동물원엔/);
+  assert.doesNotMatch(result.studentReply, /이유가 나오지 않|확인하기 어렵/);
+});
+
+test('a named animal does not inherit another animal’s transfer reason', () => {
+  const text = '바람이는 청주동물원으로 옮겨 왔다. 먹보는 다쳐서 보호시설로 옮겨졌다. 청주동물원에는 여러 동물이 있다.';
+  const result = ask(text, '바람이는 왜 청주동물원으로 옮겨 왔나요?');
+  assert.doesNotMatch(result.studentReply, /바람이.*다쳐|먹보.*다쳐서.*바람이/);
+  assert.doesNotMatch(result.sourceCue, /먹보는 다쳐서/);
+});
+
 test('why selects the relevant mechanism rather than an unrelated reported explanation', () => {
   const result = ask(food, '선택제를 하면 잔반을 줄이는데 왜 도움이 될까?');
   assert.match(result.studentReply, /먹을 만큼만 받으면 다 먹기 쉽다/);
