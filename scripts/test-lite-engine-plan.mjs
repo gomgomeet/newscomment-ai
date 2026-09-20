@@ -128,6 +128,78 @@ test('lite-engine sends the named lion rescue context to the model for a why que
   assert.doesNotMatch(plan.modelRequest.input, /\[관련 자료 근거\] 이 때문에 청주동물원엔/);
 });
 
+test('a why answer cannot use the final rescue offer alone as its cause and evidence', () => {
+  const input = withoutDesign(makeInput('exploration'));
+  input.studentMessage = '바람이는 왜 청주동물원으로 옮겨 왔나요?';
+  input.supportedOutputContracts = ['grounded_answer_v2'];
+  input.lesson.materialText = [
+    '바람이는 좁고 바람 한 점 통하지 않는 실내동물원에서 살았다. 어느새 바람이는 갈비뼈가 드러날 정도로 비쩍 말랐고 그 모습이 시민에게 알려졌다. 청주동물원은 바람이를 데려오겠다고 먼저 제안했다.',
+    '청주동물원은 코끼리나 기린을 들여오지 않는다. 이 때문에 청주동물원엔 저마다 아픔을 지닌 동물이 모여든다.',
+  ].join('\n\n');
+  const plan = createLiteEnginePlan(input);
+  assert.match(plan.modelRequest.instructions, /앞선 상황과 뒤따른 결정/);
+  assert.equal(plan.skipModel, false);
+  const shallow = finalizeLiteEngineReply({
+    ...input,
+    candidateReply: '청주동물원이 바람이를 데려오겠다고 먼저 제안했기 때문으로 볼 수 있습니다.',
+    candidateEvidenceQuote: '청주동물원은 바람이를 데려오겠다고 먼저 제안했다.',
+    policyVersion: plan.policyVersion,
+    planDigest: plan.planDigest,
+  });
+  assert.equal(shallow.localFallback, true);
+  assert.match(shallow.studentReply, /좁고 바람 한 점 통하지 않는 실내동물원/);
+  assert.match(shallow.studentReply, /비쩍 말랐고 그 모습이 시민에게 알려졌다/);
+  assert.match(shallow.studentReply, /청주동물원은 바람이를 데려오겠다고 먼저 제안했다/);
+  assert.doesNotMatch(shallow.studentReply, /청주동물원이.*제안했기 때문/);
+  assert.match(shallow.observation.sourceCue, /비쩍 말랐고/);
+
+  const fullQuoteButCircular = finalizeLiteEngineReply({
+    ...input,
+    candidateReply: '청주동물원이 데려오겠다고 제안했기 때문입니다.',
+    candidateEvidenceQuote: plan.observation.sourceCue,
+    policyVersion: plan.policyVersion,
+    planDigest: plan.planDigest,
+  });
+  assert.equal(fullQuoteButCircular.localFallback, true);
+  assert.match(fullQuoteButCircular.studentReply, /비쩍 말랐고/);
+
+  const grounded = finalizeLiteEngineReply({
+    ...input,
+    candidateReply: '바람이가 좁은 곳에서 지내며 비쩍 말랐고 그 모습이 시민에게 알려진 뒤, 청주동물원이 데려오겠다고 먼저 제안했습니다.',
+    candidateEvidenceQuote: plan.observation.sourceCue,
+    policyVersion: plan.policyVersion,
+    planDigest: plan.planDigest,
+  });
+  assert.equal(grounded.localFallback, false);
+  assert.match(grounded.studentReply, /비쩍 말랐고/);
+  assert.match(grounded.observation.sourceCue, /비쩍 말랐고/);
+});
+
+test('the actual lion article paragraph supplies the preceding plight and zoo decision', () => {
+  const input = withoutDesign(makeInput('exploration'));
+  input.studentMessage = '바람이는 왜 청주동물원으로 옮겨 왔나요?';
+  input.supportedOutputContracts = ['grounded_answer_v2'];
+  input.lesson.materialText = [
+    '‘바람이’는 지난 7월 5일 충북 청주시 청주랜드동물원으로 보금자리를 옮겼다. 이전까지는 경남 김해의 한 실내동물원에서 7년을 살았다. ‘바람이’에게 주어진 건 가로 14m, 세로 6m의 바람 한 점 통하지 않는 좁은 방뿐이었다. 유리창 너머 관람객에게 그 모습을 보여주는 것이 이 늙은 사자의 존재 이유였다. 어느새 ‘바람이’는 갈비뼈가 다 드러날 정도로 비쩍 말랐고 그 모습은 몇몇 시민에 의해 세간에 알려지기 시작했다. 청주동물원은 ‘바람이’를 데려오겠다고 먼저 제안했다.',
+    '청주동물원은 코끼리나 기린을 들여오지 않는다. 이 때문에 청주동물원엔 저마다 아픔을 지닌 동물이 모여든다.',
+  ].join('\n\n');
+  const plan = createLiteEnginePlan(input);
+  assert.equal(plan.skipModel, false);
+  assert.match(plan.observation.sourceCue, /비쩍 말랐고/);
+  assert.match(plan.observation.sourceCue, /청주동물원은 ‘바람이’를 데려오겠다고 먼저 제안/);
+  const shallow = finalizeLiteEngineReply({
+    ...input,
+    candidateReply: '청주동물원이 바람이를 데려오겠다고 먼저 제안했기 때문입니다.',
+    candidateEvidenceQuote: '청주동물원은 ‘바람이’를 데려오겠다고 먼저 제안했다.',
+    policyVersion: plan.policyVersion,
+    planDigest: plan.planDigest,
+  });
+  assert.equal(shallow.localFallback, true);
+  assert.match(shallow.studentReply, /비쩍 말랐고/);
+  assert.match(shallow.studentReply, /먼저 제안했다/);
+  assert.doesNotMatch(shallow.studentReply, /제안했기 때문/);
+});
+
 test('evaluation requires either goal or standard and each remaining design field', () => {
   for (const [field, label] of designFields.slice(2)) {
     const input = makeInput();
