@@ -88,6 +88,8 @@ assert.equal(context.isLiteQuestioningRequest_('안녕하세요. 반가워요?')
 assert.equal(context.isLiteQuestioningRequest_('안녕하세요! 오늘 좀 긴장돼요?'), false);
 assert.equal(context.isLiteQuestioningRequest_('고마워요 선생님'), false);
 assert.equal(context.isLiteQuestioningRequest_('안녕하세요? 글의 주인공은 누구인가요?'), true);
+assert.equal(context.isLiteQuestioningRequest_('비슷한 동물원이 우리나라에 더 있는지 알고 싶어.'), true,
+  'an information request phrased as a wish still counts as a student question');
 const spreadsheet = new SpreadsheetMock();
 for (const name of ['질문과 답변', '학생별 현황']) {
   context.ensureLiteSheet_(spreadsheet, name, headers[name]);
@@ -287,4 +289,11 @@ const mixed = context.appendLiteTurnPair_(
 );
 assert.equal(mixed.questionCounts.fact, 1, 'content mixed with greeting remains a real question');
 assert.equal(context.liteRowsAsObjects_(socialSheet.getSheetByName('학생 질문 분석')).length, 1);
+const copiedPassage = context.appendLiteTurnPair_(
+  socialTurn('동물들이 더 편안하게 살 수 있을까요?', 'quoted-passage-0001'), result('fact', {
+    text:'이 부분에서 어떤 부분이 궁금한가요?', questionCategory:'fact', relatedQuestion:false
+  }), {spreadsheet:socialSheet, workbookReady:true}
+);
+assert.equal(copiedPassage.questionCounts.fact, 1,
+  'a copied passage ending in a question mark must not inflate the student question count');
 console.log('questioning Sheet counts, review rows, retries, exclusions and teacher edits: pass');

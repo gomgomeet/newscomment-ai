@@ -216,6 +216,44 @@ const animalPaths = {
 };
 
 for (const [engineName, run] of Object.entries(animalPaths)) {
+  test(`${engineName}: a copied passage asks what the student wants to know`, () => {
+    const excerpt = '보호소는 다친 야생 동물을 돌보는 곳입니다. 관람객은 동물을 괴롭히지 않도록 멀리서 지켜봅니다.';
+    const result = run(excerpt);
+    assert.equal(result.studentReply, '이 부분에서 어떤 부분이 궁금한가요?');
+    assert.equal(result.sourceCue, '');
+    if (engineName === 'lite') {
+      assert.equal(result.skipModel, true);
+      assert.equal(result.relatedQuestion, false);
+      assert.equal(result.responseScore, null);
+      assert.equal(result.questionCategory, '');
+    }
+  });
+
+  test(`${engineName}: a question added after a passage excerpt stays a question`, () => {
+    const excerpt = '보호소는 다친 야생 동물을 돌보는 곳입니다. 관람객은 동물을 괴롭히지 않도록 멀리서 지켜봅니다.';
+    const result = run(`${excerpt} 보호소는 무엇을 하는 곳이에요?`);
+    assert.notEqual(result.studentReply, '이 부분에서 어떤 부분이 궁금한가요?');
+    assert.match(result.studentReply, /다친 야생 동물|돌보는 곳/);
+  });
+
+  test(`${engineName}: a student opinion receives empathy rather than a topic label`, () => {
+    const opinion = '동물들이 편안하게 지낼 수 있도록 환경을 바꾼 점이 참 대단하다.';
+    const result = run(opinion);
+    assert.match(result.studentReply, /인상적|마음에 남/);
+    assert.doesNotMatch(result.studentReply, /주목했군요|설명을 더 붙이지|그대로 두어도/);
+    if (engineName === 'lite') assert.equal(result.skipModel, true);
+  });
+
+  test(`${engineName}: another opinion does not trigger a meta reply about repetition`, () => {
+    const result = run('동물들이 동물을 보호하는 환경으로 바뀌어 너무 좋다.', [
+      ...greetingHistory,
+      { role: 'student', content: '동물들이 편안하게 지낼 수 있도록 환경을 바꾼 점이 참 대단하다.' },
+      { role: 'assistant', content: '동물들이 더 잘 지낼 수 있도록 애쓴 점이 인상적이었군요.' },
+    ]);
+    assert.match(result.studentReply, /반가웠|마음에 남/);
+    assert.doesNotMatch(result.studentReply, /이번에는 설명을 더 붙이지|주목했군요/);
+  });
+
   test(`${engineName}: first short title guess receives a brief invitation without unrelated source quote`, () => {
     const result = run('야생 동물에 대한 이야기네요');
     assert.match(result.studentReply, /예상/);
@@ -277,6 +315,66 @@ for (const [engineName, run] of Object.entries(animalPaths)) {
     assert.doesNotMatch(result.studentReply, /사자가 아침에/);
   });
 }
+
+test('a passage-related wider-world question uses the existing model without web search', () => {
+  const question = '야생 동물 보호소와 비슷한 곳이 우리나라에 더 있는지 알고 싶어.';
+  const excerpt = '보호소는 다친 야생 동물을 돌보는 곳입니다. 관람객은 동물을 괴롭히지 않도록 멀리서 지켜봅니다.';
+  const priorTurns = [
+    ...greetingHistory,
+    { role: 'student', content: excerpt },
+    { role: 'assistant', content: '이 부분에서 어떤 부분이 궁금한가요?' },
+  ];
+  const plan = createLiteEnginePlan({
+    ...liteInput(question, priorTurns),
+    activityMode: 'questioning',
+    lesson: animalLesson,
+    supportedOutputContracts: ['conversational_reply_v1', 'grounded_answer_v2', 'lead_evidence_quote_v1'],
+  });
+  assert.equal(plan.observation.questionType, 'extension');
+  assert.equal(plan.observation.questionCategory, 'inquiry');
+  assert.equal(plan.observation.relatedQuestion, true);
+  assert.equal(plan.skipModel, false);
+  assert.equal(plan.modelRequest.outputContract, 'conversational_reply_v1');
+  assert.match(plan.modelRequest.instructions, /실시간 웹 검색을 하지 않았습니다/);
+  assert.doesNotMatch(plan.modelRequest.input, /관람객은 동물을 괴롭히지 않도록/,
+    'a wider-world request sends no lesson body to the conversational model');
+  assert.doesNotMatch(plan.modelRequest.input, /보호소는 다친 야생 동물을 돌보는 곳입니다/,
+    'copied lesson text in recent student turns is redacted from wider-world model input');
+  const finalized = finalizeLiteEngineReply({
+    ...liteInput(question, priorTurns),
+    activityMode: 'questioning',
+    lesson: animalLesson,
+    supportedOutputContracts: ['conversational_reply_v1', 'grounded_answer_v2', 'lead_evidence_quote_v1'],
+    policyVersion: plan.policyVersion,
+    planDigest: plan.planDigest,
+    candidateReply: '서울대공원도 야생 동물 보호와 관련된 일을 해요. 다만 최신 운영 내용은 별도로 확인해야 해요.',
+    candidateEvidenceQuote: '',
+  });
+  assert.equal(finalized.localFallback, false);
+  assert.equal(finalized.observation.sourceStatus, 'source_insufficient');
+  assert.deepEqual(finalized.observation.evidenceIds, []);
+});
+
+test('question categories label only the student question after a copied passage', () => {
+  const sourceQuestion = '동물은 왜 숨어 있을까요?';
+  const sourceStatement = '보호소는 다친 야생 동물을 돌보는 곳입니다.';
+  const copiedLesson = {
+    ...animalLesson,
+    materialText: `${sourceQuestion} ${sourceStatement}`,
+  };
+  const quotedOnly = createLiteEnginePlan({
+    ...liteInput(`${sourceQuestion} ${sourceStatement}`, greetingHistory),
+    activityMode: 'questioning',
+    lesson: copiedLesson,
+  });
+  assert.equal(quotedOnly.observation.questionCategory, '');
+  const followedByFact = createLiteEnginePlan({
+    ...liteInput(`${sourceQuestion} ${sourceStatement} 보호소는 어디에 있어요?`, greetingHistory),
+    activityMode: 'questioning',
+    lesson: copiedLesson,
+  });
+  assert.equal(followedByFact.observation.questionCategory, 'fact');
+});
 
 // A tiny invented passage exercises the vocabulary route without copying a real article.
 // The meanings themselves are intentionally absent: the bot must use its verified glossary,

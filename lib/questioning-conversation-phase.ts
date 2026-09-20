@@ -65,6 +65,12 @@ function passageText(material: MaterialAnalysis) {
   return material.visibleText.trim() || material.summary.trim();
 }
 
+function isPastedSourceExcerpt(value: string, sourceText: string) {
+  const compact = (text: string) => text.replace(/\s+/g, "").trim();
+  const excerpt = compact(value);
+  return excerpt.length >= 30 && compact(sourceText).includes(excerpt);
+}
+
 function normalizeContentWord(word: string) {
   const normalized = word.toLowerCase();
   if (!/[가-힣]/.test(normalized)) return normalized;
@@ -90,6 +96,7 @@ function isStudentQuestion(text: string) {
   const trimmed = text.trim();
   if (!trimmed) return false;
   if (/[?？]$/.test(trimmed) || QUESTION_REQUEST_END.test(trimmed)) return true;
+  if (/알고\s*싶어(?:요)?\s*[.!]?$/.test(trimmed)) return true;
   if (NON_QUESTION_STATE.test(trimmed)) return false;
   return QUESTION_WORD.test(trimmed) && /(됐어요|돼요|해요|예요|인가요|있나요|없나요)[.!]?$/.test(trimmed);
 }
@@ -110,7 +117,8 @@ function hasLessonWord(text: string, material: MaterialAnalysis) {
 }
 
 function isCountableStudentQuestion(text: string, material: MaterialAnalysis) {
-  if (classifyStudentSmalltalk(text) || isQuestioningHintRequest(text) || !isStudentQuestion(text) || BLOCKED_REQUEST.test(text)) return false;
+  if (classifyStudentSmalltalk(text) || isQuestioningHintRequest(text) ||
+      isPastedSourceExcerpt(text, material.visibleText) || !isStudentQuestion(text) || BLOCKED_REQUEST.test(text)) return false;
   return !OBVIOUS_OFF_TOPIC.test(text) || hasLessonWord(text, material);
 }
 
@@ -479,7 +487,7 @@ export function getQuestioningTurnMetadata({
   standard: string;
   teacherMemo?: string;
 }) {
-  if (result.questionType === "smalltalk") {
+  if (result.questionType === "smalltalk" || isPastedSourceExcerpt(currentTurn, material.visibleText)) {
     return { managedKind: "" as QuestioningManagedKind, relatedQuestion: false, responseScore: null };
   }
   const targets = buildStandardTargets(standard, teacherMemo);
@@ -528,6 +536,7 @@ export function applyQuestioningConversationPhase({
     isPassageRelatedQuestion(turn, material),
   ).length;
   const protectedMove = result.questionType === "smalltalk" || result.isClosing || result.primaryMove === "repair" || result.primaryMove === "safety_redirect" ||
+    isPastedSourceExcerpt(currentTurn, material.visibleText) ||
     isQuestioningHintRequest(currentTurn);
   const paraphrased = paraphraseDifficultSentence(currentTurn, material);
 

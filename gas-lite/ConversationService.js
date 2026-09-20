@@ -631,6 +631,7 @@ function isLiteQuestioningRequest_(text) {
   const value = String(text || '').trim();
   if (isLitePureSocialSmalltalk_(value)) return false;
   return /[?？]$/.test(value) ||
+    /알고\s*싶어(?:요)?\s*[.!]?$/.test(value) ||
     /(?:왜|어떻게|무엇|뭐|어디|언제|누가|누구|몇|얼마나|무슨\s*뜻|뜻이|의미가)\s*(?:요)?[.!]?$/.test(value) ||
     /(?:왜|어떻게|무엇|뭐|어디|언제|누가|누구|몇|얼마나|무슨\s*뜻|뜻이|의미가).*(?:인가요|나요|까요|예요|이에요|해요|돼요|죠|니|까|줘|주세요)[.!]?$/.test(value) ||
     /(알려\s*줘|알려\s*주세요|설명해\s*줘|설명해\s*주세요|말해\s*줘|말해\s*주세요|궁금해(?:요)?)\s*[.!]?$/i.test(value);
@@ -653,7 +654,8 @@ function liteQuestioningPairs_(rows) {
         !/^(ok:|finalized:)/.test(String(bot.engineStatus || '')) ||
         bot.safetyFlag === true || String(bot.safetyFlag) === 'true' ||
         /^(safety|opening|smalltalk)$/.test(String(bot.questionType || '')) ||
-        /^(start|assessment_start|close|closing)$/.test(String(bot.managedKind || ''))) return;
+        /^(start|assessment_start|close|closing)$/.test(String(bot.managedKind || '')) ||
+        unescapeLiteSheetText_(bot.text).trim() === '이 부분에서 어떤 부분이 궁금한가요?') return;
     const category = String(bot.questionType || '') === 'off_topic' ||
       String(bot.sourceStatus || '') === 'out_of_scope'
       ? '' : normalizeLiteQuestionCategory_(bot.questionCategory);

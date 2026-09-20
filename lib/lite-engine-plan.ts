@@ -6,6 +6,9 @@ import {
   buildCurriculumCompass,
   buildRubric,
   classifyStudentSmalltalk,
+  isPastedSourceExcerpt,
+  isPersonalReaction,
+  questionAfterPastedSourcePrefix,
   createDefaultQuestioningChatbotBehavior,
   normalizeQuestioningChatbotConfig,
   scoreSourceSentence,
@@ -318,9 +321,18 @@ function withoutQuestionSentences(reply: string) {
   return reply.replace(/[^.!?？]*[?？]/g, " ").replace(/\s+/g, " ").trim();
 }
 
-function historyForPrompt(history: QuestioningConversationEntry[]) {
-  if (!history.length) return "(첫 대화)";
-  return history
+function historyForPrompt(history: QuestioningConversationEntry[], sourceText = "") {
+  const visibleHistory = sourceText
+    ? history.flatMap((entry) => {
+        // Wider-world answers need prior student context, not copied lesson text
+        // or prior bot quotations of that text.
+        if (entry.role !== "student") return [];
+        const content = questionAfterPastedSourcePrefix(entry.content, sourceText);
+        return isPastedSourceExcerpt(content, sourceText) ? [] : [{ ...entry, content }];
+      })
+    : history;
+  if (!visibleHistory.length) return "(첫 대화)";
+  return visibleHistory
     .slice(-8)
     .map((entry) => `${entry.role === "student" ? "학생" : "챗봇"}: ${entry.content}`)
     .join("\n");
@@ -434,7 +446,7 @@ export function classifyLiteQuestionCategory(
   const asks = /[?？]\s*$/.test(question) ||
     /(?:왜|어떻게|무엇|뭐|어디|언제|누가|누구|몇|얼마나|무슨\s*뜻|뜻이|의미가)\s*(?:요)?[.!]?\s*$/.test(question) ||
     /(?:왜|어떻게|무엇|뭐|어디|언제|누가|누구|몇|얼마나|무슨\s*뜻|뜻이|의미가).*(?:인가요|나요|까요|예요|이에요|해요|돼요|죠|니|까|줘|주세요)[.!]?\s*$/.test(question) ||
-    /(?:알려\s*줘|알려\s*주세요|설명해\s*줘|설명해\s*주세요|말해\s*줘|말해\s*주세요|궁금해(?:요)?)\s*[.!]?$/.test(question);
+    /(?:알려\s*줘|알려\s*주세요|설명해\s*줘|설명해\s*주세요|말해\s*줘|말해\s*주세요|궁금해(?:요)?|알고\s*싶어(?:요)?)\s*[.!]?$/.test(question);
   if (result.safetyFlag || result.isClosing || result.sourceStatus === "out_of_scope" || !asks ||
       (question.match(/[?？]/g) || []).length > 1) return "";
   // The general dialogue classifier prioritizes topical keywords. A separate
@@ -484,8 +496,11 @@ function buildLiteObservation(
     sourceStatus: result.sourceStatus,
     sourceCue: result.sourceCue,
     questionType: result.questionType,
-    questionCategory: input.activityMode === "questioning"
-      ? classifyLiteQuestionCategory(input.studentMessage, result) : "",
+    questionCategory: input.activityMode === "questioning" &&
+      !isPastedSourceExcerpt(input.studentMessage, input.lesson.materialText)
+      ? classifyLiteQuestionCategory(
+        questionAfterPastedSourcePrefix(input.studentMessage, input.lesson.materialText), result,
+      ) : "",
     safetyFlag: result.safetyFlag,
     isClosing: result.isClosing,
     rubricScores: result.rubricScores,
@@ -562,6 +577,7 @@ function firstEvaluationAnswerReply(
       observation.responseScore !== null || planned.safetyFlag || planned.isClosing ||
       planned.primaryMove === "repair" || planned.sourceStatus === "out_of_scope") return "";
   const message = input.studentMessage.trim();
+  if (isPastedSourceExcerpt(message, input.lesson.materialText)) return "";
   // A request for clarification still needs its normal grounded answer. Only
   // acknowledge an attempted response to this exact initial teacher question.
   if (/[?？]|(?:인가요|나요|까요|뭔가요|뭐예요|뭐야|무슨\s*뜻|궁금해|알려\s*(?:줘|주세요)|설명해\s*(?:줘|주세요))|(?:뜻|의미).*(?:몰라|모르)/.test(message)) return "";
@@ -579,6 +595,7 @@ function isConversationalExplorationTurn(
       planned.safetyFlag || planned.isClosing || planned.primaryMove === "repair" ||
       planned.sourceStatus === "out_of_scope") return false;
   const message = input.studentMessage.trim();
+  if (isPastedSourceExcerpt(message, input.lesson.materialText)) return false;
   // A question without a question mark is still a request for an answer. Keep
   // those turns on the evidence-grounded path; this route is only for a
   // student's observation or tentative idea about the lesson.
@@ -686,8 +703,15 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
     : input.activityMode === "exploration" || input.activityMode === "questioning" ? ""
     : !initialAnswerReply && planned.expectsStudentReply ? lastQuestionFrom(planned.studentReply) : "";
   const verifiedSourceCue = observation.sourceCue?.trim() || "";
+  // Keep the existing teacher-owned model connection; this does not search the web.
+  const generalKnowledgeExtension = Boolean(
+    input.activityMode !== "evaluation" && !assessment &&
+    input.supportedOutputContracts?.includes("conversational_reply_v1") &&
+    planned.questionType === "extension" && observation.relatedQuestion &&
+    !planned.safetyFlag && !planned.isClosing && planned.sourceStatus !== "out_of_scope",
+  );
   const conversational = Boolean(input.supportedOutputContracts?.includes("conversational_reply_v1") &&
-    isConversationalExplorationTurn(input, planned));
+    (isConversationalExplorationTurn(input, planned) || generalKnowledgeExtension));
   const outputContract: LiteOutputContract = conversational ? "conversational_reply_v1"
     : input.supportedOutputContracts?.includes("grounded_answer_v2")
       ? "grounded_answer_v2" : "lead_evidence_quote_v1";
@@ -698,6 +722,8 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
   const skipModel = Boolean(
     assessment || initialAnswerReply || planned.safetyFlag || planned.isClosing || planned.questionType === "smalltalk" ||
     planned.primaryMove === "repair" ||
+    isPastedSourceExcerpt(input.studentMessage, lesson.materialText) ||
+    isPersonalReaction(input.studentMessage) ||
     (!conversational && ((observation.sourceStatus !== "supported" && !groundedInference) || !verifiedSourceCue ||
       (!observation.relatedQuestion && observation.responseScore === null)))
   );
@@ -712,6 +738,8 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
     ? "평가 전 글 이해 단계입니다. 학생이 글의 낱말과 사실, 이유를 이해하도록 질문에 답합니다. 평가 문항이나 답안을 제시하거나 평가를 시작하지 마세요. 제공된 자료 밖 사실과 수치를 만들지 마세요."
     : input.activityMode === "evaluation"
     ? "평가모드입니다. 교사가 제공한 자료의 범위에서만 답하고, 내부 평가기준과 점수는 말하지 마세요."
+    : generalKnowledgeExtension
+      ? "글과 연결된 확장 질문입니다. 일반 지식과 글 속 사실을 구분하고, 최신 정보는 실시간으로 확인하지 않았음을 분명히 하세요."
     : input.activityMode === "questioning"
       ? "질문하기 수업입니다. 학생 질문에 먼저 답하고 질문 유형은 내부 기록에만 남기세요. 질문 유형 이름을 답변에 쓰지 말고, 자료 밖 사실과 수치를 만들지 마세요."
       : "자료 탐색모드입니다. 제공된 자료로 질문을 설명하고, 자료 밖 사실과 수치를 만들지 마세요.";
@@ -728,7 +756,10 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
     planDigest: litePlanDigest(input),
     engine: liteEngineDescriptor(),
     skipModel,
-    fallbackReply: initialAnswerReply || quantityReply || quantityFallback || planned.studentReply,
+    fallbackReply: initialAnswerReply || quantityReply || quantityFallback ||
+      (generalKnowledgeExtension
+        ? "글과 이어지는 궁금증이군요. 실시간 검색은 하지 않으므로 확인되지 않은 다른 사례를 단정해 말하지 않을게요."
+        : planned.studentReply),
     modelRequest: {
       model: process.env.LITE_ENGINE_MODEL?.trim() || "gpt-5.6-terra",
       reasoningEffort: "low",
@@ -736,7 +767,11 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
       outputContract,
       instructions: [
         `당신은 ${lesson.grade} 학생의 질문을 돕는 교실 챗봇입니다.`,
-        ...(outputContract === "conversational_reply_v1" ? [
+        ...(generalKnowledgeExtension ? [
+          "학생의 마지막 말은 글과 연결된 확장 질문입니다. 글에 직접 적히지 않은 내용임을 구분하고, 이미 알고 있는 일반 지식으로 확실히 답할 수 있는 내용만 학생 눈높이에 맞춰 말하세요.",
+          "실시간 웹 검색을 하지 않았습니다. 최신 운영 상황을 확인한 것처럼 말하지 마세요. 확실한 사례가 떠오르지 않으면 지어내지 말고 확인이 필요하다고 짧게 알려 주세요.",
+          "쉬운 1~2문장으로 답하고, 글에 나온 내용이라고 주장하거나 출처 URL을 꾸며내지 마세요. evidenceQuote는 빈 문자열로 두세요.",
+        ] : outputContract === "conversational_reply_v1" ? [
           "학생의 마지막 말이 질문이 아니라 관찰·예상·생각입니다. 그 말의 뜻과 직전 대화를 읽고 자연스럽게 이어 주세요. 학생 문장을 그대로 되풀이하거나 따옴표로 인용하지 마세요.",
           "짧고 쉬운 1~2문장으로 답하세요. 매번 칭찬하거나 질문을 붙일 필요는 없습니다. 질문이 유익할 때만 하나까지 허용합니다.",
           "학생 생각에 섣불리 맞장구쳐 사실로 확정하지 마세요. 자료 본문은 이 요청에 제공하지 않았으므로 본문에 무엇이 나온다는 주장이나 새 사실·수치·해석을 보태지 마세요. evidenceQuote는 빈 문자열로 두세요.",
@@ -772,7 +807,7 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
         ...(conversational
           ? [`[자료 제목] ${lesson.materialTitle}`]
           : [`[관련 자료 근거] ${source.slice(0, 2_500)}`]),
-        `[최근 대화]\n${historyForPrompt(input.history)}`,
+        `[최근 대화]\n${historyForPrompt(input.history, generalKnowledgeExtension ? lesson.materialText : "")}`,
         `[학생 말] ${input.studentMessage}`,
       ].join("\n\n"),
     },

@@ -1480,6 +1480,12 @@ export function classifyQuestionLocally(
     return "reflection";
   }
 
+  // An invitation to find another real-world case can be phrased as a wish.
+  if (/(?:더|다른|또|비슷한).*(?:사례|곳|지역|나라|기관|있는지|있나요|있어|있을까)/.test(compact) &&
+      /(?:알고싶|궁금|알려|찾아|있(?:는지|나요|어|을까))/.test(compact)) {
+    return "extension";
+  }
+
   if (keywords.extension.some((signal) => normalized.includes(signal.toLowerCase()))) {
     return "extension";
   }
@@ -2955,15 +2961,35 @@ function quoteSourceSentence(sentence: string) {
   const withoutTrailingPeriod = trimmed.replace(/[.\s]+$/, "");
   // 같은 틀이 매 턴 반복되면 기계처럼 들린다. 문장 내용에 따라 표현을 돌려 가며 쓴다.
   const phrasings = [
-    (sentence: string) => `자료에는 “${sentence}”라고 나와 있어요.`,
+    (sentence: string) => `글에는 “${sentence}”라고 나와 있어요.`,
     (sentence: string) => `글에서 “${sentence}”라는 문장을 찾을 수 있어요.`,
-    (sentence: string) => `“${sentence}” — 자료가 이렇게 말하고 있어요.`,
+    (sentence: string) => `글에서는 “${sentence}”라고 말하고 있어요.`,
   ];
   let hash = 0;
   for (let index = 0; index < withoutTrailingPeriod.length; index += 1) {
     hash = (hash * 31 + withoutTrailingPeriod.charCodeAt(index)) % 997;
   }
   return phrasings[hash % phrasings.length](withoutTrailingPeriod);
+}
+
+/** A copied passage without an added request is not the student's own idea or question. */
+export function isPastedSourceExcerpt(value: string, sourceText: string) {
+  const compact = (text: string) => text.replace(/\s+/g, "").trim();
+  const excerpt = compact(value);
+  return excerpt.length >= 30 && compact(sourceText).includes(excerpt);
+}
+
+export function questionAfterPastedSourcePrefix(value: string, sourceText: string) {
+  let question = "";
+  for (const punctuation of value.matchAll(/[.!?。！？]\s*/g)) {
+    const end = (punctuation.index || 0) + punctuation[0].length;
+    const prefix = value.slice(0, end);
+    const remainder = value.slice(end).trim();
+    if (isPastedSourceExcerpt(prefix, sourceText) && asksRatherThanStates(remainder)) {
+      question = remainder;
+    }
+  }
+  return question || value;
 }
 
 function isUncertainStudentTurn(value: string) {
@@ -2994,16 +3020,41 @@ function hintContext(conversation: QuestioningConversationEntry[]) {
   return [previousStudent?.content, previousQuestion].filter(Boolean).join(" ");
 }
 
-function isPersonalReaction(value: string) {
+export function isPersonalReaction(value: string) {
   // 질문 속 '반대'나 자료 속 인물의 걱정은 학생 자신의 감정이 아니다.
   if (asksRatherThanStates(value)) return false;
   const compact = value.replace(/\s+/g, "");
-  if (!/(불쌍|무서|아프|싫|걱정|불편|반대|중요|좋을것|좋다고|예쁠|화내|편리|돈이들|떨어뜨)/.test(compact)) return false;
+  if (!/(불쌍|무서|아프|싫|걱정|불편|반대|중요|좋을것|좋다고|예쁠|화내|편리|돈이들|떨어뜨|대단|인상적|감탄|멋지|너무좋|정말좋|참좋)/.test(compact)) return false;
   const explicitSelf = /(?:^|[\s,.])(?:저는|나는|전|난|제가|내가|저에게|나에게|제\s*생각|내\s*생각)/.test(value);
   const reportedReaction = /(?:다고|다는|라며|라고).*(?:말|했|해요|합니다|설명|적혀|나와)/.test(compact);
   const thirdPartySubject = /(?:주민|정부|학생|사람|친구|학교|전문가|글쓴이|필자|그|그녀)(?:들)?(?:은|는|이|가|에서는|에서)/.test(compact);
   const feelsAboutOthers = /(?:까봐|보니|생각하니)(?:너무|정말|조금)?(?:걱정돼|무서워|안타까워|불쌍해)(?:요)?[.!]*$/.test(compact);
   return explicitSelf || (!reportedReaction && (feelsAboutOthers || !thirdPartySubject));
+}
+
+function personalReactionReplies(value: string) {
+  const compact = value.replace(/\s+/g, "");
+  if (/동물/.test(compact) && /(보호|잘살|환경|바뀌|변하|지내)/.test(compact)) {
+    return /(대단|인상적|감탄|멋지)/.test(compact)
+      ? [
+          "동물들이 더 잘 지낼 수 있도록 애쓴 점이 인상적이었군요.",
+          "동물들을 위해 환경을 바꾼 노력이 마음에 남았나 봐요.",
+        ]
+      : [
+          "동물들이 더 잘 지낼 수 있게 바뀌는 점이 반가웠군요.",
+          "동물을 보호하려는 변화가 마음에 남았나 봐요.",
+        ];
+  }
+  if (/(대단|인상적|감탄|멋지)/.test(compact)) {
+    return ["그 노력이 인상적이었군요.", "마음에 남을 만큼 대단하게 느껴졌군요."];
+  }
+  if (/(좋|예쁘|편리)/.test(compact)) {
+    return ["그 점이 반갑게 느껴졌군요.", "좋게 느낀 까닭이 전해져요."];
+  }
+  return [
+    "그렇게 느꼈군요. 네 생각을 편하게 이야기해도 좋아요.",
+    "그 점이 마음에 남았군요. 네 생각을 계속 들어 볼게요.",
+  ];
 }
 
 function sourceLimitationSentence(material: MaterialAnalysis, question = "") {
@@ -3124,6 +3175,7 @@ function avoidRepeatedStudentReply(
   reply: string,
   conversation: QuestioningConversationEntry[],
   sourceCue: string,
+  personalReaction = "",
 ) {
   const recentAssistantTurns = conversation
     .filter((entry) => entry.role === "assistant")
@@ -3136,6 +3188,12 @@ function avoidRepeatedStudentReply(
   );
   if (!repeats) {
     return reply;
+  }
+
+  if (personalReaction) {
+    return personalReactionReplies(personalReaction).find((candidate) =>
+      !recentAssistantTurns.some((earlier) => earlier === candidate || contentOverlap(earlier, candidate) >= 0.8),
+    ) || reply;
   }
 
   const conciseCue = firstSourceSentence(sourceCue, 120);
@@ -3195,12 +3253,14 @@ function localEventCauseReply(sourceCue: string, question: string) {
 
 function createGeneralNaturalTurn({
   studentTurn,
+  sourceQuestion = studentTurn,
   material,
   sourceCue,
   questionType,
   conversation,
 }: {
   studentTurn: string;
+  sourceQuestion?: string;
   material: MaterialAnalysis;
   sourceCue: string;
   questionType: QuestionType;
@@ -3213,7 +3273,7 @@ function createGeneralNaturalTurn({
   // 가능성은…"처럼 주어 없는 문장이 나간다. 요약으로 물러서고, 그것도 없으면
   // 못 찾았다고 정직하게 말한다.
   const hasSourceCue = Boolean(sourceCue.trim());
-  const pickedCue = hasSourceCue ? quoteSourceSentence(bestSourceSentence(sourceCue, studentTurn, 165)) : "";
+  const pickedCue = hasSourceCue ? quoteSourceSentence(bestSourceSentence(sourceCue, sourceQuestion, 165)) : "";
   const cue = pickedCue || "자료에서 이 질문과 바로 이어지는 문장은 찾지 못했어요.";
 
   // 인사는 인사로 받는다. "안녕하세요"를 "라고 짚었군요"로 받으면 첫마디부터 이상하다.
@@ -3610,7 +3670,7 @@ function createGeneralNaturalTurn({
 
   if (emotionalOrPosition) {
     return {
-      reply: "그렇게 느꼈군요. 지금은 그 생각을 편하게 이야기해도 좋아요.",
+      reply: personalReactionReplies(studentTurn)[0],
       primaryMove: "follow_student_lead",
       engagementState: "personally_connecting",
       curriculumRelation: "productive_extension",
@@ -3832,6 +3892,7 @@ function studentStatementTopic(turn: string, material: MaterialAnalysis) {
 function asksRatherThanStates(value: string) {
   const trimmed = value.trim();
   if (/[?？]\s*$/.test(trimmed)) return true;
+  if (/알고\s*싶어(?:요)?\s*[.!]?$/.test(trimmed)) return true;
   // 물음표가 떨어져 나간 뒤에도 물음인 줄 알아야 한다. 학생 말은 화면에 옮겨질 때
   // 문장부호가 지워지는 일이 잦다.
   if (
@@ -4264,8 +4325,10 @@ export function createLocalQuestionResult({
     behavior,
   });
   const compactTurn = turn.replace(/\s+/g, "");
+  const pastedSourceExcerpt = isPastedSourceExcerpt(turn, material.visibleText);
   const requestsHint = isQuestioningHintRequest(turn);
-  const sourceSearch = requestsHint ? hintContext(conversation) || turn : withoutLeadingSocialPreface(turn);
+  const sourceSearch = requestsHint ? hintContext(conversation) || turn
+    : withoutLeadingSocialPreface(questionAfterPastedSourcePrefix(turn, material.visibleText));
   // A plain student statement is conversation, not a fact-retrieval request.
   // Searching it often selected the first unrelated sentence as "evidence".
   const shouldRetrieveSource = legacy.questionType !== "smalltalk" &&
@@ -4343,6 +4406,7 @@ export function createLocalQuestionResult({
   const naturalTurn = createNaturalLocalTurn(turn, material);
   const generalTurn = createGeneralNaturalTurn({
     studentTurn: turn,
+    sourceQuestion: sourceSearch,
     material,
     sourceCue,
     questionType: legacy.questionType,
@@ -4409,7 +4473,14 @@ export function createLocalQuestionResult({
     curriculumRelation = "direct";
     sourceStatus = "supported";
     supportLevel = 0;
-    studentReply = "좋아요. 여기까지 정리해도 충분해요. 더 이야기하고 싶은 내용이 생기면 다시 이어가면 돼요.";
+    studentReply = "오늘은 여기까지 대화를 마쳤어요. 함께 질문하고 생각해 줘서 고마워요.";
+  } else if (pastedSourceExcerpt) {
+    primaryMove = "clarify";
+    engagementState = "curious";
+    curriculumRelation = "direct";
+    sourceStatus = "supported";
+    supportLevel = 0;
+    studentReply = "이 부분에서 어떤 부분이 궁금한가요?";
   } else if (needsRepair) {
     primaryMove = "repair";
     engagementState = "disengaged";
@@ -4533,9 +4604,12 @@ export function createLocalQuestionResult({
   const normalizedReply = keepAtMostOneQuestion(
     // 지문으로 돌려보내는 말은 같은 대목을 일부러 다시 짚는다. 반복 검사에 걸려
     // 덮어써지면 되돌리기 자체가 사라진다.
-    asksSameQuestionAgain || requestsHint || vocabularyTurn
+    asksSameQuestionAgain || requestsHint || vocabularyTurn || pastedSourceExcerpt
       ? studentReply
-      : avoidRepeatedStudentReply(studentReply, conversation, replySourceCue),
+      : avoidRepeatedStudentReply(
+          studentReply, conversation, replySourceCue,
+          engagementState === "personally_connecting" ? turn : "",
+        ),
   ).trim();
   const finalIsClosing = isClosing || primaryMove === "close";
   const expectsStudentReply = !finalIsClosing && hasQuestionEnding(normalizedReply);
@@ -4551,7 +4625,7 @@ export function createLocalQuestionResult({
     curriculumRelation,
     supportLevel,
     sourceStatus,
-    sourceCue: firstTitleGuess || unknownBareTerm ? "" : replySourceCue,
+    sourceCue: firstTitleGuess || unknownBareTerm || pastedSourceExcerpt ? "" : replySourceCue,
     promptVersion: "questioning-dialogue-v2",
     provider: "local",
     answer: normalizedReply,

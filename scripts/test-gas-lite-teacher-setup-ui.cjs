@@ -384,15 +384,17 @@ const flowButton = (testUi, step) => testUi.byId('setup-flow').children.find((ch
 assert.equal(ui.byId('backward-design-enabled').classList.contains('hidden'), true);
 assert.equal(ui.byId('api-settings').open, false, 'Verified AI settings stay collapsed');
 assert.equal(ui.byId('panel-design').classList.contains('active'), true, 'Compact setup opens on lesson settings');
-assert.equal((html.match(/<button[^>]+data-step="/g) || []).length, 4, 'Keep the goal → material → assessment → save sequence');
-assert.equal(flowButton(ui, 'assessment').classList.contains('hidden'), false, 'Evaluation keeps assessment design visible');
-assert.equal(ui.byId('check-step-number').textContent, '4단계');
-assert.equal(ui.byId('title-check').textContent, '4. 저장·미리보기');
+assert.equal((html.match(/<button[^>]+data-step="/g) || []).length, 3, 'Keep lesson → material and assessment → save as three stages');
+assert.equal(flowButton(ui, 'assessment'), undefined, 'Assessment shares the material stage rather than adding a fourth stage');
+assert.equal(ui.byId('material-step-label').textContent, '자료·질문·평가기준');
+assert.equal(ui.byId('check-step-number').textContent, '3단계');
+assert.equal(ui.byId('title-check').textContent, '3. 저장·미리보기');
+ui.click('next-step');
+assert.equal(ui.byId('panel-material').classList.contains('active'), true);
+assert.equal(ui.byId('panel-assessment').classList.contains('active'), true, 'Evaluation questions and criteria remain available with the material');
 const explorationWizard = createUi({ ...settings, activityMode:'exploration' });
 assert.equal(explorationWizard.byId('setup-flow').dataset.mode, 'exploration');
-assert.equal(flowButton(explorationWizard, 'assessment').classList.contains('hidden'), true,
-  'A fixed opening must not occupy a separate exploration step');
-assert.equal(flowButton(explorationWizard, 'assessment').getAttribute('aria-current'), 'false');
+assert.equal(explorationWizard.byId('material-step-label').textContent, '자료 넣기');
 assert.equal(explorationWizard.byId('check-step-number').textContent, '3단계');
 assert.equal(explorationWizard.byId('title-check').textContent, '3. 저장·미리보기');
 explorationWizard.click('next-step');
@@ -408,15 +410,15 @@ explorationWizard.click('next-step');
 explorationWizard.switchTo(true);
 assert.equal(explorationWizard.byId('panel-check').classList.contains('active'), true,
   'Switching back to evaluation preserves the current save panel');
-assert.equal(flowButton(explorationWizard, 'assessment').classList.contains('hidden'), false);
-assert.equal(explorationWizard.byId('check-step-number').textContent, '4단계');
+assert.equal(explorationWizard.byId('material-step-label').textContent, '자료·질문·평가기준');
+assert.equal(explorationWizard.byId('check-step-number').textContent, '3단계');
 explorationWizard.click('prev-step');
 assert.equal(explorationWizard.byId('panel-assessment').classList.contains('active'), true);
 explorationWizard.switchTo(false);
-assert.equal(explorationWizard.byId('panel-check').classList.contains('active'), true,
-  'Turning evaluation off while on assessment lands on the visible save panel');
+assert.equal(explorationWizard.byId('panel-material').classList.contains('active'), true,
+  'Turning evaluation off keeps the material visible');
 assert.equal(explorationWizard.byId('panel-assessment').classList.contains('active'), false);
-assert.equal(explorationWizard.byId('next-step').classList.contains('hidden'), true);
+assert.equal(explorationWizard.byId('next-step').classList.contains('hidden'), false);
 explorationWizard.edit('material-text', '');
 explorationWizard.submit();
 assert.equal(explorationWizard.byId('panel-material').classList.contains('active'), true,
@@ -497,7 +499,7 @@ assert.equal(reopened.byId('backward-design-enabled').disabled, false);
 assert.equal(reopened.byId('activity-mode').disabled, false);
 
 reopened.switchTo(true);
-reopened.context.showStep(3);
+reopened.context.showStep(2);
 assert.equal(reopened.byId('panel-check').classList.contains('active'), true);
 reopened.submit();
 reopened.flushTimers();
@@ -977,8 +979,8 @@ combinedReopened.selectMode('exploration');
 assert.equal(combinedReopened.byId('assessment-ai-section').classList.contains('hidden'), true);
 assert.equal(combinedReopened.byId('start-question-field').classList.contains('hidden'), true, 'Exploration does not offer an unused opening editor');
 assert.equal(combinedReopened.byId('start-question').required, false, 'A fixed opening needs no teacher input');
-assert.equal(flowButton(combinedReopened, 'assessment').classList.contains('hidden'), true,
-  'Exploration has no separate read-only opening panel');
+assert.equal(flowButton(combinedReopened, 'assessment'), undefined,
+  'A fixed opening never occupies a separate stage');
 assert.equal(combinedReopened.byId('title-check').textContent, '3. 저장·미리보기');
 assert.equal(combinedReopened.byId('expected-answer').effectivelyDisabled(), true, 'Teacher assessment helpers do not apply in exploration');
 assert.equal(combinedReopened.byId('answer-examples').effectivelyDisabled(), true, 'Teacher-only examples do not apply in exploration');
