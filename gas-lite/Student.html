@@ -59,6 +59,17 @@
             </div>
           </header>
 
+          <section id="question-type-banner" class="question-type-banner" aria-label="내 질문 유형" hidden>
+            <p id="question-type-current" class="question-type-current" role="status" aria-live="polite">질문을 보내면 예상 유형이 표시돼요.</p>
+            <div class="question-type-chips" aria-label="질문 유형별 횟수">
+              <span class="question-type-chip" data-question-category="fact">사실 <strong id="fact-question-count">0</strong>회</span>
+              <span class="question-type-chip" data-question-category="inquiry">탐구 <strong id="inquiry-question-count">0</strong>회</span>
+              <span class="question-type-chip" data-question-category="application">적용 <strong id="application-question-count">0</strong>회</span>
+              <span class="question-type-chip" data-question-category="reflection">성찰 <strong id="reflection-question-count">0</strong>회</span>
+              <span class="question-type-chip" data-question-category="unclassified">분류 보류 <strong id="unclassified-question-count">0</strong>회</span>
+            </div>
+          </section>
+
           <div id="understanding-notice" class="understanding-notice" hidden>
             <div>
               <strong>글 이해하기</strong>

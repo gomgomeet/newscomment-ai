@@ -84,8 +84,21 @@ async function planFor(message, activityMode, materialOverride) {
   assert.equal(descriptor.sharedWithWebChatbot, true);
   assert.equal(descriptor.acceptsTeacherApiKey, false);
 
+  const questioningInput = makeInput('우리 학교에서는 어떻게 실천할까요?', 'questioning');
+  delete questioningInput.lesson.lessonGoal;
+  delete questioningInput.lesson.achievementStandard;
+  delete questioningInput.lesson.assessmentCriteria;
+  const questioningPlan = await jsonRequest('/api/lite-engine/plan', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(questioningInput),
+  });
+  assert.equal(questioningPlan.observation.questionCategory, 'application');
+  assert.equal(questioningPlan.enforcement.managedQuestion, '');
+  assert.equal(questioningPlan.observation.assessmentProgress, undefined);
+
   const supported = await planFor('학교는 무엇을 줄이기 위해 개인 물병 사용을 권했나요?');
-  assert.equal(supported.plan.policyVersion, 'questioning-dialogue-v2-lite-adapter-v16');
+  assert.equal(supported.plan.policyVersion, 'questioning-dialogue-v2-lite-adapter-v17');
   assert.equal(supported.plan.modelRequest.outputContract, 'lead_evidence_quote_v1');
   assert.equal(supported.plan.skipModel, false);
   assert.equal(supported.plan.observation.sourceStatus, 'supported');

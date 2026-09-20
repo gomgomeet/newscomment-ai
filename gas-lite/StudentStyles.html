@@ -53,6 +53,13 @@
 
   .chat-panel { display:flex; min-height:0; height:100%; flex-direction:column; }
   .chat-header { align-items:center; }
+  .question-type-banner { flex:0 0 auto; padding:12px 22px; border-bottom:1px solid #c8d5ee; background:#f2f6ff; }
+  .question-type-current { margin:0 0 7px; color:var(--primary-dark); font-size:.89rem; font-weight:800; }
+  .question-type-chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .question-type-chip { display:inline-flex; align-items:center; gap:3px; min-height:30px; padding:3px 10px; border:1px solid #c8d5ee; border-radius:999px; color:#35445f; background:white; font-size:.82rem; }
+  .question-type-chip strong { font-variant-numeric:tabular-nums; }
+  .question-type-chip.is-current { border-color:var(--primary); color:white; background:var(--primary); font-weight:800; }
+  .question-type-chip.is-pending { border-color:#b97718; color:#664009; background:#fff0c7; font-weight:800; }
   .conversation-area { display:flex; min-height:0; flex:1; flex-direction:column; overflow:hidden; }
   .messages { display:flex; min-height:0; flex:1; flex-direction:column; gap:14px; overflow-y:auto; padding:20px 22px; scroll-behavior:smooth; }
   .message { width:fit-content; max-width:86%; }
@@ -109,6 +116,7 @@
     .messages { padding:16px 14px; }
     .message { max-width:94%; }
     .onboarding { margin:0 14px 15px; }
+    .question-type-banner { padding:10px 14px; }
     .interaction-dock { padding:9px 10px 10px; }
     .composer-footer .input-help { display:none; }
   }

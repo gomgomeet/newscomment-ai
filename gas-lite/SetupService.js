@@ -3,7 +3,7 @@
  * API 키는 Script Properties에만 저장하며 Sheet 행으로 만들지 않습니다.
  */
 
-const LITE_APP_VERSION_ = '0.12.1';
+const LITE_APP_VERSION_ = '0.13.0';
 const LITE_API_KEY_PROPERTY_ = 'TEACHER_OPENAI_API_KEY';
 const LITE_SPREADSHEET_ID_PROPERTY_ = 'TEACHER_SPREADSHEET_ID';
 const LITE_ENGINE_ENDPOINT_PROPERTY_ = 'CENTRAL_ENGINE_ENDPOINT';
@@ -39,12 +39,21 @@ const LITE_SHEET_HEADERS_ = {
   ],
   '학생별 현황': [
     'studentCode', 'lessonId', 'lessonRevision', 'sessionId', 'questionCount', 'relatedQuestionCount', 'lastActiveAt',
-    'progressStatus', 'isPreview'
+    'progressStatus', 'isPreview',
+    'factQuestionCount', 'inquiryQuestionCount', 'applicationQuestionCount', 'reflectionQuestionCount',
+    'unclassifiedQuestionCount'
+  ],
+  '학생 질문 분석': [
+    'requestId', 'studentCode', 'lessonId', 'lessonRevision', 'sessionId', 'timestamp',
+    'studentQuestion', 'questionCategory', 'classificationStatus', 'questionType', 'sourceStatus', 'sourceCue',
+    'claritySignal', 'materialConnectionSignal', 'automaticDraftNotice',
+    'teacherQuestionCategory', 'teacherClarity', 'teacherMaterialConnection',
+    'teacherExplorationValue', 'teacherQualityReview', 'teacherMemo'
   ],
   '질문과 답변': [
     'timestamp', 'requestId', 'sessionId', 'studentCode', 'lessonId', 'turnNo', 'speaker',
     'text', 'activityMode', 'phase', 'managedKind', 'relatedQuestion', 'responseScore',
-    'questionType', 'engagementState', 'curriculumRelation', 'supportLevel',
+    'questionType', 'questionCategory', 'engagementState', 'curriculumRelation', 'supportLevel',
     'sourceStatus', 'sourceCue', 'primaryMove', 'safetyFlag', 'evidenceIds', 'rubricScoresJson', 'isClosing',
     'engineStatus', 'aiStatus', 'apiModel', 'apiInputTokens', 'apiOutputTokens', 'apiTotalTokens',
     'isPreview', 'lessonRevision', 'sourceHash', 'assessmentProgressJson'
@@ -103,8 +112,8 @@ function liteOptional_(value, label, maxLength) {
 
 function normalizeLiteMode_(value) {
   const mode = liteText_(value).toLowerCase();
-  if (mode === 'evaluation' || mode === 'exploration') return mode;
-  throw new Error('챗봇 운영 모드는 평가모드 또는 탐색모드를 선택해 주세요.');
+  if (mode === 'evaluation' || mode === 'exploration' || mode === 'questioning') return mode;
+  throw new Error('챗봇 운영 모드는 평가모드 또는 탐색모드, 혹은 질문하기 수업을 선택해 주세요.');
 }
 
 function normalizeLiteRubricScheme_(value) {
@@ -468,11 +477,11 @@ function normalizeLiteAssessmentPlan_(value, materialText, validateApproval) {
 
 function liteAssessmentPlan_(settings) {
   settings = settings || {};
-  if (settings.requiredAssessment || settings.requiredAssessmentJson) {
-    const savedPlan = normalizeLiteAssessmentPlan_(settings.assessmentPlanJson,settings.materialText,settings.activityMode !== 'exploration');
+  if (settings.activityMode === 'evaluation' && (settings.requiredAssessment || settings.requiredAssessmentJson)) {
+    const savedPlan = normalizeLiteAssessmentPlan_(settings.assessmentPlanJson,settings.materialText,true);
     return deriveLiteRequiredAssessmentPlan_(settings.requiredAssessment || settings.requiredAssessmentJson,settings,savedPlan.approved);
   }
-  return normalizeLiteAssessmentPlan_(settings.assessmentPlanJson, settings.materialText, settings.activityMode !== 'exploration');
+  return normalizeLiteAssessmentPlan_(settings.assessmentPlanJson, settings.materialText, settings.activityMode === 'evaluation');
 }
 
 // The analysis table is the authority for required mode. Client-provided plans
@@ -497,7 +506,7 @@ function deriveLiteRequiredAssessmentPlan_(raw, context, approved) {
 
 function liteAssessmentStartQuestion_(settings) {
   settings = settings || {};
-  if (settings.activityMode === 'exploration') return liteUnderstandingStartQuestion_();
+  if (settings.activityMode !== 'evaluation') return liteUnderstandingStartQuestion_(settings);
   let plan;
   try { plan = liteAssessmentPlan_(settings); }
   catch (error) { return ''; }
@@ -528,7 +537,10 @@ function autoCheckLiteEngineForTeacher_() {
   }
 }
 
-function liteUnderstandingStartQuestion_() {
+function liteUnderstandingStartQuestion_(settings) {
+  if (settings && settings.activityMode === 'questioning') {
+    return '자료를 읽고 궁금한 점을 한 가지씩 질문해 주세요.';
+  }
   return '글을 읽고 궁금한 것을 질문해 주세요! 제목을 보고 어떤 내용인지 생각해 볼까요?';
 }
 
@@ -566,11 +578,11 @@ function validateLiteTeacherSetup_(payload) {
     throw new Error('평가모드에서는 수업 목표 또는 성취기준을 입력해 주세요.');
   }
   // 탐색모드에서는 설계를 적용하지 않지만, 다시 켤 수 있도록 입력 내용은 보존한다.
-  const designField = activityMode === 'exploration' ? liteOptional_ : liteRequired_;
+  const designField = activityMode === 'evaluation' ? liteRequired_ : liteOptional_;
   const assessmentPlan = requiredAssessment ? deriveLiteRequiredAssessmentPlan_(requiredAssessment,payload,payload.requiredAssessmentApproved === true) : normalizeLiteAssessmentPlan_(
     payload.assessmentPlanJson,
     materialText,
-    activityMode !== 'exploration'
+    activityMode === 'evaluation'
   );
   if (activityMode === 'evaluation' && !assessmentPlan.criteria.length) {
     throw new Error('평가모드에서는 평가기준별 질문계획을 하나 이상 추가해 주세요.');
@@ -622,15 +634,16 @@ function sanitizeLiteSettingsForStudent_(settings) {
     subject: liteText_(settings.subject, 40),
     grade: liteText_(settings.grade, 40),
     lessonTitle: liteText_(settings.lessonTitle, 120),
-    lessonGoal: settings.activityMode === 'exploration' ? '' : liteText_(settings.lessonGoal, 500),
+    lessonGoal: settings.activityMode === 'evaluation' ? liteText_(settings.lessonGoal, 500) : '',
     materialTitle: liteText_(settings.materialTitle, 120),
     materialText: liteText_(settings.materialText, 30000),
     materialUrl: liteText_(settings.materialUrl, 1000),
     startQuestion: liteUnderstandingStartQuestion_(settings),
     understandingEnabled: settings.activityMode === 'evaluation',
-    requiredQuestions: settings.activityMode !== 'exploration' && settings.requiredAssessment
+    requiredQuestions: settings.activityMode === 'evaluation' && settings.requiredAssessment
       ? settings.requiredAssessment.items.map(function (item) { return { id:item.id, question:item.question }; }) : [],
-    activityMode: settings.activityMode === 'exploration' ? 'exploration' : 'evaluation',
+    activityMode: settings.activityMode === 'questioning' ? 'questioning'
+      : settings.activityMode === 'exploration' ? 'exploration' : 'evaluation',
     version: liteText_(settings.version, 30) || 'v1',
     sourceHash: liteText_(settings.sourceHash, 24),
     lessonRevision: Math.max(1, Number(settings.lessonRevision || 1))
@@ -642,7 +655,8 @@ function sanitizeLiteBootstrapForStudent_(settings) {
   return {
     lessonId: liteText_(settings.lessonId, 80),
     appName: liteText_(settings.appName, 40) || 'simbot',
-    activityMode: settings.activityMode === 'exploration' ? 'exploration' : 'evaluation',
+    activityMode: settings.activityMode === 'questioning' ? 'questioning'
+      : settings.activityMode === 'exploration' ? 'exploration' : 'evaluation',
     sourceHash: liteText_(settings.sourceHash, 24),
     lessonRevision: Math.max(1, Number(settings.lessonRevision || 1))
   };
@@ -651,7 +665,7 @@ function sanitizeLiteBootstrapForStudent_(settings) {
 function buildLiteReadiness_(settings, context) {
   settings = settings || {};
   context = context || {};
-  const backwardDesignEnabled = settings.activityMode !== 'exploration';
+  const backwardDesignEnabled = settings.activityMode === 'evaluation';
   const requiredReady = settings.requiredAssessmentMode !== 'required_two' || Boolean(settings.requiredAssessment && settings.requiredAssessment.items.length === 2);
   const backwardReady = !backwardDesignEnabled || requiredReady && Boolean(
     (settings.lessonGoal || liteAchievementStandardContent_(settings.achievementStandard)) && settings.assessmentCriteria &&
@@ -695,7 +709,7 @@ function buildLiteReadiness_(settings, context) {
       state: backwardReady ? 'pass' : 'block',
       enabled: backwardDesignEnabled,
       detail: !backwardDesignEnabled
-        ? '사용 안 함 — 자료 탐색모드에서는 백워드 평가 설계를 적용하지 않습니다.'
+        ? '사용 안 함 — 평가모드가 아닌 수업에서는 백워드 평가 설계를 적용하지 않습니다.'
         : backwardReady ? '목표·성취기준·평가기준·평가 근거가 준비되었습니다. 질문 실행 준비는 아래에서 별도로 확인합니다.' : '목표부터 평가 근거까지 필수 항목을 입력해 주세요.'
     },
     {
@@ -725,8 +739,11 @@ function buildLiteReadiness_(settings, context) {
     {
       key: 'mode',
       label: '운영 모드',
-      state: settings.activityMode === 'evaluation' || settings.activityMode === 'exploration' ? 'pass' : 'block',
-      detail: settings.activityMode === 'exploration' ? '자료 탐색모드로 운영합니다.' : settings.activityMode === 'evaluation' ? '평가모드로 운영합니다.' : '평가모드 또는 자료 탐색모드를 선택해 주세요.'
+      state: ['evaluation', 'exploration', 'questioning'].indexOf(settings.activityMode) >= 0 ? 'pass' : 'block',
+      detail: settings.activityMode === 'exploration' ? '자료 탐색모드로 운영합니다.'
+        : settings.activityMode === 'evaluation' ? '평가모드로 운영합니다.'
+        : settings.activityMode === 'questioning' ? '질문하기 수업으로 운영합니다.'
+        : '평가모드, 자료 탐색모드 또는 질문하기 수업을 선택해 주세요.'
     },
     {
       key: 'engine',
@@ -923,7 +940,7 @@ function readLiteTeacherSettings_(spreadsheet, options) {
       ? normalizeLiteRequiredAssessment_(settings.requiredAssessmentJson, settings) : null;
     settings.requiredAssessmentMode = settings.requiredAssessment ? 'required_two' : settings.requiredAssessmentMode || 'legacy';
     settings.requiredAssessmentApproved = Boolean(settings.requiredAssessment &&
-      normalizeLiteAssessmentPlan_(settings.assessmentPlanJson,settings.materialText,settings.activityMode !== 'exploration').approved);
+      normalizeLiteAssessmentPlan_(settings.assessmentPlanJson,settings.materialText,settings.activityMode === 'evaluation').approved);
   }
   // 0.1.x 사본은 개정 열이 없으므로, 다시 저장하기 전에도 새 중앙 엔진을 사용할 수 있게
   // 같은 설정에서 항상 같은 해시와 첫 개정 번호를 계산해 돌려준다.
@@ -996,7 +1013,7 @@ function makeLiteSettingsHash_(settings) {
     'materialText', 'materialUrl', 'activityMode', 'version'
   ];
   // 평가모드의 실제 첫 질문은 승인 계획에 들어 있다. 초안용 입력은 학생 수업 개정을 만들지 않는다.
-  if (settings && settings.activityMode === 'exploration') {
+  if (settings && (settings.activityMode === 'exploration' || settings.activityMode === 'questioning')) {
     fields.splice(fields.indexOf('activityMode'), 0, 'startQuestion');
   }
   const plan = liteAssessmentPlan_(settings);

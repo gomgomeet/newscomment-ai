@@ -6,7 +6,9 @@
     previewAccessToken:document.body.dataset.previewToken || '', retryTimer:null,
     bootstrapRecoveryChecked:false, bootstrapRecoveryPending:null, recoveryNotice:'',
     requiredSubmission:null, requiredSubmitting:false, requiredAssessmentReady:false,
-    learningStage:'', canStartAssessment:false, composerEnabled:false
+    learningStage:'', canStartAssessment:false, composerEnabled:false,
+    questionCounts:{ fact:0, inquiry:0, application:0, reflection:0, unclassified:0 },
+    latestQuestionCategory:'', latestQuestionClassificationStatus:''
   };
   const ACTIVE_PENDING_STORAGE_KEY = 'lite-pending-request:active';
   const ACTIVE_PENDING_MAX_AGE_MS = 25 * 60 * 60 * 1000;
@@ -21,9 +23,12 @@
       'definition-button','research-button','evidence-button','revise-button','why-button','content-button',
       'close-button','quick-actions','exit-session-button','retry-bootstrap-button','retry-turn-button',
       'required-assessment-notice','required-assessment-status','retry-required-assessment',
-      'understanding-notice','understanding-guidance','start-assessment-button'
+      'understanding-notice','understanding-guidance','start-assessment-button',
+      'question-type-banner','question-type-current','fact-question-count','inquiry-question-count',
+      'application-question-count','reflection-question-count','unclassified-question-count'
     ].forEach(function (id) { elements[toCamel(id)] = document.getElementById(id); });
     elements.mobileTabs = Array.from(document.querySelectorAll('.mobile-tab'));
+    elements.questionTypeChips = Array.from(document.querySelectorAll('[data-question-category]'));
 
     elements.chatForm.addEventListener('submit', function (event) {
       event.preventDefault(); sendTurn('message', elements.messageInput.value.trim());
@@ -96,6 +101,9 @@
   function startApp(data) {
     const lesson = data.lesson || {};
     state.bootstrapData = data;
+    state.questionCounts = { fact:0, inquiry:0, application:0, reflection:0, unclassified:0 };
+    state.latestQuestionCategory = '';
+    state.latestQuestionClassificationStatus = '';
     const joinLabel = document.querySelector('label[for="join-code-input"]');
     if (joinLabel) joinLabel.hidden = Boolean(data.previewAccess);
     elements.joinCodeInput.hidden = Boolean(data.previewAccess);
@@ -183,22 +191,116 @@
 
   function renderLesson(lesson, unlocked) {
     elements.appName.textContent = lesson.appName || 'simbot';
-    elements.activityModeLabel.textContent = lesson.activityMode === 'exploration' ? '자료 탐색 모드' : '평가 모드';
-    elements.activityModeDescription.textContent = lesson.activityMode === 'exploration'
-      ? '글을 읽고 궁금한 것을 질문해 주세요! 제목을 보고 어떤 내용인지 생각해 볼까요?'
+    elements.activityModeLabel.textContent = lesson.activityMode === 'questioning' ? '질문하기 수업'
+      : lesson.activityMode === 'exploration' ? '자료 탐색 모드' : '평가 모드';
+    elements.activityModeDescription.textContent = lesson.activityMode === 'questioning'
+      ? '자료를 읽고 궁금한 점을 직접 질문해 주세요. 질문하면 유형별 횟수가 위에 표시돼요.'
+      : lesson.activityMode === 'exploration'
+        ? '글을 읽고 궁금한 것을 질문해 주세요! 제목을 보고 어떤 내용인지 생각해 볼까요?'
       : lesson.understandingEnabled
         ? '글을 읽고 궁금한 것을 질문해 주세요! 제목을 보고 어떤 내용인지 생각해 볼까요?'
         : '평가 모드예요. 선생님이 확인한 자료를 중심으로 질문하고 생각을 나눠요.';
     elements.chatKicker.textContent = (lesson.appName || 'simbot') + ' · 질문 대화';
     elements.subjectChip.textContent = unlocked
-      ? [lesson.subject, lesson.activityMode === 'exploration' ? '탐색' : '평가'].filter(Boolean).join(' · ')
+      ? [lesson.subject, lesson.activityMode === 'questioning' ? '질문하기'
+        : lesson.activityMode === 'exploration' ? '탐색' : '평가'].filter(Boolean).join(' · ')
       : '수업 입장 전';
     elements.materialTitle.textContent = unlocked ? (lesson.materialTitle || '수업자료') : '반-번호로 들어오면 수업자료가 열립니다.';
     elements.materialMeta.textContent = unlocked ? [lesson.grade, lesson.subject, lesson.lessonTitle].filter(Boolean).join(' · ') : '';
     elements.lessonGoal.textContent = unlocked ? (lesson.lessonGoal || '') : '수업에 들어온 뒤 오늘의 배움 목표를 확인할 수 있어요.';
     elements.startQuestion.textContent = unlocked ? (lesson.startQuestion || '자료를 읽고 가장 궁금한 점을 찾아보세요.') : '수업에 들어온 뒤 첫 생각 질문이 열립니다.';
     elements.materialText.textContent = unlocked ? (lesson.materialText || '') : '아직 수업자료를 공개하지 않았습니다.';
+    elements.messageInput.placeholder = lesson.activityMode === 'questioning'
+      ? '수업자료를 읽고 궁금한 점을 질문해 보세요.'
+      : '지문을 읽고 떠오른 생각이나 질문을 적어 보세요.';
+    renderQuestionTypeBanner();
     renderLearningStage();
+  }
+
+  const QUESTION_CATEGORIES = ['fact','inquiry','application','reflection'];
+  const QUESTION_COUNT_KEYS = QUESTION_CATEGORIES.concat(['unclassified']);
+  const QUESTION_CATEGORY_LABELS = { fact:'사실', inquiry:'탐구', application:'적용', reflection:'성찰' };
+
+  function validQuestionCategory(value) {
+    return QUESTION_CATEGORIES.indexOf(value) >= 0 ? value : '';
+  }
+
+  function updateQuestionTypeBanner(result, history) {
+    const lesson = state.bootstrapData && state.bootstrapData.lesson || {};
+    if (lesson.activityMode !== 'questioning') return;
+    const received = result && result.questionCounts;
+    if (received && typeof received === 'object') {
+      QUESTION_COUNT_KEYS.forEach(function (category) {
+        const count = Number(received[category]);
+        if (Number.isSafeInteger(count) && count >= 0) state.questionCounts[category] = count;
+      });
+    } else if (Array.isArray(history)) {
+      const counts = { fact:0, inquiry:0, application:0, reflection:0, unclassified:0 };
+      history.forEach(function (turn) {
+        // The server writes the student's question classification on its paired bot reply row.
+        if (!turn || turn.speaker !== 'bot') return;
+        if (turn.questionClassificationStatus === 'unclassified') {
+          counts.unclassified += 1;
+          return;
+        }
+        const category = validQuestionCategory(turn.questionCategory);
+        if (category) counts[category] += 1;
+      });
+      state.questionCounts = counts;
+    }
+    let latest = validQuestionCategory(result && result.questionCategory);
+    let latestStatus = result && result.questionClassificationStatus === 'unclassified'
+      ? 'unclassified' : latest ? 'classified' : '';
+    if (result && (result.ok === false || result.retryable || result.retrySameRequest)) {
+      latest = '';
+      latestStatus = '';
+    }
+    if (!latestStatus && Array.isArray(history)) {
+      for (let index = history.length - 1; index >= 0; index -= 1) {
+        const turn = history[index];
+        if (!turn || turn.speaker !== 'bot') continue;
+        if (turn.questionClassificationStatus === 'unclassified') {
+          latest = '';
+          latestStatus = 'unclassified';
+          break;
+        }
+        latest = validQuestionCategory(turn.questionCategory);
+        if (latest) {
+          latestStatus = 'classified';
+          break;
+        }
+      }
+    }
+    if (latestStatus) {
+      state.latestQuestionClassificationStatus = latestStatus;
+      state.latestQuestionCategory = latest;
+    }
+    renderQuestionTypeBanner();
+  }
+
+  function renderQuestionTypeBanner() {
+    if (!elements.questionTypeBanner) return;
+    const lesson = state.bootstrapData && state.bootstrapData.lesson || {};
+    elements.questionTypeBanner.hidden = lesson.activityMode !== 'questioning';
+    if (elements.questionTypeBanner.hidden) return;
+    const pending = state.latestQuestionClassificationStatus === 'unclassified';
+    const latest = pending ? '' : validQuestionCategory(state.latestQuestionCategory);
+    if (elements.questionTypeCurrent) elements.questionTypeCurrent.textContent = pending
+      ? '최근 질문의 예상 유형: 분류 보류 · 선생님 확인'
+      : latest ? '최근 질문의 예상 유형: ' + QUESTION_CATEGORY_LABELS[latest] + ' 질문'
+        : '질문을 보내면 예상 유형이 표시돼요.';
+    const countNodes = {
+      fact:elements.factQuestionCount, inquiry:elements.inquiryQuestionCount,
+      application:elements.applicationQuestionCount, reflection:elements.reflectionQuestionCount,
+      unclassified:elements.unclassifiedQuestionCount
+    };
+    QUESTION_COUNT_KEYS.forEach(function (category) {
+      if (countNodes[category]) countNodes[category].textContent = String(state.questionCounts[category] || 0);
+    });
+    (elements.questionTypeChips || []).forEach(function (chip) {
+      chip.classList.toggle('is-current', chip.dataset.questionCategory === latest);
+      chip.classList.toggle('is-pending', pending && chip.dataset.questionCategory === 'unclassified');
+    });
   }
 
   function beginConversation(rawCode) {
@@ -231,6 +333,7 @@
         (result.history || []).forEach(function (turn) {
           addMessage(turn.speaker === 'student' ? 'student' : 'bot', turn.text);
         });
+        updateQuestionTypeBanner(result, result.history || []);
         if (!(result.history || []).length) {
           addMessage('bot', state.bootstrapData.lesson.startQuestion || '지문을 읽고 궁금한 점을 물어보세요.');
         }
@@ -297,6 +400,7 @@
         state.sessionId = result.sessionId || state.sessionId;
         state.closed = Boolean(result.isClosing);
         updateLearningStage(result);
+        updateQuestionTypeBanner(result);
         if (state.closed && !hasRequiredQuestions()) clearStoredStudentSession();
         if (result.retryable && !elements.messageInput.value) elements.messageInput.value = value;
         setComposerEnabled(!state.closed);

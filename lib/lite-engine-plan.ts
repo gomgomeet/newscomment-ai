@@ -32,11 +32,12 @@ import {
 } from "@/lib/questioning-conversation-phase";
 
 export const LITE_ENGINE_SCHEMA_VERSION = 1;
-export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v16";
+export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v17";
 
 type LiteOutputContract = "lead_evidence_quote_v1" | "grounded_answer_v2" | "conversational_reply_v1";
 
-export type LiteMode = "evaluation" | "exploration";
+export type LiteMode = "evaluation" | "exploration" | "questioning";
+export type LiteQuestionCategory = "fact" | "inquiry" | "application" | "reflection" | "";
 export type LiteRubricScheme = "legacy_three" | "four_levels" | "five_levels";
 
 export type LiteLessonInput = {
@@ -97,6 +98,7 @@ export type LiteEngineObservation = {
   sourceStatus: ChatResult["sourceStatus"];
   sourceCue: string;
   questionType: ChatResult["questionType"];
+  questionCategory: LiteQuestionCategory;
   safetyFlag: boolean;
   isClosing: boolean;
   rubricScores: ChatEvaluation[];
@@ -228,7 +230,9 @@ export function normalizeLiteEngineInput(value: unknown): NormalizedLiteEnginePl
   const lessonRaw = raw.lesson;
   if (typeof lessonRaw !== "object" || lessonRaw === null) throw new Error("수업 설정을 확인해 주세요.");
   const lesson = lessonRaw as Record<string, unknown>;
-  const activityMode = raw.activityMode === "exploration" ? "exploration" : raw.activityMode === "evaluation" ? "evaluation" : null;
+  const activityMode = raw.activityMode === "exploration" ? "exploration"
+    : raw.activityMode === "evaluation" ? "evaluation"
+      : raw.activityMode === "questioning" ? "questioning" : null;
   if (!activityMode) throw new Error("운영 모드를 확인해 주세요.");
   if (raw.understanding !== undefined && typeof raw.understanding !== "boolean") {
     throw new Error("글 이해 단계 설정을 확인해 주세요.");
@@ -421,6 +425,36 @@ function litePlanDigest(input: NormalizedLiteEnginePlanInput) {
     .slice(0, 43);
 }
 
+export function classifyLiteQuestionCategory(
+  message: string,
+  result: Pick<ChatResult, "questionType" | "safetyFlag" | "isClosing" | "sourceStatus">,
+): LiteQuestionCategory {
+  const question = message.trim();
+  const asks = /[?？]\s*$/.test(question) ||
+    /(?:왜|어떻게|무엇|뭐|어디|언제|누가|누구|몇|얼마나|무슨\s*뜻|뜻이|의미가)\s*(?:요)?[.!]?\s*$/.test(question) ||
+    /(?:왜|어떻게|무엇|뭐|어디|언제|누가|누구|몇|얼마나|무슨\s*뜻|뜻이|의미가).*(?:인가요|나요|까요|예요|이에요|해요|돼요|죠|니|까|줘|주세요)[.!]?\s*$/.test(question) ||
+    /(?:알려\s*줘|알려\s*주세요|설명해\s*줘|설명해\s*주세요|말해\s*줘|말해\s*주세요|궁금해(?:요)?)\s*[.!]?$/.test(question);
+  if (result.safetyFlag || result.isClosing || result.sourceStatus === "out_of_scope" || !asks ||
+      (question.match(/[?？]/g) || []).length > 1) return "";
+  // The general dialogue classifier prioritizes topical keywords. A separate
+  // classroom label keeps literal fact questions about "our region" from
+  // becoming application questions solely because of that phrase.
+  if (result.questionType === "vocabulary" || /(?:뜻|의미|낱말|단어).*(?:뭐|무엇|알려|설명)/.test(question)) return "fact";
+  if (/(?:내|나의|우리의)\s*(?:생각|느낌|질문)|(?:배운\s*점|생각이\s*달라|질문을.*(?:고치|고쳤|바꾸)|돌아보)/.test(question)) return "reflection";
+  if (/(?:우리\s*(?:반|학교|지역|동네|생활)|내가|우리가).*(?:어떻게|할\s*수|해야|바꾸|실천|해결|적용|개선)/.test(question) ||
+      /(?:해결\s*방안|실천\s*방법|적용하면)/.test(question)) return "application";
+  if (/(?:왜|어째서|이유|원인|만약|더\s*알아볼|어떻게\s*(?:해서|하여)|어떤\s*점에서)/.test(question)) return "inquiry";
+  if (/(?:몇|언제|어디|누가|누구|무슨|무엇|뭐|얼마나|어느)/.test(question)) return "fact";
+  switch (result.questionType) {
+    case "fact": return "fact";
+    case "extension":
+    case "inference": return "inquiry";
+    case "application": return "application";
+    case "reflection": return "reflection";
+    default: return "";
+  }
+}
+
 function buildLiteObservation(
   result: ChatResult,
   input: NormalizedLiteEnginePlanInput,
@@ -449,6 +483,8 @@ function buildLiteObservation(
     sourceStatus: result.sourceStatus,
     sourceCue: result.sourceCue,
     questionType: result.questionType,
+    questionCategory: input.activityMode === "questioning"
+      ? classifyLiteQuestionCategory(input.studentMessage, result) : "",
     safetyFlag: result.safetyFlag,
     isClosing: result.isClosing,
     rubricScores: result.rubricScores,
@@ -563,7 +599,7 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
   // assessment progression exclusively to the student's explicit start action.
   // The generic phase engine would otherwise ask evaluation questions after
   // four passage questions, even when the lesson's mode is exploration.
-  let planned = input.understanding
+  let planned = input.understanding || input.activityMode === "questioning"
     ? enforceQuestioningTopicBoundary(createQuestioningLocalBaseResult(turnInput), input.studentMessage, config, false)
     : runQuestioningLocalEngine(turnInput).result;
   const assessment = input.activityMode === "evaluation" && lesson.assessmentPlan?.approved && lesson.assessmentPlan.criteria.length
@@ -605,6 +641,12 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
     rawObservation.managedKind = "";
     rawObservation.evidenceIds = [];
   }
+  if (input.activityMode === "questioning") {
+    rawObservation.conversationPhase = 1;
+    rawObservation.responseScore = null;
+    rawObservation.rubricScores = [];
+    rawObservation.managedKind = "";
+  }
   if (assessment) {
     rawObservation.assessmentProgress = assessment.progress;
     rawObservation.responseScore = null;
@@ -639,7 +681,7 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
     : rawObservation;
   const managedQuestion = assessment
     ? assessment.managedQuestion
-    : input.activityMode === "exploration" ? ""
+    : input.activityMode === "exploration" || input.activityMode === "questioning" ? ""
     : !initialAnswerReply && planned.expectsStudentReply ? lastQuestionFrom(planned.studentReply) : "";
   const verifiedSourceCue = observation.sourceCue?.trim() || "";
   const conversational = Boolean(input.supportedOutputContracts?.includes("conversational_reply_v1") &&
@@ -667,7 +709,9 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
     ? "평가 전 글 이해 단계입니다. 학생이 글의 낱말과 사실, 이유를 이해하도록 질문에 답합니다. 평가 문항이나 답안을 제시하거나 평가를 시작하지 마세요. 제공된 자료 밖 사실과 수치를 만들지 마세요."
     : input.activityMode === "evaluation"
     ? "평가모드입니다. 교사가 제공한 자료의 범위에서만 답하고, 내부 평가기준과 점수는 말하지 마세요."
-    : "자료 탐색모드입니다. 제공된 자료로 질문을 설명하고, 자료 밖 사실과 수치를 만들지 마세요.";
+    : input.activityMode === "questioning"
+      ? "질문하기 수업입니다. 학생 질문에 먼저 답하고 질문 유형은 내부 기록에만 남기세요. 질문 유형 이름을 답변에 쓰지 말고, 자료 밖 사실과 수치를 만들지 마세요."
+      : "자료 탐색모드입니다. 제공된 자료로 질문을 설명하고, 자료 밖 사실과 수치를 만들지 마세요.";
   const questionRule = managedQuestion
     ? `관리 질문은 중앙 엔진이 별도로 붙입니다. 참고할 질문: ${managedQuestion}`
     : conversational
