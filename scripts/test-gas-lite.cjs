@@ -538,7 +538,7 @@ assert.match(toggleSpreadsheet.getSheetByName('시작하기').getCell(7, 3), /�
 const headers = vm.runInContext('LITE_SHEET_HEADERS_', context);
 assert.deepEqual(
   Array.from(Object.keys(headers)),
-  ['시작하기', '수업 자료', '학생별 현황', '질문과 답변', '교사 평가', '필수 평가 응답']
+  ['시작하기', '수업 자료', '학생별 현황', '학생 질문 분석', '질문과 답변', '교사 평가', '필수 평가 응답']
 );
 assert.equal(headers['수업 자료'].includes('assessmentCriteria'), true);
 assert.equal(headers['교사 평가'].includes('improvementSuggestion'), true);
@@ -674,7 +674,7 @@ assert.throws(
 );
 
 context.ensureLiteWorkbook_(spreadsheet);
-assert.deepEqual(Array.from(spreadsheet.sheets.keys()), ['시작하기', '수업 자료', '학생별 현황', '질문과 답변', '교사 평가', '필수 평가 응답']);
+assert.deepEqual(Array.from(spreadsheet.sheets.keys()), ['시작하기', '수업 자료', '학생별 현황', '학생 질문 분석', '질문과 답변', '교사 평가', '필수 평가 응답']);
 const savedSettings = context.saveLiteTeacherSettings_(normalized);
 const savedAssessmentPlan = context.liteAssessmentPlan_(savedSettings);
 const validSavedAssessmentProgress = {
@@ -2402,6 +2402,31 @@ assert.equal(planRows[1].assessmentProgressJson, '');
 assert.deepEqual(JSON.parse(planRows[2].assessmentProgressJson), progress);
 assert.deepEqual(JSON.parse(JSON.stringify(planContext.findLiteDuplicateRequest_(planTurn.requestId).observation.assessmentProgress)), progress);
 assert.doesNotMatch(JSON.stringify(recorded), /assessmentProgress|evidenceDescription|planId/);
+const questioningSettings = { ...planSettings, activityMode:'questioning' };
+const questioningTurn = planContext.prepareLiteRecoveryTurn_({
+  requestId:'req_questioning_off_topic_001', studentCode:'4-11', joinCode:valid.joinCode,
+  deviceToken:'device_questioning_test_123456', lessonId:questioningSettings.lessonId,
+  lessonRevision:questioningSettings.lessonRevision, sourceHash:questioningSettings.sourceHash,
+  message:'오늘 점심 메뉴가 뭐예요?'
+}, questioningSettings);
+const questioningResult = planContext.commitLitePreparedResult_(questioningSettings, questioningTurn, {
+  reply:'수업자료에서 확인하기 어려운 질문이에요.',
+  observation:{questionCategory:'fact',questionType:'off_topic',sourceStatus:'out_of_scope',
+    safetyFlag:false,isClosing:false,responseScore:null,rubricScores:[]},
+  engineStatus:'ok:test-plan-policy', aiStatus:'skipped_by_policy'
+}, {});
+assert.equal(questioningResult.questionClassificationStatus, 'unclassified');
+assert.equal(questioningResult.questionCategory, '', 'Sheet pair decision overrides a raw engine category');
+assert.equal(questioningResult.questionCounts.unclassified, 1);
+const questioningDuplicate = planContext.findLiteDuplicateRequest_(questioningTurn.requestId);
+const questioningReplay = planContext.handleLiteDuplicateRequest_(
+  questioningDuplicate, questioningSettings, questioningTurn, planSpreadsheet,
+  planContext.liteRowsByColumnValue_(planSpreadsheet.getSheetByName('질문과 답변'),
+    'sessionId', questioningTurn.sessionId), null, questioningSettings
+);
+assert.equal(questioningReplay.questionClassificationStatus, 'unclassified');
+assert.equal(questioningReplay.questionCategory, '', 'replay must not resurrect the misleading raw category');
+assert.equal(questioningReplay.questionCounts.unclassified, 1);
 const longHistoryRows = Array.from({ length:40 }, (_, i) => ({ speaker:'student', text:'짧은 발화', turnNo:i + 1 }));
 longHistoryRows.push({ ...planRows[2], turnNo:41 });
 assert.equal(planContext.latestLiteAssessmentProgress_(longHistoryRows).planId, progress.planId);

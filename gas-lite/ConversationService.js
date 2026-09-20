@@ -189,7 +189,8 @@ function prepareLiteRecoveryTurn_(payload, settings) {
     message:action === 'start_assessment' ? '평가 시작' : redactLiteStudentText_(payload.message),
     isPreview:studentCode === '99-999',
     activityMode:currentIdentity
-      ? (settings.activityMode === 'exploration' ? 'exploration' : 'evaluation')
+      ? (settings.activityMode === 'questioning' ? 'questioning'
+        : settings.activityMode === 'exploration' ? 'exploration' : 'evaluation')
       : '',
     lessonId:lessonId,
     lessonRevision:lessonRevision,
@@ -374,17 +375,18 @@ function startLiteStudentSession(payload) {
   const history = withLiteVirtualStartQuestion_(
     getLiteSessionHistory_(sessionId, spreadsheet, sessionRows), startQuestion
   );
-  const requiredState = typeof liteRequiredChatState_ === 'function'
+  const requiredState = settings.activityMode === 'evaluation' && typeof liteRequiredChatState_ === 'function'
     ? liteRequiredChatState_(settings,latestLiteAssessmentProgress_(sessionRows))
     : {requiredAssessmentReady:false,requiredAssessmentProgress:null};
   return {
     sessionId: sessionId,
     studentCode: code,
     isPreview: code === '99-999',
+    questionCounts:liteQuestionCountsForSession_(sessionRows),
     lesson: Object.assign({}, sanitizeLiteSettingsForStudent_(settings), {startQuestion:startQuestion}),
     learningStage:learningState.learningStage,
     canStartAssessment:learningState.canStartAssessment,
-    requiredSubmission: settings.requiredAssessment
+    requiredSubmission: settings.activityMode === 'evaluation' && settings.requiredAssessment
       ? getLiteRequiredSubmissionForStudent_(settings, sessionId, spreadsheet) : null,
     requiredAssessmentReady:requiredState.requiredAssessmentReady,
     requiredAssessmentProgress:requiredState.requiredAssessmentProgress,
@@ -393,6 +395,9 @@ function startLiteStudentSession(payload) {
         requestId: liteText_(row.requestId, 100),
         speaker: row.speaker === 'student' ? 'student' : 'bot',
         text: liteText_(row.text, 4000),
+        questionCategory:row.speaker === 'bot' ? normalizeLiteQuestionCategory_(row.questionCategory) : '',
+        questionClassificationStatus:row.speaker === 'bot'
+          ? String(row.questionClassificationStatus || '') : '',
         isClosing: Boolean(row.isClosing)
       };
     }),
@@ -413,11 +418,12 @@ function withLiteVirtualStartQuestion_(history, startQuestion) {
 function getLiteSessionHistory_(sessionId, spreadsheet, rowsOverride) {
   spreadsheet = spreadsheet || getLiteSpreadsheet_();
   if (!Array.isArray(rowsOverride)) ensureLiteWorkbook_(spreadsheet);
-  const rows = (Array.isArray(rowsOverride)
+  const allRows = (Array.isArray(rowsOverride)
     ? rowsOverride.filter(function (row) { return String(row.sessionId) === String(sessionId); })
     : liteRowsByColumnValue_(spreadsheet.getSheetByName('질문과 답변'), 'sessionId', sessionId))
     // 연결 실패는 감사 기록에는 남기되 다음 국면과 대화 문맥에는 포함하지 않는다.
-    .filter(function (row) { return String(row.engineStatus || '').indexOf('engine_failed:') !== 0; })
+    .filter(function (row) { return String(row.engineStatus || '').indexOf('engine_failed:') !== 0; });
+  const rows = allRows
     .sort(function (a, b) { return Number(a.turnNo || 0) - Number(b.turnNo || 0); })
     .slice(-LITE_MAX_HISTORY_ROWS_);
   return rows.map(function (row) {
@@ -428,7 +434,12 @@ function getLiteSessionHistory_(sessionId, spreadsheet, rowsOverride) {
       responseScore: row.responseScore === '' ? '' : Number(row.responseScore),
       isClosing: String(row.isClosing) === 'true' || row.isClosing === true,
       engineStatus: String(row.engineStatus || ''),
-      activityMode:String(row.activityMode || '')
+      activityMode:String(row.activityMode || ''),
+      questionCategory:row.activityMode === 'questioning'
+        ? liteQuestionCategoryForRequest_(allRows, row.requestId)
+        : normalizeLiteQuestionCategory_(row.questionCategory),
+      questionClassificationStatus:row.speaker === 'bot'
+        ? liteQuestionClassificationStatusForRequest_(allRows, row.requestId) : ''
     };
   });
 }
@@ -450,13 +461,19 @@ function appendLiteTurnPair_(turn, result, options) {
   const spreadsheet = options.spreadsheet || getLiteSpreadsheet_();
   if (!options.workbookReady) ensureLiteWorkbook_(spreadsheet);
   const sheet = spreadsheet.getSheetByName('질문과 답변');
-  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0]
-    .map(function (value) { return String(value).trim(); });
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) {
     throw new Error('친구들의 질문이 한꺼번에 들어오고 있어요. 잠시 뒤 다시 보내 주세요.');
   }
   try {
+    // New columns are additive even for an older teacher copy that was not reopened after update.
+    if (turn.activityMode === 'questioning') {
+      ensureLiteSheet_(spreadsheet, '질문과 답변', LITE_SHEET_HEADERS_['질문과 답변']);
+      ensureLiteSheet_(spreadsheet, '학생별 현황', LITE_SHEET_HEADERS_['학생별 현황']);
+      ensureLiteSheet_(spreadsheet, '학생 질문 분석', LITE_SHEET_HEADERS_['학생 질문 분석']);
+    }
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0]
+      .map(function (value) { return String(value).trim(); });
     const existing = options.prechecked
       ? []
       : (Array.isArray(options.allRows)
@@ -471,7 +488,18 @@ function appendLiteTurnPair_(turn, result, options) {
         throw new Error('같은 전송 번호가 다른 수업 또는 학생 정보와 함께 사용되었습니다.');
       }
       const assistant = existing.find(function (row) { return String(row.speaker) === 'bot'; });
-      return { duplicate: true, assistantText: assistant ? unescapeLiteSheetText_(assistant.text) : '' };
+      const sessionRows = Array.isArray(options.sessionRows)
+        ? options.sessionRows : liteRowsByColumnValue_(sheet, 'sessionId', turn.sessionId);
+      if (!turn.isPreview) upsertLiteQuestionReview_(spreadsheet, sessionRows, turn.requestId);
+      return {
+        duplicate:true,
+        assistantText:assistant ? unescapeLiteSheetText_(assistant.text) : '',
+        questionCategory:assistant && turn.activityMode === 'questioning'
+          ? liteQuestionCategoryForRequest_(sessionRows, turn.requestId)
+          : assistant ? normalizeLiteQuestionCategory_(assistant.questionCategory) : '',
+        questionClassificationStatus:liteQuestionClassificationStatusForRequest_(sessionRows, turn.requestId),
+        questionCounts:liteQuestionCountsForSession_(sessionRows)
+      };
     }
 
     const sessionRows = Array.isArray(options.sessionRows)
@@ -489,6 +517,7 @@ function appendLiteTurnPair_(turn, result, options) {
       relatedQuestion: Boolean(result.relatedQuestion),
       responseScore: result.responseScore == null ? '' : result.responseScore,
       questionType: result.questionType || '',
+      questionCategory:normalizeLiteQuestionCategory_(result.questionCategory),
       engagementState: result.engagementState || '',
       curriculumRelation: result.curriculumRelation || '',
       supportLevel: result.supportLevel == null ? '' : result.supportLevel,
@@ -538,7 +567,9 @@ function appendLiteTurnPair_(turn, result, options) {
     });
     sheet.getRange(sheet.getLastRow() + 1, 1, values.length, headers.length).setValues(values);
     if (!turn.isPreview && String(result.engineStatus || '').indexOf('engine_failed:') !== 0) {
-      upsertLiteStudentSummary_(spreadsheet, turn, result, sessionRows.concat(objects));
+      const storedRows = sessionRows.concat(objects);
+      upsertLiteQuestionReview_(spreadsheet, storedRows, turn.requestId);
+      upsertLiteStudentSummary_(spreadsheet, turn, result, storedRows);
     }
     let evaluationWarning = '';
     if (options.updateEvaluation && !turn.isPreview && turn.activityMode === 'evaluation') {
@@ -556,6 +587,11 @@ function appendLiteTurnPair_(turn, result, options) {
     return {
       duplicate:false,
       assistantText:String(result.text || ''),
+      questionCategory:turn.activityMode === 'questioning'
+        ? liteQuestionCategoryForRequest_(sessionRows.concat(objects), turn.requestId)
+        : normalizeLiteQuestionCategory_(result.questionCategory),
+      questionClassificationStatus:liteQuestionClassificationStatusForRequest_(sessionRows.concat(objects), turn.requestId),
+      questionCounts:liteQuestionCountsForSession_(sessionRows.concat(objects)),
       evaluationWarning:evaluationWarning
     };
   } finally {
@@ -566,6 +602,128 @@ function appendLiteTurnPair_(turn, result, options) {
 function isLiteQuestion_(text) {
   const value = String(text || '').trim();
   return /[?？]$/.test(value) || /(왜|어떻게|무엇|뭐|어디|언제|누가|몇|얼마나|뜻).*(나요|까요|예요|이에요|해요|돼요)?[.!]?$/.test(value);
+}
+
+function normalizeLiteQuestionCategory_(value) {
+  const category = String(value || '').trim();
+  return ['fact', 'inquiry', 'application', 'reflection'].indexOf(category) >= 0 ? category : '';
+}
+
+function isLiteQuestioningRequest_(text) {
+  const value = String(text || '').trim();
+  return /[?？]$/.test(value) ||
+    /(?:왜|어떻게|무엇|뭐|어디|언제|누가|누구|몇|얼마나|무슨\s*뜻|뜻이|의미가)\s*(?:요)?[.!]?$/.test(value) ||
+    /(?:왜|어떻게|무엇|뭐|어디|언제|누가|누구|몇|얼마나|무슨\s*뜻|뜻이|의미가).*(?:인가요|나요|까요|예요|이에요|해요|돼요|죠|니|까|줘|주세요)[.!]?$/.test(value) ||
+    /(알려\s*줘|알려\s*주세요|설명해\s*줘|설명해\s*주세요|말해\s*줘|말해\s*주세요|궁금해(?:요)?)\s*[.!]?$/i.test(value);
+}
+
+function liteQuestioningPairs_(rows) {
+  const students = Object.create(null);
+  const counted = Object.create(null);
+  (rows || []).forEach(function (row) {
+    if (String(row.speaker || '') !== 'student' || String(row.activityMode || '') !== 'questioning' ||
+        row.isPreview === true || String(row.isPreview) === 'true' || !row.requestId || !row.sessionId ||
+        !isLiteQuestioningRequest_(unescapeLiteSheetText_(row.text))) return;
+    const key = String(row.sessionId) + '|' + String(row.requestId);
+    if (!students[key]) students[key] = row;
+  });
+  const pairs = [];
+  (rows || []).forEach(function (bot) {
+    if (String(bot.speaker || '') !== 'bot' || String(bot.activityMode || '') !== 'questioning' ||
+        bot.isPreview === true || String(bot.isPreview) === 'true' ||
+        !/^(ok:|finalized:)/.test(String(bot.engineStatus || '')) ||
+        bot.safetyFlag === true || String(bot.safetyFlag) === 'true' ||
+        /^(safety|opening)$/.test(String(bot.questionType || '')) ||
+        /^(start|assessment_start|close|closing)$/.test(String(bot.managedKind || ''))) return;
+    const category = String(bot.questionType || '') === 'off_topic' ||
+      String(bot.sourceStatus || '') === 'out_of_scope'
+      ? '' : normalizeLiteQuestionCategory_(bot.questionCategory);
+    const key = String(bot.sessionId || '') + '|' + String(bot.requestId || '');
+    const student = students[key];
+    if (!student || counted[key] || Number(bot.turnNo || 0) !== Number(student.turnNo || 0) + 1 ||
+        String(student.lessonId || '') !== String(bot.lessonId || '') ||
+        Number(student.lessonRevision || 1) !== Number(bot.lessonRevision || 1) ||
+        String(student.sourceHash || '') !== String(bot.sourceHash || '')) return;
+    counted[key] = true;
+    pairs.push({student:student, bot:bot, category:category});
+  });
+  return pairs;
+}
+
+function liteQuestionCountsForSession_(rows) {
+  const counts = {fact:0, inquiry:0, application:0, reflection:0, unclassified:0};
+  liteQuestioningPairs_(rows).forEach(function (pair) {
+    counts[pair.category || 'unclassified'] += 1;
+  });
+  return counts;
+}
+
+function liteQuestionClassificationStatusForRequest_(rows, requestId) {
+  const pair = liteQuestioningPairs_(rows).find(function (entry) {
+    return String(entry.bot.requestId) === String(requestId);
+  });
+  return pair ? pair.category ? 'classified' : 'unclassified' : '';
+}
+
+function liteQuestionCategoryForRequest_(rows, requestId) {
+  const pair = liteQuestioningPairs_(rows).find(function (entry) {
+    return String(entry.bot.requestId) === String(requestId);
+  });
+  return pair ? pair.category : '';
+}
+
+function liteQuestionClaritySignal_(question, primaryMove) {
+  if (String(primaryMove || '') === 'repair') {
+    return '질문 다듬기 안내가 관찰됨 · 교사 확인 필요';
+  }
+  return isLiteQuestioningRequest_(question)
+    ? '질문 표현이 관찰됨 · 교사 확인 필요'
+    : '질문 표현을 교사가 확인해야 함';
+}
+
+function liteQuestionMaterialSignal_(sourceStatus) {
+  const status = String(sourceStatus || '');
+  if (status === 'supported') return '자료 내 근거가 관찰됨 · 교사 확인 필요';
+  if (status === 'reasonable_inference') return '자료 기반 추론이 관찰됨 · 교사 확인 필요';
+  if (status === 'source_insufficient') return '자료 근거 부족 가능성 · 교사 확인 필요';
+  if (status === 'out_of_scope') return '수업자료 범위 밖 가능성 · 교사 확인 필요';
+  return '자료 연결을 교사가 확인해야 함';
+}
+
+function upsertLiteQuestionReview_(spreadsheet, sessionRows, requestId) {
+  const pair = liteQuestioningPairs_(sessionRows).find(function (entry) {
+    return String(entry.bot.requestId) === String(requestId);
+  });
+  if (!pair) return;
+  const sheet = ensureLiteSheet_(spreadsheet, '학생 질문 분석', LITE_SHEET_HEADERS_['학생 질문 분석']);
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0]
+    .map(function (value) { return String(value).trim(); });
+  const previous = liteRowsByColumnValue_(sheet, 'requestId', requestId)[0] || {};
+  const question = unescapeLiteSheetText_(pair.student.text);
+  const object = Object.assign({}, previous, {
+    requestId:String(requestId),
+    studentCode:pair.student.studentCode,
+    lessonId:pair.student.lessonId,
+    lessonRevision:pair.student.lessonRevision || 1,
+    sessionId:pair.student.sessionId,
+    timestamp:pair.student.timestamp || pair.bot.timestamp || new Date(),
+    studentQuestion:question,
+    questionCategory:pair.category,
+    classificationStatus:pair.category ? '자동 분류 초안' : '분류 보류',
+    questionType:String(pair.bot.questionType || ''),
+    sourceStatus:String(pair.bot.sourceStatus || ''),
+    sourceCue:liteText_(pair.bot.sourceCue, 500),
+    claritySignal:liteQuestionClaritySignal_(question, pair.bot.primaryMove),
+    materialConnectionSignal:liteQuestionMaterialSignal_(pair.bot.sourceStatus),
+    automaticDraftNotice:pair.category
+      ? '자동 분류 초안 · 교사가 검토하고 최종 판단'
+      : '분류 보류 · 교사가 유형과 자료 연결을 확인'
+  });
+  const values = headers.map(function (header) {
+    return Object.prototype.hasOwnProperty.call(object, header) ? liteSheetSafeValue_(object[header]) : '';
+  });
+  const rowNumber = Number(previous.__liteRowNumber || sheet.getLastRow() + 1);
+  sheet.getRange(rowNumber, 1, 1, headers.length).setValues([values]);
 }
 
 function upsertLiteStudentSummary_(spreadsheet, turn, result, sessionRowsOverride) {
@@ -593,6 +751,9 @@ function upsertLiteStudentSummary_(spreadsheet, turn, result, sessionRowsOverrid
   const relatedQuestionCount = questionRows.filter(function (row) {
     return String(row.relatedQuestion) === 'true' || row.relatedQuestion === true;
   }).length;
+  const questionCounts = liteQuestionCountsForSession_(sessionRows);
+  const classifiedQuestionCount = questionCounts.fact + questionCounts.inquiry +
+    questionCounts.application + questionCounts.reflection;
   const latest = sessionRows.slice().sort(function (a, b) {
     return Number(b.turnNo || 0) - Number(a.turnNo || 0);
   })[0] || {};
@@ -603,14 +764,21 @@ function upsertLiteStudentSummary_(spreadsheet, turn, result, sessionRowsOverrid
     lessonId: turn.lessonId,
     lessonRevision: turn.lessonRevision || 1,
     sessionId: turn.sessionId,
-    questionCount: questionRows.length,
+    questionCount: turn.activityMode === 'questioning'
+      ? classifiedQuestionCount + questionCounts.unclassified : questionRows.length,
     relatedQuestionCount: relatedQuestionCount,
+    factQuestionCount:questionCounts.fact,
+    inquiryQuestionCount:questionCounts.inquiry,
+    applicationQuestionCount:questionCounts.application,
+    reflectionQuestionCount:questionCounts.reflection,
+    unclassifiedQuestionCount:questionCounts.unclassified,
     lastActiveAt: latest.timestamp || previous.lastActiveAt || new Date(),
     progressStatus: latestClosing ? '활동 마침' : latestPhase >= 2 ? '2국면 진행' : '1국면 진행',
     isPreview: false
   };
+  const merged = Object.assign({}, previous, object);
   const values = headers.map(function (header) {
-    return Object.prototype.hasOwnProperty.call(object, header) ? liteSheetSafeValue_(object[header]) : '';
+    return Object.prototype.hasOwnProperty.call(merged, header) ? liteSheetSafeValue_(merged[header]) : '';
   });
   if (index >= 0) sheet.getRange(Number(previous.__liteRowNumber || index + 2), 1, 1, headers.length).setValues([values]);
   else sheet.getRange(sheet.getLastRow() + 1, 1, 1, headers.length).setValues([values]);
@@ -621,6 +789,7 @@ function repairLiteStudentSummary_(spreadsheet, turn, result, sessionRows) {
   lock.waitLock(30000);
   try {
     upsertLiteStudentSummary_(spreadsheet, turn, result, sessionRows);
+    if (!turn.isPreview) upsertLiteQuestionReview_(spreadsheet, sessionRows, turn.requestId);
     SpreadsheetApp.flush();
   } finally {
     lock.releaseLock();

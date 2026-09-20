@@ -278,7 +278,7 @@ function saveLitePendingState_(turn, state, output) {
     at:Date.now(),
     turnFingerprint:liteTurnFingerprint_(turn),
     turnSnapshot:{
-      activityMode:turn.activityMode === 'exploration' ? 'exploration' : 'evaluation',
+      activityMode:normalizeLiteMode_(turn.activityMode),
       understanding:Boolean(turn.understanding),
       learningStage:liteText_(turn.learningStage, 20),
       action:liteText_(turn.action, 40),
@@ -490,7 +490,8 @@ function prepareLiteCandidateFallback_(candidate) {
 
 function hydrateLiteRecoveryTurn_(turn, pendingState) {
   const snapshot = pendingState && pendingState.turnSnapshot || {};
-  if (snapshot.activityMode === 'evaluation' || snapshot.activityMode === 'exploration') {
+  if (snapshot.activityMode === 'evaluation' || snapshot.activityMode === 'exploration' ||
+      snapshot.activityMode === 'questioning') {
     turn.activityMode = snapshot.activityMode;
   }
   turn.understanding = snapshot.understanding === true;
@@ -512,7 +513,7 @@ function liteRecoverySettings_(currentSettings, turn) {
     lessonRevision:turn.lessonRevision,
     sourceHash:turn.sourceHash,
     _liteRecoveryIdentityOnly:!liteTurnMatchesSettingsIdentity_(turn,currentSettings),
-    activityMode:turn.lessonActivityMode || (turn.activityMode === 'exploration' ? 'exploration' : 'evaluation')
+    activityMode:turn.lessonActivityMode || normalizeLiteMode_(turn.activityMode)
   });
 }
 
@@ -1052,6 +1053,7 @@ function findLiteDuplicateRequest_(requestId, expectedTurn, rowsOverride, spread
     relatedQuestion: String(bot.relatedQuestion) === 'true' || bot.relatedQuestion === true,
     responseScore: bot.responseScore === '' ? '' : Number(bot.responseScore),
     questionType: String(bot.questionType || ''),
+    questionCategory: String(bot.questionCategory || ''),
     engagementState: String(bot.engagementState || ''),
     curriculumRelation: String(bot.curriculumRelation || ''),
     supportLevel: bot.supportLevel === '' ? '' : Number(bot.supportLevel),
@@ -1101,6 +1103,8 @@ function compactLitePreparedObservation_(observation) {
     responseScore:observation.responseScore == null ? '' : Number(observation.responseScore),
     isClosing:Boolean(observation.isClosing),
     questionType:liteText_(observation.questionType, 80),
+    questionCategory:/^(fact|inquiry|application|reflection)$/.test(String(observation.questionCategory || ''))
+      ? String(observation.questionCategory) : '',
     engagementState:liteText_(observation.engagementState, 80),
     curriculumRelation:liteText_(observation.curriculumRelation, 80),
     supportLevel:observation.supportLevel == null ? '' : Number(observation.supportLevel),
@@ -1161,6 +1165,7 @@ function commitLitePreparedResult_(settings, turn, prepared, runtimeContext) {
     responseScore:observation.responseScore,
     isClosing:observation.isClosing,
     questionType:observation.questionType,
+    questionCategory:observation.questionCategory,
     engagementState:observation.engagementState,
     curriculumRelation:observation.curriculumRelation,
     supportLevel:observation.supportLevel,
@@ -1207,6 +1212,7 @@ function commitLitePreparedResult_(settings, turn, prepared, runtimeContext) {
     {speaker:'student',requestId:turn.requestId,text:turn.message}, {
     speaker:'bot', requestId:turn.requestId, activityMode:turn.activityMode, engineStatus:prepared.engineStatus,
     relatedQuestion:observation.relatedQuestion, questionType:observation.questionType,
+    questionCategory:observation.questionCategory,
     sourceStatus:observation.sourceStatus, safetyFlag:observation.safetyFlag, isClosing:observation.isClosing
   }]), observation.assessmentProgress);
   return {
@@ -1214,6 +1220,10 @@ function commitLitePreparedResult_(settings, turn, prepared, runtimeContext) {
     duplicate:Boolean(saved.duplicate),
     sessionId:turn.sessionId,
     reply:saved.assistantText || reply,
+    questionCategory:saved.questionClassificationStatus === 'unclassified'
+      ? '' : saved.questionCategory || observation.questionCategory || '',
+    questionClassificationStatus:saved.questionClassificationStatus || '',
+    questionCounts:saved.questionCounts || {fact:0,inquiry:0,application:0,reflection:0,unclassified:0},
     learningStage:learningState.learningStage,
     canStartAssessment:learningState.canStartAssessment,
     requiredAssessmentReady:requiredState.requiredAssessmentReady,
@@ -1287,11 +1297,16 @@ function handleLiteDuplicateRequest_(
     ? liteRequiredChatState_(settings,latestLiteAssessmentProgress_(sessionRows) || duplicate.observation.assessmentProgress)
     : {requiredAssessmentReady:false,requiredAssessmentProgress:null};
   const learningState = liteLearningState_(settings, sessionRows);
+  const questionClassificationStatus = liteQuestionClassificationStatusForRequest_(sessionRows,turn.requestId);
   return {
     ok:!duplicate.retryable,
     duplicate:true,
     sessionId:duplicate.sessionId,
     reply:duplicate.text,
+    questionCategory:questionClassificationStatus === 'unclassified' ? ''
+      : liteQuestionCategoryForRequest_(sessionRows,turn.requestId) || duplicate.observation.questionCategory || '',
+    questionClassificationStatus:questionClassificationStatus,
+    questionCounts:liteQuestionCountsForSession_(sessionRows),
     learningStage:learningState.learningStage,
     canStartAssessment:learningState.canStartAssessment,
     requiredAssessmentReady:requiredState.requiredAssessmentReady,
@@ -1409,7 +1424,8 @@ function submitLiteTurn(payload) {
   };
   const duplicate = findLiteDuplicateRequest_(turn.requestId, turn, qaRows, spreadsheet);
   if (duplicate) {
-    if (duplicate.activityMode === 'evaluation' || duplicate.activityMode === 'exploration') {
+    if (duplicate.activityMode === 'evaluation' || duplicate.activityMode === 'exploration' ||
+        duplicate.activityMode === 'questioning') {
       turn.activityMode = duplicate.activityMode;
     }
     turn.understanding = turn.activityMode === 'exploration' && currentSettings.activityMode === 'evaluation';
