@@ -315,6 +315,32 @@ const zooVocabularyPaths = {
 };
 
 for (const [engineName, run] of Object.entries(zooVocabularyPaths)) {
+  for (const question of ['맹수가 뭘까?', '맹수는 뭘까요?', '맹수는 무엇일까?', '맹수는 무슨 뜻이야?', '맹수라는 말은 무슨 뜻이야?', '맹수 뜻 알려줘']) {
+    test(`${engineName}: natural meaning question gets the verified meaning, not just a passage quote (${question})`, () => {
+      const result = run(question);
+      assert.equal(result.questionType, 'vocabulary');
+      assert.match(result.studentReply, /맹수.*사나운.*짐승/,
+        'the reply must explain the word; citing a sentence that merely uses it is insufficient');
+      assert.doesNotMatch(result.studentReply, /뜻을 알고 싶은 낱말을 따옴표|사전에서|국어사전에서/);
+      if (engineName === 'lite') {
+        assert.equal(result.skipModel, true, 'a verified local meaning should be deterministic');
+        assert.equal(result.sourceCue, '', 'a glossary meaning must not be presented as a quotation');
+      }
+    });
+  }
+
+  test(`${engineName}: a factual question containing 맹수 stays outside the meaning route`, () => {
+    const result = run('맹수는 무엇을 먹어?');
+    assert.notEqual(result.questionType, 'vocabulary');
+    assert.doesNotMatch(result.studentReply, /사전적으로/);
+  });
+
+  test(`${engineName}: asking what 맹수 does is not a request for its meaning`, () => {
+    const result = run('맹수가 하는 일은 뭘까?');
+    assert.notEqual(result.questionType, 'vocabulary');
+    assert.doesNotMatch(result.studentReply, /사전적으로.*사나운.*짐승/);
+  });
+
   test(`${engineName}: 맹수는? gets a brief definition rather than a dictionary assignment`, () => {
     const result = run('맹수는?');
     assert.equal(result.questionType, 'vocabulary');
@@ -374,6 +400,21 @@ for (const [engineName, run] of Object.entries(zooVocabularyPaths)) {
     const result = run('우주선?');
     assert.notEqual(result.sourceStatus, 'supported');
     assert.doesNotMatch(result.studentReply, /우주를 다니는|하늘을 나는|사전적으로/);
+  });
+
+  test(`${engineName}: an unknown meaning question does not manufacture a definition`, () => {
+    const result = run('우주선이 뭘까?');
+    assert.notEqual(result.sourceStatus, 'supported');
+    assert.doesNotMatch(result.studentReply, /우주를 다니는|하늘을 나는|사전적으로/);
+  });
+
+  test(`${engineName}: an unknown explicit meaning question does not invent or quote an unrelated meaning`, () => {
+    const result = run('정체불명어가 뭘까?');
+    assert.notEqual(result.sourceStatus, 'supported');
+    assert.doesNotMatch(result.studentReply, /사자는 맹수입니다|다른 나라에서 온 외래종|사전적으로/);
+    assert.doesNotMatch(result.studentReply, /따옴표/,
+      'the student already asked plainly; asking for quotation marks does not resolve the missing meaning');
+    assert.match(result.studentReply, /찾지 못|자료.*없|확인|낱말.*다시/);
   });
 
   test(`${engineName}: vocabulary routing never echoes a student's private name`, () => {
@@ -445,11 +486,12 @@ const residentHistory = [
 ];
 
 for (const [engineName, run] of Object.entries(paths)) {
-  for (const question of [residentQuestion, '주민들이 반대 하는 이유는 뭐야']) {
+  for (const question of [residentQuestion, '주민들이 반대 하는 이유는 뭐야', '주민들이 반대하는 이유가 뭘까?']) {
     test(`${engineName}: a third-party reason question is not the student's opinion (${question})`, () => {
       const result = run(question);
       assert.equal(result.safetyFlag, false, 'ordinary 주민 discussion must not match a privacy keyword');
       assert.notEqual(result.primaryMove, 'safety_redirect');
+      assert.notEqual(result.questionType, 'vocabulary', 'asking about the residents’ reason is not asking for the definition of 이유');
       assert.notEqual(result.sourceStatus, 'out_of_scope');
       assert.notEqual(result.engagementState, 'personally_connecting');
       assert.doesNotMatch(result.studentReply, inventedStudentFeelings);
