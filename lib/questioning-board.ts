@@ -1539,12 +1539,17 @@ const koreanSearchSuffixes = [
 
 function normalizeSearchToken(token: string) {
   let normalized = token.toLowerCase();
+  let removedSuffix = false;
   let suffix = koreanSearchSuffixes.find(
     (candidate) => normalized.endsWith(candidate) && normalized.length - candidate.length >= 2,
   );
 
   while (suffix) {
+    // `바람이는`의 끝 `는`을 지운 뒤 이름의 마지막 글자 `이`까지
+    // 조사로 오인하면 지문 속 인물과의 일치가 흐려진다.
+    if (removedSuffix && suffix === "이") break;
     normalized = normalized.slice(0, -suffix.length);
+    removedSuffix = true;
     suffix = koreanSearchSuffixes.find(
       (candidate) => normalized.endsWith(candidate) && normalized.length - candidate.length >= 2,
     );
@@ -1665,6 +1670,19 @@ function asksForCausalCertainty(question: string) {
     /(때문|덕분|원인|영향|효과|줄.*줄|늘.*늘)/.test(compact);
 }
 
+function causalQuestionActor(question: string) {
+  if (!/(왜|이유|까닭)/.test(question)) return "";
+  // 질문의 명시적 주어는 원인 표현보다 강한 검색 단서다. `바람이는 왜`를
+  // `바람`으로 줄이지 않고 지문에 실제 등장한 이름 그대로 확인한다.
+  const subject = question.match(/(?:^|\s|[“‘"'])([가-힣A-Za-z0-9]{2,})[”’"']?(?:은|는|이|가)\s*(?:왜|어째서|어떤\s*이유)/);
+  return subject?.[1].toLowerCase() || "";
+}
+
+function startsWithDifferentActor(sentence: string, actor: string) {
+  const subject = sentence.match(/^[“‘"']?([가-힣A-Za-z0-9]{2,})[”’"']?(?:은|는|이|가)\s/);
+  return Boolean(subject && subject[1].toLowerCase() !== actor && !sentence.toLowerCase().includes(actor));
+}
+
 function findRelevantSourceExcerpt(question: string, material: MaterialAnalysis, prioritizeQuestionIntent: boolean) {
   const visibleText = material.visibleText.trim();
   const summary = material.summary.trim();
@@ -1697,7 +1715,27 @@ function findRelevantSourceExcerpt(question: string, material: MaterialAnalysis,
   const scored = segments.map((segment, index) => ({
     index, score: scoreSourceSentence(segment.text, question, prioritizeQuestionIntent),
   }));
-  const best = scored.reduce((current, candidate) => (candidate.score > current.score ? candidate : current));
+  let best = scored.reduce((current, candidate) => (candidate.score > current.score ? candidate : current));
+  const causalActor = causalQuestionActor(question);
+  if (causalActor) {
+    // `이 때문에`만 있는 일반 문장보다 질문한 인물이 실제 등장하는 문단을
+    // 우선한다. 원인을 만들어 내지는 않고, 같은 문단의 원문만 발췌한다.
+    const actorParagraphs = new Map<number, { score: number; actorHits: number; anchor: number }>();
+    for (const item of scored) {
+      const segment = segments[item.index];
+      if (!segment.text.toLowerCase().includes(causalActor)) continue;
+      const current = actorParagraphs.get(segment.paragraphIndex) || { score: -Infinity, actorHits: 0, anchor: item.index };
+      current.actorHits += 1;
+      if (item.score > current.score) {
+        current.score = item.score;
+        current.anchor = item.index;
+      }
+      actorParagraphs.set(segment.paragraphIndex, current);
+    }
+    const actorParagraph = [...actorParagraphs.values()].sort((left, right) =>
+      right.score + Math.min(right.actorHits, 3) * 3 - left.score - Math.min(left.actorHits, 3) * 3)[0];
+    if (actorParagraph?.score > 0) best = scored[actorParagraph.anchor];
+  }
   // A zero-match summary or opening sentence is not evidence for this question.
   // Returning no cue lets the answer state the knowledge boundary honestly.
   if (best.score <= 0) return "";
@@ -1710,6 +1748,25 @@ function findRelevantSourceExcerpt(question: string, material: MaterialAnalysis,
     bestSegment.text.length + nextSegment.text.length <= 260
       ? `${bestSegment.text} ${nextSegment.text}`
       : bestSegment.text;
+
+  if (causalActor && bestSegment.text.toLowerCase().includes(causalActor)) {
+    // 원인과 이동 결정은 앞 문장에 이어지는 일이 많다. 단일 최고점 문장
+    // 하나만 넘기면 `왜`에 답할 근거를 잃으므로 같은 문단의 앞뒤를 묶는다.
+    const context = [bestSegment.text];
+    for (let index = best.index - 1; index >= 0; index -= 1) {
+      if (segments[index].paragraphIndex !== bestSegment.paragraphIndex) break;
+      if (startsWithDifferentActor(segments[index].text, causalActor)) break;
+      if (context.join(" ").length + segments[index].text.length + 1 > 260) break;
+      context.unshift(segments[index].text);
+    }
+    for (let index = best.index + 1; index < segments.length; index += 1) {
+      if (segments[index].paragraphIndex !== bestSegment.paragraphIndex) break;
+      if (startsWithDifferentActor(segments[index].text, causalActor)) break;
+      if (context.join(" ").length + segments[index].text.length + 1 > 260) break;
+      context.push(segments[index].text);
+    }
+    combined = context.join(" ");
+  }
 
   const positionActor = positionQuestionActor(question);
   if (positionActor) {
