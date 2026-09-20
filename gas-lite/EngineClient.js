@@ -925,7 +925,9 @@ function validateLiteEnginePlan_(plan, requestId, expectedPolicyVersion) {
   }
   const policyVersion = liteText_(plan.policyVersion, 120);
   if (!policyVersion || (expectedPolicyVersion && policyVersion !== String(expectedPolicyVersion))) {
-    throw new Error('중앙 정책 엔진의 확인된 정책 버전과 계획 버전이 다릅니다.');
+    const error = new Error('중앙 정책 엔진의 확인된 정책 버전과 계획 버전이 다릅니다.');
+    if (policyVersion && expectedPolicyVersion) error.code = 'lite_engine_policy_changed';
+    throw error;
   }
   if (typeof plan.skipModel !== 'boolean' || typeof plan.modelRequest !== 'object' ||
       typeof plan.enforcement !== 'object' || typeof plan.observation !== 'object') {
@@ -1107,7 +1109,8 @@ function findLiteDuplicateRequest_(requestId, expectedTurn, rowsOverride, spread
     activityMode:String(bot.activityMode || student && student.activityMode || ''),
     isPreview:String(bot.isPreview || student && student.isPreview) === 'true' ||
       bot.isPreview === true || Boolean(student && student.isPreview === true),
-    retryable: String(bot.engineStatus || '').indexOf('engine_failed:') === 0,
+    retryable: String(bot.engineStatus || '').indexOf('engine_failed:') === 0 &&
+      String(bot.engineStatus || '') !== 'engine_failed:policy_changed',
     observation: observation
   };
 }
@@ -1569,13 +1572,18 @@ function submitLiteTurn(payload) {
     plan = requestLiteEnginePlan_(turn, currentSettings, history);
   } catch (error) {
     // 엔진 실패 시 모델을 독자 호출하지 않고 실패 턴을 교사 Sheet에 남긴다.
-    const failureReply = '중앙 평가 규칙을 불러오지 못했어요. 잠시 뒤 같은 질문을 다시 보내 주세요.';
+    const policyChanged = Boolean(error && error.code === 'lite_engine_policy_changed');
+    const failureReply = policyChanged
+      ? '공통 대화 엔진이 업데이트되었어요. 선생님이 연결을 다시 확인하고 99-999 미리보기를 마친 뒤 질문해 주세요.'
+      : '중앙 평가 규칙을 불러오지 못했어요. 잠시 뒤 같은 질문을 다시 보내 주세요.';
     appendLiteTurnPair_(turn, {
       text: failureReply, phase:'', managedKind:'', evidenceIds:[], relatedQuestion:false,
       responseScore:'', isClosing:false, questionType:'', sourceStatus:'',
-      engineStatus:'engine_failed:' + liteText_(error && error.message, 160), aiStatus:'not_called'
+      engineStatus:policyChanged ? 'engine_failed:policy_changed'
+        : 'engine_failed:' + liteText_(error && error.message, 160), aiStatus:'not_called'
     }, runtimeContext);
-    return { ok:false, sessionId:turn.sessionId, reply:failureReply, retryable:true, warning:'중앙 엔진 연결 실패' };
+    return { ok:false, sessionId:turn.sessionId, reply:failureReply, retryable:!policyChanged,
+      warning:policyChanged ? '교사 연결·미리보기 재확인 필요' : '중앙 엔진 연결 실패' };
   }
   let modelResult = null;
   let reply = plan.fallbackReply;
