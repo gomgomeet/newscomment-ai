@@ -29,7 +29,7 @@ registerHooks({
   },
 });
 
-const { createLocalQuestionResult } = await import('../lib/questioning-board.ts');
+const { createLocalQuestionResult, resolveLessonVocabularyTerm } = await import('../lib/questioning-board.ts');
 const { runQuestioningLocalEngine } = await import('../lib/questioning-engine-core.ts');
 const { createLiteEnginePlan, createLiteQuestioningConfig, finalizeLiteEngineReply } = await import('../lib/lite-engine-plan.ts');
 const { getQuestioningTurnMetadata } = await import('../lib/questioning-conversation-phase.ts');
@@ -95,6 +95,82 @@ const paths = {
   },
 };
 
+for (const [engineName, run] of Object.entries(paths)) {
+  test(`${engineName}: narrow smalltalk receives a short reply without retrieval or assessment`, () => {
+    for (const message of ['안녕하세요?', '안녕하세요…', '안녕하세요。', '안녕하세요～', '고마워', '오늘 좀 긴장돼', '나 오늘 좀 긴장돼?']) {
+      const result = run(message);
+      assert.equal(result.questionType, 'smalltalk');
+      assert.equal(result.sourceStatus, 'out_of_scope');
+      assert.equal(result.sourceCue, '');
+      assert.equal(result.safetyFlag, false);
+      assert.deepEqual(result.rubricScores, []);
+      assert.doesNotMatch(result.studentReply, /변전소|주민들은|글에서 가장 중요한 사실|[?？]/);
+      if (engineName === 'lite') {
+        assert.equal(result.questionCategory, '');
+        assert.equal(result.relatedQuestion, false);
+        assert.equal(result.responseScore, null);
+        assert.equal(result.managedKind, '');
+      }
+    }
+  });
+
+  test(`${engineName}: a second social turn gently bridges to the lesson; content restarts the count`, () => {
+    const afterGreeting = [
+      { role: 'student', content: '안녕하세요?' },
+      { role: 'assistant', content: '안녕하세요! 반가워요.' },
+    ];
+    assert.match(run('고마워', afterGreeting).studentReply, /수업 자료에서 궁금한 부분/);
+    const afterContent = [
+      ...afterGreeting,
+      { role: 'student', content: '주민들은 왜 반대하나요?' },
+      { role: 'assistant', content: '소음을 걱정했기 때문이에요.' },
+    ];
+    assert.doesNotMatch(run('고마워', afterContent).studentReply, /수업 자료에서 궁금한 부분/);
+  });
+
+  test(`${engineName}: greeting or thanks mixed with a source question stays on the grounded path`, () => {
+    for (const message of [
+      '안녕하세요? 주민들은 왜 변전소 사업에 반대하나요?',
+      '고마워, 주민들은 왜 변전소 사업에 반대하나요?',
+    ]) {
+      const result = run(message);
+      assert.notEqual(result.questionType, 'smalltalk');
+      assert.notEqual(result.sourceStatus, 'out_of_scope');
+      assert.match(result.studentReply, /소음|걱정/);
+      assert.ok(result.rubricScores.length > 0, 'content turns retain their existing evaluation signals');
+    }
+  });
+}
+
+test('shared phase ignores social turns even immediately after a managed question', () => {
+  const history = [{ role: 'assistant', content: '글에서 가장 중요한 사실 한 가지를 찾아 자기 말로 말해 줄래요?' }];
+  const result = paths.shared('안녕하세요?', history);
+  const metadata = getQuestioningTurnMetadata({
+    result,
+    currentTurn: '안녕하세요?',
+    conversation: history,
+    material: config.material,
+    standard: config.standard,
+    teacherMemo: config.material.questionFocusMemo,
+  });
+  assert.equal(result.questionType, 'smalltalk');
+  assert.doesNotMatch(result.studentReply, /글에서 가장 중요한 사실|[?？]/);
+  assert.deepEqual(metadata, { managedKind: '', relatedQuestion: false, responseScore: null });
+  assert.deepEqual(result.rubricScores, []);
+});
+
+test('three social exchanges do not trigger the phase-one fallback question', () => {
+  const history = [
+    { role: 'student', content: '안녕하세요?' }, { role: 'assistant', content: '안녕하세요! 반가워요.' },
+    { role: 'student', content: '고마워' }, { role: 'assistant', content: '천만에요.' },
+    { role: 'student', content: '오늘 좀 긴장돼' }, { role: 'assistant', content: '천천히 해도 괜찮아요.' },
+  ];
+  const result = paths.shared('주민들은 왜 변전소 사업에 반대하나요?', history);
+  assert.doesNotMatch(result.studentReply, /혹시 지문에서 모르는 단어/);
+  assert.notEqual(result.questionType, 'smalltalk');
+  assert.match(result.studentReply, /소음|걱정/);
+});
+
 const titleGreeting = '글을 읽고 궁금한 것을 질문해 주세요! 제목을 보고 어떤 내용인지 생각해 볼까요?';
 const animalLesson = {
   ...lesson,
@@ -105,6 +181,13 @@ const animalLesson = {
   sourceHash: 'synthetic-animal-opening-0001',
 };
 const animalConfig = createLiteQuestioningConfig(animalLesson, 'exploration');
+
+test('shared vocabulary resolver keeps a prior dictionary term for contextual follow-up', () => {
+  assert.equal(resolveLessonVocabularyTerm('외래종 뜻이 뭐예요?', animalConfig.material), '외래종');
+  assert.equal(resolveLessonVocabularyTerm('이 글에서는 무슨 뜻이에요?', animalConfig.material, [
+    { role: 'assistant', content: '‘외래종’은 사전적으로 다른 지역에서 들어온 종을 말해요.' },
+  ]), '외래종');
+});
 const greetingHistory = [{ role: 'assistant', content: titleGreeting }];
 const animalPaths = {
   base(studentTurn, conversation = greetingHistory) {

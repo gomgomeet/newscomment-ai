@@ -774,6 +774,35 @@ function compactLiteEngineHistory_(history) {
 }
 
 function assertLiteAssessmentEngineResponse_(payload, body) {
+  const observedSmalltalk = body && body.observation && body.observation.questionType === 'smalltalk';
+  if (observedSmalltalk) {
+    const observed = body.observation;
+    const invalidSmalltalk = observed.questionCategory !== '' || observed.relatedQuestion !== false ||
+      observed.responseScore !== null || observed.managedKind !== '' ||
+      !Array.isArray(observed.evidenceIds) || observed.evidenceIds.length !== 0 ||
+      observed.sourceStatus !== 'out_of_scope' || observed.primaryMove !== 'receive' ||
+      (Array.isArray(observed.rubricScores) && observed.rubricScores.length !== 0) ||
+      (Object.prototype.hasOwnProperty.call(body, 'skipModel') && body.skipModel !== true);
+    if (invalidSmalltalk) {
+      throw new Error('공통 대화 엔진의 짧은 인사 응답 계약을 확인하지 못했습니다.');
+    }
+    if (payload && payload.activityMode === 'evaluation' && payload.assessmentProgress) {
+      const previous = normalizeLiteAssessmentProgress_(payload.assessmentProgress);
+      const current = normalizeLiteAssessmentProgress_(observed.assessmentProgress);
+      const stable = function (progress) {
+        return progress && JSON.stringify({
+          schemaVersion:progress.schemaVersion, planId:progress.planId,
+          activeIndex:progress.activeIndex, stage:progress.stage, items:progress.items
+        });
+      };
+      if (!current || stable(previous) !== stable(current) ||
+          current.lastEvent.kind !== 'question' ||
+          current.lastEvent.requestId !== String(payload.requestId || '') ||
+          current.lastEvent.evidenceVerified !== false) {
+        throw new Error('짧은 인사로 평가 답변 횟수나 기준 진행이 바뀌었습니다.');
+      }
+    }
+  }
   if (payload && payload.understanding === true) {
     const observed = body && body.observation;
     if (!observed || observed.understanding !== true || observed.assessmentProgress ||
@@ -1182,7 +1211,8 @@ function commitLitePreparedResult_(settings, turn, prepared, runtimeContext) {
     engineStatus:liteText_(prepared.engineStatus, 240),
     aiStatus:liteText_(prepared.aiStatus, 240)
   }, {
-    updateEvaluation:!turn.understanding && turn.action !== 'start_assessment',
+    updateEvaluation:!turn.understanding && turn.action !== 'start_assessment' &&
+      observation.questionType !== 'smalltalk' && !isLitePureSocialSmalltalk_(turn.message),
     settings:settings,
     observation:observation,
     spreadsheet:runtimeContext.spreadsheet,

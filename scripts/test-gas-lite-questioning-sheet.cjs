@@ -82,6 +82,12 @@ assert.equal(context.isLiteQuestioningRequest_('나는 왜 그랬는지 모르�
 assert.equal(context.isLiteQuestioningRequest_('나는 왜 그랬는지 몰랐어.'), false);
 assert.equal(context.isLiteQuestioningRequest_('맹수 뜻 알려줘'), true);
 assert.equal(context.isLiteQuestioningRequest_('글에 나온 사람은 누구인가요'), true);
+assert.equal(context.isLiteQuestioningRequest_('안녕하세요?'), false);
+assert.equal(context.isLiteQuestioningRequest_('감사합니다?'), false);
+assert.equal(context.isLiteQuestioningRequest_('안녕하세요. 반가워요?'), false);
+assert.equal(context.isLiteQuestioningRequest_('안녕하세요! 오늘 좀 긴장돼요?'), false);
+assert.equal(context.isLiteQuestioningRequest_('고마워요 선생님'), false);
+assert.equal(context.isLiteQuestioningRequest_('안녕하세요? 글의 주인공은 누구인가요?'), true);
 const spreadsheet = new SpreadsheetMock();
 for (const name of ['질문과 답변', '학생별 현황']) {
   context.ensureLiteSheet_(spreadsheet, name, headers[name]);
@@ -247,4 +253,38 @@ assert.equal(migratedSummary.inquiryQuestionCount, 1);
 assert.equal(migratedSummary.questionCount, 1);
 assert.equal(context.liteRowsAsObjects_(legacyQa)[1].questionCategory, 'inquiry');
 assert.equal(context.liteRowsAsObjects_(legacy.getSheetByName('학생 질문 분석')).length, 1);
+
+const socialSheet = new SpreadsheetMock();
+for (const name of ['질문과 답변', '학생별 현황']) {
+  context.ensureLiteSheet_(socialSheet, name, headers[name]);
+}
+const socialSession = 'pure-social-questioning-session';
+function socialTurn(message, requestId) {
+  return {requestId, studentCode:'01-003', sessionId:socialSession,
+    lessonId, lessonRevision:1, sourceHash, activityMode:'questioning',
+    message, startQuestion:'', isPreview:false};
+}
+for (const [message, id] of [
+  ['안녕하세요?', 'social-greeting-0001'], ['감사합니다?', 'social-thanks-0002'],
+  ['오늘 좀 긴장돼.', 'social-wellbeing-0003'],
+  ['안녕하세요. 반가워요?', 'social-composite-0005'],
+  ['안녕하세요! 오늘 좀 긴장돼요?', 'social-composite-0006'],
+  ['고마워요 선생님', 'social-honorific-0007']
+]) {
+  const savedSocial = context.appendLiteTurnPair_(socialTurn(message, id), result('', {
+    questionType:'smalltalk', questionCategory:'', sourceStatus:'out_of_scope',
+    relatedQuestion:false, responseScore:null, managedKind:'', evidenceIds:[]
+  }), {spreadsheet:socialSheet, workbookReady:true});
+  assert.equal(savedSocial.questionClassificationStatus, '');
+  assert.deepEqual(plain(savedSocial.questionCounts),
+    {fact:0, inquiry:0, application:0, reflection:0, unclassified:0});
+}
+assert.equal(context.liteRowsAsObjects_(socialSheet.getSheetByName('학생 질문 분석')).length, 0);
+assert.equal(context.liteRowsAsObjects_(socialSheet.getSheetByName('학생별 현황'))[0].questionCount, 0);
+const mixed = context.appendLiteTurnPair_(
+  socialTurn('안녕하세요? 글의 주인공은 누구인가요?', 'social-mixed-0004'), result('fact'),
+  {spreadsheet:socialSheet, workbookReady:true}
+);
+assert.equal(mixed.questionCounts.fact, 1, 'content mixed with greeting remains a real question');
+assert.equal(context.liteRowsAsObjects_(socialSheet.getSheetByName('학생 질문 분석')).length, 1);
 console.log('questioning Sheet counts, review rows, retries, exclusions and teacher edits: pass');

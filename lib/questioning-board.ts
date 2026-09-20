@@ -5,6 +5,7 @@ export type QuestionType =
   | "application"
   | "extension"
   | "reflection"
+  | "smalltalk"
   | "off_topic"
   | "safety";
 
@@ -995,6 +996,7 @@ export const questionTypeLabels: Record<QuestionType, string> = {
   application: "적용 질문",
   extension: "확장 질문",
   reflection: "성찰 질문",
+  smalltalk: "짧은 인사·안부",
   off_topic: "범위 밖 질문",
   safety: "안전 확인",
 };
@@ -1410,6 +1412,31 @@ function mentionsResidentRegistrationNumber(text: string) {
   return /주민(?:등록)?번호/.test(text.replace(/\s+/g, ""));
 }
 
+/** 수업 내용이나 질문이 섞이지 않은 아주 짧은 인사·감사·안부만 허용한다. */
+export function classifyStudentSmalltalk(value: string): "greeting" | "thanks" | "check_in" | null {
+  // Match GAS Lite's narrow whole-turn rule. One or two known social parts
+  // are fine, but any material question in either part keeps the content path.
+  const turn = value.normalize("NFKC").trim().replace(/\s+/g, " ");
+  if (!turn || turn.length > 60) return null;
+  const segments = turn.split(/[.!?…。~～]+/g)
+    .map((part) => part.trim().replace(/\s+선생님$/, "").trim()).filter(Boolean);
+  if (!segments.length || segments.length > 2) return null;
+  const kinds = segments.map((part) => {
+    if (/^(?:안녕(?:하세요|하십니까)?|반가워요?|하이|hi|hello)$/i.test(part)) return "greeting";
+    if (/^(?:(?:정말|진짜|너무)\s+)?(?:(?:알려|도와|설명해)\s*줘서\s*)?(?:고마워요?|고맙습니다|감사해요|감사합니다|땡큐|thanks?|thank you)$/i.test(part)) return "thanks";
+    if (/^(?:(?:나|저|제가|나는|저는)\s*)?(?:(?:오늘\s*)(?:(?:좀|조금|많이)\s*)?|(?:(?:좀|조금)\s*))(?:긴장돼요?|떨려요?|걱정돼요?|기분이\s*좋아요?)$/.test(part)) return "check_in";
+    return null;
+  });
+  if (kinds.some((kind) => !kind)) return null;
+  return kinds.includes("check_in") ? "check_in" : kinds.includes("thanks") ? "thanks" : "greeting";
+}
+
+function withoutLeadingSocialPreface(value: string) {
+  return value.replace(/^(?:안녕(?:하세요|하십니까)?|반가워요?|고마워요?|고맙습니다|감사해요|감사합니다)[~!?.！？…。～,，\s]+(?=\S)/, "").trim() || value;
+}
+
+const urgentDistressPattern = /죽고\s*싶|자해|살기\s*싫|목숨|스스로\s*해치|다치게\s*하고\s*싶/;
+
 export function classifyQuestionLocally(
   question: string,
   behaviorValue?: QuestioningChatbotBehavior,
@@ -1426,10 +1453,12 @@ export function classifyQuestionLocally(
     (/(써줘|작성해줘|만들어줘|대신해줘|보여줘)/.test(compact) &&
       /(답|문장|문단|소개문|수행평가|숙제|예시)/.test(compact));
 
-  if (unsafeAnswerRequest || mentionsResidentRegistrationNumber(question) ||
+  if (unsafeAnswerRequest || urgentDistressPattern.test(question) || mentionsResidentRegistrationNumber(question) ||
       keywords.safety.some((signal) => normalized.includes(signal.toLowerCase()))) {
     return "safety";
   }
+
+  if (classifyStudentSmalltalk(question)) return "smalltalk";
 
   if (keywords.off_topic.some((signal) => normalized.includes(signal.toLowerCase()))) {
     return "off_topic";
@@ -1613,9 +1642,11 @@ export function scoreSourceSentence(
   const terms = Array.from(new Set((question.match(/[가-힣A-Za-z0-9]+/g) || [])
     .map(normalizeSearchToken)
     .filter((term) => term.length >= 2 && !questionSearchStopwords.has(term))));
+  const asksForReason = /(?:왜|이유|까닭|원인|사정|경위)/.test(compactQuestion);
   const topicScore = terms.reduce((total, term) => total + (
     compactSentence.includes(term)
-      ? prioritizeQuestionIntent && questionIntentTerms.has(term) ? 10 : Math.min(term.length, 6)
+      ? asksForReason && /^(이유|까닭|원인)$/.test(term) ? 0
+        : prioritizeQuestionIntent && questionIntentTerms.has(term) ? 10 : Math.min(term.length, 6)
       : 0
   ), 0);
   let score = topicScore;
@@ -1663,6 +1694,127 @@ export function scoreSourceSentence(
   return score;
 }
 
+function asksForEventCause(question: string) {
+  const compact = question.replace(/\s+/g, "");
+  return /(왜|이유|까닭|원인|사정|경위)/.test(compact) &&
+    !/(뜻|의미|낱말|단어|용어)/.test(compact);
+}
+
+function isMovementQuestion(question: string) {
+  return /(옮겨|옮긴|옮겼|오게|왔|떠나|데려|이동|지내게|살게)/.test(question);
+}
+
+function materialActorAnchor(
+  question: string,
+  segments: Array<{ text: string }>,
+  movement = false,
+) {
+  const moved = movement
+    ? /([가-힣A-Za-z0-9·]+?)(?:을|를)\s*(?:데려|옮겨|구조|받아)/.exec(question)?.[1] : "";
+  if (moved && segments.some((segment) => segment.text.includes(moved))) return moved;
+  const generic = /^(우리|학교|학생|사람|동물|동물원|자신|생각|느낌|사례|방법|상황|체험|수업)$/;
+  const firstWord = /^([가-힣A-Za-z0-9·]{2,})\s/.exec(question)?.[1] || "";
+  // In names like 바람이, the final 이 is part of the name rather than a
+  // subject particle. Keep the whole word when the passage repeats it.
+  if (firstWord.endsWith("이") && !generic.test(firstWord) &&
+      segments.some((segment) => segment.text.includes(firstWord))) return firstWord;
+  const subject = /^(?:[“‘"']?)([가-힣A-Za-z0-9·]{2,}?)(?:들은|들이|께서|은|는|이|가)\s/.exec(question)?.[1] || "";
+  if (subject && !generic.test(subject) &&
+      segments.some((segment) => segment.text.includes(subject))) return subject;
+  const candidates = (question.match(/[가-힣A-Za-z0-9·]{2,}/g) || [])
+    .flatMap((word) => [word, word.replace(/(?:들은|들이|께서|에서|으로|에게|한테|처럼|마다|와|과|은|는|이|가|을|를|의|에|도)$/, "")])
+    .filter((word) => word.length >= 2 && !generic.test(word) &&
+      !questionSearchStopwords.has(word) && !questionIntentTerms.has(word))
+    .map((word) => ({ word, count: segments.filter((segment) => segment.text.includes(word)).length }))
+    .filter(({ count }) => count > 0)
+    .sort((left, right) => left.count - right.count || right.word.length - left.word.length);
+  return candidates[0]?.word || "";
+}
+
+function sourceEventBundle(
+  segments: Array<{ text: string }>,
+  scored: Array<{ index: number; score: number }>,
+  bestIndex: number,
+  actor: string,
+) {
+  // An actor can move more than once. The named destination and movement in
+  // the question choose the event; an earlier rescue is not its later cause.
+  const movement = /(옮겨|옮겼|옮기|이동했|이동하|이동되|오게|왔|떠나|지내게|살게)/;
+  const moves = scored.filter(({ index }) => movement.test(segments[index].text));
+  const actorAction = scored.filter(({ index }) => segments[index].text.includes(actor) &&
+    /(제안|데려|구조|받아들)/.test(segments[index].text))
+    .sort((left, right) => right.score - left.score)[0];
+  const target = moves.sort((left, right) => right.score - left.score)[0]?.index ??
+    actorAction?.index ?? bestIndex;
+  const moveIndices = moves.map(({ index }) => index).sort((left, right) => left - right);
+  const targetOrder = moveIndices.indexOf(target);
+  const start = targetOrder > 0 ? moveIndices[targetOrder - 1] + 1 : 0;
+  const end = targetOrder >= 0 && targetOrder + 1 < moveIndices.length
+    ? moveIndices[targetOrder + 1] - 1 : segments.length - 1;
+  const targetSubject = /(?:^|\s)([가-힣A-Za-z0-9·]{2,}?)(?:들은|들이|께서|은|는|이|가)\s/.exec(segments[target].text)?.[1] || "";
+  const actorHits = segments.filter((segment) => segment.text.includes(actor)).length;
+  const participant = actorHits > 1 ? actor : targetSubject || actor;
+  const inEvent = scored.filter(({ index }) => index >= start && index <= end);
+  const unknown = inEvent.find(({ index }) => explicitlyUnknownEventReason(segments[index].text));
+  if (unknown) return [target, unknown.index].filter((index, position, values) => values.indexOf(index) === position)
+    .sort((left, right) => left - right).map((index) => segments[index].text).join(" ");
+
+  const selected = new Set<number>([target]);
+  let length = segments[target].text.length;
+  const candidates = inEvent.filter(({ index, score }) => index !== target && score > 0 &&
+    (segments[index].text.includes(participant) ||
+      (Math.abs(index - target) <= 2 && /(좁|말랐|아팠|다쳤|위험|어려|알려|잃|제안|구조)/.test(segments[index].text))));
+  candidates.sort((left, right) => {
+    const priority = (index: number) =>
+      (/(좁|말랐|아팠|다쳤|위험|어려|알려|잃)/.test(segments[index].text) ? 7 : 0) +
+      (/(제안|결정|데려|구조|보호)/.test(segments[index].text) ? 5 : 0);
+    return priority(right.index) + right.score - priority(left.index) - left.score ||
+      Math.abs(left.index - target) - Math.abs(right.index - target);
+  });
+  for (const { index } of candidates) {
+    if (selected.size >= 5) break;
+    if (length + segments[index].text.length + 1 <= 500) {
+      selected.add(index);
+      length += segments[index].text.length + 1;
+    }
+  }
+  return [...selected].sort((left, right) => left - right)
+    .map((index) => segments[index].text).join(" ");
+}
+
+function explicitlyUnknownEventReason(sentence: string) {
+  return /(?:이유|까닭|원인|사정).{0,45}(?:나오지\s*않|밝히지\s*않|알\s*수\s*없|확인할\s*수\s*없|알려지지\s*않|확인되지\s*않)/.test(sentence);
+}
+
+function sourceInterpretiveBundle(
+  segments: Array<{ text: string }>,
+  scored: Array<{ index: number; score: number }>,
+  bestIndex: number,
+  actor: string,
+) {
+  const actorBest = scored.filter(({ index, score }) => score > 0 && segments[index].text.includes(actor))
+    .sort((left, right) => right.score - left.score)[0];
+  const anchor = actorBest?.index ?? bestIndex;
+  const selected = new Set<number>([anchor]);
+  let length = segments[anchor].text.length;
+  const candidates = scored.filter(({ index, score }) => index !== anchor && score > 0 &&
+    segments[index].text.includes(actor));
+  candidates.sort((left, right) => {
+    const action = (index: number) => /(좁|말랐|제안|구조|보호|조성|바꾸|넓히|줄이|늘리|옮기|쉬|회복|변화)/
+      .test(segments[index].text) ? 4 : 0;
+    return action(right.index) + right.score - action(left.index) - left.score || left.index - right.index;
+  });
+  for (const { index } of candidates) {
+    if (selected.size >= 5) break;
+    if (length + segments[index].text.length + 1 <= 500) {
+      selected.add(index);
+      length += segments[index].text.length + 1;
+    }
+  }
+  return [...selected].sort((left, right) => left - right)
+    .map((index) => segments[index].text).join(" ");
+}
+
 function asksForCausalCertainty(question: string) {
   const compact = question.replace(/\s+/g, "");
   return asksRatherThanStates(question) &&
@@ -1683,7 +1835,12 @@ function startsWithDifferentActor(sentence: string, actor: string) {
   return Boolean(subject && subject[1].toLowerCase() !== actor && !sentence.toLowerCase().includes(actor));
 }
 
-function findRelevantSourceExcerpt(question: string, material: MaterialAnalysis, prioritizeQuestionIntent: boolean) {
+function findRelevantSourceExcerpt(
+  question: string,
+  material: MaterialAnalysis,
+  prioritizeQuestionIntent: boolean,
+  questionType?: QuestionType,
+) {
   const visibleText = material.visibleText.trim();
   const summary = material.summary.trim();
   const isReferenceOnly = visibleText === REFERENCE_ONLY_QUESTION_MATERIAL_TEXT;
@@ -1739,6 +1896,15 @@ function findRelevantSourceExcerpt(question: string, material: MaterialAnalysis,
   // A zero-match summary or opening sentence is not evidence for this question.
   // Returning no cue lets the answer state the knowledge boundary honestly.
   if (best.score <= 0) return "";
+  if (asksForEventCause(question) && isMovementQuestion(question) &&
+      !positionQuestionActor(question) && !asksForCausalCertainty(question)) {
+    const actor = materialActorAnchor(question, segments, true);
+    if (actor) return sourceEventBundle(segments, scored, best.index, actor);
+  }
+  if (questionType === "reflection" || questionType === "application") {
+    const actor = materialActorAnchor(question, segments);
+    if (actor) return sourceInterpretiveBundle(segments, scored, best.index, actor);
+  }
   const bestSegment = segments[best.index];
   const nextSegment = segments[best.index + 1];
   let combined =
@@ -2276,18 +2442,27 @@ function asksContextualMeaning(studentTurn: string, conversation: QuestioningCon
   return gaveDictionaryOnly && mentionsMaterial;
 }
 
+/** 학생 질문과 직전 사전 풀이에서 뜻을 물은 표제어를 찾는다. */
+export function resolveLessonVocabularyTerm(
+  studentTurn: string,
+  material: MaterialAnalysis,
+  conversation: QuestioningConversationEntry[] = [],
+): string {
+  if (asksContextualMeaning(studentTurn, conversation)) {
+    const lastAssistant = [...conversation].reverse().find((entry) => entry.role === "assistant")?.content || "";
+    const previousTerm = /‘([^’]{1,20})’/.exec(lastAssistant)?.[1] || "";
+    if (previousTerm) return previousTerm;
+  }
+  return extractRequestedVocabularyTerm(studentTurn, material);
+}
+
 function createVocabularyLocalTurn(
   studentTurn: string,
   material: MaterialAnalysis,
   conversation: QuestioningConversationEntry[] = [],
 ): NaturalLocalTurn {
   const wantsContextFollowUp = asksContextualMeaning(studentTurn, conversation);
-  let term = "";
-  if (wantsContextFollowUp) {
-    const lastAssistant = [...conversation].reverse().find((entry) => entry.role === "assistant")?.content || "";
-    term = /‘([^’]{1,20})’/.exec(lastAssistant)?.[1] || "";
-  }
-  if (!term) term = extractRequestedVocabularyTerm(studentTurn, material);
+  const term = resolveLessonVocabularyTerm(studentTurn, material, conversation);
   if (!term) {
     return {
       reply: "뜻을 알고 싶은 낱말을 따옴표로 표시해 주세요. 예를 들면 ‘공회전’이 무슨 뜻이에요처럼 쓰면 그 문장에 맞춰 설명할게요.",
@@ -2456,6 +2631,22 @@ function createLegacyLocalQuestionResult({
     };
   }
 
+  if (questionType === "smalltalk") {
+    return {
+      answer: "",
+      followUpQuestion: "",
+      questionType,
+      typeLabel,
+      typeReason: "수업 내용이 섞이지 않은 짧은 인사·감사·안부입니다.",
+      evidencePrompt: "",
+      revisionSuggestion: "",
+      evaluationSignals: ["평가·질문 집계 대상 아님"],
+      teacherFeedback: "짧게 받아 주고 수업 자료로 부드럽게 연결합니다.",
+      rubricScores: [],
+      safetyFlag: false,
+    };
+  }
+
   if (questionType === "off_topic") {
     return {
       answer: behavior.offTopicResponse,
@@ -2521,6 +2712,7 @@ function createLegacyLocalQuestionResult({
     application: "우리 반, 우리 학교, 다른 상황처럼 적용할 조건을 구체적으로 넣어 보세요.",
     extension: "수업 자료와 어떤 부분이 연결되는지 먼저 쓰고, 추가로 확인할 출처나 자료를 함께 적어 보세요.",
     reflection: "내 질문이 자료 근거와 연결되는지, 무엇을 더 확인해야 하는지 돌아보는 문장으로 다시 써 보세요.",
+    smalltalk: "",
     off_topic: "자료 속 특정 부분과 연결해 다시 질문해 보세요.",
     safety: "개인정보와 대필 요청을 빼고 다시 질문해 보세요.",
   };
@@ -2975,6 +3167,23 @@ type NaturalLocalTurn = {
 
 function withoutLeadingConnector(value: string) {
   return value.replace(/^(다만|하지만|그러나|반면)\s*/g, "").trim();
+}
+
+function localEventCauseReply(sourceCue: string, question: string) {
+  if (!asksForEventCause(question) || !isMovementQuestion(question)) return "";
+  const sentences = (sourceCue.replace(/(\d)\.(\d)/g, "$1<decimal>$2")
+    .match(/[^.!?。！？]+[.!?。！？]?/g) || [])
+    .map((sentence) => sentence.replace(/<decimal>/g, ".").trim())
+    .filter((sentence) => sentence.length >= 8);
+  const actionIndex = sentences.findIndex((sentence) => /(제안|결정|데려오|구조|받아들)/.test(sentence));
+  if (actionIndex < 0) return "";
+  const background = sentences.slice(0, actionIndex)
+    .filter((sentence) => /(좁|말랐|아팠|다쳤|위험|힘들|어려|알려|잃)/.test(sentence))
+    .slice(-2);
+  if (!background.length) return "";
+  // The article supplies a sequence, not necessarily a quoted motive. Show
+  // the original facts first, then label the causal connection as inference.
+  return `${[...background, sentences[actionIndex]].join(" ")} 이 앞뒤 사정을 연결하면 옮겨 온 배경을 짐작할 수 있어요.`;
 }
 
 function createGeneralNaturalTurn({
@@ -3488,6 +3697,42 @@ function createGeneralNaturalTurn({
   }
 
   if (questionType === "inference") {
+    if (asksForEventCause(studentTurn) && isMovementQuestion(studentTurn)) {
+      const explicitUnknown = (sourceCue.match(/[^.!?。！？]+[.!?。！？]?/g) || [])
+        .map((sentence) => sentence.trim())
+        .find(explicitlyUnknownEventReason);
+      if (explicitUnknown) {
+        return {
+          reply: explicitUnknown,
+          primaryMove: "clarify",
+          engagementState: "seeking_evidence",
+          curriculumRelation: "direct",
+          sourceStatus: "source_insufficient",
+          supportLevel: 1,
+        };
+      }
+      const eventReply = localEventCauseReply(sourceCue, studentTurn);
+      if (eventReply) {
+        return {
+          reply: eventReply,
+          primaryMove: "compare_possibilities",
+          engagementState: "exploring_possibilities",
+          curriculumRelation: "direct",
+          sourceStatus: "reasonable_inference",
+          supportLevel: 1,
+        };
+      }
+      if (!/(때문|덕분|위해|하려고|(?:아|어|여)서|므로|원인)/.test(sourceCue)) {
+        return {
+          reply: "자료에는 이 이동의 이유가 나오지 않아요.",
+          primaryMove: "clarify",
+          engagementState: "seeking_evidence",
+          curriculumRelation: "direct",
+          sourceStatus: "source_insufficient",
+          supportLevel: 1,
+        };
+      }
+    }
     return {
       reply: cue,
       primaryMove: "compare_possibilities",
@@ -4013,12 +4258,14 @@ export function createLocalQuestionResult({
   });
   const compactTurn = turn.replace(/\s+/g, "");
   const requestsHint = isQuestioningHintRequest(turn);
-  const sourceSearch = requestsHint ? hintContext(conversation) || turn : turn;
+  const sourceSearch = requestsHint ? hintContext(conversation) || turn : withoutLeadingSocialPreface(turn);
   // A plain student statement is conversation, not a fact-retrieval request.
   // Searching it often selected the first unrelated sentence as "evidence".
-  const shouldRetrieveSource = requestsHint || asksRatherThanStates(turn);
+  const shouldRetrieveSource = legacy.questionType !== "smalltalk" &&
+    (requestsHint || asksRatherThanStates(turn));
   const sourceCue = shouldRetrieveSource
-    ? findRelevantSourceExcerpt(sourceSearch.replace(/\bblue\s*light\b/gi, "파란빛"), material, /[?？]/.test(sourceSearch))
+    ? findRelevantSourceExcerpt(sourceSearch.replace(/\bblue\s*light\b/gi, "파란빛"), material,
+      /[?？]/.test(sourceSearch), legacy.questionType)
     : "";
   const shortSourceCue = requestsHint
     ? bestSourceSentence(sourceCue, sourceSearch, 115)
@@ -4110,11 +4357,9 @@ export function createLocalQuestionResult({
     mentionsResidentRegistrationNumber(turn) ||
     /(전화번호|주소|비밀번호|이름은|이름이|이름을|실명|사진)/.test(turn);
 
-  // "고마워", "알려줘서 고마워~"처럼 감사만 남긴 말. 종료로 보기에는 이르다.
-  const thanksOnly =
-    /^(정말\s*|진짜\s*|알려\s*줘서\s*|알려\s*주셔서\s*)?(고마워요?|고맙습니다|감사합니다|감사해요|땡큐)[~!.\s]*$/.test(
-      turn.trim(),
-    );
+  const smalltalkKind = legacy.questionType === "smalltalk" ? classifyStudentSmalltalk(turn) : null;
+  const previousStudentTurn = [...conversation].reverse().find((entry) => entry.role === "student");
+  const hasRecentSmalltalk = Boolean(previousStudentTurn && classifyStudentSmalltalk(previousStudentTurn.content));
 
   let primaryMove: PrimaryMove;
   let engagementState: EngagementState;
@@ -4129,21 +4374,28 @@ export function createLocalQuestionResult({
     curriculumRelation = "disconnected";
     sourceStatus = "out_of_scope";
     supportLevel = 2;
-    studentReply = introducesOwnName
+    studentReply = urgentDistressPattern.test(turn)
+      ? "지금 많이 힘들다는 말을 해 줘서 고마워요. 가까운 믿을 만한 어른에게 바로 알리고 함께 있어 주세요. 당장 다칠 위험이 있다면 119나 112에 도움을 요청하세요."
+      : introducesOwnName
       ? "반가워요! 이름은 말하지 않아도 괜찮아요. 번호만으로 충분하거든요. 자료에서 눈에 들어온 것부터 이야기해 볼까요?"
       : asksToAvoidPersonalInformation
       ? "네, 이름은 말하지 않아도 돼요. 친구를 구분해야 할 때도 실명 대신 '어떤 학생', '한 친구'처럼 바꾸어 말하면 충분해요."
       : hasPrivateInformation
         ? "이름과 전화번호 같은 개인정보는 대화에 남기지 않는 게 좋아요. 그 정보는 빼고 '급한 연락이 필요한 학생'처럼 상황만 말하면 충분해요."
       : "완성된 답이나 문단을 대신 써 주지는 않을게요. 네가 말하고 싶은 내용 한 가지를 먼저 정하면, 시작할 수 있는 작은 단계나 필요한 표현을 도울 수 있어요.";
-  } else if (thanksOnly) {
-    // 고맙다는 말에 그 말을 그대로 돌려주면 되뱉기가 된다. 인사에는 인사로 답한다.
+  } else if (smalltalkKind) {
     primaryMove = "receive";
     engagementState = "noticing";
-    curriculumRelation = "direct";
-    sourceStatus = "supported";
+    curriculumRelation = "disconnected";
+    sourceStatus = "out_of_scope";
     supportLevel = 0;
-    studentReply = "천만에요. 궁금한 게 또 생기면 언제든 물어봐요.";
+    const acknowledgement = smalltalkKind === "greeting" ? "안녕하세요! 반가워요."
+      : smalltalkKind === "thanks" ? "천만에요."
+      : /기분이\s*좋아/.test(turn) ? "기분 좋은 하루군요."
+      : "긴장되거나 걱정될 수 있어요. 천천히 해도 괜찮아요.";
+    studentReply = hasRecentSmalltalk
+      ? `${acknowledgement} 수업 자료에서 궁금한 부분이 생기면 함께 살펴봐요.`
+      : acknowledgement;
   } else if (isClosing) {
     primaryMove = "close";
     engagementState = "ready_to_close";
@@ -4306,6 +4558,6 @@ export function createLocalQuestionResult({
     evaluationSignals: [...legacy.evaluationSignals, `대화 동작: ${primaryMove}`, `교육과정 나침반: ${compassSignal}`],
     teacherFeedback: `${legacy.teacherFeedback} 학생에게는 성취기준을 직접 제시하지 않고 ${primaryMove} 동작으로 응답했습니다.`,
     rubricScores: legacy.rubricScores,
-    safetyFlag: legacy.safetyFlag,
+    safetyFlag: legacy.safetyFlag || introducesOwnName,
   };
 }

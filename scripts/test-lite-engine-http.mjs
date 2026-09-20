@@ -98,7 +98,7 @@ async function planFor(message, activityMode, materialOverride) {
   assert.equal(questioningPlan.observation.assessmentProgress, undefined);
 
   const supported = await planFor('학교는 무엇을 줄이기 위해 개인 물병 사용을 권했나요?');
-  assert.equal(supported.plan.policyVersion, 'questioning-dialogue-v2-lite-adapter-v17');
+  assert.equal(supported.plan.policyVersion, 'questioning-dialogue-v2-lite-adapter-v19');
   assert.equal(supported.plan.modelRequest.outputContract, 'lead_evidence_quote_v1');
   assert.equal(supported.plan.skipModel, false);
   assert.equal(supported.plan.observation.sourceStatus, 'supported');

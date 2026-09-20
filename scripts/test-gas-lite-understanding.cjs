@@ -69,10 +69,22 @@ function setup() {
     assert.equal(locked,false,'network is outside script lock'); engineCalls++;
     const input = context.buildLiteEnginePayload_(turn,lesson,history);
     observations.push(input);
-    const observation = input.understanding
-      ? {understanding:true,conversationPhase:1,relatedQuestion:turn.message !== '안녕하세요',
-        questionType:'vocabulary',sourceStatus:'supported',responseScore:null,rubricScores:[],isClosing:turn.message==='마칠래요'}
-      : {conversationPhase:2,assessmentProgress:turn.assessmentProgress,responseScore:null,rubricScores:[]};
+    const social = context.isLitePureSocialSmalltalk_(turn.message);
+    const socialProgress = social && turn.assessmentProgress
+      ? JSON.parse(JSON.stringify(turn.assessmentProgress)) : null;
+    if (socialProgress) socialProgress.lastEvent = {
+      requestId:turn.requestId,criterionId:socialProgress.items[socialProgress.activeIndex].id,
+      kind:'question',evidenceVerified:false
+    };
+    const observation = social
+      ? {understanding:input.understanding === true,conversationPhase:input.understanding ? 1 : 2,
+        relatedQuestion:false,questionType:'smalltalk',questionCategory:'',sourceStatus:'out_of_scope',
+        responseScore:null,rubricScores:[],isClosing:false,managedKind:'',evidenceIds:[],primaryMove:'receive',
+        assessmentProgress:socialProgress}
+      : input.understanding
+        ? {understanding:true,conversationPhase:1,relatedQuestion:true,
+          questionType:'vocabulary',sourceStatus:'supported',responseScore:null,rubricScores:[],isClosing:turn.message==='마칠래요'}
+        : {conversationPhase:2,assessmentProgress:turn.assessmentProgress,responseScore:null,rubricScores:[]};
     context.assertLiteAssessmentEngineResponse_(input,{observation});
     return {skipModel:true,policyVersion:'warmup-policy',fallbackReply:'변전소는 전기의 전압을 바꾸는 시설이에요.',
       observation,enforcement:{maximumQuestionCount:0}};
@@ -80,8 +92,51 @@ function setup() {
   return {context,settings,payload,sheets,spreadsheet,observations,
     get engineCalls(){return engineCalls;},get evaluationWrites(){return evaluationWrites;},get providerCalls(){return providerCalls;}};
 }
+
 const plain = value => JSON.parse(JSON.stringify(value));
 
+{
+  const x=setup(), {context:c,payload:p,settings:s}=x;
+  let reply=c.submitLiteTurn({...p,message:'안녕하세요?'});
+  assert.equal(reply.canStartAssessment,false,'a punctuated greeting cannot open the assessment');
+  reply=c.submitLiteTurn({...p,requestId:'social-thanks-before-assessment',message:'감사합니다?'});
+  assert.equal(reply.canStartAssessment,false,'thanks cannot open the assessment');
+  assert.throws(() => c.submitLiteTurn({...p,requestId:'social-early-start',action:'start_assessment'}),/먼저 글/);
+  reply=c.submitLiteTurn({...p,requestId:'social-content-question',message:'변전소는 무슨 뜻인가요?'});
+  assert.equal(reply.canStartAssessment,true);
+  c.submitLiteTurn({...p,requestId:'social-assessment-start',action:'start_assessment',message:''});
+  const before=c.latestLiteAssessmentProgress_(c.liteRowsAsObjects_(x.sheets.get('질문과 답변')));
+  reply=c.submitLiteTurn({...p,requestId:'social-during-assessment',message:'안녕하세요?'});
+  assert.equal(reply.learningStage,'assessment');
+  assert.equal(x.evaluationWrites,0,'assessment smalltalk cannot create a teacher draft');
+  const after=c.latestLiteAssessmentProgress_(c.liteRowsAsObjects_(x.sheets.get('질문과 답변')));
+  assert.equal(after.activeIndex,before.activeIndex);
+  assert.deepEqual(plain(after.items),plain(before.items),'greeting does not consume an answer attempt');
+  assert.equal(after.lastEvent.kind,'question');
+  assert.equal(after.lastEvent.requestId,'social-during-assessment');
+  for (const [message, requestId] of [
+    ['안녕하세요. 반가워요?', 'social-composite-assessment-0001'],
+    ['안녕하세요! 오늘 좀 긴장돼요?', 'social-composite-assessment-0002'],
+    ['고마워요 선생님', 'social-honorific-assessment-0003']
+  ]) {
+    reply=c.submitLiteTurn({...p,requestId,message});
+    assert.equal(reply.learningStage,'assessment');
+    assert.equal(x.evaluationWrites,0,'pure social follow-up cannot become an assessment answer');
+    const socialAfter=c.latestLiteAssessmentProgress_(c.liteRowsAsObjects_(x.sheets.get('질문과 답변')));
+    assert.equal(socialAfter.activeIndex,before.activeIndex);
+    assert.deepEqual(plain(socialAfter.items),plain(before.items),'pure social follow-up preserves every attempt');
+    assert.equal(socialAfter.lastEvent.kind,'question');
+  }
+  const forged=plain(after);
+  forged.items[0].attempts += 1;
+  assert.throws(() => c.assertLiteAssessmentEngineResponse_(
+    c.buildLiteEnginePayload_({requestId:'social-during-assessment',activityMode:'evaluation',
+      assessmentProgress:before},s,[]),
+    {skipModel:true,observation:{questionType:'smalltalk',questionCategory:'',relatedQuestion:false,
+      responseScore:null,managedKind:'',evidenceIds:[],sourceStatus:'out_of_scope',primaryMove:'receive',
+      assessmentProgress:forged}}
+  ),/평가 답변 횟수/);
+}
 {
   const x=setup(), {context:c,payload:p,settings:s}=x;
   let session=c.startLiteStudentSession(p);

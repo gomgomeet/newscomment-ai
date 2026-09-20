@@ -76,6 +76,13 @@ assert.equal(elements.questionTypeChips.slice(0, 4).some((chip) => chip.classLis
   'Unclassified questions are not assigned to any of the four types');
 student.updateQuestionTypeBanner({ questionCategory:'', questionClassificationStatus:'' });
 assert.match(elements.questionTypeCurrent.textContent, /분류 보류/, 'A non-question does not erase the latest question status');
+student.updateQuestionTypeBanner({
+  questionCategory:'', questionClassificationStatus:'',
+  questionCounts:{ fact:1, inquiry:2, application:0, reflection:1, unclassified:1 }
+});
+assert.match(elements.questionTypeCurrent.textContent, /분류 보류/,
+  'a smalltalk reply with no category does not create a new pending classification');
+assert.equal(elements.unclassifiedQuestionCount.textContent, '1');
 
 // A session reload restores counts and latest genuine student type from persisted history metadata.
 state.questionCounts = { fact:0, inquiry:0, application:0, reflection:0, unclassified:0 };

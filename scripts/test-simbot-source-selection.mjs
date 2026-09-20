@@ -236,6 +236,85 @@ test('comparing two parties preserves both positions instead of selecting only o
   }
 });
 
+const lionAcrossParagraphs = [
+  '바람이는 좁은 실내동물원에서 오래 살았습니다. 바람이는 갈비뼈가 드러날 만큼 말랐고 시민들이 그 모습을 알렸습니다.',
+  '청주동물원은 바람이를 데려오겠다고 먼저 제안했습니다. 바람이는 넓은 보호시설로 옮겼습니다.',
+  '바람이는 원하면 관람객의 시선에서 벗어나 쉴 수 있습니다.',
+  '청주동물원에 코끼리와 기린이 없는 이유는 전시만을 위해 들여오지 않기 때문입니다.',
+].join('\n\n');
+
+test('event inference joins the named animal condition and decision across paragraphs', () => {
+  for (const question of ['바람이는 왜 청주동물원에 왔나요?', '청주동물원은 왜 바람이를 데려왔나요?']) {
+    const result = ask(lionAcrossParagraphs, question);
+    assert.match(result.sourceCue, /갈비뼈가 드러날 만큼 말랐/);
+    assert.match(result.sourceCue, /데려오겠다고 먼저 제안/);
+    assert.doesNotMatch(result.sourceCue, /코끼리와 기린/);
+    assert.match(result.studentReply, /말랐|좁은 실내동물원/);
+    assert.match(result.studentReply, /데려오겠다고 먼저 제안/);
+    assert.doesNotMatch(result.studentReply, /코끼리와 기린/);
+  }
+});
+
+test('a transfer without a stated reason does not become an invented rescue motive', () => {
+  const result = ask(
+    '바람이는 청주동물원으로 옮겼습니다. 청주동물원에 코끼리가 없는 이유는 기후 때문입니다.',
+    '바람이는 왜 청주동물원으로 옮겼나요?',
+  );
+  assert.doesNotMatch(result.studentReply, /좁은|말랐|시민들이|구조|보호하려|기후 때문/);
+});
+
+const twoMovesWithUnknownSecondReason = [
+  '바람이는 좁은 방에 오래 살았고 갈비뼈가 드러날 만큼 말랐습니다.',
+  '청주동물원은 바람이를 데려오겠다고 먼저 제안했습니다. 바람이는 청주동물원으로 옮겼습니다.',
+  '그 뒤 바람이는 다른 지역 보호소로 다시 옮겨졌습니다.',
+  '두 번째 이동의 이유는 기사에 나오지 않았습니다.',
+].join('\n\n');
+
+test('the unknown second transfer does not inherit the first transfer background', () => {
+  for (const question of [
+    '바람이가 왜 다른 지역 보호소로 다시 옮겨졌나요?',
+    '왜 다른 지역 보호소로 다시 옮겨졌나요?',
+  ]) {
+    const result = ask(twoMovesWithUnknownSecondReason, question);
+    assert.match(result.sourceCue, /다른 지역 보호소로 다시 옮겨졌/);
+    assert.match(result.sourceCue, /두 번째 이동의 이유는 기사에 나오지 않았/);
+    assert.doesNotMatch(result.sourceCue, /좁은 방|갈비뼈|데려오겠다고 먼저 제안/);
+    assert.equal(result.sourceStatus, 'source_insufficient');
+    assert.match(result.studentReply, /두 번째|다른 지역 보호소/);
+    assert.match(result.studentReply, /이유.*나오지 않|이유.*확인할 수 없/);
+    assert.doesNotMatch(result.studentReply, /좁은 방|갈비뼈|데려오겠다고 먼저 제안/);
+  }
+});
+
+test('the first transfer still uses its own background when the article also has a later move', () => {
+  const result = ask(twoMovesWithUnknownSecondReason, '바람이가 왜 청주동물원으로 옮겼나요?');
+  assert.match(result.sourceCue, /좁은 방|갈비뼈가 드러날 만큼 말랐/);
+  assert.match(result.sourceCue, /청주동물원은 바람이를 데려오겠다고 먼저 제안/);
+  assert.doesNotMatch(result.sourceCue, /다른 지역 보호소|두 번째 이동의 이유/);
+  assert.match(result.studentReply, /말랐|좁은 방/);
+  assert.match(result.studentReply, /제안/);
+});
+
+test('a later transfer without any explanation also does not borrow the first rescue', () => {
+  const article = twoMovesWithUnknownSecondReason.replace('두 번째 이동의 이유는 기사에 나오지 않았습니다.', '');
+  const result = ask(article, '바람이가 왜 다른 지역 보호소로 다시 옮겨졌나요?');
+  assert.equal(result.sourceStatus, 'source_insufficient');
+  assert.match(result.sourceCue, /다른 지역 보호소로 다시 옮겨졌/);
+  assert.doesNotMatch(`${result.sourceCue} ${result.studentReply}`, /좁은 방|갈비뼈|데려오겠다고 먼저 제안/);
+});
+
+test('reflection and application retrieve related article passages beyond the first matching sentence', () => {
+  for (const [question, expected] of [
+    ['바람이 이야기를 읽고 동물원을 바라보는 내 생각을 어떻게 돌아볼까요?', /시선에서 벗어나 쉴 수/],
+    ['우리 학교에서 바람이와 같은 동물을 만나는 체험을 한다면 어떤 방법이 좋을까요?', /시선에서 벗어나 쉴 수/],
+  ]) {
+    const result = ask(lionAcrossParagraphs, question);
+    assert.match(result.sourceCue, /갈비뼈가 드러날 만큼 말랐|좁은 실내동물원/);
+    assert.match(result.sourceCue, expected);
+    assert.doesNotMatch(result.sourceCue, /코끼리와 기린/);
+  }
+});
+
 test('existing development and holdout dialogue expectations survive the shared-core change', () => {
   // Reuse only the existing runner's pure expectation checks. Its HTTP client and
   // file-writing main function are deliberately not evaluated or invoked.
