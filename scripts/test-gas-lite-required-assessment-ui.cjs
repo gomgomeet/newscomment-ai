@@ -76,6 +76,8 @@ assert.equal(savedPlan.approved,true);
 assert.deepEqual(savedPlan.criteria.map((item)=>item.id),['q1','q2']);
 assert.deepEqual(savedPlan.criteria.map((item)=>item.mainQuestion),questions.map((item)=>item.question));
 assert.ok(savedPlan.criteria.every((item)=>item.requireSourceEvidence && item.followUpQuestion.endsWith('?')));
+assert.ok(savedPlan.criteria.every((item)=>item.followUpQuestion === '글에서 답을 뒷받침하는 부분을 찾아 적어 줄래요?'));
+assert.ok(savedPlan.criteria.every((item)=>!/따옴표|인용/.test(item.followUpQuestion)));
 assert.equal(save.args[1].requiredAssessment.items[0].expectedAnswer,'교사가 다듬은 답변 핵심');
 assert.equal(save.args[1].startQuestion,base.startQuestion);
 save.success({lessonId:base.lessonId,settings:clone(save.args[1]),readiness:{distributionReady:false,runtimeReady:true,setupReady:true,checks:[]}});

@@ -486,7 +486,7 @@ function deriveLiteRequiredAssessmentPlan_(raw, context, approved) {
       criterion:liteText_('문항 ' + (index+1) + ' · ' + item.assessmentCriteria,180),
       responseKind:'explanation',
       mainQuestion:item.question,
-      followUpQuestion:'답변을 뒷받침하는 수업자료의 정확한 구절은 무엇인가요?',
+      followUpQuestion:'글에서 답을 뒷받침하는 부분을 찾아 적어 줄래요?',
       evidenceDescription:liteText_(item.evidenceDescription,300),
       sourceQuote:liteText_(item.assessmentEvidence.replace(/\s+/g,' '),240),
       requireSourceEvidence:true

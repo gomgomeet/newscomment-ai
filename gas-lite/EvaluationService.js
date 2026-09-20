@@ -193,7 +193,7 @@ function upsertLiteEvaluationDraft_(settings, turn, observation, options) {
       lessonRevision: settings.lessonRevision || 1,
       rubricScheme: rubricScheme,
       automaticJudgment: progress
-        ? '기준별 응답·자료인용 수집 기록 · 성취 충족이나 자동 성적이 아님 · 교사 판단 전'
+        ? '기준별 응답·자료 근거 수집 기록 · 성취 충족이나 자동 성적이 아님 · 교사 판단 전'
         : accumulatedScores.length
         ? '공통 질문행동 관찰 · ' + (rubricScheme !== 'legacy_three' ? '' : judgment.label + ' · ') +
           '평균 ' + judgment.average + '/5 · 교사 기준 판단 전'

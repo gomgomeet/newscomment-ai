@@ -292,7 +292,7 @@
             <section id="required-rubric-section" class="hidden" aria-label="문항별 답변 분석 기준표">
               <h3>② 문항별 답변 분석 기준표</h3>
               <p class="help">AI 초안을 검토·수정해 주세요. 챗봇이 대화에서 두 문항을 한 번에 하나씩 묻고 답변을 이 기준으로 분석합니다. 최종 평가는 교사가 검수합니다.</p>
-              <p class="help">근거가 부족하면 “답변을 뒷받침하는 수업자료의 정확한 구절은 무엇인가요?”라고 보충 질문합니다. 아래 자료 근거의 앞부분을 힌트로 사용합니다.</p>
+              <p class="help">근거가 부족하면 “글에서 답을 뒷받침하는 부분을 찾아 적어 줄래요?”라고 한 번만 묻습니다. 따옴표는 필요하지 않습니다. 아래 자료 근거의 앞부분을 힌트로 사용합니다.</p>
               <div id="required-rubric-items"></div>
               <details><summary>대화에서 질문하는 순서·보충 질문·힌트</summary><ol id="required-question-plan-preview" class="plan-preview"></ol></details>
               <label class="inline-check" for="required-assessment-approved"><input id="required-assessment-approved" type="checkbox">두 문항·분석 기준표·보충 질문과 힌트를 검토하고 승인합니다.</label>
@@ -612,7 +612,7 @@
           evidenceLabel.setAttribute('for', evidenceCheck.id);
           evidenceCheck.addEventListener('change', function () { item.requireSourceEvidence = evidenceCheck.checked; assessmentPlan.approved = false; });
           evidenceLabel.appendChild(evidenceCheck);
-          const evidenceText = document.createElement('span'); evidenceText.textContent = '학생 답변에 자료의 직접 인용 근거가 필요합니다.';
+          const evidenceText = document.createElement('span'); evidenceText.textContent = '학생 답변에 자료에서 찾은 근거가 필요합니다. 따옴표는 필요하지 않습니다.';
           evidenceLabel.appendChild(evidenceText); card.appendChild(evidenceLabel);
           const remove = document.createElement('button'); remove.setAttribute('type', 'button'); remove.className = 'danger';
           remove.id = 'remove-criterion-' + item.id; remove.textContent = '평가기준 ' + (index + 1) + ' 삭제';
@@ -669,7 +669,7 @@
             '\n보충 질문: ' + (item.followUpQuestion || '(미입력)') + '\n힌트: ' + (item.sourceQuote || '(미입력)') +
             '\n수집할 학생 수행: ' + (item.evidenceDescription || '(미입력)') +
             '\n유형: ' + (item.responseKind === 'student_question' ? '학생 스스로 질문 만들기' : '학생이 설명하기') +
-            (item.requireSourceEvidence ? ' · 자료 직접 인용 필요' : '') + '\n교사가 최종 판단합니다.';
+            (item.requireSourceEvidence ? ' · 자료 근거 필요(따옴표 불필요)' : '') + '\n교사가 최종 판단합니다.';
           preview.appendChild(entry);
         });
       }
@@ -845,7 +845,7 @@
         return { schemaVersion:1, approved:requiredAssessmentApproved, criteria:requiredAssessment ? requiredAssessment.items.map(function (item, index) {
           return { id:item.id, criterion:('문항 ' + (index + 1) + ' · ' + item.assessmentCriteria).trim().slice(0, 180),
             responseKind:'explanation', mainQuestion:item.question,
-            followUpQuestion:'답변을 뒷받침하는 수업자료의 정확한 구절은 무엇인가요?',
+            followUpQuestion:'글에서 답을 뒷받침하는 부분을 찾아 적어 줄래요?',
             evidenceDescription:item.evidenceDescription.trim().slice(0, 300),
             sourceQuote:item.assessmentEvidence.replace(/\s+/g, ' ').trim().slice(0, 240), requireSourceEvidence:true };
         }) : [] };
@@ -1104,7 +1104,7 @@
             criterion:fitAssessmentPlanText(draft.assessmentCriteria, 180),
             responseKind:'explanation',
             mainQuestion:assessmentPlanQuestionFromDraft(draft.startQuestion),
-            followUpQuestion:'그 설명을 뒷받침하는 수업자료의 정확한 구절은 무엇인가요?',
+            followUpQuestion:'글에서 그 설명을 뒷받침하는 부분을 찾아 적어 줄래요?',
             evidenceDescription:fitAssessmentPlanText(draft.evidenceDescription, 300),
             sourceQuote:fitAssessmentPlanText(draft.assessmentEvidence, 240),
             requireSourceEvidence:true

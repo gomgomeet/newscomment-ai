@@ -592,7 +592,9 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
     rawObservation.evidenceIds = assessment.progress.lastEvent.evidenceVerified
       ? [`lesson-material:${lesson.lessonId}:r${lesson.lessonRevision}:${lesson.sourceHash}`] : [];
   }
-  const initialAnswerReply = firstEvaluationAnswerReply(input, planned, rawObservation);
+  // An approved assessment already owns the next student prompt. The legacy
+  // first-answer invitation would compete with its evidence follow-up.
+  const initialAnswerReply = assessment ? "" : firstEvaluationAnswerReply(input, planned, rawObservation);
   const quantityReply = missingQuantityReply(input.studentMessage, lesson.materialText);
   const replyAdmitsMissingSource =
     Boolean(quantityReply) ||
