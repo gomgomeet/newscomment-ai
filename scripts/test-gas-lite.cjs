@@ -783,8 +783,12 @@ const policyMismatchPayload = {
 };
 const policyMismatchTurn = context.prepareLiteStudentTurn_(policyMismatchPayload, savedSettings);
 const policyMismatchUrlFetch = context.UrlFetchApp;
+let policyMismatchPlanCalls = 0;
 context.UrlFetchApp = {
-  fetch() {
+  fetch(url, options) {
+    assert.equal(url, 'https://engine.example.com/api/lite-engine/plan');
+    assert.equal(options.method, 'post');
+    policyMismatchPlanCalls += 1;
     return {
       getResponseCode:() => 200,
       getContentText:() => JSON.stringify({
@@ -802,6 +806,31 @@ assert.throws(
 assert.equal(context.isLiteEngineVerified_(), false);
 assert.equal(context.isLitePreviewVerified_(savedSettings), false);
 assert.equal(context.buildLiteCurrentReadiness_(savedSettings).distributionReady, false);
+context.markLiteEngineVerified_(
+  'https://engine.example.com/api/lite-engine/plan',
+  'questioning-dialogue-v2-lite-adapter-v3'
+);
+context.markLitePreviewVerified_(savedSettings);
+const policyMismatchPropertySnapshot = new Map(properties);
+const policyMismatchSheetSnapshots = new Map([...spreadsheet.sheets].map(([name, sheet]) => [
+  name, sheet.rows.map(row => row.slice())
+]));
+const policyMismatchResult = context.submitLiteTurn(policyMismatchPayload);
+assert.equal(policyMismatchPlanCalls, 2, 'policy rollover sends one plan, not a paid or repeated request');
+assert.equal(policyMismatchResult.ok, false);
+assert.equal(policyMismatchResult.retryable, false, 'teacher recheck is required before retry');
+assert.match(policyMismatchResult.reply, /선생님이 연결을 다시 확인하고 99-999 미리보기/);
+assert.equal(context.isLiteEngineVerified_(), false);
+assert.equal(context.isLitePreviewVerified_(savedSettings), false);
+const policyMismatchRows = context.liteRowsAsObjects_(spreadsheet.getSheetByName('질문과 답변'));
+const policyMismatchBot = policyMismatchRows.find(row => row.requestId === policyMismatchPayload.requestId && row.speaker === 'bot');
+assert.equal(policyMismatchBot.engineStatus, 'engine_failed:policy_changed');
+assert.equal(policyMismatchBot.aiStatus, 'not_called');
+assert.equal(context.findLiteDuplicateRequest_(policyMismatchPayload.requestId, policyMismatchTurn,
+  policyMismatchRows, spreadsheet).retryable, false, 'same request never auto-retries after policy change');
+properties.clear();
+for (const [key, value] of policyMismatchPropertySnapshot) properties.set(key, value);
+for (const [name, rows] of policyMismatchSheetSnapshots) spreadsheet.getSheetByName(name).rows = rows;
 if (policyMismatchUrlFetch === undefined) delete context.UrlFetchApp;
 else context.UrlFetchApp = policyMismatchUrlFetch;
 
