@@ -141,7 +141,8 @@ assert.equal(teacherNode('evaluation-goal-fields').disabled, true);
 assert.equal(teacherNode('assessment-ai-section').classList.contains('hidden'), true);
 assert.equal(teacherNode('required-assessment-editor').classList.contains('hidden'), true);
 assert.equal(teacherNode('setup-flow').dataset.mode, 'questioning');
-assert.equal(teacherNode('check-step-number').textContent, '3단계');
+assert.match(teacherHtml, /id="check-step-number" class="step-no">3단계</,
+  'Questioning mode uses the same three-stage teacher flow');
 assert.equal(teacher.collectPayload().activityMode, 'questioning');
 assert.match(teacherHtml, /<option value="questioning">질문하기/);
 assert.match(teacherHtml, /value\.activityMode === 'questioning' \? 'questioning'/);

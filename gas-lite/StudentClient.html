@@ -8,7 +8,7 @@
     requiredSubmission:null, requiredSubmitting:false, requiredAssessmentReady:false,
     learningStage:'', canStartAssessment:false, composerEnabled:false,
     questionCounts:{ fact:0, inquiry:0, application:0, reflection:0, unclassified:0 },
-    latestQuestionCategory:'', latestQuestionClassificationStatus:''
+    latestQuestionCategory:'', latestQuestionClassificationStatus:'', questionCountsVerified:false
   };
   const ACTIVE_PENDING_STORAGE_KEY = 'lite-pending-request:active';
   const ACTIVE_PENDING_MAX_AGE_MS = 25 * 60 * 60 * 1000;
@@ -102,6 +102,7 @@
     const lesson = data.lesson || {};
     state.bootstrapData = data;
     state.questionCounts = { fact:0, inquiry:0, application:0, reflection:0, unclassified:0 };
+    state.questionCountsVerified = false;
     state.latestQuestionCategory = '';
     state.latestQuestionClassificationStatus = '';
     const joinLabel = document.querySelector('label[for="join-code-input"]');
@@ -230,11 +231,16 @@
     if (lesson.activityMode !== 'questioning') return;
     const received = result && result.questionCounts;
     if (received && typeof received === 'object') {
+      state.questionCountsVerified = QUESTION_COUNT_KEYS.every(function (category) {
+        const count = Number(received[category]);
+        return Number.isSafeInteger(count) && count >= 0;
+      });
       QUESTION_COUNT_KEYS.forEach(function (category) {
         const count = Number(received[category]);
         if (Number.isSafeInteger(count) && count >= 0) state.questionCounts[category] = count;
       });
     } else if (Array.isArray(history)) {
+      state.questionCountsVerified = false;
       const counts = { fact:0, inquiry:0, application:0, reflection:0, unclassified:0 };
       history.forEach(function (turn) {
         // The server writes the student's question classification on its paired bot reply row.
@@ -276,6 +282,55 @@
       state.latestQuestionCategory = latest;
     }
     renderQuestionTypeBanner();
+  }
+
+  function renderClosingQuestionSummary() {
+    if (!elements.messages || !elements.messages.querySelector) return;
+    const previous = elements.messages.querySelector('[data-closing-question-summary]');
+    if (previous) previous.remove();
+    const lesson = state.bootstrapData && state.bootstrapData.lesson || {};
+    if (!state.closed || lesson.activityMode !== 'questioning') return;
+
+    const card = document.createElement('section');
+    card.className = 'closing-question-summary';
+    card.dataset.closingQuestionSummary = 'true';
+    card.setAttribute('aria-labelledby', 'closing-question-summary-title');
+    const title = document.createElement('h3');
+    title.id = 'closing-question-summary-title';
+    title.textContent = '내 질문 돌아보기';
+    card.appendChild(title);
+    const explanation = document.createElement('p');
+    if (state.bootstrapData.previewAccess) {
+      explanation.textContent = '교사 미리보기 대화는 학생 질문 횟수에 포함되지 않아요.';
+    } else if (!state.questionCountsVerified) {
+      explanation.textContent = '질문 횟수를 확인하지 못했어요. 선생님에게 기록을 확인해 달라고 해 주세요.';
+    } else {
+      const counts = state.questionCounts;
+      const total = QUESTION_COUNT_KEYS.reduce(function (sum, category) {
+        return sum + counts[category];
+      }, 0);
+      explanation.textContent = total
+        ? '이번 대화에서 질문을 ' + total + '번 했어요.'
+        : '이번 대화에서 집계된 질문은 없어요.';
+      card.appendChild(explanation);
+      if (total) {
+        const breakdown = document.createElement('p');
+        breakdown.className = 'closing-question-breakdown';
+        breakdown.textContent = '사실 ' + counts.fact + ' · 탐구 ' + counts.inquiry +
+          ' · 적용 ' + counts.application + ' · 성찰 ' + counts.reflection +
+          ' · 분류 보류 ' + counts.unclassified;
+        card.appendChild(breakdown);
+      }
+      const note = document.createElement('small');
+      note.textContent = '실제로 한 질문만 세었어요. 질문 유형은 자동 분류 초안이며 선생님이 확인합니다.';
+      card.appendChild(note);
+      elements.messages.appendChild(card);
+      elements.messages.scrollTop = elements.messages.scrollHeight;
+      return;
+    }
+    card.appendChild(explanation);
+    elements.messages.appendChild(card);
+    elements.messages.scrollTop = elements.messages.scrollHeight;
   }
 
   function renderQuestionTypeBanner() {
@@ -334,6 +389,7 @@
           addMessage(turn.speaker === 'student' ? 'student' : 'bot', turn.text);
         });
         updateQuestionTypeBanner(result, result.history || []);
+        renderClosingQuestionSummary();
         if (!(result.history || []).length) {
           addMessage('bot', state.bootstrapData.lesson.startQuestion || '지문을 읽고 궁금한 점을 물어보세요.');
         }
@@ -401,6 +457,7 @@
         state.closed = Boolean(result.isClosing);
         updateLearningStage(result);
         updateQuestionTypeBanner(result);
+        renderClosingQuestionSummary();
         if (state.closed && !hasRequiredQuestions()) clearStoredStudentSession();
         if (result.retryable && !elements.messageInput.value) elements.messageInput.value = value;
         setComposerEnabled(!state.closed);
