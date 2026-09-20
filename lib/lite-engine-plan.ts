@@ -5,6 +5,7 @@ import {
   type ChatResult,
   buildCurriculumCompass,
   buildRubric,
+  classifyStudentSmalltalk,
   createDefaultQuestioningChatbotBehavior,
   normalizeQuestioningChatbotConfig,
   scoreSourceSentence,
@@ -32,7 +33,7 @@ import {
 } from "@/lib/questioning-conversation-phase";
 
 export const LITE_ENGINE_SCHEMA_VERSION = 1;
-export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v17";
+export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v19";
 
 type LiteOutputContract = "lead_evidence_quote_v1" | "grounded_answer_v2" | "conversational_reply_v1";
 
@@ -599,7 +600,8 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
   // assessment progression exclusively to the student's explicit start action.
   // The generic phase engine would otherwise ask evaluation questions after
   // four passage questions, even when the lesson's mode is exploration.
-  let planned = input.understanding || input.activityMode === "questioning"
+  let planned = input.understanding || input.activityMode === "questioning" ||
+    Boolean(classifyStudentSmalltalk(input.studentMessage))
     ? enforceQuestioningTopicBoundary(createQuestioningLocalBaseResult(turnInput), input.studentMessage, config, false)
     : runQuestioningLocalEngine(turnInput).result;
   const assessment = input.activityMode === "evaluation" && lesson.assessmentPlan?.approved && lesson.assessmentPlan.criteria.length
@@ -691,10 +693,11 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
       ? "grounded_answer_v2" : "lead_evidence_quote_v1";
   const groundedInference = outputContract === "grounded_answer_v2" &&
     observation.sourceStatus === "reasonable_inference" &&
-    (observation.questionType === "inference" || observation.primaryMove === "compare_possibilities") &&
+    (isInterpretiveSourceQuestion(observation) || observation.primaryMove === "compare_possibilities") &&
     !sourceCannotSupportAnswer;
   const skipModel = Boolean(
-    assessment || initialAnswerReply || planned.safetyFlag || planned.isClosing || planned.primaryMove === "repair" ||
+    assessment || initialAnswerReply || planned.safetyFlag || planned.isClosing || planned.questionType === "smalltalk" ||
+    planned.primaryMove === "repair" ||
     (!conversational && ((observation.sourceStatus !== "supported" && !groundedInference) || !verifiedSourceCue ||
       (!observation.relatedQuestion && observation.responseScore === null)))
   );
@@ -740,12 +743,14 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
         ] : outputContract === "grounded_answer_v2" ? [
           "학생의 마지막 질문에 첫 문장부터 직접 답하세요. 인사나 칭찬 없이 쉬운 말로 1~3문장만 씁니다.",
           "몇/얼마 질문은 자료에 있는 해당 수치와 단위를 원문 표기 그대로 먼저 답합니다. 왜/어떻게 질문은 자료에 나온 행동과 결과의 연결을 설명합니다.",
-          "왜/이유 질문의 근거에 앞선 상황과 뒤따른 결정이 함께 나오면 둘을 모두 답에 담으세요. '결정했기 때문에 결정했다'처럼 질문 속 행동을 이유로 되풀이하지 마세요. evidenceQuote에도 앞선 상황과 뒤따른 결정이 이어진 원문을 함께 넣으세요. 다만 글이 밝히지 않은 정확한 동기는 추측하지 마세요.",
+          "왜/이유 질문의 근거에 앞선 상황과 뒤따른 결정이 함께 나오면 둘을 모두 답에 담으세요. '결정했기 때문에 결정했다'처럼 질문 속 행동을 이유로 되풀이하지 마세요. 다만 글이 밝히지 않은 정확한 동기는 추측하지 마세요.",
           "사람이나 집단의 찬반·주장 이유를 물으면 그 당사자가 밝힌 요구·우려·목적을 근거로 답하세요. 다른 당사자의 의견을 바꾸어 붙이거나 말하지 않은 위험을 추측하지 마세요.",
           "제공된 관련 자료는 전체 지문의 발췌입니다. 이 부분만으로 확인하기 어려우면 제공된 근거에서 확인하기 어렵다고 범위를 밝혀 말하고, 전체 자료에 이유나 설명이 없다고 단정하지 마세요.",
-          "추론은 자료가 뒷받침하는 가능성만 말합니다. 함께 시행한 여러 방법 중 하나만 원인이라고 단정하지 않습니다.",
+          "관련 자료 근거의 여러 원문 문장이 떨어져 있어도 같은 대상의 상태, 행동, 결과를 연결해 답하세요. 이름이나 장소만 같고 다른 사건의 이유를 가져오지 마세요.",
+          "추론은 글에 직접 적힌 사실과 그것을 연결한 해석을 구분하고, 자료가 뒷받침하는 가능성만 말합니다. 함께 시행한 여러 방법 중 하나만 원인이라고 단정하지 않습니다.",
+          "성찰·적용 질문은 하나의 정답이나 정확한 인용문을 요구하지 마세요. 글 속 구체적인 장면을 출발점으로 생각하거나 실천할 수 있는 한 가지를 말하고, 자료에 없는 결과는 사실처럼 단정하지 마세요.",
           "자료로 확인되는 건 여기까지, 더 알고 싶은 것은 등의 고정 안내나 불필요한 되묻기는 쓰지 마세요.",
-          "answer에는 직접적인 답을, evidenceQuote에는 그 답을 뒷받침하는 관련 자료의 연속된 원문을 넣으세요.",
+          "answer에는 직접적인 답을, evidenceQuote에는 그 답을 뒷받침하는 관련 자료의 연속된 원문 한 부분을 넣으세요. 떨어진 문장들을 새 인용문으로 이어 붙이지 마세요.",
         ] : ["학생에게 보일 짧은 연결 문구 하나를 고르고, 답의 근거가 되는 문장을 관련 자료에서 글자 그대로 인용하세요."]),
         outputContract === "conversational_reply_v1"
           ? "이 대화 응답에는 자료 본문을 인용하지 마세요."
@@ -805,6 +810,11 @@ const LITE_ALLOWED_LEADS = [
 
 function normalizeLiteQuote(value: string) {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function isInterpretiveSourceQuestion(observation: LiteEngineObservation) {
+  return observation.questionType === "inference" || observation.questionType === "reflection" ||
+    observation.questionType === "application";
 }
 
 function sourceSentences(text: string) {
@@ -875,7 +885,10 @@ function supportedLiteEvidenceQuote(
     sentence, score: scoreSourceSentence(sentence, input.studentMessage),
   }));
   const bestScore = Math.max(0, ...ranked.map((item) => item.score));
-  const matchingSentences = ranked.filter((item) => (bestScore === 0 || item.score === bestScore) &&
+  const interpretive = plan.modelRequest.outputContract === "grounded_answer_v2" &&
+    isInterpretiveSourceQuestion(plan.observation);
+  const matchingSentences = ranked.filter((item) =>
+    (bestScore === 0 || item.score === bestScore || (interpretive && item.score > 0)) &&
     (item.sentence.includes(quote) || quote.includes(item.sentence)));
   if (bestScore > 0 && !matchingSentences.length) return "";
   // Substrings are not complete quantities: "2통" is not evidence from "12통",
@@ -907,12 +920,14 @@ function incompleteCausalContextReply(
   if (!background.length ||
       /(?:때문|덕분|탓|위해|원인|이유|까닭|므로|어서|해서|져서)/.test(evidenceQuote)) return "";
   const quoteHasBackground = background.some((sentence) => evidenceQuote.includes(sentence));
+  const actionAsOwnReason = /(?:제안|결정|데려|구조|옮겨).{0,24}(?:때문|이유|까닭)/.test(candidate) &&
+    !/(?:좁|말랐|비쩍|시민|알려|다쳤|아팠|위험|힘들|어려|잃)/.test(candidate);
   if (!quoteHasBackground && !outcome.includes(evidenceQuote)) return "";
   const backgroundTerms = (background.join(" ").match(/[가-힣A-Za-z]{2,}/g) || [])
     .filter((term) => term.length >= 3 && !input.studentMessage.includes(term));
   const answerIncludesBackground = backgroundTerms.some((term) =>
     candidate.includes(term.slice(0, Math.min(term.length, 3))));
-  if (quoteHasBackground && answerIncludesBackground) return "";
+  if (quoteHasBackground && answerIncludesBackground && !actionAsOwnReason) return "";
   // Preserve the source's order without inventing an unspoken motive. Limit
   // the local rescue reply to the nearest two relevant background sentences.
   const context = [...background.slice(-2), outcome].join(" ");
@@ -946,20 +961,33 @@ function candidateNeedsSafeFallback(
     // This is a conservative lexical guard, not a proof of entailment. The
     // provider is also instructed to paraphrase only the verified excerpt.
     const terms = candidate.match(/[가-힣A-Za-z]{2,}/g) || [];
+    const answerEvidence = isInterpretiveSourceQuestion(plan.observation)
+      ? plan.observation.sourceCue : evidenceQuote;
     const unit = requestedQuantityUnit(input.studentMessage);
     const numericOverlap = unit && quantitiesIn(candidate).some((claim) => claim.unit === unit &&
       quantitiesIn(evidenceQuote).some((evidence) => evidence.text === claim.text));
-    if (!numericOverlap && !terms.some((term) => evidenceQuote.includes(term.slice(0, Math.min(3, term.length))))) return true;
+    if (!numericOverlap && !terms.some((term) =>
+      answerEvidence.includes(term.slice(0, Math.min(3, term.length))))) return true;
+    const hasEventChain = /(?:좁|말랐|아팠|다쳤|위험|알려)/.test(answerEvidence) &&
+      /(?:제안|데려오|구조|옮겨)/.test(answerEvidence);
+    const blanketNoReason = /(?:자료|글)(?:에는|에서|에).{0,32}(?:이유|까닭|사정).{0,20}(?:없|나오지 않|확인할 수 없)/.test(candidate) &&
+      !/(?:좁|말랐|아팠|다쳤|시민|알려|제안|데려오|구조)/.test(candidate);
+    if (isInterpretiveSourceQuestion(plan.observation) && hasEventChain && blanketNoReason) return true;
   }
 
   // 학생 발화나 이전 모델 답은 사실 근거로 승격하지 않고 교사 제공 본문만 대조한다.
   const source = plan.modelRequest.outputContract === "conversational_reply_v1" ? ""
-    : plan.modelRequest.outputContract === "grounded_answer_v2" ? evidenceQuote : input.lesson.materialText;
+    : plan.modelRequest.outputContract === "grounded_answer_v2"
+      ? isInterpretiveSourceQuestion(plan.observation) ? plan.observation.sourceCue : evidenceQuote
+      : input.lesson.materialText;
   const compactSource = source.replace(/\s+/g, "").toLowerCase();
   const numericClaims = candidate.match(/\d+(?:[.,]\d+)*(?:%|퍼센트|명|개|년|월|일|도)?/g) || [];
   if (numericClaims.some((claim) => !source.includes(claim))) return true;
   if (plan.modelRequest.outputContract === "grounded_answer_v2" &&
-      unsupportedQuantityAnswer(candidate, evidenceQuote, input.studentMessage)) return true;
+      unsupportedQuantityAnswer(candidate,
+        isInterpretiveSourceQuestion(plan.observation) && !requestedQuantityUnit(input.studentMessage)
+          ? source : evidenceQuote,
+        input.studentMessage)) return true;
   // A short quote can omit the before/after wording; check its value against the
   // full verified sentence so quoting only the old amount cannot bypass validation.
   const finalQuantity = finalQuantityInContext(plan.observation.sourceCue, input.studentMessage);

@@ -2,9 +2,13 @@ import { checkQuestioningChatRateLimit } from "@/lib/questioning-chat-rate-limit
 import { authorizeLiteEngineRequest } from "@/lib/lite-engine-auth";
 import {
   createLiteEnginePlan,
+  createLiteQuestioningConfig,
   LITE_ENGINE_POLICY_VERSION,
   LITE_ENGINE_SCHEMA_VERSION,
+  normalizeLiteEngineInput,
 } from "@/lib/lite-engine-plan";
+import { lookupKrdictVocabulary } from "@/lib/krdict-vocabulary";
+import { resolveLessonVocabularyTerm } from "@/lib/questioning-board";
 import { QUESTIONING_ENGINE_FAMILY } from "@/lib/questioning-engine-core";
 
 export const runtime = "nodejs";
@@ -78,7 +82,36 @@ export async function POST(request: Request) {
         },
       );
     }
-    return Response.json(createLiteEnginePlan(body), {
+    const plan = createLiteEnginePlan(body);
+    // Only an authenticated, lesson-grounded vocabulary question may trigger a
+    // dictionary request. Send the lemma, never the passage or student's message.
+    if (plan.observation.questionType === "vocabulary" &&
+        !plan.observation.safetyFlag && !plan.observation.isClosing &&
+        plan.observation.sourceStatus !== "supported" &&
+        plan.observation.sourceStatus !== "out_of_scope") {
+      const input = normalizeLiteEngineInput(body);
+      if (input.activityMode !== "evaluation" || input.understanding) {
+        const material = createLiteQuestioningConfig(input.lesson, input.activityMode).material;
+        const term = resolveLessonVocabularyTerm(input.studentMessage, material, input.history);
+        if (/^[가-힣]{2,16}$/.test(term) &&
+            input.lesson.materialText.replace(/\s+/g, "").includes(term)) {
+          const found = await lookupKrdictVocabulary(term);
+          if (found) {
+            plan.skipModel = true;
+            plan.fallbackReply = `한국어기초사전(국립국어원) 풀이: ‘${found.term}’ — ${found.meaning}`;
+            plan.enforcement = { allowQuestion: false, managedQuestion: "", maximumQuestionCount: 0 };
+            plan.observation = {
+              ...plan.observation,
+              primaryMove: "clarify",
+              sourceStatus: "source_insufficient",
+              sourceCue: "",
+              evidenceIds: [],
+            };
+          }
+        }
+      }
+    }
+    return Response.json(plan, {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {

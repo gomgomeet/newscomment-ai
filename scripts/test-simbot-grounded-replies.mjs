@@ -171,6 +171,80 @@ test('incident: simultaneous methods require a cautious causal answer', () => {
   assert.match(result.studentReply, /확실히 말할 수는 없/);
 });
 
+const lionChain = {
+  id: 'lion-chain-regression',
+  title: '사자 바람이의 새 보금자리',
+  text: [
+    '바람이는 좁은 실내동물원에서 오래 살았습니다. 바람이는 갈비뼈가 드러날 만큼 말랐고 시민들이 그 모습을 알렸습니다.',
+    '청주동물원은 바람이를 데려오겠다고 먼저 제안했습니다. 바람이는 넓은 보호시설로 옮겼습니다.',
+    '바람이는 원하면 관람객의 시선에서 벗어나 쉴 수 있습니다.',
+    '청주동물원에 코끼리와 기린이 없는 이유는 전시만을 위해 들여오지 않기 때문입니다.',
+  ].join('\n\n'),
+};
+
+test('a why answer may synthesize a selected multi-paragraph event chain with one verbatim evidence quote', () => {
+  const input = inputFor('바람이는 왜 청주동물원에 왔나요?', lionChain);
+  const plan = createLiteEnginePlan(input);
+  assert.equal(plan.skipModel, false);
+  assert.match(plan.observation.sourceCue, /갈비뼈가 드러날 만큼 말랐/);
+  assert.match(plan.observation.sourceCue, /데려오겠다고 먼저 제안/);
+  const evidence = '바람이는 갈비뼈가 드러날 만큼 말랐고 시민들이 그 모습을 알렸습니다.';
+  const answer = '바람이가 몹시 마른 모습이 시민들에게 알려졌고, 청주동물원이 먼저 데려오겠다고 제안했어요.';
+  const result = finalize(input, plan, answer, evidence);
+  assert.equal(result.localFallback, false);
+  assert.ok(result.studentReply.startsWith(answer));
+  assert.doesNotMatch(result.studentReply, /코끼리|기린/);
+  const blanketDenial = finalize(input, plan, '글에는 바람이가 옮겨 온 이유가 나오지 않아요.', evidence);
+  assert.equal(blanketDenial.localFallback, true,
+    'a provider may not ignore a selected condition-and-proposal chain with a blanket no-answer');
+});
+
+test('reflection and application allow grounded source facts without requiring a single correct opinion', () => {
+  for (const [question, type, answer, evidence] of [
+    ['바람이 이야기를 읽고 동물원을 바라보는 내 생각을 어떻게 돌아볼까요?', 'reflection',
+      '바람이가 쉬는 공간을 갖게 된 점을 보며 동물을 가까이서 보는 것과 쉴 권리를 함께 생각할 수 있어요.',
+      '바람이는 원하면 관람객의 시선에서 벗어나 쉴 수 있습니다.'],
+    ['우리 학교에서 바람이와 같은 동물을 만나는 체험을 한다면 어떤 방법이 좋을까요?', 'application',
+      '동물이 쉬고 싶을 때 시선에서 벗어날 공간을 마련하고, 억지로 만지지 않는 방법을 생각해 볼 수 있어요.',
+      '바람이는 원하면 관람객의 시선에서 벗어나 쉴 수 있습니다.'],
+  ]) {
+    const input = inputFor(question, lionChain);
+    const plan = createLiteEnginePlan(input);
+    assert.equal(plan.observation.questionType, type);
+    assert.equal(plan.skipModel, false);
+    assert.ok(plan.observation.sourceCue.includes(evidence));
+    const result = finalize(input, plan, answer, evidence);
+    assert.equal(result.localFallback, false);
+  }
+});
+
+test('a second transfer with an explicitly unknown reason cannot borrow the first transfer cause', () => {
+  const article = {
+    id: 'two-moves-unknown-second-reason',
+    title: '바람이의 두 번의 이동',
+    text: [
+      '바람이는 좁은 방에 오래 살았고 갈비뼈가 드러날 만큼 말랐습니다.',
+      '청주동물원은 바람이를 데려오겠다고 먼저 제안했습니다. 바람이는 청주동물원으로 옮겼습니다.',
+      '그 뒤 바람이는 다른 지역 보호소로 다시 옮겨졌습니다.',
+      '두 번째 이동의 이유는 기사에 나오지 않았습니다.',
+    ].join('\n\n'),
+  };
+  const input = inputFor('바람이가 왜 다른 지역 보호소로 다시 옮겨졌나요?', article);
+  const plan = createLiteEnginePlan(input);
+  assert.equal(plan.observation.sourceStatus, 'source_insufficient');
+  assert.equal(plan.skipModel, true, 'an explicit unknown reason should not be sent to the provider');
+  assert.match(plan.fallbackReply, /두 번째|다른 지역 보호소/);
+  assert.match(plan.fallbackReply, /이유.*나오지 않|이유.*확인할 수 없/);
+  const firstMoveEvidence = '바람이는 좁은 방에 오래 살았고 갈비뼈가 드러날 만큼 말랐습니다.';
+  const wrong = finalize(input, plan, '좁은 방에서 말랐기 때문에 다른 지역 보호소로 옮겨졌어요.', firstMoveEvidence);
+  assert.equal(wrong.localFallback, true);
+  assert.doesNotMatch(wrong.studentReply, /좁은 방|갈비뼈|말랐기 때문에/);
+  const secondMoveEvidence = '그 뒤 바람이는 다른 지역 보호소로 다시 옮겨졌습니다.';
+  const honest = finalize(input, plan, '두 번째 이동의 이유는 글에 나오지 않아요.', secondMoveEvidence);
+  assert.equal(honest.localFallback, true, 'the safe local answer is authoritative when the source says unknown');
+  assert.match(honest.studentReply, /이유.*나오지 않|이유.*확인할 수 없/);
+});
+
 test('independent passage: decimal quantity keeps its unit and final value', () => {
   assertDirectAnswer(
     inputFor('위층 교실의 평균 온도는 최종적으로 몇 도였나요?', rooftop),

@@ -1,4 +1,5 @@
 import {
+  classifyStudentSmalltalk,
   isQuestioningHintRequest,
   type ChatEvaluation,
   type ChatResult,
@@ -109,7 +110,7 @@ function hasLessonWord(text: string, material: MaterialAnalysis) {
 }
 
 function isCountableStudentQuestion(text: string, material: MaterialAnalysis) {
-  if (isQuestioningHintRequest(text) || !isStudentQuestion(text) || BLOCKED_REQUEST.test(text)) return false;
+  if (classifyStudentSmalltalk(text) || isQuestioningHintRequest(text) || !isStudentQuestion(text) || BLOCKED_REQUEST.test(text)) return false;
   return !OBVIOUS_OFF_TOPIC.test(text) || hasLessonWord(text, material);
 }
 
@@ -353,7 +354,7 @@ function phaseResponseScores(
     const student = transcript[index];
     const assistant = transcript[index - 1];
     if (student.role !== "student" || assistant.role !== "assistant") continue;
-    if (isQuestioningHintRequest(student.content)) continue;
+    if (isQuestioningHintRequest(student.content) || classifyStudentSmalltalk(student.content)) continue;
     const question = lastAssistantQuestion(transcript.slice(0, index), targets);
     if (!question) continue;
     scores.push({ kind: question.kind, score: answerScore(question, student.content, material) });
@@ -478,6 +479,9 @@ export function getQuestioningTurnMetadata({
   standard: string;
   teacherMemo?: string;
 }) {
+  if (result.questionType === "smalltalk") {
+    return { managedKind: "" as QuestioningManagedKind, relatedQuestion: false, responseScore: null };
+  }
   const targets = buildStandardTargets(standard, teacherMemo);
   const currentQuestion = classifyAssistantQuestion(result.studentReply, targets);
   const previousQuestion = lastAssistantQuestion(conversation, targets);
@@ -518,11 +522,12 @@ export function applyQuestioningConversationPhase({
   const lastQuestion = lastAssistantQuestion(conversation, targets);
   const b1Used = conversation.some((entry) => entry.role === "assistant" && entry.content.includes(PHASE_B1_PROMPT));
   const b2Used = conversation.some((entry) => entry.role === "assistant" && entry.content.includes(PHASE_B2_PROMPT));
-  const priorStudentTurns = conversation.filter((entry) => entry.role === "student");
+  const priorStudentTurns = conversation.filter((entry) =>
+    entry.role === "student" && !classifyStudentSmalltalk(entry.content));
   const currentPhaseOneQuestions = [...priorStudentTurns.map((entry) => entry.content), currentTurn].filter((turn) =>
     isPassageRelatedQuestion(turn, material),
   ).length;
-  const protectedMove = result.isClosing || result.primaryMove === "repair" || result.primaryMove === "safety_redirect" ||
+  const protectedMove = result.questionType === "smalltalk" || result.isClosing || result.primaryMove === "repair" || result.primaryMove === "safety_redirect" ||
     isQuestioningHintRequest(currentTurn);
   const paraphrased = paraphraseDifficultSentence(currentTurn, material);
 
@@ -592,7 +597,7 @@ export function applyQuestioningConversationPhase({
     primaryMove,
     supportLevel,
     expectsStudentReply: !result.isClosing && /[?？]/.test(normalizedReply),
-    rubricScores,
+    rubricScores: result.questionType === "smalltalk" ? [] : rubricScores,
     conversationPhase: enteredPhaseTwo ? 2 : 1,
     ...(reachedDifficulty ? { reachedDifficulty } : {}),
     moreToExploreQuestions,

@@ -98,7 +98,7 @@ test('exploration accepts blank or omitted design fields through plan and finali
   const input = withoutDesign(makeInput('exploration'));
   const plan = createLiteEnginePlan(input);
   assert.equal(plan.schemaVersion, 1);
-  assert.equal(plan.policyVersion, 'questioning-dialogue-v2-lite-adapter-v17');
+  assert.equal(plan.policyVersion, 'questioning-dialogue-v2-lite-adapter-v19');
   assert.equal(plan.skipModel, false);
   assert.equal(plan.observation.sourceStatus, 'supported');
   const finalized = finalizeLiteEngineReply(finalizeInput(input, plan));
@@ -306,6 +306,115 @@ function assessmentInput() {
   input.history = [{ speaker: 'bot', text: input.lesson.assessmentPlan.criteria[0].mainQuestion }];
   return input;
 }
+
+function assertGasSmalltalkContract(plan) {
+  const observed = plan.observation;
+  assert.equal(plan.skipModel, true);
+  assert.equal(observed.questionType, 'smalltalk');
+  assert.equal(observed.questionCategory, '');
+  assert.equal(observed.relatedQuestion, false);
+  assert.equal(observed.responseScore, null);
+  assert.equal(observed.managedKind, '');
+  assert.deepEqual(observed.evidenceIds, []);
+  assert.equal(observed.sourceStatus, 'out_of_scope');
+  assert.equal(observed.primaryMove, 'receive');
+  assert.deepEqual(observed.rubricScores, []);
+}
+
+test('brief smalltalk satisfies the GAS contract in exploration, questioning, understanding and both evaluation states', () => {
+  for (const makeCase of [
+    () => makeInput('exploration'),
+    () => makeInput('questioning'),
+    () => makeInput('evaluation'),
+    () => understandingInput(),
+    () => assessmentInput(),
+  ]) {
+    for (const studentMessage of [
+      '안녕하세요?', '안녕하세요…', '안녕하세요。', '안녕하세요～', '고마워', '오늘 좀 긴장돼',
+      '안녕하세요. 반가워요', '안녕하세요! 오늘 좀 긴장돼요', '고마워요 선생님',
+    ]) {
+      const input = makeCase();
+      input.studentMessage = studentMessage;
+      input.supportedOutputContracts = ['grounded_answer_v2', 'conversational_reply_v1'];
+      const plan = createLiteEnginePlan(input);
+      assertGasSmalltalkContract(plan);
+      assert.equal(plan.enforcement.maximumQuestionCount, 0);
+      assert.doesNotMatch(plan.fallbackReply, /[?？]|교사용_|답변을 남겼어요/);
+      const final = finalizeLiteEngineReply(finalizeInput(input, plan));
+      assert.equal(final.localFallback, true);
+      assert.equal(final.studentReply, plan.fallbackReply);
+      assert.deepEqual(final.observation.rubricScores, []);
+    }
+  }
+});
+
+test('Baram reason question and greeting-mixed reason question remain grounded content', () => {
+  const input = withoutDesign(makeInput('exploration'));
+  input.supportedOutputContracts = ['grounded_answer_v2'];
+  input.lesson.materialText = '바람이는 좁은 실내동물원에서 살았고 비쩍 말랐습니다. 시민들이 그 모습을 알리자 청주동물원이 바람이를 데려오겠다고 제안했습니다.';
+  for (const studentMessage of [
+    '바람이는 왜 옮겼어?',
+    '안녕하세요? 바람이는 왜 옮겼어?',
+    '안녕하세요… 바람이는 왜 옮겼어?',
+    '안녕하세요。 바람이는 왜 옮겼어?',
+    '안녕하세요～ 바람이는 왜 옮겼어?',
+  ]) {
+    input.studentMessage = studentMessage;
+    const plan = createLiteEnginePlan(input);
+    assert.notEqual(plan.observation.questionType, 'smalltalk');
+    assert.notEqual(plan.observation.sourceStatus, 'out_of_scope');
+    assert.match(plan.observation.sourceCue, /바람이/);
+    assert.match(plan.modelRequest.input, /청주동물원/);
+  }
+  input.studentMessage = '안녕하세요? 사자는 왜 동물원에 살아요?';
+  assert.notEqual(createLiteEnginePlan(input).observation.questionType, 'smalltalk');
+});
+
+test('urgent distress mixed with greeting takes the safety route, never smalltalk', () => {
+  const input = withoutDesign(makeInput('exploration'));
+  input.studentMessage = '안녕, 나 죽고 싶어';
+  const plan = createLiteEnginePlan(input);
+  assert.equal(plan.observation.questionType, 'safety');
+  assert.equal(plan.observation.safetyFlag, true);
+  assert.equal(plan.skipModel, true);
+  assert.match(plan.fallbackReply, /믿을 만한 어른/);
+  assert.doesNotMatch(plan.fallbackReply, /수업 자료에서 궁금한 부분/);
+});
+
+test('approved evaluation ignores punctuation variants without consuming a criterion or evidence', () => {
+  const input = assessmentInput();
+  input.studentMessage = '학교가 일회용 컵을 줄이려 했기 때문이에요.';
+  const answered = createLiteEnginePlan(input);
+  assert.equal(answered.observation.assessmentProgress.stage, 'followup');
+
+  for (const [index, studentMessage] of [
+    '안녕하세요…', '안녕하세요。', '안녕하세요～',
+    '안녕하세요. 반가워요', '안녕하세요! 오늘 좀 긴장돼요', '고마워요 선생님',
+  ].entries()) {
+    const greeting = {
+      ...input,
+      requestId: `req_assessment_social_${index}`,
+      studentMessage,
+      assessmentProgress: answered.observation.assessmentProgress,
+      history: [{ speaker: 'bot', text: input.lesson.assessmentPlan.criteria[0].followUpQuestion }],
+    };
+    const social = createLiteEnginePlan(greeting);
+    assertGasSmalltalkContract(social);
+    const progress = social.observation.assessmentProgress;
+    assert.equal(progress.stage, 'followup');
+    assert.equal(progress.activeIndex, 0);
+    assert.deepEqual(progress.items, answered.observation.assessmentProgress.items);
+    assert.equal(progress.items[0].status, 'awaiting_evidence');
+    assert.equal(progress.items[0].attempts, 1);
+    assert.equal(progress.items[0].evidenceRequestId, '');
+    assert.equal(progress.lastEvent.kind, 'question');
+    assert.equal(progress.lastEvent.requestId, greeting.requestId);
+    assert.equal(progress.lastEvent.evidenceVerified, false);
+    assert.equal(social.enforcement.managedQuestion, '');
+    assert.doesNotMatch(social.fallbackReply, /[?？]|교사용_/);
+    assert.equal(finalizeLiteEngineReply(finalizeInput(greeting, social)).studentReply, social.fallbackReply);
+  }
+});
 
 test('approved plan collects actual evidence without generic phase scoring or provider calls', () => {
   const input = assessmentInput();

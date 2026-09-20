@@ -317,6 +317,7 @@ function liteLearningState_(settings, rows, progressOverride) {
       return entry.speaker === 'student' && entry.requestId === row.requestId;
     });
     const question = student && unescapeLiteSheetText_(student.text);
+    if (String(row.questionType || '') === 'smalltalk' || isLitePureSocialSmalltalk_(question)) return false;
     const supportedQuestion = /^(supported|reasonable_inference)$/.test(String(row.sourceStatus || '')) &&
       /^(vocabulary|fact|inference|explanation)$/.test(String(row.questionType || '')) &&
       question && (isLiteQuestion_(question) || /알려|설명|뜻|모르|이해/.test(question));
@@ -601,7 +602,24 @@ function appendLiteTurnPair_(turn, result, options) {
 
 function isLiteQuestion_(text) {
   const value = String(text || '').trim();
+  if (isLitePureSocialSmalltalk_(value)) return false;
   return /[?？]$/.test(value) || /(왜|어떻게|무엇|뭐|어디|언제|누가|몇|얼마나|뜻).*(나요|까요|예요|이에요|해요|돼요)?[.!]?$/.test(value);
+}
+
+// Only whole, short social utterances are exempt. A greeting followed by a material
+// question must still take the normal question and evidence path.
+function isLitePureSocialSmalltalk_(text) {
+  const value = String(text || '').normalize('NFKC').trim().replace(/\s+/g, ' ');
+  if (!value || value.length > 60) return false;
+  const segments = value.split(/[.!?…。~～]+/g).map(function (part) {
+    return part.trim().replace(/\s+선생님$/, '').trim();
+  }).filter(Boolean);
+  if (!segments.length || segments.length > 2) return false;
+  return segments.every(function (part) {
+    return /^(?:안녕(?:하세요|하십니까)?|반가워(?:요)?|하이|hi|hello)$/i.test(part) ||
+      /^(?:(?:정말|진짜|너무)\s+)?(?:(?:알려|도와|설명해)\s*줘서\s*)?(?:고마워(?:요)?|고맙습니다|감사(?:해요|합니다)|땡큐|thanks|thank you)$/i.test(part) ||
+      /^(?:(?:나|저|제가|나는|저는)\s*)?(?:(?:오늘\s*)(?:(?:좀|조금|많이)\s*)?|(?:(?:좀|조금)\s*))(?:긴장돼(?:요)?|떨려(?:요)?|걱정돼(?:요)?|기분이\s*좋아(?:요)?)$/.test(part);
+  });
 }
 
 function normalizeLiteQuestionCategory_(value) {
@@ -611,6 +629,7 @@ function normalizeLiteQuestionCategory_(value) {
 
 function isLiteQuestioningRequest_(text) {
   const value = String(text || '').trim();
+  if (isLitePureSocialSmalltalk_(value)) return false;
   return /[?？]$/.test(value) ||
     /(?:왜|어떻게|무엇|뭐|어디|언제|누가|누구|몇|얼마나|무슨\s*뜻|뜻이|의미가)\s*(?:요)?[.!]?$/.test(value) ||
     /(?:왜|어떻게|무엇|뭐|어디|언제|누가|누구|몇|얼마나|무슨\s*뜻|뜻이|의미가).*(?:인가요|나요|까요|예요|이에요|해요|돼요|죠|니|까|줘|주세요)[.!]?$/.test(value) ||
@@ -633,7 +652,7 @@ function liteQuestioningPairs_(rows) {
         bot.isPreview === true || String(bot.isPreview) === 'true' ||
         !/^(ok:|finalized:)/.test(String(bot.engineStatus || '')) ||
         bot.safetyFlag === true || String(bot.safetyFlag) === 'true' ||
-        /^(safety|opening)$/.test(String(bot.questionType || '')) ||
+        /^(safety|opening|smalltalk)$/.test(String(bot.questionType || '')) ||
         /^(start|assessment_start|close|closing)$/.test(String(bot.managedKind || ''))) return;
     const category = String(bot.questionType || '') === 'off_topic' ||
       String(bot.sourceStatus || '') === 'out_of_scope'
@@ -745,8 +764,14 @@ function upsertLiteStudentSummary_(spreadsheet, turn, result, sessionRowsOverrid
       return String(row.engineStatus || '').indexOf('engine_failed:') !== 0;
     });
   const studentRows = sessionRows.filter(function (row) { return String(row.speaker) === 'student'; });
+  const smalltalkRequestIds = Object.create(null);
+  sessionRows.forEach(function (row) {
+    if (String(row.speaker) === 'bot' && String(row.questionType || '') === 'smalltalk') {
+      smalltalkRequestIds[String(row.requestId || '')] = true;
+    }
+  });
   const questionRows = studentRows.filter(function (row) {
-    return isLiteQuestion_(unescapeLiteSheetText_(row.text));
+    return !smalltalkRequestIds[String(row.requestId || '')] && isLiteQuestion_(unescapeLiteSheetText_(row.text));
   });
   const relatedQuestionCount = questionRows.filter(function (row) {
     return String(row.relatedQuestion) === 'true' || row.relatedQuestion === true;

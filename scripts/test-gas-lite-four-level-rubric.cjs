@@ -321,6 +321,23 @@ initialReview = context.getLiteTeacherDashboardData(token).evaluations.find((ent
 assert.equal(initialReview.teacherDecision, '잘함');
 assert.equal(initialReview.finalStatus, '최종 확정');
 const zeroRowsBefore = sheets.get('교사 평가').rows.length;
+const socialInitialTurn = {
+  ...initialTurn, sessionId:'S-social-initial-answer', requestId:'request-social-initial-answer',
+  message:'안녕하세요?'
+};
+[
+  { ...qaBase, ...socialInitialTurn, speaker:'bot', turnNo:1,
+    managedKind:'start', engineStatus:'seeded_start', text:savedGuidance.startQuestion },
+  { ...qaBase, ...socialInitialTurn, speaker:'student', turnNo:2, text:'안녕하세요?' },
+  { ...qaBase, ...socialInitialTurn, speaker:'bot', turnNo:3, text:'안녕!',
+    questionType:'smalltalk', sourceStatus:'out_of_scope' }
+].forEach((entry) => qaSheet.rows.push(qaHeaders.map((header) => entry[header] ?? '')));
+assert.equal(context.upsertLiteEvaluationDraft_(savedGuidance, socialInitialTurn, {
+  ...zeroObservation, questionType:'smalltalk', sourceStatus:'out_of_scope'
+}), null, 'a greeting is never saved as the first assessment answer');
+assert.equal(sheets.get('교사 평가').rows.length, zeroRowsBefore);
+assert.equal(context.getLiteTeacherDashboardData(token).evaluations.some((entry) =>
+  entry.sessionId === socialInitialTurn.sessionId), false);
 [
   [{ ...initialTurn, isPreview:true }, zeroObservation],
   [{ ...initialTurn, activityMode:'exploration' }, zeroObservation],

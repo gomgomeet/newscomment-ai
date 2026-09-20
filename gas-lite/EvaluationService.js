@@ -77,6 +77,7 @@ function upsertLiteEvaluationDraft_(settings, turn, observation, options) {
   if (turn.isPreview) return null;
   if (typeof liteHasRequiredAssessment_ === 'function' && liteHasRequiredAssessment_(settings)) return null;
   if (!observation) return null;
+  if (String(observation.questionType || '') === 'smalltalk' || isLitePureSocialSmalltalk_(turn.message)) return null;
   const observedProgress = normalizeLiteAssessmentProgress_(observation.assessmentProgress);
   const rawScores = Array.isArray(observation.rubricScores) ? observation.rubricScores : [];
   const hasObservedScore = rawScores.some(function (item) { return Number(item && item.score || 0) > 0; });
@@ -114,7 +115,8 @@ function upsertLiteEvaluationDraft_(settings, turn, observation, options) {
       const response = seed && sessionRows.find(function (row) {
         return matches(row) && row.speaker === 'student' && Number(row.turnNo) === 2 &&
           String(row.requestId) === String(turn.requestId) &&
-          String(row.engineStatus || '').indexOf('engine_failed:') !== 0;
+          String(row.engineStatus || '').indexOf('engine_failed:') !== 0 &&
+          !isLitePureSocialSmalltalk_(row.text);
       });
       assessmentResponse = response ? liteText_(response.text, LITE_MAX_STUDENT_MESSAGE_) : '';
       if (!assessmentResponse) return null;
@@ -252,6 +254,7 @@ function buildLiteCriterionReviewRows_(evaluation, questionRows) {
   const recordedEvents = [];
   rows.forEach(function (row, index) {
     if (row.speaker !== 'bot' || String(row.engineStatus || '').indexOf('engine_failed:') === 0) return;
+    if (String(row.questionType || '') === 'smalltalk') return;
     let snapshot;
     try { snapshot = normalizeLiteAssessmentProgress_(row.assessmentProgressJson); }
     catch (error) { return; }
@@ -421,7 +424,12 @@ function getLiteTeacherDashboardData(teacherAccessToken) {
       return isCurrentLesson(row) && String(row.speaker) === 'student' &&
         String(row.isPreview).toLowerCase() !== 'true' &&
         String(row.engineStatus || '').indexOf('engine_failed:') !== 0 &&
-        Number(row.turnNo) === 2 && assessmentSeeds[assessmentIdentity(row)];
+        Number(row.turnNo) === 2 && assessmentSeeds[assessmentIdentity(row)] &&
+        !isLitePureSocialSmalltalk_(row.text) && !conversationRows.some(function (bot) {
+          return String(bot.sessionId) === String(row.sessionId) &&
+            String(bot.requestId) === String(row.requestId) &&
+            String(bot.speaker) === 'bot' && String(bot.questionType || '') === 'smalltalk';
+        });
     }).forEach(function (row) {
       const key = assessmentIdentity(row);
       if (!Object.prototype.hasOwnProperty.call(assessmentResponses, key)) {
