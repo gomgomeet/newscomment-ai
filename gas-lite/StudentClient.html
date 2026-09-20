@@ -21,7 +21,7 @@
       'definition-button','research-button','evidence-button','revise-button','why-button','content-button',
       'close-button','quick-actions','exit-session-button','retry-bootstrap-button','retry-turn-button',
       'required-assessment-notice','required-assessment-status','retry-required-assessment',
-      'understanding-notice','understanding-guidance','start-assessment-button'
+      'understanding-notice','understanding-guidance','assessment-start-dock','start-assessment-button'
     ].forEach(function (id) { elements[toCamel(id)] = document.getElementById(id); });
     elements.mobileTabs = Array.from(document.querySelectorAll('.mobile-tab'));
 
@@ -650,13 +650,14 @@
     if (elements.understandingGuidance) elements.understandingGuidance.textContent = state.canStartAssessment
       ? '더 궁금한 점을 물어봐도 좋아요. 준비가 되면 평가를 시작하세요.'
       : '제목을 보고 내용을 짐작하고, 글에서 궁금한 점을 질문해 주세요.';
+    if (elements.assessmentStartDock) elements.assessmentStartDock.hidden = !understanding;
     if (elements.startAssessmentButton) elements.startAssessmentButton.disabled = !canBeginAssessment();
-    if (elements.quickActions) elements.quickActions.hidden = !exploration && !understanding;
+    if (elements.quickActions) elements.quickActions.hidden = !exploration;
     [elements.researchButton,elements.evidenceButton,elements.reviseButton].forEach(function (button) {
       if (button) button.hidden = !exploration;
     });
     [elements.whyButton,elements.contentButton].forEach(function (button) {
-      if (button) button.hidden = !understanding;
+      if (button) button.hidden = true;
     });
     if (elements.activityModeLabel && state.ready && state.learningStage) {
       elements.activityModeLabel.textContent = understanding ? '글 이해하기'
