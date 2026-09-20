@@ -171,6 +171,61 @@ test('incident: simultaneous methods require a cautious causal answer', () => {
   assert.match(result.studentReply, /확실히 말할 수는 없/);
 });
 
+const lionRescue = {
+  id: 'lion-rescue-causal-chain',
+  title: '사자 바람이의 새 보금자리',
+  text: [
+    '바람이는 좁은 실내동물원에서 오랫동안 살았다.',
+    '바람이는 갈비뼈가 드러날 만큼 말랐고 시민들이 그 모습을 알렸다.',
+    '청주동물원은 바람이를 데려오겠다고 먼저 제안했다.',
+    '바람이는 청주동물원의 넓은 야생동물보호시설에서 지내게 되었다.',
+    '청주동물원에는 코끼리와 기린이 없다. 이 동물들은 우리나라 기후에 적응하기 어렵기 때문이다.',
+  ].join(' '),
+};
+
+test('inference can connect an earlier condition to a later rescue without borrowing an unrelated reason', () => {
+  const input = inputFor('바람이가 청주동물원에 온 이유는 뭐야?', lionRescue);
+  const plan = createLiteEnginePlan(input);
+  assert.equal(plan.observation.questionType, 'inference');
+  assert.equal(plan.skipModel, false);
+  assert.match(plan.observation.sourceCue, /갈비뼈가 드러날 만큼 말랐고/);
+  assert.match(plan.observation.sourceCue, /청주동물원은 바람이를 데려오겠다고 먼저 제안/);
+  assert.match(plan.modelRequest.instructions, /원래 순서대로|상태, 행동, 결과/);
+  const answer = '바람이가 좁은 곳에서 지내다 몹시 마른 모습이 알려지자 청주동물원이 먼저 데려오겠다고 제안했어요. 더 나은 환경에서 보호하려는 취지로 볼 수 있지만, 글이 그 동기를 직접 밝힌 것은 아니에요.';
+  const evidence = '바람이는 갈비뼈가 드러날 만큼 말랐고 시민들이 그 모습을 알렸다.';
+  const result = finalize(input, plan, answer, evidence);
+  assert.equal(result.localFallback, false, 'the answer may synthesize selected sentences beyond its one verbatim anchor');
+  assert.equal(result.observation.sourceStatus, 'reasonable_inference');
+  assert.deepEqual(result.observation.evidenceIds, []);
+  assert.ok(result.studentReply.startsWith(answer));
+  assert.doesNotMatch(result.studentReply, /코끼리|기린|기후/);
+
+  const denial = finalize(input, plan, '글에는 바람이가 옮겨 온 이유가 나오지 않아요.', evidence);
+  assert.equal(denial.localFallback, true, 'a blanket no-reason answer must not override the selected event chain');
+});
+
+test('reflection and application may use a source fact without demanding one exact student opinion', () => {
+  for (const [question, type, answer, evidence] of [
+    ['내 생각을 돌아보면 음식 낭비를 줄이기 위해 무엇을 바꿀 수 있을까?', 'reflection',
+      '음식 낭비를 줄이는 일이 학교와 지구를 함께 지키는 실천인지 생각해 볼 수 있어요. 우리 학교에서 어떤 변화가 생길지는 직접 살펴봐야 해요.',
+      cafeteriaSentences.dessert],
+    ['우리 학교에도 이 방법을 적용하려면 어떻게 하면 좋을까?', 'application',
+      '우리 학교에서도 먹을 양을 스스로 고르게 해 볼 수 있어요. 실제로 잔반이 줄지는 확인해 봐야 해요.',
+      cafeteriaSentences.methods],
+  ]) {
+    const input = inputFor(question);
+    const plan = createLiteEnginePlan(input);
+    assert.equal(plan.observation.questionType, type);
+    assert.equal(plan.skipModel, false, `${type} should be answerable from relevant selected facts`);
+    assert.match(plan.modelRequest.instructions, /하나의 정답이나 정확한 인용문을 요구하지 마세요/);
+    assert.ok(plan.observation.sourceCue.includes(evidence), `${type}: ${plan.observation.sourceCue}`);
+    const result = finalize(input, plan, answer, evidence);
+    assert.equal(result.localFallback, false);
+    assert.equal(result.observation.sourceStatus, plan.observation.sourceStatus);
+    assert.ok(result.studentReply.startsWith(answer));
+  }
+});
+
 test('independent passage: decimal quantity keeps its unit and final value', () => {
   assertDirectAnswer(
     inputFor('위층 교실의 평균 온도는 최종적으로 몇 도였나요?', rooftop),

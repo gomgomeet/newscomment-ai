@@ -1608,9 +1608,13 @@ export function scoreSourceSentence(
   const terms = Array.from(new Set((question.match(/[가-힣A-Za-z0-9]+/g) || [])
     .map(normalizeSearchToken)
     .filter((term) => term.length >= 2 && !questionSearchStopwords.has(term))));
+  const asksForReason = /(?:왜|이유|까닭|원인|사정|경위)/.test(compactQuestion);
   const topicScore = terms.reduce((total, term) => total + (
     compactSentence.includes(term)
-      ? prioritizeQuestionIntent && questionIntentTerms.has(term) ? 10 : Math.min(term.length, 6)
+      // "이유"는 질문의 요구이지 사건의 주제가 아니다. 이 낱말만으로
+      // 다른 사건의 이유 문장이 바람이의 이동보다 앞서면 안 된다.
+      ? asksForReason && /^(이유|까닭|원인)$/.test(term) ? 0
+        : prioritizeQuestionIntent && questionIntentTerms.has(term) ? 10 : Math.min(term.length, 6)
       : 0
   ), 0);
   let score = topicScore;
@@ -1658,6 +1662,127 @@ export function scoreSourceSentence(
   return score;
 }
 
+function questionSubjectAnchor(question: string) {
+  const subject = /([가-힣A-Za-z0-9·]+?)(?:들은|들이|께서|은|는|이|가)\s/.exec(question)?.[1] || "";
+  return normalizeSearchToken(subject);
+}
+
+function asksForEventCause(question: string) {
+  const compact = question.replace(/\s+/g, "");
+  return /(왜|이유|까닭|원인|사정|경위)/.test(compact) &&
+    !/(뜻|의미|낱말|단어|용어)/.test(compact);
+}
+
+function isMovementQuestion(question: string) {
+  return /(옮겨|옮긴|옮겼|오게|온\s*이유|왔|떠나|데려|이동|지내게|살게)/.test(question);
+}
+
+function eventParticipantAnchor(question: string) {
+  if (isMovementQuestion(question)) {
+    const moved = /([가-힣A-Za-z0-9·]+?)(?:을|를)\s*(?:데려|옮겨|구조|받아)/.exec(question)?.[1];
+    if (moved) return normalizeSearchToken(moved);
+  }
+  return questionSubjectAnchor(question);
+}
+
+function sourceEventBundle(
+  segments: Array<{ paragraphIndex: number; sentenceIndex: number; text: string }>,
+  scored: Array<{ index: number; score: number }>,
+  bestIndex: number,
+  question: string,
+) {
+  const actor = eventParticipantAnchor(question);
+  const actorIn = (text: string) => actor.length >= 2 && text.replace(/\s+/g, "").includes(actor);
+  const movement = isMovementQuestion(question);
+  const eventPattern = movement
+    ? /(옮겨|옮겼|데려|제안|구조|보호시설|이동|오게|왔|받아들)/
+    : /(제안|결정|시작|중단|바꾸|늘리|줄이|반대|찬성|요구|조치|결과)/;
+  const nearby = scored.filter(({ index, score }) =>
+    Math.abs(index - bestIndex) <= 6 && score > 0 &&
+    (actorIn(segments[index].text) ||
+      (Math.abs(index - bestIndex) <= 1 && eventPattern.test(segments[index].text))));
+  const decisive = nearby
+    .filter(({ index }) => actorIn(segments[index].text) && eventPattern.test(segments[index].text))
+    .sort((left, right) =>
+      (/제안|결정|구조|요구/.test(segments[right.index].text) ? 5 : 0) + right.score -
+      ((/제안|결정|구조|요구/.test(segments[left.index].text) ? 5 : 0) + left.score))[0];
+  const anchor = decisive?.index ?? bestIndex;
+  const candidates = scored.filter(({ index, score }) =>
+    Math.abs(index - anchor) <= 6 && score > 0 &&
+    (index === anchor || actorIn(segments[index].text) ||
+      (Math.abs(index - anchor) <= 1 && eventPattern.test(segments[index].text))));
+  const selected = new Set<number>([anchor]);
+  let length = segments[anchor].text.length;
+  for (const candidate of candidates.sort((left, right) =>
+    Math.abs(left.index - anchor) - Math.abs(right.index - anchor) || right.score - left.score)) {
+    if (selected.size >= 5) break;
+    const nextLength = segments[candidate.index].text.length + 1;
+    if (candidate.index !== anchor && length + nextLength <= 500) {
+      selected.add(candidate.index);
+      length += nextLength;
+    }
+  }
+  return [...selected].sort((left, right) => left - right)
+    .map((index) => segments[index].text).join(" ");
+}
+
+function sourceInterpretiveBundle(
+  segments: Array<{ paragraphIndex: number; sentenceIndex: number; text: string }>,
+  scored: Array<{ index: number; score: number }>,
+  bestIndex: number,
+  question: string,
+) {
+  const terms = Array.from(new Set((question.match(/[가-힣A-Za-z0-9]+/g) || [])
+    .map(normalizeSearchToken)
+    .filter((term) => term.length >= 2 && !questionSearchStopwords.has(term) &&
+      !questionIntentTerms.has(term) &&
+      !/^(우리|학교|자신|생각|느낌|적용|성찰|사례|방법|상황|수업|체험|한다면|살펴)$/.test(term))));
+  const subject = questionSubjectAnchor(question);
+  const subjectMatches = subject && !/^(우리|학생|사람|동물|동물원|학교|자신|생각)$/.test(subject)
+    ? scored.filter(({ index, score }) => score > 0 &&
+      segments[index].text.toLowerCase().replace(/\s+/g, "").includes(subject))
+      .sort((left, right) => right.score - left.score)
+    : [];
+  const namedSubject = subjectMatches.length ? subject : "";
+  const subjectAnchor = subjectMatches[0];
+  const anchorIndex = subjectAnchor?.index ?? bestIndex;
+  const anchorText = segments[anchorIndex].text.toLowerCase().replace(/\s+/g, "");
+  // Keep all selected passages on the same subject. A shared broad word such
+  // as "동물" must not merge one animal's story with another's intervention.
+  const focus = namedSubject || terms.filter((term) => anchorText.includes(term))
+    .sort((left, right) => {
+      const count = (term: string) => segments.filter((segment) =>
+        segment.text.toLowerCase().replace(/\s+/g, "").includes(term)).length;
+      return count(left) - count(right) || right.length - left.length;
+    })[0] || "";
+  const selected = new Set<number>([anchorIndex]);
+  let length = segments[anchorIndex].text.length;
+  const actionOrOutcome = /(제안|구조|보호|조성|바꾸|넓히|줄이|늘리|옮기|쉬|회복|돌려보|배우|금지|실천|결과|변화)/;
+  const focusedIndices = focus ? scored.filter(({ index, score }) => score > 0 &&
+    segments[index].text.toLowerCase().replace(/\s+/g, "").includes(focus))
+    .map(({ index }) => index) : [];
+  const candidates = scored.filter(({ index, score }) => index !== anchorIndex && score > 0 &&
+    (!focus || segments[index].text.toLowerCase().replace(/\s+/g, "").includes(focus) ||
+      (terms.some((term) => segments[index].text.toLowerCase().replace(/\s+/g, "").includes(term)) &&
+        ((!namedSubject && Math.abs(index - anchorIndex) <= 4) ||
+          (actionOrOutcome.test(segments[index].text) &&
+            focusedIndices.some((focusedIndex) => Math.abs(index - focusedIndex) === 1))))));
+  candidates.sort((left, right) =>
+    (actionOrOutcome.test(segments[right.index].text) ? 4 : 0) + right.score -
+    ((actionOrOutcome.test(segments[left.index].text) ? 4 : 0) + left.score) ||
+    left.index - right.index);
+  for (const { index } of candidates) {
+    if (selected.size >= 4) break;
+    const nextLength = segments[index].text.length + 1;
+    if (length + nextLength <= 500) {
+      selected.add(index);
+      length += nextLength;
+    }
+  }
+  return [...selected].sort((left, right) => left - right)
+    .map((index) => segments[index].text).join(" ");
+}
+
 function asksForCausalCertainty(question: string) {
   const compact = question.replace(/\s+/g, "");
   return asksRatherThanStates(question) &&
@@ -1665,7 +1790,12 @@ function asksForCausalCertainty(question: string) {
     /(때문|덕분|원인|영향|효과|줄.*줄|늘.*늘)/.test(compact);
 }
 
-function findRelevantSourceExcerpt(question: string, material: MaterialAnalysis, prioritizeQuestionIntent: boolean) {
+function findRelevantSourceExcerpt(
+  question: string,
+  material: MaterialAnalysis,
+  prioritizeQuestionIntent: boolean,
+  questionType?: QuestionType,
+) {
   const visibleText = material.visibleText.trim();
   const summary = material.summary.trim();
   const isReferenceOnly = visibleText === REFERENCE_ONLY_QUESTION_MATERIAL_TEXT;
@@ -1703,6 +1833,13 @@ function findRelevantSourceExcerpt(question: string, material: MaterialAnalysis,
     return summary.length > 220 ? `${summary.slice(0, 217)}...` : summary;
   }
   const bestSegment = segments[best.index];
+  if (asksForEventCause(question) && !positionQuestionActor(question) &&
+      !asksForCausalCertainty(question) && eventParticipantAnchor(question)) {
+    return sourceEventBundle(segments, scored, best.index, question);
+  }
+  if (questionType === "reflection" || questionType === "application") {
+    return sourceInterpretiveBundle(segments, scored, best.index, question);
+  }
   const nextSegment = segments[best.index + 1];
   let combined =
     nextSegment &&
@@ -2875,6 +3012,26 @@ function withoutLeadingConnector(value: string) {
   return value.replace(/^(다만|하지만|그러나|반면)\s*/g, "").trim();
 }
 
+function sourceSentencesForReply(value: string) {
+  return (stripMarkdownNoise(value).replace(/(\d)\.(\d)/g, "$1<decimal>$2")
+    .match(/[^.!?。！？]+[.!?。！？]?/g) || [])
+    .map((sentence) => sentence.replace(/<decimal>/g, ".").trim())
+    .filter((sentence) => sentence.length >= 8);
+}
+
+function eventCauseReply(sourceCue: string, studentTurn: string) {
+  const sentences = sourceSentencesForReply(sourceCue);
+  if (sentences.length < 2 || !asksForEventCause(studentTurn) || !isMovementQuestion(studentTurn)) return "";
+  const actionIndex = sentences.findIndex((sentence) => /(제안|결정|구조|데려오|받아들)/.test(sentence));
+  if (actionIndex < 0) return "";
+  const prior = sentences.slice(0, actionIndex)
+    .filter((sentence) => /(좁|말랐|아팠|다쳤|위험|힘들|어려|알려|보호|문제|피해|잃)/.test(sentence))
+    .slice(-2);
+  if (!prior.length) return "";
+  // 사실 문장들을 먼저 말하고, 문장 사이의 인과는 해석임을 분명히 한다.
+  return `${[...prior, sentences[actionIndex]].join(" ")} 이 앞뒤 사정을 연결하면 그렇게 옮겨 온 까닭을 알 수 있어요.`;
+}
+
 function createGeneralNaturalTurn({
   studentTurn,
   material,
@@ -2899,6 +3056,24 @@ function createGeneralNaturalTurn({
     pickedCue ||
     quoteSourceSentence(firstSourceSentence(stripMarkdownNoise(material.summary), 165)) ||
     "자료에서 이 질문과 바로 이어지는 문장은 찾지 못했어요.";
+
+  // 질문에 등장한 인물과 기부 사건을 모두 뒷받침하는 자료가 없으면, 같은
+  // 기사에 있는 다른 동물의 기부금을 이 인물에게 잘못 붙이지 않는다.
+  if (/(기부|후원|모금)/.test(compactTurn)) {
+    const actor = questionSubjectAnchor(studentTurn);
+    const matchingDonation = sourceSentencesForReply(source).some((sentence) =>
+      /(기부|후원|모금)/.test(sentence) && (!actor || sentence.includes(actor)));
+    if (!matchingDonation) {
+      return {
+        reply: "자료에는 질문한 인물의 기부자나 기부 금액이 나오지 않아요.",
+        primaryMove: "clarify",
+        engagementState: "seeking_evidence",
+        curriculumRelation: "direct",
+        sourceStatus: "source_insufficient",
+        supportLevel: 1,
+      };
+    }
+  }
 
   // 인사는 인사로 받는다. "안녕하세요"를 "라고 짚었군요"로 받으면 첫마디부터 이상하다.
   if (/^(안녕하세요|안녕하십니까|안녕|하이|헬로|방가|반가워요?|반갑습니다)[!~.?\s]*$/.test(studentTurn.trim())) {
@@ -3284,8 +3459,20 @@ function createGeneralNaturalTurn({
   }
 
   if (questionType === "inference") {
+    const reasonReply = eventCauseReply(sourceCue, studentTurn);
+    if (asksForEventCause(studentTurn) && isMovementQuestion(studentTurn) && !reasonReply &&
+        !/(때문|덕분|위해|하려고|(?:아|어|여)서|므로|원인)/.test(sourceCue)) {
+      return {
+        reply: "자료에는 그곳으로 옮겨 온 사실은 나오지만, 옮겨 온 이유는 나오지 않아요.",
+        primaryMove: "clarify",
+        engagementState: "seeking_evidence",
+        curriculumRelation: "direct",
+        sourceStatus: "source_insufficient",
+        supportLevel: 1,
+      };
+    }
     return {
-      reply: cue,
+      reply: reasonReply || cue,
       primaryMove: "compare_possibilities",
       engagementState: "exploring_possibilities",
       curriculumRelation: "direct",
@@ -3295,6 +3482,21 @@ function createGeneralNaturalTurn({
   }
 
   if (questionType === "application") {
+    if (studentAsks && /(동물|사자|보호시설|체험)/.test(studentTurn) &&
+        /(동물|사자|보호시설)/.test(source)) {
+      const animalCue = sourceSentencesForReply(sourceCue)
+        .find((sentence) => /(쉬|시선|거리|관찰|보호)/.test(sentence) && /(동물|사자|바람)/.test(sentence));
+      if (animalCue) {
+        return {
+          reply: `${quoteSourceSentence(animalCue)} 우리 학교에서도 동물이 쉴 시간과 거리를 보장하고, 억지로 만지기보다 조용히 관찰하는 방법을 정할 수 있어요.`,
+          primaryMove: "follow_student_lead",
+          engagementState: "personally_connecting",
+          curriculumRelation: "productive_extension",
+          sourceStatus: "reasonable_inference",
+          supportLevel: 1,
+        };
+      }
+    }
     return {
       // "우리가 뭘 할 수 있어요?"는 생각이 아니라 물음이다. 자료 속 실천 사례를 보여 준다.
       reply: studentAsks
@@ -3311,6 +3513,22 @@ function createGeneralNaturalTurn({
   }
 
   if (questionType === "reflection") {
+    if (studentAsks) {
+      const actor = questionSubjectAnchor(studentTurn) ||
+        normalizeSearchToken(studentTurn.match(/[가-힣A-Za-z0-9·]{2,}/)?.[0] || "");
+      const reflectionCue = sourceSentencesForReply(sourceCue)
+        .find((sentence) => (!actor || sentence.includes(actor)) &&
+          /(좁|말랐|어려|문제|보호|변화|달라|쉬|도움)/.test(sentence)) ||
+        bestSourceSentence(sourceCue, studentTurn, 165);
+      return {
+        reply: `${quoteSourceSentence(reflectionCue)} 이 장면을 바탕으로 처음에는 무엇을 중요하게 생각했는지, 지금은 어떤 점을 더 살펴보게 되었는지 자신의 말로 돌아볼 수 있어요. 생각이 꼭 바뀌어야 하는 것은 아니에요.`,
+        primaryMove: "follow_student_lead",
+        engagementState: "revising_thought",
+        curriculumRelation: "direct",
+        sourceStatus: reflectionCue ? "reasonable_inference" : "source_insufficient",
+        supportLevel: 1,
+      };
+    }
     return {
       reply: `“${studentIdea}”라고 생각이 달라진 데에는 자료를 다시 본 근거가 있네요. 지금처럼 처음 판단과 새로 발견한 조건을 함께 남기면 생각의 변화가 잘 보여요.`,
       primaryMove: "receive",
@@ -3325,10 +3543,11 @@ function createGeneralNaturalTurn({
   // 학생이 자기 생각을 말한 게 아니라 물어본 것이라면 되받아 읊지 않는다.
   // "설명해 주세요"를 "라고 짚었군요"로 받으면 묻는 사람을 무안하게 만든다.
   if (studentAsks) {
+    const reasonReply = eventCauseReply(sourceCue, studentTurn);
     return {
       // 자료에 있는 답을 물었으면 관련 근거를 먼저 제공한다. 일반적인 한계 문구나
       // 되묻기는 붙이지 않고 대화 단계에 필요한 질문은 공통 상태기가 관리한다.
-      reply: cue,
+      reply: reasonReply || cue,
       primaryMove: "clarify",
       engagementState: "curious",
       curriculumRelation: "direct",
@@ -3814,7 +4033,7 @@ export function createLocalQuestionResult({
   const compactTurn = turn.replace(/\s+/g, "");
   const requestsHint = isQuestioningHintRequest(turn);
   const sourceSearch = requestsHint ? hintContext(conversation) || turn : turn;
-  const sourceCue = findRelevantSourceExcerpt(sourceSearch, material, /[?？]/.test(sourceSearch));
+  const sourceCue = findRelevantSourceExcerpt(sourceSearch, material, /[?？]/.test(sourceSearch), legacy.questionType);
   const shortSourceCue = requestsHint
     ? bestSourceSentence(sourceCue, sourceSearch, 115)
     : firstSourceSentence(sourceCue, 115);

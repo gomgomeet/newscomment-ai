@@ -215,6 +215,123 @@ test('comparing two parties preserves both positions instead of selecting only o
   }
 });
 
+// Original, short classroom fixture. The elephant/giraffe passage is a same-place
+// "reason" distractor, not an explanation of why Barami moved to the zoo.
+const lionMaterial = [
+  '사자 바람이는 오래도록 좁은 실내 공간에서 살았습니다.',
+  '바람이는 갈비뼈가 드러날 만큼 말랐고, 시민들이 그 모습을 알렸습니다.',
+  '청주동물원은 바람이를 데려오겠다고 먼저 제안했습니다.',
+  '바람이는 청주동물원의 넓은 보호시설로 옮겨 와 쉬고 있습니다.',
+  '보호시설에는 동물이 원할 때 사람들의 시선을 피해 쉴 수 있는 공간도 있습니다.',
+  '청주동물원에 코끼리와 기린 같은 인기 많은 대형 외래종이 없는 이유는 전시만을 위해 들여오지 않기 때문입니다.',
+].join(' ');
+
+test('a why question joins the lion condition, public attention, and zoo proposal instead of a same-place reason distractor', () => {
+  const result = ask(lionMaterial, '바람이가 청주동물원에 온 이유는 뭐야?');
+  assert.equal(result.questionType, 'inference');
+  assert.equal(result.sourceStatus, 'reasonable_inference');
+  assert.match(result.sourceCue, /갈비뼈가 드러날 만큼 말랐/);
+  assert.match(result.sourceCue, /시민들이 그 모습을 알렸/);
+  assert.match(result.sourceCue, /데려오겠다고 먼저 제안/);
+  assert.match(result.studentReply, /말랐|좁은/);
+  assert.match(result.studentReply, /알렸|제안/);
+  assert.doesNotMatch(`${result.sourceCue} ${result.studentReply}`, /코끼리|기린|대형 외래종/);
+  if (/보호하려|더 나은 환경|건강을 위해/.test(result.studentReply)) {
+    assert.match(result.studentReply, /볼 수 있|추론할 수 있|것 같|가능성이 있|듯해/,
+      'the inferred protective intent must not be presented as a directly stated motive');
+  }
+});
+
+test('paraphrased how and why questions retain the same multi-sentence event chain', () => {
+  for (const question of [
+    '바람이는 어떤 사정으로 청주동물원에서 지내게 됐나요?',
+    '바람이가 예전 동물원을 떠나 새 보호시설에 오게 된 까닭은 무엇일까요?',
+  ]) {
+    const result = ask(lionMaterial, question);
+    assert.match(result.sourceCue, /갈비뼈가 드러날 만큼 말랐|좁은 실내 공간/);
+    assert.match(result.sourceCue, /데려오겠다고 먼저 제안/);
+    assert.match(result.studentReply, /제안|데려오/);
+    assert.doesNotMatch(`${result.sourceCue} ${result.studentReply}`, /코끼리|기린|대형 외래종/);
+  }
+});
+
+test('reversed actor wording still follows the moved animal across paragraphs', () => {
+  const article = [
+    '바람이는 청주동물원으로 보금자리를 옮겼습니다.',
+    '그전에는 김해의 좁은 실내동물원에서 오래 살았습니다.',
+    '바람이에게는 바람이 통하지 않는 좁은 방만 주어졌습니다.',
+    '관람객은 유리창 너머에서 사자를 바라봤습니다.',
+    '바람이는 갈비뼈가 드러날 만큼 말랐고 시민들에게 알려졌습니다.',
+    '청주동물원은 바람이를 데려오겠다고 먼저 제안했습니다.',
+    '',
+    '현재 바람이는 넓은 보호시설에서 지냅니다.',
+    '청주동물원에 대형 외래종이 없는 이유는 전시만을 위해 들여오지 않기 때문입니다.',
+  ].join('\n');
+  const result = ask(article, '청주동물원은 왜 바람이를 데려왔나요?');
+  assert.match(result.sourceCue, /좁은 방|갈비뼈가 드러날 만큼 말랐/);
+  assert.match(result.sourceCue, /데려오겠다고 먼저 제안/);
+  assert.doesNotMatch(`${result.sourceCue} ${result.studentReply}`, /대형 외래종이 없는 이유/);
+});
+
+test('the classroom article explains Barami through the earlier condition and the later proposal', () => {
+  const article = [
+    '‘바람이’는 지난 7월 5일 충북 청주시 청주랜드동물원으로 보금자리를 옮겼다.',
+    '이전까지는 경남 김해의 한 실내동물원에서 7년을 살았다.',
+    '‘바람이’에게 주어진 건 가로 14m, 세로 6m의 바람 한 점 통하지 않는 좁은 방뿐이었다.',
+    '유리창 너머 관람객에게 그 모습을 보여주는 것이 이 늙은 사자의 존재 이유였다.',
+    '어느새 ‘바람이’는 갈비뼈가 다 드러날 정도로 비쩍 말랐고 그 모습은 몇몇 시민에 의해 세간에 알려지기 시작했다.',
+    '청주동물원은 ‘바람이’를 데려오겠다고 먼저 제안했다.',
+    '',
+    '청주동물원에 코끼리나 기린과 같이 관람객에게 인기 많은 대형 외래종이 없는 이유기도 하다.',
+  ].join('\n');
+  const result = ask(article, '바람이가 청주동물원에 온 이유는 뭐야?');
+  assert.match(result.sourceCue, /갈비뼈가 다 드러날 정도로 비쩍 말랐/);
+  assert.match(result.sourceCue, /몇몇 시민에 의해 세간에 알려지기 시작/);
+  assert.match(result.sourceCue, /데려오겠다고 먼저 제안/);
+  assert.doesNotMatch(`${result.sourceCue} ${result.studentReply}`, /코끼리나 기린/);
+});
+
+test('a move without any reason in the passage does not invent a rescue motive', () => {
+  const result = ask(
+    '바람이는 청주동물원으로 옮겼습니다. 청주동물원에 코끼리가 없는 이유는 우리나라 기후와 관계가 있습니다.',
+    '바람이가 청주동물원에 온 이유는 뭐야?',
+  );
+  assert.equal(result.sourceStatus, 'source_insufficient');
+  assert.match(result.studentReply, /이유|까닭/);
+  assert.doesNotMatch(result.studentReply, /구조|보호하려|좁은 방|코끼리가 없는 이유/);
+});
+
+test('a missing fact stays unknown instead of borrowing the nearest lion-related detail', () => {
+  const result = ask(lionMaterial, '바람이가 청주동물원에 올 때 누가 얼마를 기부했나요?');
+  assert.equal(result.sourceStatus, 'source_insufficient');
+  assert.match(result.studentReply, /자료|글/);
+  assert.match(result.studentReply, /나오지|확인할 수 없|알 수 없|적혀 있지/);
+  assert.doesNotMatch(result.studentReply, /\d+\s*(원|만원)|시민들이 기부|동물원이 기부/);
+});
+
+test('reflection connects the event to a learner viewpoint without demanding one quoted answer', () => {
+  const result = ask(lionMaterial, '바람이 이야기를 읽고 동물원을 바라보는 내 생각을 어떻게 돌아볼 수 있을까요?');
+  assert.equal(result.questionType, 'reflection');
+  assert.match(result.sourceCue, /바람이/);
+  assert.match(result.sourceCue, /갈비뼈|보호시설/);
+  assert.doesNotMatch(result.sourceCue, /코끼리와 기린/);
+  assert.match(result.studentReply, /바람이|동물|보호|쉼/);
+  assert.match(result.studentReply, /좁은|말랐|쉬는 공간|시선|전시/, 'reflection should have a concrete source anchor');
+  assert.match(result.studentReply, /생각|돌아보|관점/);
+  assert.doesNotMatch(result.studentReply, /정확한 구절|그대로 따옴표|정답은 하나|생각이 달라진 데에는 자료를 다시 본 근거가 있네요/);
+});
+
+test('application offers a source-grounded classroom choice without requiring a single source quotation', () => {
+  const result = ask(lionMaterial, '우리 학교에서 동물을 만나는 체험을 한다면 바람이 사례를 생각해 어떤 방법을 정할 수 있을까요?');
+  assert.equal(result.questionType, 'application');
+  assert.match(result.sourceCue, /바람이/);
+  assert.match(result.sourceCue, /사람들의 시선을 피해 쉴 수 있는 공간/);
+  assert.doesNotMatch(result.sourceCue, /코끼리와 기린/);
+  assert.match(result.studentReply, /동물|바람이|보호시설/);
+  assert.match(result.studentReply, /쉬|시선|거리|조용|관찰|보호/);
+  assert.doesNotMatch(result.studentReply, /정확한 구절|그대로 따옴표|정답은 하나|자료 속 사람들이 한 방법이에요/);
+});
+
 test('existing development and holdout dialogue expectations survive the shared-core change', () => {
   // Reuse only the existing runner's pure expectation checks. Its HTTP client and
   // file-writing main function are deliberately not evaluated or invoked.

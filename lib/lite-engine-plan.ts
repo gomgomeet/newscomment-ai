@@ -32,7 +32,7 @@ import {
 } from "@/lib/questioning-conversation-phase";
 
 export const LITE_ENGINE_SCHEMA_VERSION = 1;
-export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v14";
+export const LITE_ENGINE_POLICY_VERSION = "questioning-dialogue-v2-lite-adapter-v15";
 
 type LiteOutputContract = "lead_evidence_quote_v1" | "grounded_answer_v2";
 
@@ -624,7 +624,7 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
     ? "grounded_answer_v2" : "lead_evidence_quote_v1";
   const groundedInference = outputContract === "grounded_answer_v2" &&
     observation.sourceStatus === "reasonable_inference" &&
-    (observation.questionType === "inference" || observation.primaryMove === "compare_possibilities") &&
+    (isInterpretiveSourceQuestion(observation) || observation.primaryMove === "compare_possibilities") &&
     !sourceCannotSupportAnswer;
   const skipModel = Boolean(
     assessment || initialAnswerReply || planned.safetyFlag || planned.isClosing || planned.primaryMove === "repair" ||
@@ -667,9 +667,11 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
           "몇/얼마 질문은 자료에 있는 해당 수치와 단위를 원문 표기 그대로 먼저 답합니다. 왜/어떻게 질문은 자료에 나온 행동과 결과의 연결을 설명합니다.",
           "사람이나 집단의 찬반·주장 이유를 물으면 그 당사자가 밝힌 요구·우려·목적을 근거로 답하세요. 다른 당사자의 의견을 바꾸어 붙이거나 말하지 않은 위험을 추측하지 마세요.",
           "제공된 관련 자료는 전체 지문의 발췌입니다. 이 부분만으로 확인하기 어려우면 제공된 근거에서 확인하기 어렵다고 범위를 밝혀 말하고, 전체 자료에 이유나 설명이 없다고 단정하지 마세요.",
-          "추론은 자료가 뒷받침하는 가능성만 말합니다. 함께 시행한 여러 방법 중 하나만 원인이라고 단정하지 않습니다.",
+          "관련 자료 근거에는 원문에서 고른 여러 문장이 원래 순서대로 들어갈 수 있습니다. 서로 떨어진 문장이라도 같은 사람·사건의 상태, 행동, 결과를 연결해 학생의 질문에 답하세요. 낱말이 겹친다는 이유만으로 다른 사건의 이유를 가져오지 마세요.",
+          "추론은 글에 직접 적힌 사실과 그 사실들을 연결한 해석을 구분하고, 자료가 뒷받침하는 가능성만 말합니다. 함께 시행한 여러 방법 중 하나만 원인이라고 단정하거나 인물의 숨은 동기를 지어내지 마세요.",
+          "성찰·적용 질문은 하나의 정답이나 정확한 인용문을 요구하지 마세요. 글의 구체적인 사실을 출발점으로 학생의 관점이나 새로운 상황에서 가능한 생각·행동 한 가지를 제시하고, 자료에 없는 결과는 사실처럼 단정하지 마세요.",
           "자료로 확인되는 건 여기까지, 더 알고 싶은 것은 등의 고정 안내나 불필요한 되묻기는 쓰지 마세요.",
-          "answer에는 직접적인 답을, evidenceQuote에는 그 답을 뒷받침하는 관련 자료의 연속된 원문을 넣으세요.",
+          "answer에는 직접적인 답을, evidenceQuote에는 그 답을 뒷받침하는 관련 자료의 연속된 원문 한 부분을 넣으세요. 여러 문장을 종합해도 evidenceQuote에 서로 떨어진 문장을 이어 붙이지 마세요.",
         ] : ["학생에게 보일 짧은 연결 문구 하나를 고르고, 답의 근거가 되는 문장을 관련 자료에서 글자 그대로 인용하세요."]),
         "근거 문장은 새로 쓰거나 바꾸지 말고, 관련 자료에 연속해서 있는 문장 일부만 사용하세요.",
         modeRule,
@@ -723,6 +725,11 @@ const LITE_ALLOWED_LEADS = [
 
 function normalizeLiteQuote(value: string) {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function isInterpretiveSourceQuestion(observation: LiteEngineObservation) {
+  return observation.questionType === "inference" || observation.questionType === "reflection" ||
+    observation.questionType === "application";
 }
 
 function sourceSentences(text: string) {
@@ -793,7 +800,13 @@ function supportedLiteEvidenceQuote(
     sentence, score: scoreSourceSentence(sentence, input.studentMessage),
   }));
   const bestScore = Math.max(0, ...ranked.map((item) => item.score));
-  const matchingSentences = ranked.filter((item) => (bestScore === 0 || item.score === bestScore) &&
+  const interpretive = plan.modelRequest.outputContract === "grounded_answer_v2" &&
+    isInterpretiveSourceQuestion(plan.observation);
+  // A causal chain may need an earlier state or a later result, not only the
+  // sentence with the highest question-word overlap. The selected bundle is
+  // still the boundary: the quote must occur verbatim in both bundle and text.
+  const matchingSentences = ranked.filter((item) =>
+    (bestScore === 0 || item.score === bestScore || (interpretive && item.score > 0)) &&
     (item.sentence.includes(quote) || quote.includes(item.sentence)));
   if (bestScore > 0 && !matchingSentences.length) return "";
   // Substrings are not complete quantities: "2통" is not evidence from "12통",
@@ -820,19 +833,33 @@ function candidateNeedsSafeFallback(
     // This is a conservative lexical guard, not a proof of entailment. The
     // provider is also instructed to paraphrase only the verified excerpt.
     const terms = candidate.match(/[가-힣A-Za-z]{2,}/g) || [];
+    const answerEvidence = isInterpretiveSourceQuestion(plan.observation)
+      ? plan.observation.sourceCue : evidenceQuote;
     const unit = requestedQuantityUnit(input.studentMessage);
     const numericOverlap = unit && quantitiesIn(candidate).some((claim) => claim.unit === unit &&
       quantitiesIn(evidenceQuote).some((evidence) => evidence.text === claim.text));
-    if (!numericOverlap && !terms.some((term) => evidenceQuote.includes(term.slice(0, Math.min(3, term.length))))) return true;
+    if (!numericOverlap && !terms.some((term) =>
+      answerEvidence.includes(term.slice(0, Math.min(3, term.length))))) return true;
+    // A selected chain of events is not evidence that the whole article lacks
+    // an explanation. Reject the generic no-answer response when the model
+    // was given concrete, relevant source material to reason from.
+    if (isInterpretiveSourceQuestion(plan.observation) &&
+        /(?:자료|글)(?:에는|에서|에).{0,30}(?:이유|근거|설명).{0,20}(?:없|나오지 않|확인할 수 없)/.test(candidate)) return true;
   }
 
   // 학생 발화나 이전 모델 답은 사실 근거로 승격하지 않고 교사 제공 본문만 대조한다.
-  const source = plan.modelRequest.outputContract === "grounded_answer_v2" ? evidenceQuote : input.lesson.materialText;
+  const selectedSource = plan.observation.sourceCue;
+  const source = plan.modelRequest.outputContract === "grounded_answer_v2"
+    ? isInterpretiveSourceQuestion(plan.observation) ? selectedSource : evidenceQuote
+    : input.lesson.materialText;
   const compactSource = source.replace(/\s+/g, "").toLowerCase();
   const numericClaims = candidate.match(/\d+(?:[.,]\d+)*(?:%|퍼센트|명|개|년|월|일|도)?/g) || [];
   if (numericClaims.some((claim) => !source.includes(claim))) return true;
   if (plan.modelRequest.outputContract === "grounded_answer_v2" &&
-      unsupportedQuantityAnswer(candidate, evidenceQuote, input.studentMessage)) return true;
+      unsupportedQuantityAnswer(candidate,
+        isInterpretiveSourceQuestion(plan.observation) && !requestedQuantityUnit(input.studentMessage)
+          ? selectedSource : evidenceQuote,
+        input.studentMessage)) return true;
   // A short quote can omit the before/after wording; check its value against the
   // full verified sentence so quoting only the old amount cannot bypass validation.
   const finalQuantity = finalQuantityInContext(plan.observation.sourceCue, input.studentMessage);
