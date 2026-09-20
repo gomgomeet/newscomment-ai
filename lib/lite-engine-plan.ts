@@ -740,6 +740,7 @@ export function createLiteEnginePlan(value: unknown): LiteEnginePlan {
         ] : outputContract === "grounded_answer_v2" ? [
           "학생의 마지막 질문에 첫 문장부터 직접 답하세요. 인사나 칭찬 없이 쉬운 말로 1~3문장만 씁니다.",
           "몇/얼마 질문은 자료에 있는 해당 수치와 단위를 원문 표기 그대로 먼저 답합니다. 왜/어떻게 질문은 자료에 나온 행동과 결과의 연결을 설명합니다.",
+          "왜/이유 질문의 근거에 앞선 상황과 뒤따른 결정이 함께 나오면 둘을 모두 답에 담으세요. '결정했기 때문에 결정했다'처럼 질문 속 행동을 이유로 되풀이하지 마세요. evidenceQuote에도 앞선 상황과 뒤따른 결정이 이어진 원문을 함께 넣으세요. 다만 글이 밝히지 않은 정확한 동기는 추측하지 마세요.",
           "사람이나 집단의 찬반·주장 이유를 물으면 그 당사자가 밝힌 요구·우려·목적을 근거로 답하세요. 다른 당사자의 의견을 바꾸어 붙이거나 말하지 않은 위험을 추측하지 마세요.",
           "제공된 관련 자료는 전체 지문의 발췌입니다. 이 부분만으로 확인하기 어려우면 제공된 근거에서 확인하기 어렵다고 범위를 밝혀 말하고, 전체 자료에 이유나 설명이 없다고 단정하지 마세요.",
           "추론은 자료가 뒷받침하는 가능성만 말합니다. 함께 시행한 여러 방법 중 하나만 원인이라고 단정하지 않습니다.",
@@ -884,6 +885,40 @@ function supportedLiteEvidenceQuote(
   return quote;
 }
 
+function incompleteCausalContextReply(
+  candidate: string,
+  evidenceQuote: string,
+  input: NormalizedLiteEnginePlanInput,
+  plan: LiteEnginePlan,
+) {
+  if (plan.skipModel || plan.observation.safetyFlag ||
+      plan.modelRequest.outputContract !== "grounded_answer_v2" ||
+      !/(왜|어째서|이유|까닭)/.test(input.studentMessage)) return "";
+  const source = normalizeLiteQuote(plan.observation.sourceCue);
+  if (/(?:[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|(?:01[016789]|0\d{1,2})[-.\s]?\d{3,4}[-.\s]?\d{4}|\b\d{6}[-\s]?\d{7}\b|\bsk-[A-Za-z0-9_-]{16,})/i.test(source)) return "";
+  const sentences = sourceSentences(source);
+  if (sentences.length < 2) return "";
+  const outcome = sentences.at(-1) || "";
+  const background = sentences.slice(0, -1).filter((sentence) =>
+    scoreSourceSentence(sentence, input.studentMessage) > 0);
+  // A single explicit reason can be enough. This guard is for a model that
+  // quoted only the final action, or repeated it as its own cause, despite
+  // receiving relevant preceding context.
+  if (!background.length ||
+      /(?:때문|덕분|탓|위해|원인|이유|까닭|므로|어서|해서|져서)/.test(evidenceQuote)) return "";
+  const quoteHasBackground = background.some((sentence) => evidenceQuote.includes(sentence));
+  if (!quoteHasBackground && !outcome.includes(evidenceQuote)) return "";
+  const backgroundTerms = (background.join(" ").match(/[가-힣A-Za-z]{2,}/g) || [])
+    .filter((term) => term.length >= 3 && !input.studentMessage.includes(term));
+  const answerIncludesBackground = backgroundTerms.some((term) =>
+    candidate.includes(term.slice(0, Math.min(term.length, 3))));
+  if (quoteHasBackground && answerIncludesBackground) return "";
+  // Preserve the source's order without inventing an unspoken motive. Limit
+  // the local rescue reply to the nearest two relevant background sentences.
+  const context = [...background.slice(-2), outcome].join(" ");
+  return `글에서는 먼저 이런 상황을 설명해요. ${context}`;
+}
+
 function candidateNeedsSafeFallback(
   candidate: string,
   input: NormalizedLiteEnginePlanInput,
@@ -973,10 +1008,13 @@ export function finalizeLiteEngineReply(value: unknown): LiteEngineFinalizedResp
   const conversational = plan.modelRequest.outputContract === "conversational_reply_v1";
   const evidenceQuote = candidateEvidenceQuote
     ? supportedLiteEvidenceQuote(candidateEvidenceQuote, input, plan) : "";
+  const causalContextReply = evidenceQuote
+    ? incompleteCausalContextReply(candidateReply, evidenceQuote, input, plan) : "";
   if (plan.skipModel || (!conversational && !evidenceQuote) ||
       (conversational && candidateEvidenceQuote) ||
+      causalContextReply ||
       candidateNeedsSafeFallback(candidateReply, input, plan, evidenceQuote)) {
-    const studentReply = enforceLiteQuestionContract(plan.fallbackReply, plan);
+    const studentReply = enforceLiteQuestionContract(causalContextReply || plan.fallbackReply, plan);
     return {
       schemaVersion: 2,
       requestId: input.requestId,
